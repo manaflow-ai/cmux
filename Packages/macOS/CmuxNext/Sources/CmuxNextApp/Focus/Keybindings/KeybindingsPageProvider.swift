@@ -4,6 +4,9 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextDesign
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The `cmux.keybindings.*` ops of the Keyboard Shortcuts page (R59):
 /// `list` (the binding table with conflicts, `KeybindingReports.list`),
@@ -93,7 +96,8 @@ final class KeybindingsPageProvider: PageProvider {
         guard let settings = services.settings else {
             throw PageError(code: "cmux.keybindings.keymap_failed", message: KeybindingStrings.editingUnsupported)
         }
-        let url: URL? = await withCheckedContinuation { continuation in
+        // A panel that drops its reply chose nothing.
+        let url = try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
             let panel: NSSavePanel
             if export {
                 panel = NSSavePanel()

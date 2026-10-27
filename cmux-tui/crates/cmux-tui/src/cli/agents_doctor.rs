@@ -218,12 +218,12 @@ impl Environment {
     }
 
     fn current() -> Self {
-        let dir =
-            |key: &str| std::env::var_os(key).filter(|value| !value.is_empty()).map(PathBuf::from);
+        let env = super::caller_env::var_os;
+        let dir = |key: &str| env(key).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
             home: dir("HOME"),
-            path: std::env::var_os("PATH"),
-            cwd: std::env::current_dir().ok(),
+            path: env("PATH"),
+            cwd: super::caller_env::current_dir(),
             claude_config_dir: dir("CLAUDE_CONFIG_DIR"),
             codex_home: dir("CODEX_HOME"),
         }
@@ -523,6 +523,7 @@ fn version_of(cli: &Path) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // wakeup-allow: cli-only `cmux agents doctor`'s one bound on an agent's --version; its exit ends the wait first
     if !matches!(child.wait_timeout(VERSION_TIMEOUT), Ok(Some(_))) {
         let _ = child.kill();
         let _ = child.wait();

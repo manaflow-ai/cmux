@@ -50,7 +50,7 @@ final class ViewerRecents {
         self.now = now
         let data = defaults.data(forKey: key)
         let decoded = data.flatMap { try? JSONDecoder().blockingDecode([String: [Entry]].self, from: $0) } ?? [:]
-        entries = Dictionary(uniqueKeysWithValues: Kind.allCases.map { ($0, decoded[$0.rawValue] ?? []) })
+        entries = Dictionary(Kind.allCases.map { ($0, decoded[$0.rawValue] ?? []) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Paths of `kind`, newest first.
@@ -95,7 +95,7 @@ final class ViewerRecents {
     }
 
     private func save() {
-        let encoded = Dictionary(uniqueKeysWithValues: entries.map { ($0.key.rawValue, $0.value) })
+        let encoded = Dictionary(entries.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         if let data = try? JSONEncoder().encode(encoded) { defaults.set(data, forKey: key) }
     }
 }

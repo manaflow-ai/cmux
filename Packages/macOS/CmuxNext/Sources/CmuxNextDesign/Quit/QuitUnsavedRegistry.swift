@@ -1,4 +1,7 @@
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 import os
 public import CmuxNextDesignTokens
@@ -91,9 +94,11 @@ public final class QuitUnsavedRegistry {
         let id = participant.quitParticipantID
         let title = participant.quitTitle
         let timer = DemandTimer(owner: "quit-flush", clock: clock)
-        let result: QuitFlushOutcome.Result = await withCheckedContinuation { continuation in
+        // A save whose answer was dropped (neither the write nor the deadline resumed) counts as timed out.
+        let result: QuitFlushOutcome.Result = (try? await withOnceContinuation {
+            (continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) in
             let once = QuitFlushOnce(continuation)
-            timer.schedule(after: deadline) { @MainActor in once.resume(.timedOut) }
+            timer.scheduleOnMain(after: deadline) { once.resume(.timedOut) }
             Task { @MainActor in
                 do {
                     try await participant.flushForQuit()
@@ -104,7 +109,7 @@ public final class QuitUnsavedRegistry {
                     once.resume(.failed(error.localizedDescription))
                 }
             }
-        }
+        }) ?? .timedOut
         timer.cancel()
         return QuitFlushOutcome(id: id, title: title, result: result)
     }
@@ -130,9 +135,9 @@ public final class QuitUnsavedRegistration {
 /// Resumes a save's continuation once (the save or its deadline, first).
 @MainActor
 final class QuitFlushOnce {
-    private var continuation: CheckedContinuation<QuitFlushOutcome.Result, Never>?
+    private var continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>?
 
-    init(_ continuation: CheckedContinuation<QuitFlushOutcome.Result, Never>) {
+    init(_ continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) {
         self.continuation = continuation
     }
 

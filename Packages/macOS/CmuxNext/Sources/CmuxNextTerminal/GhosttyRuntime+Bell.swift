@@ -36,32 +36,30 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
         self.volume = volume
     }
 
+    /// The bell keys of `config`, a live handle the caller holds for the call.
     init(config: ghostty_config_t) {
         var bits: UInt32 = Features.ghosttyDefault.rawValue
-        _ = Self.get(config, &bits, key: "bell-features")
+        // SAFETY: the caller's live config; bell-features is a uint32 bit set.
+        _ = unsafe GhosttyRuntime.configGet(config, &bits, key: "bell-features")
         var path = ghostty_config_path_s()
-        let hasPath = Self.get(config, &path, key: "bell-audio-path")
-        let audioPath = hasPath ? path.path.map { String(cString: $0) } : nil
+        // SAFETY: the caller's live config; bell-audio-path is a ghostty_config_path_s.
+        let hasPath = unsafe GhosttyRuntime.configGet(config, &path, key: "bell-audio-path")
+        // SAFETY: the path is NUL-terminated and owned by the live config; String(cString:) copies it.
+        let audioPath = unsafe hasPath ? path.path.map { unsafe String(cString: $0) } : nil
         var volume = 0.5
-        _ = Self.get(config, &volume, key: "bell-audio-volume")
+        // SAFETY: the caller's live config; bell-audio-volume is a C double.
+        _ = unsafe GhosttyRuntime.configGet(config, &volume, key: "bell-audio-volume")
         self.init(features: Features(rawValue: bits), audioPath: audioPath?.isEmpty == false ? audioPath : nil,
                   volume: volume)
     }
 
-    /// `ghostty_config_get` for one key, callable off the main actor.
-    private static func get<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
-        withUnsafeMutablePointer(to: &value) { pointer in
-            key.withCString { ghostty_config_get(config, pointer, $0, UInt(key.utf8.count)) }
-        }
-    }
-
     /// The settings of a config made of `text` (Ghostty config lines), for tests.
     init(configText text: String) {
-        guard let config = ghostty_config_new() else { self.init(); return }
-        defer { ghostty_config_free(config) }
-        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
-        ghostty_config_finalize(config)
-        self.init(config: config)
+        // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
+        self = unsafe GhosttyRuntime.withScratchConfig(
+            load: { unsafe GhosttyRuntime.loadConfigLine(text, into: $0, source: "test") },
+            read: { unsafe GhosttyBellSettings(config: $0) }
+        ) ?? GhosttyBellSettings()
     }
 
     /// What one BEL does.
@@ -94,6 +92,7 @@ extension GhosttyRuntime {
     /// The bell keys of the applied config; Ghostty's defaults when none loaded.
     public var bellSettings: GhosttyBellSettings {
         guard let config else { return GhosttyBellSettings() }
-        return GhosttyBellSettings(config: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyBellSettings(config: config)
     }
 }

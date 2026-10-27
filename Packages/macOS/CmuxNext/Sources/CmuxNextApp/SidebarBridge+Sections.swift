@@ -7,6 +7,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Observation
 
 // Sidebar sections (plans/cmux-next/sidebar-sections.md): every window
@@ -80,9 +81,8 @@ extension SidebarBridge {
         let model = model
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
         // The list follows the document's events too: a drop's refusal or no-op, favicons.
-        if let doc = SidebarDocStore.current { rows.followFolds(of: doc); container.sidebarView.docStore = doc }
+        if let doc = SidebarDocStore.current { rows.followFolds(of: doc, on: services.mainWork); container.sidebarView.docStore = doc }
         let registry = services.registry
-        // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         let apps = services.apps.client
         let store = services.machines.local.store
@@ -92,33 +92,35 @@ extension SidebarBridge {
         let chiefMascot = { [weak services] in services?.settings?.snapshot.homeChiefPetMascot }
         let chiefPicture = services.chiefSidebarPicture
         let home = services.home
-        sectionsObservation = Task { [weak self] in
+        // Writes the sidebar's model (its rows draw it): a service observation, `visible` for a script's or a
+        // program's change (an app install, an unread count), sooner for the person's.
+        sectionsObservation = ServiceObservation(.visible, owner: "SidebarBridge.sections", on: services.mainWork) { () -> SectionInputs in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, mascot, picture) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], String?, SidebarFavicon?) in
-                _ = (apps.apps, ChiefSidebar.shared.status)
-                let mascot = chiefMascot()
-                return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), mascot,
-                        chiefPicture.favicon(mascot: mascot))
-            }) {
-                // The window closed: the bridge is gone, stop observing.
-                guard self != nil else { return }
-                // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = layout.withoutChats
-                // Only a layout with the Chief item (off by default) reads its picture.
-                if picture == nil, Self.showsChief(visibleLayout) { chiefPicture.load(mascot: mascot) }
-                let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
-                                          unread: unread, homeUnread: homeUnread,
-                                          app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
-                                          workspace: { workspaces[$0] }, chiefPicture: picture)
-                if model.itemInfo != infos { model.itemInfo = infos }
-                let suppressed = AppPresence(apps.apps).suppressed
-                if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
-            }
+            _ = (apps.apps, ChiefSidebar.shared.status)
+            let mascot = chiefMascot()
+            return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
+                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), mascot,
+                    chiefPicture.favicon(mascot: mascot))
+        } apply: { inputs in
+            let (layout, unread, homeUnread, shortcuts, workspaces, mascot, picture) = inputs
+            // `model.layout` is written with the rows it projects (SidebarBridge.show).
+            let visibleLayout = layout.withoutChats
+            // Only a layout with the Chief item (off by default) reads its picture.
+            if picture == nil, Self.showsChief(visibleLayout) { chiefPicture.load(mascot: mascot) }
+            let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
+                                      unread: unread, homeUnread: homeUnread,
+                                      app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
+                                      workspace: { workspaces[$0] }, chiefPicture: picture)
+            if model.itemInfo != infos { model.itemInfo = infos }
+            let suppressed = AppPresence(apps.apps).suppressed
+            if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
         }
     }
+
+    /// What the sidebar's item presentation is made from: the layout, the unread count, Home's unread
+    /// conversations, the built-ins' shortcuts, the workspace items, the pet character and its picture.
+    typealias SectionInputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], String?, SidebarFavicon?)
 
     /// Whether `layout` has the Chief built-in item, the one item that draws ``ChiefSidebarPicture``.
     static func showsChief(_ layout: SidebarLayoutDocument) -> Bool {

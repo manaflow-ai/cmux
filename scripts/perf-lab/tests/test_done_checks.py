@@ -395,6 +395,21 @@ class Runner(unittest.TestCase):
         _, found = outcomes(evidence=directory, only="13")
         self.assertIn("FeatureSafeModeTests", found[(13, "kill-switch")].reason)
 
+    def test_kill_switch_reads_the_features_list_report(self):
+        """`cmux settings feature-flags --json` prints the app's `features.list` report unchanged
+        (FeatureFlagsReport.json, p12-perf-process-096): the judge reads its rows as they are."""
+        def report(state, source):
+            return {"channel": "nightly", "local_overrides": True, "safe_mode": None, "unknown_names": [],
+                    "features": [{"name": "perfLabKillProbe", "state": state, "enabled": state == "on",
+                                  "source": source, "default": True, "kind": "killSwitch", "process": "app",
+                                  "owner": "Performance Lead", "description": "The kill probe.", "expires": None,
+                                  "sticky": True, "runtime_mutable": False}]}
+        directory = kill_switch_dir()
+        (directory / "off.json").write_text(json.dumps(report("off", "remote")))
+        (directory / "on.json").write_text(json.dumps(report("on", "default")))
+        _, found = outcomes(evidence=directory, only="13")
+        self.assertEqual(found[(13, "kill-switch")].status, dc.PASS, found[(13, "kill-switch")].reason)
+
     def test_exit_code_checks(self):
         code, found = outcomes(codes={"gen-features.py": 1, "env_audit.py": 1}, only="14,16")
         self.assertEqual(code, 1)

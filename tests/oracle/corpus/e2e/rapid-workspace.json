@@ -1,0 +1,80 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "rapid-workspace",
+  "suite": "e2e",
+  "title": "30 Cmd-N at key-repeat speed with a Cmd-Shift-W after every third leave 20 new workspaces, numbered without a gap, in press order, with no refusal (cx-7cit9)",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-rapid-workspace-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "layout", "intents", "overlays", "liveObjects"]},
+      "settleMaxMs": 5000,
+      "note": "the scenario of scripts/cmux-next/rapid-workspace-e2e.py (kept): the workspaces before the burst"
+    },
+    {
+      "id": "burst-1",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": [
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w"
+      ]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "checkpoint": ["before"],
+      "note": "presses 1-15 with their closes. One debug.key request per press, back to back: every press is faster than the create before it, so each Cmd-Shift-W lands on a workspace still being created (the script's 33 ms interval is a floor, not the bug). With no settled checkpoint, burst-2 follows at once: one key step takes at most 32 keys"
+    },
+    {
+      "id": "burst-2",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": [
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w",
+        "cmd+n", "cmd+n", "cmd+n", "cmd+shift+w"
+      ]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/intents/pending", "predicate": "empty", "maxMs": 30000},
+      "settleMaxMs": 30000,
+      "note": "presses 16-30 with their closes. New Tab page workspaces show at once as stand-ins (WorkspaceSpawner.shown) and leave the intent log when the daemon has them, so the wait and the settle end after the last create of the window's lane (WorkspaceLanes)"
+    },
+    {
+      "id": "after-burst",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "layout", "intents", "overlays", "liveObjects"]},
+      "settleMaxMs": 10000
+    }
+  ],
+  "invariants": [
+    "the topology at after-burst lists the workspaces of launched plus 20 new ones, and liveObjects.workspaceModels grew by 20: each Cmd-Shift-W closed exactly the workspace its window showed at the press",
+    "the new workspaces' names are workspace-N with consecutive N (the daemon numbers them in press order)",
+    "intents.totals.refused is the same at launched and after-burst, and overlays at after-burst holds no refusalHud: no 'no workspace <uuid>' refusal",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the sidebar's row order against the daemon's (debug.sidebar_rows): the sidebar facet (p15-oracle-036) has no provider on the base, so the press order is read from the names, not from the rows",
+    "the New Tab page's omnibar suggestions (debug.new_tab state): no facet records them",
+    "a toast that came and went during the burst: a checkpoint sees only the state after it; the refused total covers the refusal HUD",
+    "the script's window captures (debug.window_snapshot); captures are the media tours' job"
+  ]
+}

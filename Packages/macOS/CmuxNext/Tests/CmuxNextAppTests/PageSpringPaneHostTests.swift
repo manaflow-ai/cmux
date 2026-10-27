@@ -62,7 +62,7 @@ import Testing
 
         host.placeAtRest(move, laysOut: true)
         #expect(host.showsRenderMove)
-        #expect(page.allOcclusionRects == [page.bounds], "hidden while the pane shows where it was")
+        #expect(page.childWindowPage.occlusionRects() == [page.bounds], "hidden while the pane shows where it was")
         #expect(page.frame.size == CGSize(width: 300, height: 300), "a move resizes nothing")
 
         // Reduce Motion: the move shows in one frame, and the spring lands in this turn.
@@ -70,7 +70,7 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         host.springToRest(move, spring: Motion.panes.renderSpring(.scroll), inPlane: { _, _ in nil }, landed: {})
         #expect(!host.showsRenderMove)
-        #expect(page.allOcclusionRects != [page.bounds], "shown again where the pane landed")
+        #expect(page.childWindowPage.occlusionRects() != [page.bounds], "shown again where the pane landed")
     }
 
     /// The main thread takes the render spring back (a structural change mid-spring): the page window follows
@@ -82,9 +82,9 @@ import Testing
                                           fromAlpha: 1, toAlpha: 1)
 
         host.placeAtRest(move, laysOut: true)
-        #expect(page.allOcclusionRects == [page.bounds])
+        #expect(page.childWindowPage.occlusionRects() == [page.bounds])
         host.stopRenderMoves()
-        #expect(page.allOcclusionRects != [page.bounds])
+        #expect(page.childWindowPage.occlusionRects() != [page.bounds])
     }
 
     /// Without the feature the host tells its content nothing about render moves.
@@ -96,6 +96,6 @@ import Testing
 
         host.placeAtRest(move, laysOut: true)
         #expect(!page.isOnRenderMove)
-        #expect(page.allOcclusionRects != [page.bounds])
+        #expect(page.childWindowPage.occlusionRects() != [page.bounds])
     }
 }

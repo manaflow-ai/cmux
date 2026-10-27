@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 public extension PageDescriptor {
@@ -9,8 +10,8 @@ public extension PageDescriptor {
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; a Debug dev server adds its own HMR origin, ``PageDevServer``), shows
     /// loopback previews and render cards (AgentPaneRenderFrame) in frames, plays its granted media
-    /// (`media-src 'self'`), and runs only its own script files, no inline script
-    /// (plus WebAssembly compilation, `'wasm-unsafe-eval'`, for Ondine's Mermaid diagrams). The page's
+    /// (`media-src 'self'`), and runs only its own script files and the pages' shared chunks
+    /// (``PageCSP/sharedChunks``), no inline script, plus WebAssembly compilation (`'wasm-unsafe-eval'`) for Ondine. The page's
     /// meta CSP says the same (build-agent-pane-web.sh); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. Its libraries,
     /// media and render frame are generated resources (``AgentPageResources``).
@@ -33,8 +34,8 @@ public nonisolated struct AgentPageOps {
 
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
-        var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay",
+        var methods = Dictionary([
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.keyToPaint", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
             "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
@@ -44,7 +45,7 @@ public nonisolated struct AgentPageOps {
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report",
-        ].map { ($0, $0) })
+        ].map { ($0, $0) }, uniquingKeysWith: { first, _ in first })
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
@@ -85,6 +86,13 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEventsFrozenDelivery: PageFrozenDelivery = .ordered
 
     private let prepare: Prepare
+    /// The app's main-thread scheduler: a new subscriber's catch-up goes to its page as `visible` tasks
+    /// (Chrome posts every UI-thread task on a typed queue, content/browser/scheduler/browser_task_queues.h).
+    private let mainWork: MainWorkScheduler
+    /// The catch-up's owner, interned once (one post per replay batch).
+    private let replayOwner: MainTaskOwner
+    /// Where each chat rested and its unsent chips (the App's, by init); ``AgentPaneChatStores/keepsNothing`` keeps neither.
+    private let chatStores: AgentPaneChatStores
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
     private var transportConnection: Int?
@@ -138,7 +146,14 @@ public final class AgentPageProvider: PageProvider {
     /// Where the handshake's launch marks go (the App's `debug.timings`; tests read their own).
     var launchTimings = AgentPaneLaunchTimings.shared
 
-    public init(prepare: @escaping Prepare) {
+    /// - Parameters:
+    ///   - chatStores: The App's chat stores (``AgentPaneChatStores``); the default keeps nothing (tests, the gallery).
+    ///   - mainWork: The app's main-thread scheduler (``AgentPaneMainThread/mainWork``).
+    ///   - prepare: The model for a request; nil when the pane is closed.
+    public init(chatStores: AgentPaneChatStores = .keepsNothing, mainWork: MainWorkScheduler, prepare: @escaping Prepare) {
+        self.chatStores = chatStores
+        self.mainWork = mainWork
+        replayOwner = mainWork.board.owner("AgentPageProvider.replay")
         self.prepare = prepare
     }
 
@@ -253,10 +268,9 @@ public final class AgentPageProvider: PageProvider {
         pendingEvents[id] = pending
         let replayEvents = self.replay?() ?? []
         pending.events.insert(contentsOf: replayEvents, at: pending.next)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.flushPendingEvents(for: id)
-        }
+        // After the subscription is answered, one batch per task: what the page shows, which no input of the
+        // person's caused (a page that subscribes is loading or reconnecting).
+        mainWork.post(.visible, owner: replayOwner) { [weak self] in self?.flushPendingEvents(for: id) }
         return PageSubscription(frozenDelivery: Self.hostEventsFrozenDelivery) { [weak self] in self?.cancel(id: id) }
     }
 
@@ -286,7 +300,7 @@ public final class AgentPageProvider: PageProvider {
         }
         pending.compactDelivered()
         if pending.next < pending.events.count {
-            Task { @MainActor [weak self] in self?.flushPendingEvents(for: id) }
+            mainWork.post(.visible, owner: replayOwner) { [weak self] in self?.flushPendingEvents(for: id) }
             return
         }
         pendingEvents.removeValue(forKey: id)
@@ -366,7 +380,9 @@ public final class AgentPageProvider: PageProvider {
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
-        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
+        if AgentPaneScrollAnchors.handles(method: method) {
+            return try Self.scrollAnchor(method, params: params, op: op, anchors: chatStores.scrollAnchors)
+        }
         if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
@@ -374,7 +390,9 @@ public final class AgentPageProvider: PageProvider {
             onUiPointerReport(params)
             return .object(["ok": .bool(true)])
         }
-        if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        if method.hasPrefix("chat.draftAttachments") {
+            return try await Self.draftAttachments(method, params: params, op: op, store: chatStores.draftAttachments)
+        }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

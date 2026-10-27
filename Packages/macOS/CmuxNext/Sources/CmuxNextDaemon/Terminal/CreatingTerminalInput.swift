@@ -10,7 +10,7 @@ import CmuxNextCompat
 /// here is answered before the next one goes out. Once the view's attach target is known
 /// (`targetKnown`), the next chunk goes by the attachment (`send {surface}`), which the daemon
 /// writes after the queue: no chunk can pass another.
-public nonisolated final class CreatingTerminalInput: Sendable {
+public nonisolated final class CreatingTerminalInput: CreatingTerminalInputSending {
     /// The host terminal id the creation minted (the id a give-back names).
     public let terminalID: String
     private let connection: DaemonConnection
@@ -23,6 +23,10 @@ public nonisolated final class CreatingTerminalInput: Sendable {
         self.connection = connection
         self.targetKnown = targetKnown
     }
+
+    /// True once input goes by the attachment for good: ``write(_:)`` would return false at once, so the
+    /// caller sends without awaiting it.
+    public var sendsByAttachment: Bool { done.withLock { $0 } }
 
     /// Sends `data` by the terminal id; false when it must go by the attachment instead (the
     /// target is known, or the daemon refused the id: the attach queue keeps it, as before).
@@ -43,4 +47,13 @@ public nonisolated final class CreatingTerminalInput: Sendable {
             return false
         }
     }
+}
+
+/// Sends the input of a terminal still being created by its id (``CreatingTerminalInput``): the seam a
+/// view's input drain awaits, one chunk at a time.
+public nonisolated protocol CreatingTerminalInputSending: Sendable {
+    /// True once input goes by the attachment for good.
+    var sendsByAttachment: Bool { get }
+    /// Sends `data` by the terminal id; false when it must go by the attachment instead.
+    func write(_ data: Data) async -> Bool
 }

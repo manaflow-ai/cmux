@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
@@ -9,7 +10,7 @@ import CmuxNextInput
 ///
 /// The strip is wider than the line and lies across the edge (`SidebarResizeBand`), so the
 /// container mounts it in its superview: inside the container AppKit would clip the outer part
-/// out of hit testing, cursor rects and hover (u2255).
+/// out of hit testing, cursor updates and hover (u2255).
 final class SidebarResizeHandle: NSView {
     enum Phase {
         case began
@@ -22,7 +23,7 @@ final class SidebarResizeHandle: NSView {
     /// frame interval's first event and once more at its frame, to the latest point, as Chromium
     /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
     /// main_thread_event_queue.cc`). Nil: every drag event resizes at once.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
     private(set) var isDragging = false { didSet { updateLine() } }
@@ -66,17 +67,16 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityLabel(Strings.resize)
         setAccessibilityIdentifier("cmux.sidebar.resize")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override func resetCursorRects() {
-        if #available(macOS 15, *) {
-            addCursorRect(bounds, cursor: .columnResize)
-        } else {
-            addCursorRect(bounds, cursor: .resizeLeftRight)
-        }
+    /// The resize cursor, set when the pointer enters (``addCursorUpdateArea(_:)``): no cursor rects
+    /// for the window to rebuild while the sidebar's width follows a drag (p04-input-090).
+    override func cursorUpdate(with event: NSEvent) {
+        if #available(macOS 15, *) { NSCursor.columnResize.set() } else { NSCursor.resizeLeftRight.set() }
     }
 
     override func layout() {
@@ -88,7 +88,7 @@ final class SidebarResizeHandle: NSView {
         CATransaction.commit()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: sets the hairline's layer color and invalidates its layout; nothing measures
         super.viewDidChangeEffectiveAppearance()
         applyLineTheme()
     }
@@ -118,12 +118,12 @@ final class SidebarResizeHandle: NSView {
     func refreshHover() { pointerHover?.refresh() }
 
     /// Hidden with the sidebar under a still pointer: no exit comes.
-    override func viewDidHide() {
+    override func viewDidHide() { // visibility-walk-allow: the hover owner's hit test (PointerHover.refresh): a hidden handle gets no exit
         super.viewDidHide()
         pointerHover?.refresh()
     }
 
-    override func viewDidUnhide() {
+    override func viewDidUnhide() { // visibility-walk-allow: the hover owner's hit test (PointerHover.refresh) under a still pointer
         super.viewDidUnhide()
         pointerHover?.refresh()
     }
@@ -152,6 +152,7 @@ final class SidebarResizeHandle: NSView {
         onDrag?(.began)
     }
 
+    // local-monitor-allow: with pointerFrameDrags the drag is the window's FrameInputCoalescer consumer (frameDrag); off, each event resizes
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
         if let frameDrag {

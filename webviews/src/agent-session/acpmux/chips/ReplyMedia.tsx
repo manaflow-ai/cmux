@@ -289,9 +289,10 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
       dismiss();
       if (element?.muted) element.pause();
     };
-    document.addEventListener("scroll", cancel, true);
-    document.addEventListener("visibilitychange", cancel);
-    window.addEventListener("pagehide", cancel);
+    // Passive: a scroll stops the preview, it is never cancelled.
+    document.addEventListener("scroll", cancel, { capture: true, passive: true });
+    document.addEventListener("visibilitychange", cancel, { passive: true });
+    window.addEventListener("pagehide", cancel, { passive: true });
     return () => {
       if (!startedRef.current) cancel();
       document.removeEventListener("scroll", cancel, true);

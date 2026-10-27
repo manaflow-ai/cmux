@@ -1,5 +1,6 @@
 import Foundation
 
+// memory: consumer via SidebarDocProjectionMemory (its owner `SidebarDocStore` registers the one entry).
 /// The last `SidebarDocStore.projection(live:)` and what it was built over.
 ///
 /// The reducer's view depends on the document (`version`), on which workspaces are live, and on the order of the live
@@ -8,7 +9,7 @@ import Foundation
 /// again) reuses the projection: no reducer view call and no rebuild of every row (sidebar-churn-typing.py).
 nonisolated struct SidebarDocProjectionCache {
     let version: UInt64
-    /// The live list it was built over, as given (`showsPinned` projects over it again).
+    /// The live list it was built over, as given.
     let live: [SidebarDocWorkspaceRef]
     let liveSet: Set<SidebarDocWorkspaceRef>
     /// The live workspaces it does not place, in live order.
@@ -21,6 +22,12 @@ nonisolated struct SidebarDocProjectionCache {
         liveSet = Set(live)
         unplacedOrder = Self.unplaced(live, in: projection)
         self.projection = projection
+    }
+
+    /// The bytes it keeps beyond its projection, whose storage the store's `shown` shares (copy-on-write) after
+    /// every `show`: its three lists of live workspaces.
+    var ownedBytes: Int {
+        (live.count + liveSet.count + unplacedOrder.count) * MemoryLayout<SidebarDocWorkspaceRef>.stride
     }
 
     /// Whether `live` at `version` projects to `projection`: same document, same live set, same order of the

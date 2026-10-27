@@ -5,7 +5,9 @@ saver/thermal guard; procs.py's counters (interrupt and package-idle wakeups apa
 the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the reference browser
 refusal, ratio rows and their noise floor; xbench's Chrome switches); and the shipping measurement mode (launch
 env, Debug refusal under --gate, the five report fields); the role and App Nap audit (task 106: `ps` priorities, D16's
-expected roles, pooled acpmux agents). Runs on any host (libproc loads only to measure)."""
+expected roles, pooled acpmux agents); and bench-typing.py's D8 benches (p14-energy-135: the Chromium composer and
+page-scroll plans, the saver launch, the scroll page and its read path, fixture results into p50/p95 and dropped
+frames, the D8 verdicts). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
@@ -333,7 +335,7 @@ class IdleBudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"wakeups_per_s": 0.4, "threads_max": 30, "main_wakes_per_s": 0}}}}}
         rows = ib.cron_rows(report, {"kinds": {"app": {"wakeups_per_s": 1.0}}})
         self.assertEqual(rows["idle_budget.light.app.wakeups_per_s"],
-                         {"p50": 0.4, "p95": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
+                         {"p50": 0.4, "p95": 0.4, "p99": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.threads_max"]["unit"], "threads")
         self.assertIsNone(rows["idle_budget.light.app.threads_max"]["budget"])
 
@@ -825,7 +827,7 @@ class MeasureOrderTests(unittest.TestCase):
     def test_window_end_reads_sit_outside_every_counter_bracket(self):
         calls = []
         app = FakeApp(calls)
-        instance = type("Instance", (), {"pid": 1})()
+        instance = type("Instance", (), {"pid": 1, "harness": {}})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
                  procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep)
         ib.process_set = lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
@@ -944,7 +946,7 @@ class MeasureOrderTests(unittest.TestCase):
                     (procs, "priorities", lambda _pids: {}), (ib, "acpmux_homes", lambda _env: []),
                     (ib.time, "sleep", lambda _seconds: None), (ib.time, "monotonic", lambda: next(clock))):
                 stack.enter_context(unittest.mock.patch.object(target, name, value))
-            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, attribute=True, d15=d15)
+            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1, "harness": {}})(), 60, attribute=True, d15=d15)
         self.assertEqual(calls, ["nettop start", "prepare", "begin", "end"])
         self.assertEqual(result["coalition"]["wakeups_per_s"], 9.0)
 
@@ -1002,6 +1004,30 @@ TABS_CENSUS = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid":
 TABS_SHOWN = {"engine": "chromium", "tabs": ["t1"]}
 
 
+class ReshowApp:
+    """An app for reshow_tab: tab.focus selects its target (unless `selects` is false), browser.page.tabs reports
+    the selection and debug.webui answers `browser_tabs` (the census after the switch); `selects` None refuses the
+    switch."""
+
+    def __init__(self, browser_tabs, selects=True):
+        self.browser_tabs, self.selects, self.focused, self.selected = browser_tabs, selects, [], "t1"
+
+    def rpc(self, method, params=None, timeout=30):
+        params = params or {}
+        if method == "action.run" and params.get("action") == "tab.focus":
+            self.focused.append(params["target"])
+            if self.selects is None:
+                return {"error": {"code": "refused", "message": "no such tab"}}
+            if self.selects:
+                self.selected = params["target"].removeprefix("tab:")
+            return {"ok": True}
+        if method == "browser.page.tabs":
+            return {"tabs": [{"id": tab["tab"], "selected": tab["tab"] == self.selected} for tab in self.browser_tabs]}
+        if method == "debug.webui":
+            return {"pages": [], "spares": [], "browser_tabs": self.browser_tabs}
+        return {}
+
+
 class RoleAuditTests(unittest.TestCase):
     """Task 106: each task's role from its base priority and darwinbg bit, checked against D16."""
 
@@ -1034,8 +1060,9 @@ class RoleAuditTests(unittest.TestCase):
         self.assertEqual(ib.role_audit("light", daemons, budget), ([], []))
 
     def test_hidden_renderer_at_foreground_priority_is_flagged(self):
-        """With 104's census: Home's visible renderer and the shown tab's run above best-effort and are not judged;
-        the hidden tab's renderer at the default priority is the one mismatch."""
+        """With 104's census: in tabs-static Home's visible renderer and the shown tab's are judged not-background
+        and pass at the default priority (energy-saver does not judge them); the hidden tab's renderer at the default
+        priority is the one mismatch."""
         budget = ib.load_budget(ib.BUDGET_FILE)
         rows = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN)
         for session in ("tabs-static", "energy-saver"):
@@ -1049,6 +1076,113 @@ class RoleAuditTests(unittest.TestCase):
         # Suppressed, the hidden tab passes.
         fixed = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
         self.assertEqual(ib.role_audit("tabs-static", fixed, budget), ([], []))
+
+    def test_a_shown_renderer_left_at_best_effort_is_flagged(self):
+        """Task 107, steady state: in tabs-static (judge_shown_renderers) the shown tab's and Home's renderers are
+        foreground (Chrome's kUserBlocking); backgrounded, each is a mismatch. The other shown sessions do not judge
+        a shown renderer (nobody measured them for it), and with no window shown every renderer is best-effort."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        backgrounded = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4, 601: 4, 602: 28})
+        mismatches, notes = ib.role_audit("tabs-static", backgrounded, budget)
+        self.assertEqual(mismatches, [
+            {"kind": "cef-renderer", "pids": [601], "observed": "suppressed", "expected": "not-background"},
+            {"kind": "cef-renderer", "pids": [602], "observed": "suppressed", "expected": "not-background"}])
+        self.assertEqual(notes, [])
+        self.assertEqual(ib.role_over_line("tabs-static", mismatches[1]),
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=602 observed=suppressed "
+                         "expected=not-background")
+        for session in ("energy-saver", "light"):
+            self.assertEqual(ib.role_audit(session, backgrounded, budget), ([], []), session)
+        self.assertTrue(ib.SESSIONS["tabs-static"]["judge_shown_renderers"])
+        self.assertEqual([name for name, spec in ib.SESSIONS.items() if spec.get("judge_shown_renderers")],
+                         ["tabs-static"])
+        self.assertEqual([m["pids"] for m in ib.role_audit("minimized", backgrounded, budget)[0]
+                          if m["kind"] == "cef-renderer"], [])
+
+    def reshow(self, after_reads, after_tabs=None, selects=True, rows=None, wait_s=1.0):
+        """reshow_tab on tabs-static's window rows (t2's renderer 605 best-effort, t1's 602 foreground) with
+        `after_reads`: the priority reads after the switch, in order (the last repeats)."""
+        rows = rows if rows is not None else census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
+        app = ReshowApp(after_tabs if after_tabs is not None else TABS_CENSUS["browser_tabs"], selects)
+        now, reads = [0.0], list(after_reads)
+
+        def read(pids):
+            reading = reads.pop(0) if len(reads) > 1 else reads[0]
+            return {pid: {"base": reading[pid], "darwinbg": False, "nice": 0} for pid in pids if pid in reading}
+
+        def sleep(seconds):
+            now[0] += seconds
+
+        record = ib.reshow_tab(app, rows, ib.census_tab_pids(TABS_CENSUS), TABS_SHOWN, read_priorities=read,
+                               clock=lambda: now[0], sleep=sleep, wait_s=wait_s)
+        return record, app
+
+    def test_reshow_shows_the_hidden_tab_and_reads_its_return(self):
+        """Task 107, the transition: t2 was hidden and best-effort; shown through tab.focus, its renderer comes back
+        to the default priority and t1's goes to best-effort. The first read after the switch has not changed yet
+        (Chromium sets it on its launcher thread), the second has."""
+        record, app = self.reshow([{605: 4, 602: 31}, {605: 31, 602: 4}])
+        self.assertEqual(app.focused, ["tab:t2"])
+        self.assertEqual((record["tab"], record["previous"], record["selected"]), ("t2", ["t1"], True))
+        self.assertEqual(record["before"], [{"pid": 605, "of": "tab", "role": "suppressed"},
+                                            {"pid": 602, "of": "previous", "role": "default"}])
+        self.assertEqual([(item["pid"], item["of"], item["priority"]["base"]) for item in record["after"]],
+                         [(605, "tab", 31), (602, "previous", 4)])
+        self.assertEqual(ib.reshow_audit("tabs-static", record), ([], []))
+        self.assertEqual(json.loads(json.dumps(record)), record)  # the report's JSON keeps it as is
+
+    def test_a_renderer_that_does_not_come_back_is_an_over(self):
+        """CEF lowering a renderer on hide but not raising it on show: after RESHOW_WAIT_S t2's renderer is still
+        best-effort and t1's still foreground, two reshow overs (and the window's own read passed)."""
+        record, _app = self.reshow([{605: 4, 602: 31}], wait_s=1.0)
+        self.assertGreaterEqual(record["waited_s"], 1.0)
+        mismatches, notes = ib.reshow_audit("tabs-static", record)
+        self.assertEqual(mismatches, [
+            {"kind": "cef-renderer", "pids": [605], "observed": "suppressed", "expected": "not-background",
+             "phase": "reshow"},
+            {"kind": "cef-renderer", "pids": [602], "observed": "default", "expected": "best-effort",
+             "phase": "reshow"}])
+        self.assertEqual(notes, [])
+        self.assertEqual(ib.role_over_line("tabs-static", mismatches[0]),
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=605 observed=suppressed "
+                         "expected=not-background phase=reshow")
+        window = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
+        rows = [{**row(r["kind"], 10, 0.0), **r} for r in window]
+        entry = ib.summarize("tabs-static", {"processes": rows, "ends": ends(False, False), "reshow": record},
+                             ib.load_budget(ib.BUDGET_FILE))
+        self.assertEqual(entry["role_mismatches"], mismatches)
+        self.assertIn(["cef-renderer", "role", "suppressed", "not-background"], entry["over"])
+
+    def test_a_reshow_that_cannot_run_or_measure_a_return_says_so(self):
+        # No hidden tab was read best-effort: nothing to show, a note (the window's read already flagged 605).
+        record, app = self.reshow([{}], rows=census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN))
+        self.assertEqual(app.focused, [])
+        self.assertEqual(ib.reshow_audit("tabs-static", record),
+                         ([], ["tabs-static cef-renderer reshow: not judged: no hidden Chromium tab was read "
+                               "best-effort at the window's end"]))
+        self.assertEqual(ib.reshow_candidate([], {}, TABS_SHOWN)[2], "no census browser_tabs or no shown tab")
+        # The selection never landed.
+        record, _app = self.reshow([{605: 31, 602: 4}], selects=False)
+        self.assertEqual(ib.reshow_audit("tabs-static", record)[1],
+                         [f"tabs-static cef-renderer reshow: not judged: tab t2 was not reported selected in "
+                          f"{ib.RESHOW_WAIT_S:g} s"])
+        # The app refused the switch: the window stays measured, only the reshow is skipped.
+        record, _app = self.reshow([{}], selects=None)
+        self.assertEqual(ib.reshow_audit("tabs-static", record)[1],
+                         ["tabs-static cef-renderer reshow: not judged: tab.focus refused: "
+                          "{'code': 'refused', 'message': 'no such tab'}"])
+        # The tab came back in a new renderer (discarded while hidden): judged, but no return is measured.
+        moved = [{"tab": "t1", "renderer_pids": [602]}, {"tab": "t2", "renderer_pids": [606]}]
+        record, _app = self.reshow([{606: 31, 602: 4}], after_tabs=moved)
+        self.assertEqual(ib.reshow_audit("tabs-static", record),
+                         ([], ["tabs-static cef-renderer reshow: not judged: tab t2 runs a new renderer after the "
+                               "switch (pids before=605 after=606): its return is not measured"]))
+        # A renderer gone before its read.
+        record, _app = self.reshow([{605: 31}])
+        self.assertEqual(ib.reshow_audit("tabs-static", record),
+                         ([], ["tabs-static cef-renderer reshow: not judged: unread pids=602"]))
+        self.assertEqual(ib.reshow_audit("light", None), ([], []))
+        self.assertEqual([name for name, spec in ib.SESSIONS.items() if spec.get("reshow")], ["tabs-static"])
 
     def test_a_build_without_a_census_judges_no_renderer_of_a_shown_session(self):
         """No debug.webui: every renderer is of unknown visibility. A shown session reports them not judged (no false
@@ -1073,6 +1207,18 @@ class RoleAuditTests(unittest.TestCase):
                           ("cef-renderer", [605], "default", "best-effort")])
         napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"}, base={501: 28})
         self.assertEqual(ib.role_audit("minimized", napped, budget), ([], []))
+
+    def test_the_chromium_host_naps_while_no_window_shows(self):
+        """Task 128: the host holds its App Nap activity only while a page shows, so with no window shown it is
+        napped like the app; while a window shows it is not judged (a hidden-page-only host is not in the census)."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        awake = role_rows({501: "app", 509: "cef-host"}, base={501: 28, 509: 31})
+        mismatches, _notes = ib.role_audit("minimized", awake, budget)
+        self.assertEqual([(m["kind"], m["pids"], m["observed"], m["expected"]) for m in mismatches],
+                         [("cef-host", [509], "default", "napped")])
+        napped = role_rows({501: "app", 509: "cef-host"}, base={501: 28, 509: 28})
+        self.assertEqual(ib.role_audit("light-hidden", napped, budget), ([], []))
+        self.assertEqual(ib.role_audit("tabs-static", awake, budget)[0], [])
 
     def test_an_unread_role_is_not_judged_and_says_so(self):
         """A process whose role could not be read (gone at the window's end, the read failed) is a not-judged note,
@@ -1813,6 +1959,271 @@ class ShippingModeTests(unittest.TestCase):
                          ["activated", "sentry", "hang_reports"])
 
 
+typing_spec = importlib.util.spec_from_file_location("bench_typing", HERE / "bench-typing.py")
+bt = importlib.util.module_from_spec(typing_spec)
+typing_spec.loader.exec_module(bt)
+
+
+def frames_path(wheels, moved, *runs, after=None):
+    """The scroll page's post of `runs` (lists of rAF times), with after-frame times 2 ms after each by default."""
+    def enc(lists):
+        return ";".join(",".join(f"{t:.2f}" for t in times) for times in lists) or "-"
+    after = [[t + 2 for t in times] for times in runs] if after is None else after
+    return ib.SCROLL_FRAMES_PATH + f"/{wheels}/{moved}/{enc(runs)}/{enc(after)}"
+
+
+def gesture(events=240, px=24.0, **counts):
+    """One gesture's counts as ScrollRun.gesture returns them, sent on time."""
+    return {"events": events, "failed": 0, "late": 0, "max_late_ms": 0, "max_gap_ms": 8.4,
+            "delta_px": (events - 1) * px, **counts}
+
+
+def steady(count, start=0.0):
+    return [round(start + i * 1000 / 120, 2) for i in range(count)]
+
+
+class D8BenchTests(unittest.TestCase):
+    """bench-typing.py's Chromium composer typing and page scroll, saver on and off (p14-energy-135)."""
+
+    def test_saver_launch_turns_the_feature_on_in_both_states(self):
+        self.assertEqual(ib.saver_launch(True), ({"energy": {"saver": "always"}}, {"CMUX_ENABLE_FEATURES": "energySaver"}))
+        self.assertEqual(ib.saver_launch(False), ({"energy": {"saver": "off"}}, {"CMUX_ENABLE_FEATURES": "energySaver"}))
+
+    def test_the_energy_saver_session_launches_with_the_feature_on(self):
+        base = {"CMUX_NEXT_ISOLATED_LAUNCH": "1"}
+        self.assertEqual(ib.session_env("energy-saver", base), {**base, "CMUX_ENABLE_FEATURES": "energySaver"})
+        for session in ib.SESSIONS:
+            if session != "energy-saver":
+                self.assertEqual(ib.session_env(session, base), base, session)
+
+    def test_dry_run_prints_both_surfaces_with_the_saver_on_and_off(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(out):
+            code = bt.main(["--app", APP, "--surface", "agent-composer-chromium,chromium-page-scroll",
+                            "--energy-saver", "off,on", "--dry-run", "--out", folder])
+        self.assertEqual(code, 0)
+        rows = [json.loads(line.removeprefix("BENCH-TYPING-PLAN ")) for line in out.getvalue().splitlines()]
+        self.assertEqual([(r["surface"], r["energy_saver"]) for r in rows],
+                         [("agent-composer-chromium", "off"), ("agent-composer-chromium", "on"),
+                          ("chromium-page-scroll", "off"), ("chromium-page-scroll", "on")])
+        for row in rows:
+            self.assertEqual(row["config"]["browser"], {"defaultEngine": "chromium"})
+            self.assertEqual(row["config"]["energy"], {"saver": "always" if row["energy_saver"] == "on" else "off"})
+            self.assertEqual(row["env"]["CMUX_ENABLE_FEATURES"], "energySaver")
+            self.assertEqual(row["env"].get("CMUX_NEXT_AGENT_PANE_MOCK"), "1" if row["surface"] == "agent-composer-chromium" else None)
+            self.assertTrue(row["out"].endswith(f"{row['surface']}-saver-{row['energy_saver']}"))
+            # Each printed command is one launch of that combination.
+            again = bt.parse_args(bt.shlex.split(row["command"])[2:])
+            self.assertEqual((again.surfaces, again.savers, again.out), ([row["surface"]], [row["energy_saver"]], row["out"]))
+            self.assertTrue(again.launched)
+
+    def test_a_single_run_with_no_saver_asks_nothing(self):
+        args = bt.parse_args(["--tag", "t"])
+        self.assertEqual((args.surface, args.energy_saver), ("terminal", None))
+        self.assertEqual(bt.launch_config("terminal", None), ({"appearance": {"backgroundOpacity": 1}}, {}))
+        self.assertIsNone(bt.saver_block(None, [], None))
+
+    def test_options_that_do_not_fit_the_surface_are_refused(self):
+        for argv in (["--tag", "t", "--surface", "agent-composer-chromium", "--flood", "2"],
+                     ["--tag", "t", "--surface", "chromium-page-scroll", "--stress"],
+                     ["--tag", "t", "--energy-saver", "maybe"],
+                     ["--tag", "t", "--surface", "chromium-page-scroll", "--scroll-seconds", "0"],
+                     ["--csv", "x.csv", "--analyze-only", "--energy-saver", "on"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                bt.parse_args(argv)
+
+    def test_composer_fixture_parses_into_p50_and_p95(self):
+        stats = {"keys": 118, "to_frame": {"p50_ms": 7.1, "p95_ms": 9.4, "max_ms": 15.2},
+                 "to_paint": {"p50_ms": 8.0, "p95_ms": 10.9, "max_ms": 17.0}}
+        got = bt.composer_result(stats, sent=120, failed=1)
+        self.assertEqual(got["key_to_frame_ms"], {"n": 118, "p50": 7.1, "p95": 9.4, "max": 15.2})
+        self.assertEqual(got["key_to_paint_ms"]["p95"], 10.9)
+        self.assertEqual((got["timed"], got["untimed"], got["failed_keys"]), (118, 1, 1))
+        self.assertNotIn("error", got)
+        empty = bt.composer_result({"keys": 0, "to_frame": {"p50_ms": 0, "p95_ms": 0, "max_ms": 0}}, sent=120)
+        self.assertIsNone(empty["key_to_frame_ms"])
+        self.assertIn("error", bt.composer_result({"error": "no agent pane"}, sent=120))
+
+    def test_composer_series_records_every_key(self):
+        raw = {"keys": 3, "samples": [{"to_frame_ms": 6.1, "to_paint_ms": 7.0}, {"to_frame_ms": 7.2, "to_paint_ms": 8.1},
+                                      {"to_frame_ms": 8.3, "to_paint_ms": 9.2}]}
+        self.assertEqual(bt.composer_series(raw), {"key_to_frame_ms": [6.1, 7.2, 8.3], "key_to_paint_ms": [7.0, 8.1, 9.2]})
+        self.assertEqual(bt.composer_series({"keys": 3}), {"key_to_frame_ms": [], "key_to_paint_ms": []})
+        self.assertEqual(bt.composer_series(None), {"key_to_frame_ms": [], "key_to_paint_ms": []})
+
+    def test_scroll_fixture_counts_dropped_frames_at_120_hz(self):
+        period = 1000 / 120
+        # One frame late by two refreshes: two dropped.
+        janky = steady(100) + [round((i + 2) * period, 2) for i in range(100, 239)]
+        reads = [ib.parse_scroll_frames(frames_path(240, 5736, steady(240))),
+                 ib.parse_scroll_frames(frames_path(239, 5712, janky))]
+        got = bt.scroll_result(reads, 120.0, gestures=[gesture(), gesture()])
+        self.assertEqual([s["dropped_frames"] for s in got["scrolls"]], [0, 2])
+        self.assertEqual(got["dropped_frames"], 2)
+        self.assertEqual(got["frames"], 479)
+        self.assertEqual((got["wheels_sent"], got["wheels_received"], got["scrolled_px"]), (480, 479, 11448))
+        self.assertAlmostEqual(got["frame_interval_ms"]["p50"], period, delta=0.02)
+        self.assertAlmostEqual(got["frame_interval_ms"]["max"], 3 * period, delta=0.02)
+        self.assertAlmostEqual(got["after_frame_interval_ms"]["p50"], period, delta=0.02)
+        self.assertAlmostEqual(got["fps"], 119.2, delta=0.5)
+        self.assertEqual(got["nominal_ms"], 8.333)
+        self.assertNotIn("error", got)
+        # The same frames judged at 60 Hz drop nothing: the refresh rate sets what a drop is.
+        self.assertEqual(bt.frame_drops([period * 2] * 10, 1000 / 60), 0)
+
+    def test_a_pause_in_the_input_is_no_dropped_frame(self):
+        # The page stopped its loop after the quiet time and started a new run at the next wheel event, 100 ms later:
+        # the gap between the runs is no interval, so no frame dropped (one record of both runs counted 11).
+        first = steady(120)
+        second = steady(120, start=first[-1] + 100)
+        got = bt.scroll_result([ib.parse_scroll_frames(frames_path(240, 5736, first, second))], 120.0,
+                               gestures=[gesture()])
+        self.assertEqual(got["scrolls"][0]["runs"], 2)
+        self.assertEqual(got["dropped_frames"], 0)
+        self.assertEqual(len(got["intervals_ms"]), 238)
+        self.assertAlmostEqual(got["fps"], 120.0, delta=0.5)
+        self.assertNotIn("error", got)
+        self.assertEqual(bt.frame_drops(bt.run_intervals([first + second]), 1000 / 120), 11)
+        self.assertEqual(bt.run_intervals([[0, 8, 16], [116, 124]]), [8, 8, 8])
+
+    def test_a_scroll_the_bench_did_not_drive_steadily_is_an_error(self):
+        moved = ib.parse_scroll_frames(frames_path(240, 5736, steady(240)))
+        cases = {
+            "wheel events failed": (moved, gesture(failed=3)),
+            "ms apart: the input paused": (moved, gesture(max_gap_ms=104.0, late=1, max_late_ms=96.0)),
+            "received 12 of 240": (ib.parse_scroll_frames(frames_path(12, 288, steady(12))), gesture()),
+            "did not move": (ib.parse_scroll_frames(frames_path(240, 0, steady(240))), gesture()),
+            "moved 900 px of 5736": (ib.parse_scroll_frames(frames_path(240, 900, steady(240))), gesture()),
+        }
+        for reason, (read, sent) in cases.items():
+            got = bt.scroll_result([read], 120.0, gestures=[sent])
+            self.assertIn(reason, got.get("error", ""), reason)
+            self.assertIn("scroll 1: ", got["error"])
+        # A late send inside the quiet time keeps the run whole: no refusal.
+        on_time = gesture(late=4, max_late_ms=6.0, max_gap_ms=14.3)
+        self.assertNotIn("error", bt.scroll_result([moved], 120.0, gestures=[on_time]))
+
+    def test_a_scroll_with_no_frames_or_no_read_is_an_error(self):
+        none = bt.scroll_result([ib.parse_scroll_frames(frames_path(0, 0))], 120.0)
+        self.assertIn("did not move", none["error"])
+        self.assertIsNone(none["dropped_frames"])
+        self.assertIn("no wheel event reached it", bt.scroll_result([], 120.0)["error"])
+        unread = bt.scroll_result([{"error": "the page posted no scroll frames in 10 s"}], 120.0)
+        self.assertIn("posted no scroll frames", unread["error"])
+        self.assertIn("error", ib.parse_scroll_frames(ib.SCROLL_FRAMES_PATH + "/x/0/-/-"))
+        self.assertIn("error", ib.parse_scroll_frames(ib.SCROLL_FRAMES_PATH + "/3/0/0,8.33"))
+
+    def test_the_scroll_page_records_runs_only_while_input_is_active(self):
+        import urllib.request
+        with ib.IdlePages() as pages:
+            page = urllib.request.urlopen(pages.origin + ib.SCROLL_PATH, timeout=5).read().decode()
+        self.assertIn("addEventListener('wheel'", page)
+        self.assertIn("{passive:true}", page)
+        self.assertIn(f"performance.now()-last>{ib.SCROLL_QUIET_MS}", page)
+        self.assertIn("runs.push(run)", page)  # a loop that starts again starts a new run
+        self.assertIn("new MessageChannel()", page)  # the after-frame time
+        self.assertIn("scrollTo(0,0)", page)  # every gesture has the page's height to scroll
+        self.assertIn(f"i<{ib.SCROLL_ROWS}", page)
+        for path in (ib.SCROLL_READ_PATH, ib.SCROLL_FRAMES_PATH, "/loaded/scroll"):
+            self.assertIn(path, page)
+        self.assertNotIn("setInterval", page)
+
+    def test_a_gesture_that_scrolls_past_the_page_is_refused(self):
+        events = bt.gesture_events(2.0, 120.0)
+        self.assertEqual(events, 240)
+        self.assertLessEqual(events * 24.0, ib.SCROLL_PAGE_PX - bt.WINDOW[3])
+        self.assertGreater(bt.gesture_events(2.0, 240.0) * 100.0, ib.SCROLL_PAGE_PX - bt.WINDOW[3])
+
+    def test_a_gesture_moves_the_pointer_only_on_its_first_event(self):
+        sent = []
+
+        class App:
+            def rpc(self, method, params, timeout):
+                sent.append(params)
+                return {"delivered_to": "RenderWidgetHostViewCocoa"}
+        run = bt.ScrollRun.__new__(bt.ScrollRun)
+        run.app, run.args = App(), types.SimpleNamespace(scroll_seconds=0.05, scroll_px=24.0)
+        got = run.gesture(120.0)
+        self.assertEqual([p["phase"] for p in sent], ["began"] + ["changed"] * 4 + ["ended"])
+        self.assertNotIn("hover", sent[0])
+        self.assertTrue(all(p["hover"] is False for p in sent[1:]))
+        self.assertEqual((got["events"], got["failed"], got["delta_px"]), (6, 0, 120.0))
+        self.assertLess(got["max_gap_ms"], 60)
+
+    def test_read_scroll_answers_the_held_read_and_returns_the_posted_frames(self):
+        import threading
+        import urllib.request
+        with ib.IdlePages() as pages:
+            def page():
+                urllib.request.urlopen(pages.origin + ib.SCROLL_READ_PATH, timeout=10).read()
+                urllib.request.urlopen(urllib.request.Request(
+                    pages.origin + frames_path(3, 72, [0, 8.33], [120, 128.33]), method="POST"), timeout=5).read()
+            held = threading.Thread(target=page)
+            held.start()
+            got = pages.read_scroll(5)
+            held.join(5)
+            self.assertEqual(got, {"wheels": 3, "scrolled_px": 72, "runs_ms": [[0.0, 8.33], [120.0, 128.33]],
+                                   "post_runs_ms": [[2.0, 10.33], [122.0, 130.33]]})
+            self.assertIn("posted no scroll frames", pages.read_scroll(0.2)["error"])
+            self.assertIn("error", pages.read_anim(0.2))  # the two read paths are apart
+
+    def test_d8_verdicts(self):
+        def typed(p95, mismatch=None, timed=120, failed=0):
+            return {"sent": 120, "timed": timed, "failed_keys": failed, "saver": {"mismatch": mismatch},
+                    "key_to_frame_ms": {"n": timed, "p50": 6.0, "p95": p95, "max": 12.0}}
+
+        def terminal(p95, n=120, failed=0):
+            return {"phases": {"single": {"keys": 120, "failed_keys": failed,
+                                          "stats": {"key_to_frame_ms": {"n": n, "p95": p95}}}}}
+
+        def scrolled(dropped, fps=119.6, hz=120.0, source=bt.HZ_FROM_DISPLAY):
+            return {"dropped_frames": dropped, "fps": fps, "hz": hz, "hz_source": source}
+        verdicts = bt.d8_verdicts({
+            ("agent-composer-chromium", "off"): typed(9.0), ("agent-composer-chromium", "on"): typed(9.4),
+            ("chromium-page-scroll", "off"): scrolled(0), ("chromium-page-scroll", "on"): scrolled(3),
+            ("terminal", "off"): terminal(4.0), ("terminal", "on"): terminal(4.6)})
+        self.assertEqual(verdicts["agent-composer-chromium"]["verdict"], "pass")
+        self.assertEqual(verdicts["agent-composer-chromium"]["delta_ms"], 0.4)
+        self.assertEqual(verdicts["chromium-page-scroll"]["verdict"], "fail")
+        self.assertEqual(verdicts["terminal"]["verdict"], "fail")
+
+        def scroll(on):
+            return bt.d8_verdicts({("chromium-page-scroll", "off"): scrolled(0),
+                                   ("chromium-page-scroll", "on"): on})["chromium-page-scroll"]
+        self.assertEqual(scroll(scrolled(0))["verdict"], "pass")
+        self.assertEqual(scroll(scrolled(0, fps=100.0))["verdict"], "fail")  # no drop counted, but not 120 Hz
+        for unscored, reason in ((scrolled(0, hz=60.0, source=bt.HZ_FROM_FLAG), "60 Hz"),
+                                 (scrolled(0, source=bt.HZ_ASSUMED), "assumed"),
+                                 ({**scrolled(0), "error": "scroll 1: two wheel events were sent 104 ms apart"},
+                                  "104 ms apart")):
+            got = scroll(unscored)
+            self.assertEqual(got["verdict"], "unscored", reason)
+            self.assertTrue(any(reason in why for why in got["why"]), got["why"])
+
+        def composer(on):
+            return bt.d8_verdicts({("agent-composer-chromium", "off"): typed(9.0),
+                                   ("agent-composer-chromium", "on"): on})["agent-composer-chromium"]
+        refused = composer(typed(9.0, "asked energy saver on, debug.energy reported [False, False]"))
+        self.assertEqual(refused["verdict"], "unscored")
+        self.assertIn("saver on: asked energy saver on", refused["why"][0])
+        self.assertIn("40 of 120 keys timed", composer(typed(9.0, timed=40))["why"][0])
+        self.assertIn("2 keys failed", composer(typed(9.0, timed=118, failed=2))["why"][0])
+        short = bt.d8_verdicts({("terminal", "off"): terminal(4.0), ("terminal", "on"): terminal(4.1, n=60)})
+        self.assertEqual(short["terminal"]["verdict"], "unscored")
+        self.assertIn("60 of 120 keys timed", short["terminal"]["why"][0])
+        failed = bt.d8_verdicts({("chromium-page-scroll", "off"): {"error": "launch failed"},
+                                 ("chromium-page-scroll", "on"): scrolled(0)})
+        self.assertEqual(failed["chromium-page-scroll"]["verdict"], "unscored")
+        self.assertEqual(bt.d8_verdicts({("chromium-page-scroll", "on"): scrolled(0)}), {})
+
+    def test_saver_block_needs_both_ends_to_show_the_asked_state(self):
+        self.assertIsNone(bt.saver_block("on", [True, True], "setting")["mismatch"])
+        self.assertIn("asked energy saver on", bt.saver_block("on", [True, None], None)["mismatch"])
+        self.assertIn("asked energy saver on", bt.saver_block("on", [], None)["mismatch"])
+        self.assertIn("asked energy saver off", bt.saver_block("off", [False, True], "setting")["mismatch"])
+        self.assertIsNone(bt.saver_block("off", [False, False], None)["mismatch"])
+
+
 # ---------------------------------------------------------------------------------------------------------
 # D15: disk, network, log and WindowServer (task p14-energy-105)
 
@@ -2138,7 +2549,8 @@ class D15BudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"disk_bytes_per_s": 68.267, "network_bytes": 0, "log_lines": None}}}}}
         rows = ib.cron_rows(report, self.BUDGET)
         self.assertEqual(rows["idle_budget.light.app.disk_bytes_per_s"],
-                         {"p50": 68.267, "p95": 68.267, "unit": "B/s", "budget": 0, "floor": 0.5})
+                         {"p50": 68.267, "p95": 68.267, "p99": 68.267, "unit": "B/s", "budget": 0,
+                          "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.network_bytes"]["unit"], "bytes")
         self.assertNotIn("idle_budget.light.app.log_lines", rows)
 
@@ -2214,6 +2626,1207 @@ class WindowServerTests(unittest.TestCase):
         self.assertEqual(entry["windowserver"]["delta_per_s"], 39.0)
         self.assertIn("WindowServer (rusage, reported): 40.0/s, 1.0/s with cmux hidden (hidden), delta 39.0/s",
                       ib.table("light", {}, [], entry))
+
+
+FIVE = ("signed-in", "home", "occluded", "app-quit", "external-churn")
+
+
+class FiveSessionsTests(unittest.TestCase):
+    """p14-energy-102: signed-in, home, occluded, app-quit, external-churn (their table, budget rows and fixtures)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="idle-budget-102-")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+
+    # The table.
+
+    def test_the_five_sessions_and_what_each_builds(self):
+        self.assertEqual(ib.parse_sessions(",".join(FIVE)), list(FIVE))
+        self.assertTrue(ib.SESSIONS["occluded"]["cover"])
+        self.assertTrue(ib.SESSIONS["home"]["home"])
+        self.assertTrue(ib.SESSIONS["signed-in"]["sign_in"])
+        self.assertTrue(ib.SESSIONS["app-quit"]["quit"])
+        churn = ib.SESSIONS["external-churn"]
+        self.assertTrue(churn["churn"] and churn["hide"])
+        for name in FIVE:
+            self.assertFalse(ib.SESSIONS[name].get("tabs") or ib.SESSIONS[name].get("saver"), name)
+            self.assertEqual(ib.settle_seconds(name, 60), 60)
+        self.assertEqual((ib.CHURN_WRITES_PER_S, ib.HISTORY_PERIOD_S), (10, 5))
+
+    def test_unknown_session_refused(self):
+        for text in ("signed-out", "home,app-quitt", "occlude"):
+            with self.assertRaises(SystemExit) as raised:
+                ib.parse_sessions(text)
+            self.assertIn("unknown session", str(raised.exception))
+            self.assertIn("external-churn", str(raised.exception))  # the list names the new sessions
+
+    def test_signed_in_turns_phone_access_and_the_feed_on_and_keeps_keep_awake_off(self):
+        config = ib.session_config("signed-in")
+        self.assertEqual(config["phone"], {"keepAwake": "off", "allowConnections": True})
+        self.assertEqual(config["sessions"], {"keepAwake": "off"})
+        self.assertEqual(config["feed"], {"github": {"enabled": True}})
+        self.assertEqual(ib.BASE_CONFIG["phone"], {"keepAwake": "off"})  # the merge changes no shared config
+        self.assertEqual(ib.merged({"a": {"b": 1, "c": 2}}, {"a": {"c": 3}, "d": 4}), {"a": {"b": 1, "c": 3}, "d": 4})
+
+    # The budget rows (D13, D6 home, D3 occluded).
+
+    def test_budget_rows_of_the_five(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        sessions = budget["sessions"]
+        self.assertEqual(sessions["signed-in"]["sums"]["app+daemon"], {"wakeups_per_s": 1.0})
+        self.assertEqual(sessions["app-quit"]["sums"]["tree"], {"wakeups_per_s": 0.1})
+        self.assertEqual(ib.limit_for(budget, "external-churn", "app", "wakeups_per_s"), 1.0)
+        self.assertEqual(sessions["home"]["sums"]["tree"], {"wakeups_per_s": 1.0})
+        self.assertEqual(ib.limit_for(budget, "occluded", "app", "wakeups_per_s"), 0.3)
+        self.assertEqual(ib.limit_for(budget, "occluded", "app", "main_wakes_per_s"), 0.1)
+        for name in FIVE:
+            self.assertIn(name, sessions, name)
+            self.assertFalse(ib.busy_kind(sessions[name], "app"), name)  # every one is an idle session, judged
+
+    def test_signed_in_app_plus_daemon_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": ib.aggregate({"processes": [row("app", 30, 0.7)]})["app"],
+                 "daemon": ib.aggregate({"processes": [row("daemon", 8, 0.4)]})["daemon"]}
+        overs = ib.over_budget("signed-in", kinds, budget)
+        self.assertIn(("app+daemon", "wakeups_per_s", 1.1, 1.0), overs)
+
+    def test_app_quit_judges_the_tree_without_an_app(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = [row("daemon", 8, 0.06), row("holder", 2, 0.0), row("terminal-host", 3, 0.05), row("acpmux", 4, 0.0)]
+        kinds = ib.aggregate({"processes": rows})
+        self.assertNotIn("app", kinds)
+        self.assertIn(("tree", "wakeups_per_s", 0.11, 0.1), ib.over_budget("app-quit", kinds, budget))
+        quiet = ib.aggregate({"processes": [row("daemon", 8, 0.05), row("holder", 2, 0.0)]})
+        self.assertEqual(ib.over_budget("app-quit", quiet, budget), [])
+
+    def test_external_churn_judges_the_app(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = ib.aggregate({"processes": [row("app", 30, 1.4), row("daemon", 8, 0.2)]})
+        self.assertIn(("app", "wakeups_per_s", 1.4, 1.0), ib.over_budget("external-churn", kinds, budget))
+
+    # signed-in: the account, never a secret.
+
+    def credentials(self, text, mode=0o600):
+        path = os.path.join(self.folder, "dev.env")
+        with open(path, "w") as handle:
+            handle.write(text)
+        os.chmod(path, mode)
+        return path
+
+    def test_sign_in_env_names_the_file_and_the_account_never_the_password(self):
+        import bench_launch
+        path = self.credentials("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\nexport CMUX_UITEST_STACK_EMAIL='agent@x.dev'\n"
+                                "CMUX_UITEST_STACK_PASSWORD=hunter2-secret\n")
+        env = bench_launch.agent_sign_in_env(path)
+        self.assertEqual(env, {"CMUX_AUTH_CREDENTIALS_FILE": path, "CMUX_DEV_AUTH_ACCOUNT": "agent@x.dev",
+                               "CMUX_DEV_AUTH_PROFILE": "agent"})
+        self.assertNotIn("hunter2-secret", json.dumps(env))
+
+    def test_sign_in_env_refuses_a_file_the_app_would_not_read(self):
+        import bench_launch
+        with self.assertRaises(bench_launch.CredentialsError) as shared:
+            bench_launch.agent_sign_in_env(self.credentials("CMUX_UITEST_STACK_EMAIL=a@x.dev\n", mode=0o644))
+        self.assertIn("0600", str(shared.exception))
+        with self.assertRaises(bench_launch.CredentialsError) as empty:
+            bench_launch.agent_sign_in_env(self.credentials("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\n"))
+        self.assertIn("CMUX_UITEST_STACK_EMAIL", str(empty.exception))
+        with self.assertRaises(bench_launch.CredentialsError):
+            bench_launch.agent_sign_in_env(os.path.join(self.folder, "missing.env"))
+
+    BOTH_PAIRS = ("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\nCMUX_DOGFOOD_STACK_PASSWORD=mine\n"
+                  "CMUX_UITEST_STACK_EMAIL=agent@x.dev\nCMUX_UITEST_STACK_PASSWORD=theirs\n")
+
+    def test_the_fleet_secrets_file_with_both_pairs_is_left_to_the_apps_own_lookup(self):
+        """The fleet layout holds the dogfood and the agent pair in one file. Named by CMUX_AUTH_CREDENTIALS_FILE the
+        app takes the dogfood pair first and refuses it as another account; found by its ambient lookup, the agent
+        profile and the declared account pick the agent pair (DogfoodCredentials.decide)."""
+        import bench_launch
+        home = os.path.join(self.folder, "home")
+        os.makedirs(os.path.join(home, ".secrets"))
+        path = os.path.join(home, ".secrets", "cmuxterm-dev.env")
+        with open(path, "w") as handle:
+            handle.write(self.BOTH_PAIRS)
+        os.chmod(path, 0o600)
+        with unittest.mock.patch.dict(os.environ, {"HOME": home}):
+            env = bench_launch.agent_sign_in_env()
+            self.assertEqual(env, bench_launch.agent_sign_in_env(path))
+        self.assertEqual(env, {"CMUX_DEV_AUTH_ACCOUNT": "agent@x.dev", "CMUX_DEV_AUTH_PROFILE": "agent"})
+        self.assertNotIn("theirs", json.dumps(env))
+
+    def test_another_file_with_the_dogfood_pair_is_refused(self):
+        import bench_launch
+        with self.assertRaises(bench_launch.CredentialsError) as raised:
+            bench_launch.agent_sign_in_env(self.credentials(self.BOTH_PAIRS))
+        self.assertIn("CMUX_DOGFOOD_STACK_EMAIL", str(raised.exception))
+        self.assertNotIn("mine", str(raised.exception))
+        commented = self.credentials("# CMUX_DOGFOOD_STACK_PASSWORD=x\nCMUX_UITEST_STACK_EMAIL=\"agent@x.dev\"\n")
+        self.assertEqual(bench_launch.agent_sign_in_env(commented)["CMUX_DEV_AUTH_ACCOUNT"], "agent@x.dev")
+
+    # Signed in, then signed out: no session after it restores the account.
+
+    def auth_app(self, signed_in, end_session_signs_out=True):
+        """An app whose auth.status follows debug.cloud.end_session; `log` lists every call and the stop."""
+        state = {"signed_in": signed_in}
+        log = []
+
+        def rpc(method, params=None, timeout=30):
+            log.append(method)
+            if method == "debug.cloud.end_session" and end_session_signs_out:
+                state["signed_in"] = False
+            if method == "auth.status":
+                return {"signed_in": state["signed_in"], "restoring": False, "email": "agent@x.dev", "backend": "b"}
+            return {"ended": True}
+        process = types.SimpleNamespace(poll=lambda: None if "stop" not in log else 0, pid=7)
+        return types.SimpleNamespace(rpc=rpc, process=process, stop=lambda: log.append("stop")), log
+
+    def test_a_signed_in_session_signs_out_before_the_app_stops(self):
+        app, log = self.auth_app(signed_in=True)
+        rig = ib.SessionRig("signed-in", "debug")
+        rig.account = "agent@x.dev"
+        rig.after_launch(app)
+        self.assertTrue(rig.shape["signed_in"])
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(log[-3:], ["debug.cloud.end_session", "auth.status", "stop"])
+        self.assertEqual(rig.shape["sign_out"], {"signed_out": True, "error": ""})
+
+    def test_a_sign_out_that_does_not_end_is_reported_and_the_app_still_stops(self):
+        app, log = self.auth_app(signed_in=True, end_session_signs_out=False)
+        rig = ib.SessionRig("signed-in", "debug")
+        rig.account = "agent@x.dev"
+        with unittest.mock.patch.object(ib, "SIGN_OUT_WAIT_S", 0):
+            errors = rig.teardown(app)
+        self.assertEqual(log[-1], "stop")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("sign-out: still signed in", errors[0])
+
+    def test_every_other_session_runs_signed_out(self):
+        app, log = self.auth_app(signed_in=False)
+        rig = ib.SessionRig("light", "release")
+        rig.after_launch(app)
+        self.assertEqual((rig.shape["signed_in"], log), (False, ["auth.status"]))
+        self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(log, ["auth.status", "stop"])  # no sign-out of a session that never signed in
+
+    def test_a_restored_sign_in_is_ended_before_an_unsigned_session(self):
+        app, log = self.auth_app(signed_in=True)
+        rig = ib.SessionRig("light-hidden", "release")
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            rig.after_launch(app)
+        self.assertEqual(rig.shape["left_signed_in"], {"signed_out": True, "error": ""})
+        self.assertFalse(rig.shape["signed_in"])
+        stuck, _log = self.auth_app(signed_in=True, end_session_signs_out=False)
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None), \
+                unittest.mock.patch.object(ib, "sign_out", lambda app: {"signed_out": False, "error": "still signed in"}), \
+                self.assertRaises(ib.SessionShapeError) as raised:
+            ib.SessionRig("light", "release").after_launch(stuck)
+        self.assertIn("did not sign out: still signed in", str(raised.exception))
+
+    # signed-in-display-sleep (D13: signed-in app <= light-hidden with the display asleep).
+
+    def test_display_sleep_session_sleeps_the_display_and_wakes_it_at_the_teardown(self):
+        commands = []
+        run = lambda argv, **kw: commands.append(argv[0]) or types.SimpleNamespace(returncode=0, stderr="")
+        app = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": True, "key": True}]},
+                                    process=types.SimpleNamespace(poll=lambda: 0), stop=lambda: commands.append("stop"))
+        rig = ib.SessionRig("signed-in-display-sleep", "debug", run=run)
+        rig.after_activate(app)
+        self.assertEqual(commands, ["pmset"])
+        self.assertTrue(rig.shape["display_sleep"]["main"][0]["occluded"])
+        self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(commands, ["pmset", "stop", "caffeinate"])  # the app stops first, then the display wakes
+        failing = lambda argv, **kw: types.SimpleNamespace(returncode=1, stderr="not allowed")
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.SessionRig("signed-in-display-sleep", "debug", run=failing).after_activate(app)
+        self.assertIn("pmset exit 1: not allowed", str(raised.exception))
+
+    def test_display_sleep_row_is_relative_to_light_hidden(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(ib.session_budget(budget, "signed-in-display-sleep")["relative"],
+                         [{"to": "light-hidden", "of": "app", "field": "wakeups_per_s", "max_ratio": 1.0}])
+        self.assertEqual(ib.session_config("signed-in-display-sleep"), ib.session_config("signed-in"))
+        asleep = ib.aggregate({"processes": [row("app", 30, 0.6)]})
+        hidden = ib.aggregate({"processes": [row("app", 30, 0.5)]})
+        overs, notes = ib.cross_overs(budget, {"signed-in-display-sleep": asleep, "light-hidden": hidden})
+        self.assertEqual([n for n in notes if n.startswith("signed-in-display-sleep")], [])  # light-hidden's own vs light
+        self.assertEqual([session for session, _over in overs], ["signed-in-display-sleep"])
+        quiet = ib.aggregate({"processes": [row("app", 30, 0.4)]})
+        self.assertEqual(ib.cross_overs(budget, {"signed-in-display-sleep": quiet, "light-hidden": hidden})[0], [])
+        _overs, alone = ib.cross_overs(budget, {"signed-in-display-sleep": quiet})
+        self.assertIn("reference session light-hidden not measured", alone[0])
+
+    def test_signed_in_rows_on_a_debug_build_are_reported_not_judged(self):
+        entry = {"over": [["app+daemon", "wakeups_per_s", 1.1, 1.0]], "not_judged": []}
+        notes = ib.unjudged_on_debug("signed-in", entry, "debug")
+        self.assertEqual(entry["over"], [])
+        self.assertEqual(entry["not_judged"], notes)
+        self.assertIn("app+daemon wakeups_per_s: 1.1 over 1.0 on a Debug build", notes[1])
+        kept = {"over": [["app", "wakeups_per_s", 2.0, 1.0]], "not_judged": []}
+        self.assertEqual(ib.unjudged_on_debug("light", kept, "debug"), [])
+        self.assertEqual(kept["over"], [["app", "wakeups_per_s", 2.0, 1.0]])  # other sessions keep their judgement
+
+    def test_signed_in_needs_a_debug_build(self):
+        self.assertIsNone(ib.sign_in_refusal("debug"))
+        for config in ("release", "bench-hooks"):
+            self.assertIn("Debug build only", ib.sign_in_refusal(config))
+            with self.assertRaises(ib.SessionShapeError):
+                ib.SessionRig("signed-in", config).env({"A": "1"})
+        path = self.credentials("CMUX_UITEST_STACK_EMAIL=agent@x.dev\nCMUX_UITEST_STACK_PASSWORD=p\n")
+        rig = ib.SessionRig("signed-in", "debug", credentials=path)
+        env = rig.env({"A": "1"})
+        self.assertEqual((env["A"], env["CMUX_AUTH_CREDENTIALS_FILE"], rig.account), ("1", path, "agent@x.dev"))
+        self.assertEqual(ib.SessionRig("home", "release").env({"A": "1"}), {"A": "1"})  # no account elsewhere
+
+    def test_auth_status_keeps_no_email(self):
+        reply = {"signed_in": True, "restoring": False, "email": "Agent@X.dev", "user_id": "u1", "backend": "https://b"}
+        state = ib.signed_in_state(reply, "agent@x.dev")
+        self.assertEqual(state, {"signed_in": True, "restoring": False, "account_matches": True, "backend": "https://b"})
+        self.assertNotIn("x.dev", json.dumps(state).replace("https://b", ""))
+        self.assertFalse(ib.signed_in_state({"signed_in": True, "email": "other@x.dev"}, "agent@x.dev")["account_matches"])
+        self.assertFalse(ib.signed_in_state({"error": "x"}, "agent@x.dev")["signed_in"])
+
+    def test_wait_signed_in(self):
+        replies = iter([{"signed_in": False, "restoring": True}, {"signed_in": True, "restoring": True, "email": "a@x"},
+                        {"signed_in": True, "restoring": False, "email": "a@x"}])
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=30: next(replies))
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertTrue(ib.wait_signed_in(app, "a@x", seconds=5)["signed_in"])
+            other = types.SimpleNamespace(rpc=lambda *a, **k: {"signed_in": True, "restoring": False, "email": "b@x"})
+            with self.assertRaises(ib.SessionShapeError) as wrong:
+                ib.wait_signed_in(other, "a@x", seconds=5)
+            self.assertNotIn("b@x", str(wrong.exception))
+            out = types.SimpleNamespace(rpc=lambda *a, **k: {"signed_in": False, "restoring": False})
+            with self.assertRaises(ib.SessionShapeError):
+                ib.wait_signed_in(out, "a@x", seconds=0)
+
+    # occluded and home.
+
+    def test_wait_occluded_needs_every_main_window_occluded(self):
+        states = iter([{"windows": [{"kind": "main", "occluded": False}]},
+                       {"windows": [{"kind": "main", "occluded": True}, {"kind": "panel", "occluded": False}]}])
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=10: next(states))
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertEqual(ib.wait_occluded(app, 5)["main"][0]["occluded"], True)
+            still = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": False}]})
+            with self.assertRaises(ib.SessionShapeError):
+                ib.wait_occluded(still, 0)
+
+    def test_start_cover_reads_the_helper_line_and_ends_a_silent_helper(self):
+        helper = os.path.join(self.folder, "benchhelper")
+        with open(helper, "w") as handle:
+            handle.write('#!/bin/sh\n[ "$1" = cover ] || exit 2\necho "covering 1920x1080"\nexec sleep 60\n')
+        os.chmod(helper, 0o755)
+        cover = ib.start_cover(helper, seconds=5)
+        self.assertIsNone(cover.poll())
+        ib.stop_process(cover)
+        self.assertIsNotNone(cover.poll())
+        silent = os.path.join(self.folder, "silent")
+        with open(silent, "w") as handle:
+            handle.write("#!/bin/sh\necho 'no display' >&2\nexit 2\n")
+        os.chmod(silent, 0o755)
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.start_cover(silent, seconds=5)
+        self.assertIn("no display", str(raised.exception))
+
+    def test_home_runs_after_the_activation(self):
+        calls = []
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=30: calls.append((method, params)) or {})
+        ib.SessionRig("home", "release").after_activate(app)
+        self.assertEqual(calls, [("action.run", {"action": "home.show", "args": {}, "focus": False, "origin": "script"})])
+
+    def fake_helper(self):
+        helper = os.path.join(self.folder, "benchhelper")
+        with open(helper, "w") as handle:
+            handle.write('#!/bin/sh\n[ "$1" = cover ] || exit 2\necho "covering 1920x1080"\nexec sleep 60\n')
+        os.chmod(helper, 0o755)
+        return helper
+
+    def test_the_cover_waits_until_the_app_is_occluded_and_no_longer_active(self):
+        """Another app's window in front: occluded alone (cmux still key under the cover) is not the shape."""
+        replies = iter([{"windows": [{"kind": "main", "occluded": True, "key": True}]},
+                        {"windows": [{"kind": "main", "occluded": True, "key": False}]}])
+        methods = []
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=10: methods.append(method) or next(replies))
+        rig = ib.SessionRig("occluded", "release")
+        rig.helper = self.fake_helper()
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            rig.after_activate(app)
+        self.addCleanup(ib.stop_process, rig.cover)
+        self.assertIsNone(rig.cover.poll())  # the cover runs through the settle and the window
+        self.assertEqual(methods, ["debug.window_list", "debug.window_list"])
+        self.assertEqual(rig.shape["cover"], {"main": [{"key": False, "visible": None, "occluded": True,
+                                                        "miniaturized": None, "alpha": None}], "any_key": False})
+        self.assertEqual(rig.teardown(None), [])
+        self.assertIsNotNone(rig.cover.poll())  # the teardown ends it
+
+    def test_an_app_that_stays_active_under_the_cover_is_refused(self):
+        still_key = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": True, "key": True}]})
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.wait_occluded(still_key, 0, inactive=True)
+        self.assertIn("occluded and inactive", str(raised.exception))
+        unknown = types.SimpleNamespace(rpc=lambda *a, **k: {"error": "no such method"})
+        with self.assertRaises(ib.SessionShapeError):
+            ib.wait_occluded(unknown, 0, inactive=True)
+        self.assertEqual(ib.wait_occluded(still_key, 0)["any_key"], True)  # occluded alone: minimized's, display sleep's
+
+    # app-quit.
+
+    def test_quit_keeps_the_sessions_and_waits_for_the_exit(self):
+        import bench_launch
+        app = bench_launch.BenchApp(bundle(self.folder, debug=False), out=os.path.join(self.folder, "out"),
+                                    teardown=False)
+        sent = []
+        app.rpc = lambda method, params=None, timeout=60: sent.append((method, params)) or {"error": "closed"}
+        app.process = types.SimpleNamespace(poll=lambda: None, wait=lambda timeout: 0)
+        result = app.quit_keep_sessions()
+        self.assertTrue(result["quit"])
+        self.assertEqual(sent[0][1]["action"], "quitKeepSessions")
+
+        def hangs(timeout):
+            raise ib.subprocess.TimeoutExpired("cmux DEV", timeout)
+        app.process = types.SimpleNamespace(poll=lambda: None, wait=hangs)
+        late = app.quit_keep_sessions(timeout=1)
+        self.assertFalse(late["quit"])
+        self.assertIn("still runs 1 s after quitKeepSessions", late["error"])
+        app.process = types.SimpleNamespace(poll=lambda: 0)
+        self.assertEqual(app.quit_keep_sessions()["error"], "the app is not running")
+
+    def test_app_quit_reads_no_socket_after_the_quit_and_stops_after_the_window(self):
+        """main()'s app-quit: quitKeepSessions after the settle, QUIT_SETTLE_S, the window over QuitTree with no app
+        (measure(None)), no window_state or sample read, then app.stop (which ends the daemons) last."""
+        events = []
+        teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server")])
+
+        class FakeBench:
+            def __init__(self, app, out, env, config, **_results):
+                self.app, self.tag, self.teardown, self.launched_env = app, "t", teardown, {}
+                self.process = types.SimpleNamespace(pid=10, poll=lambda: 0 if "quit" in events else None)
+                events.append("new")
+
+            def launch(self):
+                events.append("launch")
+
+            def rpc(self, method, params=None, timeout=30):
+                events.append(("rpc-after-quit" if "quit" in events else "rpc", method))
+                return {"signed_in": False, "restoring": False} if method == "auth.status" else {}
+
+            def activate(self):
+                return {"activated": True, "error": ""}
+
+            def quit_keep_sessions(self):
+                events.append("quit")
+                return {"quit": True, "seconds": 0.5, "error": ""}
+
+            def stop(self):
+                events.append("stop")
+
+        def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None,
+                    ledger_limit=20, hidden_hosts=()):
+            events.append(("measure", app, type(instance).__name__))
+            return {"seconds": seconds, "ends": {}, "processes": [{**row("daemon", 8, 0.05), "ran": []}],
+                    "windowserver": ib.windowserver_report(None, None, None)}
+
+        import bench_launch
+        app_path = bundle(self.folder, debug=False)
+        sleeps = []
+        with unittest.mock.patch.object(bench_launch, "BenchApp", FakeBench), \
+                unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
+                unittest.mock.patch.multiple(ib, measure=measure, fresh_session=lambda _app: {}, threads=lambda _pid: {},
+                                             host_facts=lambda: {"host": "h", "macos": "26"},
+                                             run_sample=lambda *a: events.append("sample")), \
+                unittest.mock.patch.object(ib.procs, "Instance", lambda app, pid: types.SimpleNamespace(pid=pid)), \
+                unittest.mock.patch.object(ib.time, "sleep", sleeps.append), \
+                contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as raised:
+            ib.main(["--app", app_path, "--sessions", "app-quit", "--out", os.path.join(self.folder, "out")])
+        self.assertEqual(raised.exception.code, 0)
+        quit_at = events.index("quit")
+        self.assertEqual([e for e in events[quit_at:] if isinstance(e, tuple) and e[0] == "rpc-after-quit"], [])
+        self.assertEqual(events[quit_at + 1:], [("measure", None, "QuitTree"), "stop"])
+        self.assertIn(ib.QUIT_SETTLE_S, sleeps)
+        self.assertIn('IDLE-BUDGET-SHAPE app-quit {"signed_in": false, "quit": {"quit": true', out.getvalue())
+        with open(os.path.join(self.folder, "out", "idle-budget.json")) as handle:
+            report = json.load(handle)
+        self.assertEqual(report["session_exits"], {"app-quit": 0})
+        self.assertNotIn("window_state", report["sessions"]["app-quit"]["result"])
+
+    def test_quit_tree_is_the_tags_processes(self):
+        teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server"),
+                                                            (12, "/tmp/host __terminal-host --owner b:t@11")])
+        tree = ib.QuitTree(teardown, 10)
+        self.assertEqual(tree.pid, 10)
+        self.assertEqual(sorted(tree.pids()), [11, 12])
+
+    def test_measure_without_the_app_reads_no_socket(self):
+        calls = []
+        instance = type("Instance", (), {"pid": 1, "harness": {}})()
+        saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+                 procs.thermal_state, procs.power_assertions, ib.time.sleep, ib.read_rpc, procs.priorities)
+        server = "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server"
+        ib.process_set = lambda _instance: ib.ProcessSet({2: server}, [(2, 1, server)])
+        procs.priorities = lambda _pids: {}
+        ib.threads = lambda _pid: {}
+        procs.usage = lambda _pid: procs.usage_from_words(rusage_words(), 1, 1)
+        procs.overhead = lambda _pid: (0, 8, 0, 0, 0)
+        procs.gpu_ns_by_pid = lambda: {}
+        procs.coalition_of = lambda _pid: None
+        procs.thermal_state = lambda: "nominal"
+        procs.power_assertions = lambda _pids: []
+        ib.time.sleep = lambda _seconds: None
+        ib.read_rpc = lambda *args, **kwargs: calls.append(args[1]) or {}
+        try:
+            result = ib.measure(None, instance, 60, d15=ib.D15Readers(
+                windowserver=lambda: (157, 10, "rusage", 0.0), start_network=lambda seconds, workdir: None,
+                network_pid=lambda started: None, finish_network=lambda started, start, end: None,
+                read_log=lambda pids, start, end: None))
+        finally:
+            (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+             procs.thermal_state, procs.power_assertions, ib.time.sleep, ib.read_rpc, procs.priorities) = saved
+        self.assertEqual(calls, [])
+        self.assertEqual([r["kind"] for r in result["processes"]], ["daemon"])
+        self.assertIsNone(result["ends"]["start"]["saver"])
+        self.assertNotIn("main_wakes_per_s", result)
+
+    # external-churn.
+
+    def test_chrome_history_fixture_reads_as_chromium_history(self):
+        import sqlite3
+        path = ib.make_chrome_history(os.path.join(self.folder, "History"), visits=3, now=1_700_000_000)
+        ib.append_chrome_visit(path, 7, now=1_700_000_100)
+        with sqlite3.connect(path) as db:  # ChromiumHistoryReader's query
+            rows = db.execute("SELECT url, title, visit_count, last_visit_time FROM urls WHERE hidden = 0 AND "
+                              "visit_count > 0 ORDER BY last_visit_time DESC").fetchall()
+        self.assertEqual(rows[0], ("https://example.com/churn/7", "Churn 7", 1, ib.chrome_time(1_700_000_100)))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(ib.chrome_time(0), 11644473600 * 1_000_000)
+        self.assertFalse(os.path.exists(path + "-journal"))  # the commit made and removed it
+
+    def test_keep_in_sync_store_is_one_synced_chrome_source(self):
+        history = os.path.join(self.folder, "Chrome", "Default", "History")
+        files = ib.keep_in_sync_store(history, now=1_700_000_000)
+        record = files["sources.json"][0]
+        self.assertEqual(record["syncedHistoryFile"], Path(history).resolve().as_uri())
+        self.assertEqual((record["browser"], record["profileDirectory"]), ("chrome", "Default"))
+        self.assertEqual(record["proposedProfileID"], record["targetProfileID"])
+        self.assertRegex(record["targetProfileID"], r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        # ImportedDataStore.batchFile: <target profile>/<source key, other than letters, digits and - as _>.json
+        batch = files[f"{record['targetProfileID']}/chrome_Default.json"]
+        self.assertEqual((batch["source"], batch["kinds"], batch["history"], batch["importedAt"]),
+                         (record, ["history"], [], 1_700_000_000))
+
+    def test_seeded_store_restores_the_tags_store(self):
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        with open(os.path.join(store, "sources.json"), "w") as handle:
+            handle.write("[]")
+        seeded = ib.SeededStore(store, {"sources.json": [{"a": 1}], "p/b.json": {"b": 2}}).write()
+        with open(os.path.join(store, "p", "b.json")) as handle:
+            self.assertEqual(json.load(handle), {"b": 2})
+        seeded.restore()
+        with open(os.path.join(store, "sources.json")) as handle:
+            self.assertEqual(handle.read(), "[]")
+        self.assertFalse(os.path.exists(store + ".bench-prev"))
+        os.makedirs(store + ".bench-prev")
+        with self.assertRaises(ib.SessionShapeError):
+            ib.SeededStore(store, {}).write()
+        fresh = os.path.join(self.folder, "fresh", "BrowserImport")
+        ib.SeededStore(fresh, {"sources.json": []}).write().restore()
+        self.assertFalse(os.path.exists(fresh))
+
+    def test_a_restore_that_cannot_move_the_store_back_reports_and_keeps_it_aside(self):
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        seeded = ib.SeededStore(store, {"sources.json": []}).write()
+        with unittest.mock.patch.object(ib.os, "rename", side_effect=OSError(16, "Resource busy")):
+            problem = seeded.restore()
+        self.assertIn("the earlier store stays at", problem)
+        self.assertTrue(os.path.isdir(store + ".bench-prev"))
+
+    def test_the_app_stops_before_the_churn_fixtures_go(self):
+        """The app's Keep in Sync watch reads the History file and writes the import store: both stay until it ended.
+        A failing step does not skip the later ones."""
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        rig = ib.SessionRig("external-churn", "release")
+        rig.scratch = os.path.join(self.folder, "scratch")
+        os.makedirs(rig.scratch)
+        rig.store = ib.SeededStore(store, {"sources.json": []}).write()
+        seen = []
+
+        def stop():
+            seen.append((os.path.isdir(rig.scratch), os.path.exists(store + ".bench-prev")))
+            raise RuntimeError("debug.quit timed out")
+        app = types.SimpleNamespace(process=types.SimpleNamespace(poll=lambda: None), stop=stop)
+        errors = rig.teardown(app)
+        self.assertEqual(seen, [(True, True)])  # the fixtures were still there while the app stopped
+        self.assertEqual(errors, ["app: RuntimeError: debug.quit timed out"])
+        self.assertFalse(os.path.exists(rig.scratch))
+        self.assertFalse(os.path.exists(store + ".bench-prev"))  # restored anyway
+
+    def test_import_store_only_of_a_tagged_bundle(self):
+        tagged = bundle(os.path.join(self.folder, "a"), debug=False)
+        mine = bundle(os.path.join(self.folder, "b"), debug=False, ident="com.cmuxterm.app")
+        self.assertTrue(ib.import_store_dir(tagged).endswith("Application Support/com.cmuxterm.app.debug.t/BrowserImport"))
+        self.assertIsNone(ib.import_store_dir(mine))
+
+    def test_churn_writes_ten_a_second_and_a_history_visit_every_five_seconds(self):
+        project = ib.make_project(os.path.join(self.folder, "project"))
+        self.assertTrue(os.path.isdir(os.path.join(project, ".git")))
+        history = ib.make_chrome_history(os.path.join(self.folder, "History"), visits=1)
+        churn = ib.ExternalChurn(project, history)
+        for n in range(101):
+            churn.step(n)
+        with open(os.path.join(project, "churn.log")) as handle:
+            self.assertEqual(len(handle.read().splitlines()), 101)
+        self.assertEqual((churn.writes, churn.visits), (101, 3))  # writes 0, 50 and 100: one per 5 s at 10/s
+        running = ib.ExternalChurn(project, history, writes_per_s=200).start()
+        self.assertTrue(running.thread.is_alive())
+        counts = running.stop()
+        self.assertFalse(running.thread.is_alive())
+        self.assertIsNone(counts["error"])
+        self.assertGreaterEqual(counts["writes"], 1)
+
+
+ACPMUX = f"{APP}/Contents/Resources/bin/acpmux"
+FAKE = "/usr/bin/python3 /tmp/agent-idle/fake_agent.py"
+
+
+def agent_table():
+    """A process table with two agent hosts, a chat's (its harness runs a tool) and a pooled entry's (the multicall
+    spelling), plus a python that is no harness."""
+    return [(1, 0, f"{APP}/Contents/MacOS/cmux DEV"),
+            (10, 1, f"{ACPMUX} daemon run"),
+            (20, 1, f"{ACPMUX} __agent-host"),
+            (21, 20, FAKE),
+            (22, 21, "/bin/zsh -c make"),
+            (30, 1, f"{APP}/Contents/Resources/bin/cmux acp __agent-host"),
+            (31, 30, "/usr/local/bin/node /x/claude-agent-acp"),
+            (40, 1, "/usr/bin/python3 /tmp/other.py")]
+
+
+class AgentHarnessKindTests(unittest.TestCase):
+    """p14-energy-103: every process under an acpmux agent host, pooled ones included, is agent-harness."""
+
+    def test_kind_under_an_agent_host_is_agent_harness(self):
+        self.assertEqual(ib.kind(FAKE, under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind("/bin/zsh -c make", under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind(FAKE), "other:python3")
+        # The host is acpmux code, in both spellings (the acpmux binary, the cmux multicall binary).
+        self.assertEqual(ib.kind(f"{ACPMUX} __agent-host"), "acpmux")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/cmux acp __agent-host"), "acpmux")
+        self.assertFalse(procs.is_agent_host(f"{ACPMUX} daemon run --note __agent-hostile"))
+
+    def test_harness_pids_are_every_descendant_of_a_host(self):
+        self.assertEqual(procs.agent_harness_pids(agent_table()), {21: 20, 22: 20, 31: 30})
+        # A host under a host is its own: its harness is the inner host's.
+        nested = [(20, 1, f"{ACPMUX} __agent-host"), (21, 20, f"{ACPMUX} __agent-host"), (22, 21, FAKE)]
+        self.assertEqual(procs.agent_harness_pids(nested), {22: 21})
+
+    def test_process_set_names_the_harness_of_its_own_table(self):
+        # process_set's instance read and its table are the one source: the harness map is the instance's.
+        darwin = types.SimpleNamespace(responsible=None)
+        with unittest.mock.patch.object(procs, "process_table", agent_table), \
+                unittest.mock.patch.object(procs, "_darwin", lambda: darwin):
+            instance = procs.Instance(APP, 1)
+            found = ib.process_set(instance)
+        self.assertEqual(instance.harness, {21: 20, 22: 20, 31: 30})
+        self.assertTrue(set(instance.harness) <= set(found))
+        self.assertFalse(hasattr(ib, "agent_harness"))  # one walk: procs.agent_harness_pids through Instance.pids
+
+    def test_instance_counts_harnesses_of_its_hosts(self):
+        darwin = types.SimpleNamespace(responsible=None)
+        table = agent_table() + [(50, 0, "/opt/acpmux __agent-host"), (51, 50, FAKE)]
+        with unittest.mock.patch.object(procs, "process_table", lambda: table), \
+                unittest.mock.patch.object(procs, "_darwin", lambda: darwin):
+            instance = procs.Instance(APP, 1)
+            pids = instance.pids()
+        self.assertTrue({20, 21, 22, 30, 31} <= set(pids))
+        self.assertNotIn(51, pids)  # another app's host and its harness
+        self.assertEqual(instance.harness, {21: 20, 22: 20, 31: 30})
+        self.assertEqual(instance.kind(21, FAKE), "agent-harness")
+        self.assertEqual(instance.kind(40, "/usr/bin/python3 /tmp/other.py"), procs.kind_of("/usr/bin/python3 /tmp/other.py"))
+        self.assertNotEqual(procs.kind_of(FAKE), "agent-harness")  # the kind comes from the tree, not the command
+
+    def test_rows_mark_the_hidden_chats_harness(self):
+        zero = procs.usage_from_words(rusage_words(), 1, 1)
+        woke = procs.usage_from_words(rusage_words(interrupt=6), 1, 1)
+
+        def snap(usage):
+            return {pid: (cmd, usage, (0, 4, 0, 0, 0), {}) for pid, _ppid, cmd in agent_table()}
+
+        rows = ib.process_rows(snap(zero), snap(woke), 2.0, {}, {}, ib.kind, harness={21: 20, 22: 20, 31: 30},
+                               hidden_hosts=(20,))
+        by_pid = {r["pid"]: r for r in rows}
+        self.assertEqual({pid: by_pid[pid]["kind"] for pid in (20, 21, 22, 30, 31, 40)},
+                         {20: "acpmux", 21: "agent-harness", 22: "agent-harness", 30: "acpmux", 31: "agent-harness",
+                          40: "other:python3"})
+        self.assertEqual([pid for pid, r in sorted(by_pid.items()) if r.get("hidden")], [21, 22])
+        self.assertEqual((by_pid[21]["agent_host"], by_pid[31]["agent_host"]), (20, 30))
+        kinds = ib.aggregate({"processes": rows})
+        self.assertEqual(kinds["agent-harness"]["n"], 3)
+        self.assertEqual(kinds["agent-harness"]["hidden_wakeups_max"], 3.0)
+
+    def test_measure_classifies_the_harness_of_the_last_read(self):
+        calls = []
+        commands = {pid: cmd for pid, _ppid, cmd in agent_table()}
+        instance = type("Instance", (), {"pid": 1, "harness": {}})()
+        # The first read saw a harness 21 under host 20 that exits; the last read's table has 31 under 30, and
+        # names 77, which is not in its set: the map is the last read's, filtered to its pids.
+        reads = [({**commands, 23: FAKE}, {21: 20, 22: 20, 23: 20}), (commands, {21: 20, 22: 20, 31: 30, 77: 30})]
+
+        def process_set(read_instance):
+            got, read_instance.harness = reads.pop(0) if len(reads) > 1 else reads[0]
+            return ib.ProcessSet(got, [row for row in agent_table() if row[0] in got])
+
+        d15 = ib.D15Readers(windowserver=lambda: (157, 10, "rusage", 0.0),
+                            start_network=lambda seconds, workdir: "nettop", network_pid=lambda started: None,
+                            finish_network=lambda started, start, end: {}, read_log=lambda pids, start, end: {})
+
+        patches = [unittest.mock.patch.object(ib, "process_set", process_set),
+                   unittest.mock.patch.object(ib, "threads", lambda _pid: {}),
+                   unittest.mock.patch.object(procs, "usage", lambda _pid: procs.usage_from_words(rusage_words(), 1, 1)),
+                   unittest.mock.patch.object(procs, "overhead", lambda _pid: (0, 4, 0, 0, 0)),
+                   unittest.mock.patch.object(procs, "gpu_ns_by_pid", lambda: {}),
+                   unittest.mock.patch.object(procs, "coalition_of", lambda _pid: None),
+                   unittest.mock.patch.object(procs, "thermal_state", lambda: "nominal"),
+                   unittest.mock.patch.object(procs, "power_assertions", lambda _pids: []),
+                   unittest.mock.patch.object(procs, "process_table", lambda: calls.append("ps") or agent_table()),
+                   unittest.mock.patch.object(procs, "priorities", lambda _pids: {}),
+                   unittest.mock.patch.object(ib, "acpmux_homes", lambda _env: []),
+                   unittest.mock.patch.object(ib.time, "sleep", lambda seconds: calls.append("sleep"))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        result = ib.measure(FakeApp([]), instance, 60, hidden_hosts=(30,), d15=d15)
+        self.assertEqual(calls, ["sleep", "sleep"])  # no second ps read: the harness is the last process_set's
+        kinds = {r["pid"]: (r["kind"], r.get("hidden", False)) for r in result["processes"]}
+        self.assertEqual(kinds[31], ("agent-harness", True))
+        self.assertEqual(kinds[21], ("agent-harness", False))
+        self.assertNotIn(23, kinds)
+        self.assertNotIn(77, kinds)
+
+
+class AgentSessionTests(unittest.TestCase):
+    """The agent-idle, agent-working-visible and busy-hidden sessions and their D14 rows."""
+
+    def test_the_three_sessions_and_their_rows_exist(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        for name in ("agent-idle", "agent-working-visible", "busy-hidden"):
+            self.assertIn(name, ib.SESSIONS)
+            self.assertIn(name, budget["sessions"])
+        self.assertEqual(ib.SESSIONS["agent-idle"]["agents"], {"visible": True, "hidden": True, "pool": 1})
+        self.assertEqual(ib.SESSIONS["agent-working-visible"]["agents"], {"visible": True, "working": True, "engine": "cef"})
+        self.assertEqual(ib.SESSIONS["busy-hidden"]["busy_terminal"], 0.1)
+        # agent-idle settles past the hidden harness's freeze (p14-energy-117).
+        self.assertGreater(ib.settle_seconds("agent-idle", 60), ib.HARNESS_FREEZE_S)
+        self.assertEqual(ib.settle_seconds("busy-hidden", 60), 60)
+        self.assertIn("agent-harness", budget["kinds"])
+
+    def test_unknown_agent_session_refused(self):
+        with self.assertRaises(SystemExit) as raised:
+            ib.parse_sessions("agent-idle,agent-idel")
+        self.assertIn("unknown session agent-idel", str(raised.exception))
+        self.assertEqual(ib.parse_sessions("agent-idle,agent-working-visible,busy-hidden"),
+                         ["agent-idle", "agent-working-visible", "busy-hidden"])
+
+    def test_d14_budgets(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        idle = {"app": {"wakeups_per_s": 0.4}, "daemon": {"wakeups_per_s": 0.2}, "acpmux": {"wakeups_per_s": 0.3},
+                "agent-harness": {"wakeups_per_s": 9.0, "hidden_wakeups_max": 4.0}}
+        # The hidden harness is reported, not judged, until p14-energy-117 freezes it.
+        self.assertEqual(ib.over_budget("agent-idle", idle, budget), [])
+        self.assertIsNone(ib.limit_for(budget, "agent-idle", "agent-harness", "hidden_wakeups_max"))
+        # ... and the gap shows: an IDLE-BUDGET-NOT-JUDGED note with the value and the task that turns it on.
+        notes = ib.deferred_notes("agent-idle", idle, budget)
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("agent-idle agent-harness hidden_wakeups_max: not judged: 4.0 measured;"))
+        self.assertIn("p14-energy-117", notes[0])
+        self.assertIn("not measured", ib.deferred_notes("agent-idle", {}, budget)[0])
+        self.assertEqual(ib.deferred_notes("stress-static", {}, budget), [])  # a null with no reason stays quiet
+        loud ={**idle, "acpmux": {"wakeups_per_s": 0.6}}
+        self.assertIn(("app+daemon+acpmux", "wakeups_per_s", 1.2, 1.0), ib.over_budget("agent-idle", loud, budget))
+        working = {"app": {"wakeups_per_s": 20.0}, "cef-renderer": {"wakeups_per_s": 10.0},
+                   "cef-gpu": {"wakeups_per_s": 6.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("agent-working-visible", working, budget),
+                         [("app+cef-renderer+cef-gpu", "wakeups_per_s", 36.0, 35)])
+        # Busy: only the session's own rows judge (the daemon's 50/s carries the printing terminal).
+        busy = {"app": {"wakeups_per_s": 2.5, "main_wakes_per_s": 3.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [("app", "wakeups_per_s", 2.5, 2.0)])
+
+    def test_agent_home_config_and_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-idle")
+            self.assertEqual(home.env(), {"ACPMUX_HOME": home.home, "ACPMUX_SOCKET": home.socket})
+            self.assertLess(len(home.socket), 104)
+            home.write()
+            with open(os.path.join(home.home, "config.json")) as handle:
+                config = json.load(handle)
+            self.assertEqual(config, ib.agent_config(sys.executable, os.path.join(folder, "fake_agent.py")))
+            self.assertEqual(config["defaultHarness"], ib.AGENT_HARNESS_ID)
+            self.assertEqual(config["pool"], {"idleMinutes": ib.POOL_IDLE_MINUTES})
+            self.assertTrue(os.path.isfile(os.path.join(folder, "fake_agent.py")))
+            self.assertTrue(os.path.isdir(home.cwd) and os.path.isdir(home.pool_cwd))
+            self.assertEqual(home.pool_host_pids(), [])
+            os.makedirs(os.path.join(home.home, "hosts", "pool"))
+            with open(os.path.join(home.home, "hosts", "s1.json"), "w") as handle:
+                json.dump({"session_id": "s1", "host_pid": 4242}, handle)
+            with open(os.path.join(home.home, "hosts", "pool", "pool-1.json"), "w") as handle:
+                json.dump({"host_pid": 4343}, handle)
+            with open(os.path.join(home.home, "hosts", "pool", "pool-2.json.tmp-9"), "w") as handle:
+                json.dump({"host_pid": 9}, handle)
+            self.assertEqual(home.host_pid("s1"), 4242)
+            self.assertIsNone(home.host_pid("s2"))
+            self.assertEqual(home.pool_host_pids(), [4343])
+
+    def test_pool_ready_counts_only_ready_entries_in_its_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-idle")
+            entries = [{"cwd": home.pool_cwd, "state": "ready", "roles": ["hinted"]},
+                       {"cwd": home.pool_cwd + "/", "state": "warming"},
+                       {"cwd": home.cwd, "state": "ready"}]  # the agent page's own prewarm hint
+            home.call = lambda method, params=None, timeout=10: {"pool": {"entries": entries}}
+            self.assertEqual(home.pool_ready(home.pool_cwd), [entries[0]])
+            home.call = lambda method, params=None, timeout=10: {"error": "closed"}
+            self.assertEqual(home.pool_ready(home.pool_cwd), [])
+
+    def test_trust_reports_a_refusal(self):
+        home = ib.AgentHome("/tmp/x", "agent-idle")
+        home.call = lambda method, params=None, timeout=10: {}
+        self.assertIsNone(home.trust("/tmp/x/agent-work"))
+        home.call = lambda method, params=None, timeout=10: {"error": {"code": -32601, "message": "no method"}}
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(home.trust("/w"), {"cwd": "/w", "error": {"code": -32601, "message": "no method"}})
+        self.assertTrue(printed.getvalue().startswith("AGENT-SESSION-TRUST-REFUSED "))
+
+    def test_gate_blocks_until_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-working-visible")
+            path = home.gate()
+            home.release()  # no reader yet: nothing to end, no error
+            got = []
+
+            def read():
+                with open(path) as gate:
+                    got.append(gate.readline())
+
+            reader = ib.threading.Thread(target=read)
+            reader.start()
+            for _ in range(500):  # the reader opens the FIFO at some point; release reaches it once it has
+                home.release()
+                reader.join(0.01)
+                if got:
+                    break
+            reader.join(5)
+            self.assertEqual(got, ["go\n"])
+
+    def test_chat_session_and_turn_done(self):
+        self.assertEqual(ib.chat_session({"result": json.dumps({"sessionId": "s1"})}), "s1")
+        self.assertEqual(ib.chat_session({"result": {"sessionId": "s2"}}), "s2")
+        self.assertEqual(ib.chat_session({"sessionId": "s3"}), "s3")
+        self.assertIsNone(ib.chat_session({"error": "no agent tab"}))
+        self.assertIsNone(ib.chat_session({"result": "not json"}))
+        self.assertTrue(ib.turn_done({"status": "ready", "lastTurn": {"endedAt": 5}}))
+        # idle is SessionStatus::Idle, "No child process": the harness exited, nothing would be measured.
+        self.assertFalse(ib.turn_done({"status": "idle", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "running", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "ready"}))
+
+
+def fake_wait(predicate, seconds, step=0.25):
+    """perf-stress-session.py's bounded poll with no sleep: up to 20 tries, an exception is no value."""
+    for _ in range(20):
+        try:
+            value = predicate()
+        except Exception:  # noqa: BLE001 - as the real poll: the state may not answer yet
+            value = None
+        if value:
+            return value
+    return None
+
+
+class FakeWorld:
+    """The app, its agent pages and its acpmux as the session builders see them: perf-stress-session.py's Stress
+    (workspaces, panes, tabs, show), debug.agent_pane per pane, and acpmux's replies (AgentHome.call), with the
+    host records acpmux writes. Every verb is recorded in `log`."""
+
+    def __init__(self, home, engine="cef", trust_error=None, prewarm=None, finished_status="ready", new_chat=None,
+                 send_error=None, write_hidden_record=True):
+        self.home, self.engine, self.log = home, engine, []
+        self.trust_error, self.prewarm = trust_error, prewarm or {"accepted": True}
+        self.finished_status, self.new_chat, self.send_error = finished_status, new_chat, send_error
+        self.write_hidden_record = write_hidden_record
+        self.workspaces = {"w1": [{"id": "p1", "tabs": [{"id": "t1", "selected": True}]}]}
+        self.focused = self.showing = "w1"
+        self.sessions, self.pool = {}, []
+        self.next_pid = 5000
+        world = self
+
+        class Stress:
+            def __init__(self, rpc):
+                self.rpc, self.refusals = rpc, []
+
+            def action(self, name, args=None, target=None, focus=True, timeout=120, settle=0.0):
+                world.log.append(("action", name, target))
+                return {}
+
+            def focused_workspace(self):
+                return world.focused
+
+            def workspace(self, workspace_id):
+                panes = world.workspaces.get(workspace_id)
+                return None if panes is None else {"id": workspace_id, "panes": panes}
+
+            @staticmethod
+            def panes(workspace):
+                return (workspace or {}).get("panes") or []
+
+            def new_workspace(self):
+                made = f"w{len(world.workspaces) + 1}"
+                world.workspaces[made] = [{"id": f"p{len(world.workspaces) + 1}", "tabs": [{"id": "tx", "selected": True}]}]
+                world.log.append(("new_workspace", made))
+                return made
+
+            def show(self, workspace):
+                world.log.append(("show", workspace))
+                world.showing = workspace
+
+            def window_showing(self, workspace, topology=None):
+                return {"workspace": workspace} if world.showing == workspace else None
+
+            def send(self, tab_id, text):
+                world.log.append(("send", tab_id, text))
+
+        self.module = types.SimpleNamespace(Stress=Stress, wait=fake_wait)
+        home.call = self.acpmux
+
+    def pid(self):
+        self.next_pid += 1
+        return self.next_pid
+
+    def record(self, path, pid):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            json.dump({"host_pid": pid}, handle)
+
+    # The app's control socket.
+    def rpc(self, method, params=None, timeout=30):
+        params = params or {}
+        if method != "debug.agent_pane":
+            return {}
+        action, pane = params["action"], params["pane"]
+        self.log.append(("page", action, pane))
+        session = f"s-{pane}"
+        if action == "chat_state":
+            return {"pane": pane, "sessionId": session if session in self.sessions else None}
+        if action == "engine":
+            return {"pane": pane, "engine": self.engine}
+        if action == "new_chat":
+            return self.new_chat or {"pane": pane, "sessionId": None}
+        if action == "send_prompt":
+            if self.send_error:
+                return {"pane": pane, "error": self.send_error}
+            gated = params["text"].startswith("gate: ")
+            self.sessions[session] = {"sessionId": session, "status": "running" if gated else self.finished_status,
+                                      "lastTurn": None if gated else {"endedAt": 1}}
+            if self.write_hidden_record or pane == "p1":
+                self.record(os.path.join(self.home.home, "hosts", f"{session}.json"), self.pid())
+            return {"pane": pane, "sent": True, "turnEnded": not gated, "sessionId": session}
+        return {"error": f"unknown action {action}"}
+
+    # acpmux's socket (AgentHome.call).
+    def acpmux(self, method, params=None, timeout=10):
+        self.log.append(("acpmux", method))
+        if method == "_acpmux/status":
+            return {"pool": {"entries": list(self.pool)}}
+        if method == "_acpmux/sessions":
+            return {"sessions": list(self.sessions.values())}
+        if method == "acp.trust.set":
+            return {"error": self.trust_error} if self.trust_error else {}
+        if method == "_acpmux/prewarm":
+            if self.prewarm.get("accepted"):
+                self.pool.append({"cwd": params["cwd"], "state": "ready"})
+                self.record(os.path.join(self.home.home, "hosts", "pool", "pool-1.json"), self.pid())
+            return self.prewarm
+        return {"error": "unknown"}
+
+
+class AgentSessionBuildTests(unittest.TestCase):
+    """build_agents, open_agent_chat, build_busy_hidden and main's session wiring against FakeWorld."""
+
+    def setUp(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.home = ib.AgentHome(folder, "agent-idle")
+        os.makedirs(self.home.home)
+        self.out = io.StringIO()
+        patch = unittest.mock.patch("sys.stdout", self.out)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def build(self, plan, **world):
+        self.world = FakeWorld(self.home, **world)
+        return ib.build_agents(self.world, self.home, plan, self.world.module)
+
+    def page_verbs(self, verb):
+        return [entry for entry in self.world.log if entry[:2] == ("page", verb)]
+
+    def test_agent_idle_builds_a_hidden_chat_a_visible_chat_and_a_pool_entry(self):
+        built = self.build(ib.SESSIONS["agent-idle"]["agents"])
+        hidden, visible = built["chats"]
+        self.assertEqual((hidden["workspace"], hidden["visible"], visible["workspace"], visible["visible"]),
+                         ("w2", False, "w1", True))
+        self.assertEqual(built["hidden_hosts"], [hidden["host_pid"]])
+        # The hidden workspace showed for its chat, then the launch workspace showed again over it.
+        self.assertEqual([e for e in self.world.log if e[0] == "show"], [("show", "w2"), ("show", "w1")])
+        self.assertEqual(self.world.showing, "w1")
+        self.assertEqual((built["pool_entries"], len(built["pool_hosts"])), (1, 1))
+        self.assertEqual(built["plan"], ib.SESSIONS["agent-idle"]["agents"])
+        self.assertEqual(built["trust"], [])
+        # One new chat and one prompt per chat: the user verbs never repeat.
+        self.assertEqual(len(self.page_verbs("new_chat")), 2)
+        self.assertEqual(len(self.page_verbs("send_prompt")), 2)
+        self.assertIn("AGENT-SESSION ", self.out.getvalue())
+
+    def test_working_chat_runs_its_gated_turn_on_cef(self):
+        built = self.build(ib.SESSIONS["agent-working-visible"]["agents"])
+        (chat,) = built["chats"]
+        self.assertEqual((chat["working"], chat["engine"]), (True, "cef"))
+        self.assertEqual(self.world.sessions[chat["session"]]["status"], "running")
+        self.assertEqual(len(self.home.gates), 1)
+        self.assertEqual(built["pool_hosts"], [])
+
+    def test_a_webkit_chat_is_refused_where_the_session_sums_cef(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "shows on webkit:own-host, the session measures cef"):
+            self.build(ib.SESSIONS["agent-working-visible"]["agents"], engine="webkit:own-host")
+        # agent-idle names no engine: a WebKit chat is recorded, not refused.
+        built = self.build({"visible": True}, engine="webkit:agentChat")
+        self.assertEqual(built["chats"][0]["engine"], "webkit:agentChat")
+
+    def test_a_refused_send_is_sent_once_then_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "send_prompt refused"):
+            self.build({"visible": True}, send_error="timed out")
+        self.assertEqual(len(self.page_verbs("send_prompt")), 1)
+        with self.assertRaisesRegex(ib.SessionShapeError, "new_chat refused"):
+            self.build({"visible": True}, new_chat={"error": "timed out"})
+        self.assertEqual(len(self.page_verbs("new_chat")), 1)
+        self.assertEqual(self.page_verbs("send_prompt"), [])
+
+    def test_a_pending_start_is_refused_with_the_trust_refusal(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "waits on a question .*no method"):
+            self.build({"visible": True}, new_chat={"sessionId": None, "pending": True}, trust_error="no method")
+        self.assertIn("AGENT-SESSION-TRUST-REFUSED", self.out.getvalue())
+
+    def test_a_trust_refusal_is_reported(self):
+        built = self.build({"visible": True}, trust_error="no method")
+        self.assertEqual(built["trust"], [{"cwd": self.home.cwd, "error": "no method"}])
+
+    def test_a_harness_that_exited_is_no_finished_turn(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "its turn did not finish"):
+            self.build({"visible": True}, finished_status="idle")
+
+    def test_a_hidden_chat_with_no_host_record_is_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "has no agent host record"):
+            self.build({"hidden": True}, write_hidden_record=False)
+
+    def test_a_refused_prewarm_is_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "prewarm .* refused: .*the session pool is off"):
+            self.build({"pool": 1}, prewarm={"accepted": False, "reason": "the session pool is off"})
+
+    def test_a_pool_entry_the_page_hinted_does_not_count(self):
+        self.world = FakeWorld(self.home)
+        answer = self.world.acpmux
+
+        def acpmux(method, params=None, timeout=10):
+            if method != "_acpmux/prewarm":
+                return answer(method, params, timeout)
+            # A newer hint from the agent page superseded the bench's: the ready entry is in the page's folder.
+            self.world.pool.append({"cwd": self.home.cwd, "state": "ready"})
+            return {"accepted": True, "superseded": True}
+
+        self.home.call = acpmux
+        with self.assertRaisesRegex(ib.SessionShapeError, "1 ready pooled entries in .* wanted, 0"):
+            ib.build_agents(self.world, self.home, {"pool": 1}, self.world.module)
+
+    def test_busy_hidden_prints_in_the_launch_terminal_then_hides_it(self):
+        self.world = FakeWorld(self.home)
+        built = ib.build_busy_hidden(self.world, 0.1, self.world.module)
+        self.assertEqual(built, {"printing_workspace": "w1", "printing_tab": "t1", "period_s": 0.1,
+                                 "shown_workspace": "w2"})
+        self.assertIn(("send", "t1", "while :; do echo idle-budget-tick; sleep 0.1; done\n"), self.world.log)
+        self.assertEqual(self.world.showing, "w2")
+
+    def test_busy_hidden_refuses_a_workspace_with_no_terminal(self):
+        self.world = FakeWorld(self.home)
+        self.world.workspaces["w1"] = [{"id": "p1", "tabs": []}]
+        with self.assertRaisesRegex(ib.SessionShapeError, "has no terminal tab"):
+            ib.build_busy_hidden(self.world, 0.1, self.world.module)
+
+
+class AgentRefusalTests(unittest.TestCase):
+    """A window that did not measure the harnesses the session built is refused, not passed."""
+
+    AGENTS = {"plan": {"visible": True, "hidden": True, "pool": 1}, "hidden_hosts": [20], "pool_hosts": [30]}
+
+    def rows(self, *hosts):
+        return [{"kind": "agent-harness", "agent_host": host} for host in hosts] + [{"kind": "acpmux"}]
+
+    def test_both_harnesses_measured(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(20, 30)), [])
+
+    def test_the_hidden_harness_exited(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(30)),
+                         [("agents", "no agent-harness row under the hidden chat's host [20]")])
+
+    def test_an_empty_hidden_set_is_refused(self):
+        agents = {**self.AGENTS, "hidden_hosts": []}
+        self.assertEqual(ib.agent_refusals(agents, self.rows(20, 30)),
+                         [("agents", "no agent-harness row under the hidden chat's host []")])
+
+    def test_the_pooled_harness_is_gone(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(20)),
+                         [("agents", "no agent-harness row under a pooled host [30]")])
+
+    def test_sessions_without_agents_or_without_a_hidden_chat(self):
+        self.assertEqual(ib.agent_refusals(None, []), [])
+        working = {"plan": {"visible": True, "working": True}, "hidden_hosts": [], "pool_hosts": []}
+        self.assertEqual(ib.agent_refusals(working, []), [])
+
+    def test_refusals_reads_the_window_rows(self):
+        entry = {"saver": {"mismatch": None}, "agents": self.AGENTS, "result": {"processes": self.rows(30)}}
+        with unittest.mock.patch.object(ib, "shipping_refusals", lambda _entry: []):
+            self.assertEqual([what for what, _why in ib.refusals(entry)], ["agents"])
+
+
+class SessionWiringTests(unittest.TestCase):
+    """main's session wiring: the agent home's env reaches the app, its config is written before the launch, and
+    the gated turns end before the app stops."""
+
+    class App:
+        def __init__(self, path, out, env, config, log_name=None, perf_session=None, run=None):
+            self.path, self.out, self.env, self.config = path, out, env, config
+            self.log_name, self.perf_session, self.run = log_name, perf_session, run
+            self.log = []
+
+        def launch(self):
+            self.log.append("launch")
+
+        def stop(self):
+            self.log.append("stop")
+
+    def test_an_agent_session_launches_with_its_acpmux_home(self):
+        with tempfile.TemporaryDirectory() as out:
+            app, agents = ib.session_app(self.App, "/A.app", out, "agent-idle", {"CMUX_X": "1"})
+            self.assertIsInstance(agents, ib.AgentHome)
+            self.assertEqual(app.env, {"CMUX_X": "1", **agents.env()})
+            self.assertEqual(agents.folder, os.path.join(out, "agent-idle"))
+            self.assertEqual(app.out, out)  # result-v1 files: the lab reads --out only
+            self.assertEqual(app.log_name, os.path.join("agent-idle", "app.log"))
+            self.assertTrue(os.path.isdir(os.path.join(out, "agent-idle")))
+            app, agents = ib.session_app(self.App, "/A.app", out, "busy-hidden", {"CMUX_X": "1"})
+            self.assertIsNone(agents)
+            self.assertEqual(app.env, {"CMUX_X": "1"})
+
+    def test_start_writes_the_home_before_the_launch_then_builds(self):
+        log = []
+        app = self.App("/A.app", "/o", {}, {})
+        app.launch = lambda: log.append("launch")
+        agents = types.SimpleNamespace(write=lambda: log.append("write"))
+        entry = {}
+        with unittest.mock.patch.object(ib, "build_agents", lambda *a: log.append("agents") or {"built": 1}), \
+                unittest.mock.patch.object(ib, "build_busy_hidden", lambda *a: log.append("busy") or {"busy": 1}):
+            ib.start_session(app, agents, ib.SESSIONS["agent-idle"], entry)
+            self.assertEqual(log, ["write", "launch", "agents"])
+            self.assertEqual(entry, {"agents": {"built": 1}})
+            log.clear()
+            ib.start_session(app, None, ib.SESSIONS["busy-hidden"], entry)
+            self.assertEqual(log, ["launch", "busy"])
+
+    def test_stop_releases_the_gates_before_the_app_stops(self):
+        log = []
+        app = types.SimpleNamespace(stop=lambda: log.append("stop"))
+        ib.stop_session(app, types.SimpleNamespace(release=lambda: log.append("release")))
+        self.assertEqual(log, ["release", "stop"])
+
+        def broken():
+            raise OSError("gate")
+
+        log.clear()
+        with self.assertRaises(OSError):
+            ib.stop_session(app, types.SimpleNamespace(release=broken))
+        self.assertEqual(log, ["stop"])  # the app stops whatever the release did
+        log.clear()
+        ib.stop_session(app, None)
+        self.assertEqual(log, ["stop"])
+
+    def test_main_uses_the_session_wiring(self):
+        source = Path(HERE / "idle-budget.py").read_text()
+        main = source[source.index("def main(argv=None):"):]
+        self.assertIn("session_app(BenchApp, opts.app, out, session, rig.env(env), runs)", main)
+        self.assertIn("start_session(app, agents, spec, entry)", main)
+        self.assertIn("stop_session(app, agents)", main)
+        self.assertLess(main.index("start_session("), main.index("settle_seconds("))
+
+    def test_main_goes_on_after_a_session_app_that_raises_and_records_stress_in_one_run(self):
+        """A session whose app was never built (session_app raised) is reported failed and records nothing; the
+        loop goes on. Each later session's app records into --out as its story's perf session (stress for a STRESS
+        session), and the sessions of one story share one run."""
+        made, records = [], []
+
+        class FakeBench:
+            def __init__(self, path, out, env, config, log_name=None, perf_session=None, run=None):
+                self.app, self.out, self.log_name, self.perf_session, self.run = path, out, log_name, perf_session, run
+                self.process = None
+                made.append(self)
+
+            def record(self, story, metric, unit, samples, better, engine):
+                records.append((story, metric, self.perf_session, self.run.id, list(samples), self.out))
+                return os.path.join(self.out, f"{story}.ndjson")
+
+            def stop(self):
+                pass
+
+        real_session_app = ib.session_app
+
+        def session_app(app_class, app_path, out, session, env, runs=None):
+            if session == "light":
+                raise RuntimeError("no launch")
+            return real_session_app(FakeBench, app_path, out, session, env, runs)
+
+        def start_session(app, agents, spec, entry):
+            raise ib.SessionShapeError("refused after the launch")
+
+        import bench_launch
+        with tempfile.TemporaryDirectory() as folder:
+            app_path = bundle(folder, debug=False)
+            out = os.path.join(folder, "out")
+            with unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
+                    unittest.mock.patch.multiple(ib, session_app=session_app, start_session=start_session,
+                                                 fresh_session=lambda _app: {}, host_facts=lambda: {"host": "h", "macos": "26"}), \
+                    contextlib.redirect_stdout(io.StringIO()) as printed, self.assertRaises(SystemExit):
+                ib.main(["--app", app_path, "--sessions", "stress,light,stress-static", "--out", out])
+            with open(os.path.join(out, "idle-budget.json")) as handle:
+                report = json.load(handle)
+        self.assertEqual(report["session_exits"], {"stress": 1, "light": 1, "stress-static": 1})
+        self.assertIn("IDLE-BUDGET-SESSION-FAILED light exit=1 RuntimeError: no launch", printed.getvalue())
+        self.assertNotIn("results_v1", report["sessions"]["light"])
+        self.assertEqual([app.perf_session for app in made], ["stress", "stress"])
+        self.assertEqual([app.out for app in made], [out, out])
+        self.assertEqual([app.log_name for app in made], [os.path.join("stress", "app.log"),
+                                                         os.path.join("stress-static", "app.log")])
+        self.assertIs(made[0].run, made[1].run)
+        self.assertEqual(sorted((story, metric, session, samples) for story, metric, session, _run, samples, _out
+                                in records),
+                         [("idle-budget-stress", "idle_budget.stress-static.failed", "stress", [1]),
+                          ("idle-budget-stress", "idle_budget.stress.failed", "stress", [1])])
+        self.assertEqual({run for *_head, run, _samples, _out in records}, {made[0].run.id})
+
+    def test_a_results_writer_that_raises_does_not_abort(self):
+        app = types.SimpleNamespace(perf_session="stress", run=None,
+                                    record=lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            result = ib.record_session(app, "stress", {}, {}, failed=True)
+        self.assertEqual(result, {"error": "OSError: disk full"})
+        self.assertIn("IDLE-BUDGET-RESULTS-FAILED stress: OSError: disk full", printed.getvalue())
 
 
 if __name__ == "__main__":

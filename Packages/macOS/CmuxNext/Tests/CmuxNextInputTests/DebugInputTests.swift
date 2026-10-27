@@ -3,6 +3,7 @@ import CmuxNextInput
 @testable import CmuxNextInputDiagnostics
 import CmuxNextInputCore
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -58,6 +59,14 @@ struct DebugInputTests {
     static let pump = DebugInputPump(passesWhileInputPending: ["terminal": 0, "chromiumPage": 4], deferredForInput: 9,
                                      passMillisecondsP99: 1.5)
 
+    static let prewarm: DebugInputPrewarm = {
+        var counters = IntentPrewarmCounters()
+        counters.started = [.pointerDown: 3, .hoverDwell: 2]
+        counters.hits = [.pointerDown: 2]
+        counters.evicted = 1
+        return DebugInputPrewarm(counters: counters, held: 2)
+    }()
+
     static func latencyBatch() -> InputLatencyBatch {
         var slot = InputLatencySlot(kind: .keyPress, target: .terminal, entrypoint: .person, causedFrameUpdate: true)
         slot.generated = 1_000_000
@@ -71,16 +80,24 @@ struct DebugInputTests {
         return ledger.snapshot
     }
 
+    /// A main-thread scheduler whose posted turns run as main-actor tasks: the tap section's copy is a posted task.
+    static func mainWork() -> MainWorkScheduler {
+        MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in
+            DebugInputTestLink()
+        }
+    }
+
     static func everySource(tap: InputEventTap, resets: Resets) -> [any DebugInputSource] {
         [
             FixedSource(section: .latency, value: latency(), resets: resets),
             FixedSource(section: .interactions, value: Opaque(count: 1), resets: resets),
             FixedSource(section: .gate, value: gate, resets: resets),
             FixedSource(section: .coalescer, value: Opaque(count: 2), resets: resets),
-            InputTapDebugSource(tap: tap),
+            InputTapDebugSource(tap: tap, mainWork: mainWork()),
             FixedSource(section: .pump, value: pump, resets: resets),
             FixedSource(section: .scrollViews, value: [Opaque(count: 3)], resets: resets),
             FixedSource(section: .chromium, value: Opaque(count: 4), resets: resets),
+            FixedSource(section: .prewarm, value: prewarm, resets: resets),
         ]
     }
 
@@ -117,6 +134,7 @@ struct DebugInputTests {
         #expect(try Self.decode(Opaque.self, reply["coalescer"]) == Opaque(count: 2))
         #expect(try Self.decode([Opaque].self, reply["scroll_views"]) == [Opaque(count: 3)])
         #expect(try Self.decode(Opaque.self, reply["chromium"]) == Opaque(count: 4))
+        #expect(try Self.decode(DebugInputPrewarm.self, reply["prewarm"]) == Self.prewarm)
 
         let tapSection = try Self.decode(DebugInputTap.self, reply["tap"])
         #expect(tapSection.subscribers.map(\.eventClass) == InputEventClass.allCases.map { String(describing: $0) })
@@ -132,7 +150,7 @@ struct DebugInputTests {
 
     @Test func theSectionKeysAreTheSpecdNames() throws {
         #expect(DebugInputSection.allCases.map(\.rawValue)
-            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium"])
+            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium", "prewarm"])
         let gate = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.gate)))
         #expect(Set(gate.keys) == ["held_by_origin", "exempt_by_rule", "max_input_wait_behind_jobs_ms",
                                    "jobs_deferred_over_one_frame", "nonswift_blocks_while_input_pending"])
@@ -140,6 +158,10 @@ struct DebugInputTests {
         #expect(Set(held.keys) == ["main", "offMain"], "p04-input.md task 007 and DC10 name it offMain")
         let pump = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.pump)))
         #expect(Set(pump.keys) == ["passes_while_input_pending", "deferred_for_input", "pass_ms_p99"])
+        let prewarm = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.prewarm)))
+        #expect(Set(prewarm.keys) == ["started", "hits", "evicted", "cancelled_by_pressure", "skipped_for_power",
+                                      "skipped_for_pressure", "held"])
+        #expect(prewarm["started"] as? [String: Int] == ["pointerDown": 3, "hoverDwell": 2])
         let tap = try Self.object(JSONValue.parse(JSONEncoder().encode(InputTapDebugSource.snapshot(InputEventTap()))))
         #expect(Set(tap.keys) == ["subscribers", "global_monitors", "flags"], "no event yet: last_dispatched is left out")
         let row = try #require((tap["subscribers"] as? [[String: Any]])?.first)
@@ -147,7 +169,7 @@ struct DebugInputTests {
     }
 
     @Test func aSectionWithoutAProducerIsListedAsAbsent() async throws {
-        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap())])
+        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap(), mainWork: Self.mainWork())])
         let reply = try await debugInput.reply(to: .read(Set(DebugInputSection.allCases)))
         let object = try Self.object(reply)
         #expect(Set(object.keys) == ["tap", "absent"])
@@ -273,4 +295,11 @@ struct DebugInputTests {
         let reply = try await debugInput.reply(to: .read([.gate]))
         #expect(reply["gate"]?["max_input_wait_behind_jobs_ms"] == .string("inf"))
     }
+}
+
+/// The test scheduler's display link: never fires, the posted turns run the tap's copy.
+@MainActor
+private final class DebugInputTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

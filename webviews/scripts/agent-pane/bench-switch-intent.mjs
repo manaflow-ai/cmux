@@ -9,8 +9,14 @@
 //
 //   node scripts/agent-pane/bench-switch-intent.mjs --url "<agent pane URL>" \
 //     [--engine chromium|webkit] [--sequence codex,claude-sr,codex] [--prompt "Reply with exactly: ok"] [--out FILE]
+//
+// With PERF_RESULT_DIR set it also writes, per harness, each mark of the first and the repeat picks
+// as result-v1 (story webviews-switch-intent or webviews-switch-intent-webkit,
+// web.switch_intent.<harness>.<first|repeat>.<mark>, and .timed_out for the picks that hit the limit).
 import fs from "node:fs";
 import { chromium, webkit } from "playwright";
+import { recordPerfResults } from "../perf-result.mjs";
+import { switchIntentPerfSeries } from "./bench-perf-series.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -22,6 +28,8 @@ const engine = arg("engine", "chromium");
 const sequence = arg("sequence", "codex,claude-sr,codex,claude-sr").split(",");
 const prompt = arg("prompt");
 const out = arg("out");
+/// How long one pick waits for its marks before it gives up (the reply wait runs longer, below).
+const PICK_LIMIT_MS = 120_000;
 
 // Before any pane script: every outgoing JSON-RPC method with its page time.
 function instrument() {
@@ -49,7 +57,7 @@ await page.waitForFunction(() => window.cmuxAcpmuxDebug?.models?.().current, nul
 
 async function pick(harness) {
   return page.evaluate(
-    async ({ harness, prompt }) => {
+    async ({ harness, prompt, limitMs }) => {
       const debug = window.cmuxAcpmuxDebug;
       const title = () => document.querySelector(".acpmux-title")?.textContent ?? "";
       const from = debug.chatState().sessionId;
@@ -78,7 +86,11 @@ async function pick(harness) {
           if (prompt && marks.sent === undefined && out) marks.sent = out.t - t0;
           if (prompt && marks.reply === undefined && state.lastAssistant?.text) marks.reply = performance.now() - t0;
           const done = marks.ready !== undefined && (!prompt || marks.reply !== undefined);
-          if (done || performance.now() - t0 > 120_000) return resolve();
+          if (done) return resolve();
+          if (performance.now() - t0 > limitMs) {
+            marks.timedOut = true;
+            return resolve();
+          }
           requestAnimationFrame(watch);
         };
         requestAnimationFrame(watch);
@@ -94,7 +106,7 @@ async function pick(harness) {
       marks.harness = debug.chatState().harness;
       return marks;
     },
-    { harness, prompt },
+    { harness, prompt, limitMs: PICK_LIMIT_MS },
   );
 }
 
@@ -104,7 +116,9 @@ for (const harness of sequence) {
   const kind = seen.has(harness) ? "repeat" : "first";
   seen.add(harness);
   const marks = await pick(harness);
-  results.push({ harness, kind, ...marks });
+  // `harness` is what the pane reports after the pick; `picked` is the one asked for, which names the
+  // series (a pick that failed to switch still belongs to the harness it asked for).
+  results.push({ harness, kind, ...marks, picked: harness });
   const ms = (value) => (value === undefined ? "-" : `${value.toFixed(1)} ms`);
   console.log(
     `${engine} -> ${harness} (${kind}): paint ${ms(marks.paint)} ready ${ms(marks.ready)}` +
@@ -113,5 +127,11 @@ for (const harness of sequence) {
   );
   await page.waitForTimeout(1000);
 }
+// The report and the cleanup first, so a refused result-v1 write still leaves the --out file.
 if (out) fs.writeFileSync(out, JSON.stringify({ engine, results }, null, 2));
 await browser.close();
+recordPerfResults({
+  story: engine === "webkit" ? "webviews-switch-intent-webkit" : "webviews-switch-intent",
+  engine,
+  series: switchIntentPerfSeries(results, { prompted: Boolean(prompt), limitMs: PICK_LIMIT_MS }),
+});

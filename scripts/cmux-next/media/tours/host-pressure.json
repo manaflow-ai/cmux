@@ -1,10 +1,8 @@
 {
   "title": "Host pressure indicator, its three looks, popover and critical banner",
+  "features": ["hostPressure"],
   "steps": [
-    {"title": "Launch: the indicator ships off (Debug toggle hostPressure.enabled)", "wait": 2},
-    {"title": "Indicator on: a normal host still shows nothing",
-     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.enabled", "value": true}}, "wait": 2, "shot": false,
-     "optional": "debug.tunables is DEBUG only"},
+    {"title": "Launch with the feature hostPressure on (it ships off): a normal host still shows nothing", "wait": 2},
     {"title": "Warning: the still gauge after the toolbar band",
      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "warning"}}, "wait": 2,
      "optional": "debug.tunables is DEBUG only"},

@@ -1,0 +1,22 @@
+{
+ "_doc": "Gap closures of the misc fixture family (scripts/cmux-next/oracle/action_fixtures/misc.py, p15-oracle-087). `closed`: ids that leave every-action-gaps.json `gaps`, each with the fixture that sets up its context (action_fixtures.load_families refuses a `closed` that is not the family's CLOSES). `reasoned`: the remaining gaps no fixture family closes, each with why it stays. scripts/cmux-next/oracle/apply_gap_closures.py --write applies every gap-closures record to every-action-gaps.json.",
+ "family": "misc",
+ "task": "p15-oracle-087",
+ "fixture": "scripts/cmux-next/oracle/action_fixtures/misc.py",
+ "closed": {
+  "commandPaletteNext": "misc paletteOpen: Command Palette (commandPalette) shows over the session's window, so Ctrl-N moves its selection",
+  "commandPalettePrevious": "misc paletteOpen: Command Palette (commandPalette) shows over the session's window, so Ctrl-P moves its selection",
+  "cycleTextBoxSubmitAction": "misc textBoxFocused: a terminal tab of its own (newSurface) whose TextBox has the keyboard (focusTextBoxInput); the sweep's CONTEXT_SETUP no longer maps textBoxFocused to the omnibar",
+  "home.channels": "misc homeChannelsEnabled: Enable Channels (home.enableChannels) turns home.channelsEnabled on, and leave turns it off again"
+ },
+ "reasoned": {
+  "devtools.resumeScript": "unavailable at describe though webViewFocused is the sweep's own context (CONTEXT_SETUP: show('chromium')) and the other devtools rows on the same tab ran; the likeliest cause is describe answering before the fact was published, which Sweep.described (p15-oracle-085) waits for. No family fixture may set up a CONTEXT_SETUP fact; the gap goes when a whole-catalog fleet run lists it in coverage's `closed`.",
+  "omnibar.openInBackgroundTab": "unavailable at describe though omnibarFocused is the sweep's own context (CONTEXT_SETUP: show('omnibar') runs tab.focus, then focusLocation); the likeliest cause is describe answering before the fact was published, which Sweep.described (p15-oracle-085) waits for. No family fixture may set up a CONTEXT_SETUP fact; the gap goes when a whole-catalog fleet run lists it in coverage's `closed`.",
+  "omnibar.openInForegroundTab": "unavailable at describe though omnibarFocused is the sweep's own context (CONTEXT_SETUP: show('omnibar') runs tab.focus, then focusLocation); the likeliest cause is describe answering before the fact was published, which Sweep.described (p15-oracle-085) waits for. No family fixture may set up a CONTEXT_SETUP fact; the gap goes when a whole-catalog fleet run lists it in coverage's `closed`.",
+  "palette.openCmuxSettingsFile": "opens another app: the host's editor for the settings file (SettingsHandlers.openCreatingIfMissing); no seam keeps it from opening an app under the sweep yet",
+  "palette.openGhosttySettings": "opens another app: the host's editor for the settings file (SettingsHandlers.openCreatingIfMissing); no seam keeps it from opening an app under the sweep yet",
+  "palette.toggleDictation": "refused at every sample: dictation needs an agent chat composer with the keyboard and a microphone, and the fleet Macs have no microphone, so the refusal is the right answer there; gen_actions.py (p15-oracle-071) still adds a restore toggle that expects ok after a refused toggle",
+  "reconnectPane": "unavailable at describe though terminalFocused is the sweep's own context (CONTEXT_SETUP: show('terminal')) and the other terminalFocused rows ran; the likeliest cause is describe answering before the fact was published, which Sweep.described (p15-oracle-085) waits for. No family fixture may set up a CONTEXT_SETUP fact; the gap goes when a whole-catalog fleet run lists it in coverage's `closed`.",
+  "screenGroup.addScreen": "needs a screen-group argument: a family ARGUMENTS fixture (p15-oracle-084) runs in the row's plan, before PREPARE, so it would have to make the second screen and its group itself, and the restore has no inverse for a group around a screen it keeps (close_new closes extra screens, not groups); it needs a screen-group fixture with an UNDO (screenGroup.ungroup)"
+ }
+}

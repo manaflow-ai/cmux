@@ -245,7 +245,7 @@ import WebKit
         defer { sizes.stop() }
 
         pane.start(toward: CGSize(width: 320, height: 600))
-        #expect(view.allOcclusionRects != [view.bounds])
+        #expect(view.childWindowPage.occlusionRects() != [view.bounds])
         for width in [560.0, 480, 400] {
             tab.container.setFrameSize(NSSize(width: width, height: 600))
             #expect(view.frame == CGRect(x: 0, y: 0, width: 320, height: 600), "held at its rest size, at the top-left")
@@ -295,13 +295,13 @@ import WebKit
         let sizes = Sizes(view)
         defer { sizes.stop() }
         #expect(view.drawsInChildWindow, "hosting off: the page draws in its own window")
-        #expect(view.allOcclusionRects != [view.bounds])
+        #expect(view.childWindowPage.occlusionRects() != [view.bounds])
 
         pane.showsRenderMove = true
-        #expect(view.allOcclusionRects == [view.bounds], "its window hides for the move")
+        #expect(view.childWindowPage.occlusionRects() == [view.bounds], "its window hides for the move")
         #expect(ChildWindowPageFallback.hidesForSpring(view))
         pane.showsRenderMove = false
-        #expect(view.allOcclusionRects != [view.bounds], "it shows again where the pane landed")
+        #expect(view.childWindowPage.occlusionRects() != [view.bounds], "it shows again where the pane landed")
         #expect(sizes.sizes == [CGSize(width: 640, height: 600)], "a move resizes nothing")
     }
 
@@ -316,10 +316,10 @@ import WebKit
 
         pane.showsRenderMove = true
         pane.start(toward: CGSize(width: 320, height: 600))
-        #expect(view.allOcclusionRects == [view.bounds])
+        #expect(view.childWindowPage.occlusionRects() == [view.bounds])
         pane.showsRenderMove = false
         #expect(pane.isOnLayoutSpring)
-        #expect(view.allOcclusionRects != [view.bounds])
+        #expect(view.childWindowPage.occlusionRects() != [view.bounds])
         pane.land()
     }
 
@@ -331,9 +331,9 @@ import WebKit
         let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
         pane.showsRenderMove = true
         let (host, _) = try Self.shownTab(runtime, in: pane)
-        #expect(host.hostView.allOcclusionRects == [host.hostView.bounds])
+        #expect(host.hostView.childWindowPage.occlusionRects() == [host.hostView.bounds])
         pane.showsRenderMove = false
-        #expect(host.hostView.allOcclusionRects != [host.hostView.bounds])
+        #expect(host.hostView.childWindowPage.occlusionRects() != [host.hostView.bounds])
     }
 
     /// A tab's container moved to another pane mid-spring: the move ends the hold, and the page fills its
@@ -353,7 +353,7 @@ import WebKit
         #expect(tab.container.springHold == nil)
         #expect(host.hostView.frame == tab.container.bounds)
         #expect(!host.hostView.isOnPageSpring)
-        #expect(host.hostView.allOcclusionRects != [host.hostView.bounds], "the new pane shows no render move")
+        #expect(host.hostView.childWindowPage.occlusionRects() != [host.hostView.bounds], "the new pane shows no render move")
         #expect(tab.container.springPlacement === other)
     }
 
@@ -369,7 +369,7 @@ import WebKit
         tab.container.notifyPaneRenderMoveChanged(false)
         tab.container.setFrameSize(NSSize(width: 480, height: 600))
         #expect(host.hostView.frame.size == CGSize(width: 480, height: 600))
-        #expect(host.hostView.allOcclusionRects != [host.hostView.bounds])
+        #expect(host.hostView.childWindowPage.occlusionRects() != [host.hostView.bounds])
     }
 
     // MARK: Fixture

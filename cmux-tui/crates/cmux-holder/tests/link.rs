@@ -305,6 +305,7 @@ const WATCH: FrameWatch = FrameWatch {
             WATCHED_EXITS.fetch_add(1, Ordering::SeqCst);
         }
     },
+    hang: |_| {},
 };
 
 #[test]
@@ -335,6 +336,54 @@ fn every_routed_frame_is_watched_and_its_watch_ends() {
         WATCHED_EXITS.load(Ordering::SeqCst) == WATCHED_ENTERS.load(Ordering::SeqCst)
     });
     assert!(WATCHED_ENTERS.load(Ordering::SeqCst) >= 3, "spawned, data and exit");
+    drop(link);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Records the registry slot of the thread its output arrives on.
+#[derive(Default)]
+struct SlotProbe {
+    slot: Mutex<Option<(String, cmux_threads::ThreadQos)>>,
+    exited: Mutex<bool>,
+}
+
+impl TerminalSink for SlotProbe {
+    fn data(&self, _offset: u64, _bytes: &[u8]) {
+        let slot =
+            cmux_threads::current_slot().map(|slot| (slot.name().to_owned(), slot.desired()));
+        let mut first = self.slot.lock().unwrap();
+        if first.is_none() {
+            *first = Some(slot.expect("the link reader is registered"));
+        }
+    }
+    fn gap(&self, _requested: u64, _oldest: u64) {}
+    fn exit(&self, _status: ExitStatus, _end: u64) {
+        *self.exited.lock().unwrap() = true;
+    }
+}
+
+/// p04-input task 060: holder output reaches its surface on the key echo
+/// path, so the link reader runs registered at the echo class, not at its
+/// creator's.
+#[test]
+fn holder_output_is_routed_on_an_echo_class_thread() {
+    let dir = support::unique_dir("cmhq");
+    let socket = dir.join("h.sock");
+    let mut holder = cmux_holder::client::launch(
+        std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
+        &socket,
+        &TOKEN,
+    )
+    .unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+    let probe = Arc::new(SlotProbe::default());
+    link.spawn(1, &request(1, "echo qos; exit 0"), probe.clone()).unwrap();
+    wait_for("the exit", || *probe.exited.lock().unwrap());
+    let slot = probe.slot.lock().unwrap().clone();
+    assert_eq!(slot, Some(("holder-link".to_owned(), cmux_holder::link::LINK_READER_QOS)));
+    assert_eq!(cmux_holder::link::LINK_READER_QOS, cmux_threads::ThreadQos::UserInteractive);
     drop(link);
     let _ = holder.kill();
     let _ = holder.wait();
