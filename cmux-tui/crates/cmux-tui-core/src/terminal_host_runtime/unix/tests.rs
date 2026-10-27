@@ -4,6 +4,7 @@
 mod attach_protocol;
 mod clipboard_read;
 mod echo_threads;
+mod hang_watch_host;
 mod host_fixture;
 mod host_spans;
 mod input_flow;
