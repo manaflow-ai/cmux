@@ -87,6 +87,9 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
+import { cssTimeMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -207,7 +210,8 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerAttachmentViewHost, registerComposerHost } from "./composerSettings";
+import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
+import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -872,7 +876,7 @@ const changesSource: ChangesSource = {
 };
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
-registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
+registerComposerHost((method, show) => callNative(method, { show }));
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
@@ -1855,8 +1859,6 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const WARM_VIEWPORTS = 1;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
-/// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
-const JUMP_LATEST_SETTLE_MS = 600;
 /// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
 /// transcript this long before it) and that stays within about a line of it is not a scroll up.
 /// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
@@ -2019,6 +2021,7 @@ export function VirtualTranscript({
   anchorNow,
   onLoadOlder,
   sends = 0,
+  onFollowingChange,
   coldOpen,
   onColdOpenShown,
   afterLatest,
@@ -2066,6 +2069,8 @@ export function VirtualTranscript({
   onLoadOlder?: () => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
+  /// Keeps the parent send path in sync with the reader's current follow state.
+  onFollowingChange?: (following: boolean) => void;
   githubRepository?: string;
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
@@ -2130,6 +2135,7 @@ export function VirtualTranscript({
   const followingRef = useRef(true);
   const follow = (next: boolean) => {
     followingRef.current = next;
+    onFollowingChange?.(next);
     setFollowing(next);
   };
   const transcriptMounted = useRef(true);
@@ -2148,6 +2154,7 @@ export function VirtualTranscript({
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
+    onFollowingChange?.(atLatest);
     scrollRef.current = { top, delta: top - scrollRef.current.top };
     scrollPacer.current!.enqueue({ top, atLatest });
   };
@@ -2158,7 +2165,6 @@ export function VirtualTranscript({
       scrollPacer.current?.cancel();
     };
   }, []);
-  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
@@ -2169,6 +2175,14 @@ export function VirtualTranscript({
   /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const stopJump = useCallback(() => {
+    const active = jumpTarget.current !== undefined;
+    jumpTarget.current = undefined;
+    if (active && ref.current) stopScroll(ref.current);
+  }, []);
+  // The shared animation owns one RAF and its input listeners. Leaving this chat or unmounting
+  // cancels that ride before the next session can reuse this scroller.
+  useLayoutEffect(() => stopJump, [sessionId, stopJump]);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
@@ -3087,9 +3101,7 @@ export function VirtualTranscript({
       scrolledTo.current = { top: 0, atLatest: false };
       seenAnchor.current = undefined;
       scrollPacer.current?.cancel();
-      clearTimeout(settle.current);
-      settle.current = undefined;
-      jumpTarget.current = undefined;
+      stopJump();
       setScrollAt(0, 0);
       follow(true);
     }
@@ -3172,10 +3184,9 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
-        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
-          jumpTarget.current = latest;
-          node.scrollTo({ top: latest, behavior: "smooth" });
-        }
+        // The shared animation reads the moving end every frame on its original clock.
+        // Retargeting a native smooth-scroll here restarted its easing at every measurement.
+        if (jumping) jumpTarget.current = latest;
         const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
         if (settled) followTrace.set(latest);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
@@ -3369,15 +3380,16 @@ export function VirtualTranscript({
   // It reads the latest layout, since the reveal hold calls it from frames after this render.
   const findTotalHeight = useRef(layout.totalHeight);
   findTotalHeight.current = layout.totalHeight;
-  const findMoved = useCallback((node: HTMLDivElement) => {
-    // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
-    scrolledTo.current = scrollPosition(node, findTotalHeight.current);
-    followingRef.current = scrolledTo.current.atLatest;
-    setFollowing(scrolledTo.current.atLatest);
-  }, []);
+  const findMoved = useCallback(
+    (node: HTMLDivElement) => {
+      // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
+      stopJump();
+      scrolledTo.current = scrollPosition(node, findTotalHeight.current);
+      followingRef.current = scrolledTo.current.atLatest;
+      setFollowing(scrolledTo.current.atLatest);
+    },
+    [stopJump],
+  );
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
   const revealWindows = useRef(0);
@@ -3419,9 +3431,7 @@ export function VirtualTranscript({
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
+    stopJump();
     scrolledTo.current = { top: next, atLatest: false };
     follow(false);
     node.scrollTop = next;
@@ -3571,9 +3581,7 @@ export function VirtualTranscript({
     revealing.current = undefined;
     revealWindow.current = 0;
     foldAnchor.current = undefined;
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
+    stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockSpaceRef.current;
     node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
@@ -3608,8 +3616,6 @@ export function VirtualTranscript({
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).
     if (jumpTarget.current !== undefined) {
-      // WebKit keeps the offset to whole pixels: within one of the end is there.
-      if (next >= jumpTarget.current - 1) jumpTarget.current = undefined;
       scrolledTo.current = { top: next, atLatest: true };
       seenAnchor.current = null;
       followTrace.set(next);
@@ -3694,17 +3700,43 @@ export function VirtualTranscript({
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
-    jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
-    node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
-    // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
-    // reply grew past it. Only the reader's own scroll meanwhile cancels it.
-    clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = undefined;
-      jumpTarget.current = undefined;
-      const scroller = ref.current;
-      if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    }, JUMP_LATEST_SETTLE_MS);
+    stopJump();
+    // Use the rail's shared curve and distance duration, scaled by the host's move token.
+    const move = cssTimeMs(
+      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
+    );
+    const duration = reduce
+      ? 0
+      : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
+    jumpTarget.current = target;
+    animateScroll(
+      node,
+      () =>
+        Math.max(
+          0,
+          node.scrollHeight > 0
+            ? node.scrollHeight - node.clientHeight
+            : latestLayout.current.layout.totalHeight - node.clientHeight,
+        ),
+      duration,
+      JUMP_CURVE,
+      () => {
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: true };
+        seenAnchor.current = null;
+        followTrace.set(node.scrollTop);
+        scrollPacer.current?.cancel();
+        setScrollAt(node.scrollTop, 0);
+      },
+      () => {
+        // A native turn/bookmark command can replace the shared ride without a DOM input event.
+        // Explicit stopJump disowns first; only an external replacement releases bottom follow.
+        if (jumpTarget.current === undefined) return;
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: false };
+        follow(false);
+      },
+    );
   };
   useEffect(() => {
     const node = ref.current;
@@ -3719,9 +3751,11 @@ export function VirtualTranscript({
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
           (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
       if (movingUp) follow(false);
-      clearTimeout(settle.current);
-      settle.current = undefined;
-      jumpTarget.current = undefined;
+      if (jumpTarget.current !== undefined) {
+        stopJump();
+        scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
+        follow(false);
+      }
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
@@ -3790,7 +3824,7 @@ export function VirtualTranscript({
         : undefined;
     gutterRelease.current = gutter?.release;
     return () => {
-      clearTimeout(settle.current);
+      stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
@@ -3799,7 +3833,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, []);
+  }, [stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
@@ -4282,6 +4316,9 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
+  const { scrollToBottomOnSend } = useComposerSettings();
+  const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
+  scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// Labs preview features are off until the host explicitly enables them.
   const [preview, setPreview] = useState(false);
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
@@ -6356,6 +6393,12 @@ function AcpmuxPane() {
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
+  /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
+  /// preference can preserve the exact visible row while the new prompt arrives below it.
+  const followingTranscript = useRef(true);
+  const onTranscriptFollowingChange = useCallback((following: boolean) => {
+    followingTranscript.current = following;
+  }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     // A composer that goes takes its shell mode with it.
@@ -7086,8 +7129,12 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
         ) => {
-          // The reader sent it: the transcript goes to its latest message now, even scrolled up.
-          setSends((count) => count + 1);
+          // The reader sent it: by default the transcript goes to its latest message now, even
+          // scrolled up. With the preference off, only a reader already at the latest row follows;
+          // an up-scroll keeps its row and offset while this prompt and its reply arrive below.
+          if (shouldScrollToBottomAfterSend(scrollToBottomOnSendRef.current, followingTranscript.current)) {
+            setSends((count) => count + 1);
+          }
           // WEB-SWAP: until the client holds the prompt (its own `swapHold`), only this call does.
           untakenSends.current += 1;
           let counted = true;
@@ -7292,6 +7339,7 @@ function AcpmuxPane() {
               folder,
               peer ? String(peer) : undefined,
               noProject === true,
+              peer && model ? String(model) : undefined,
             );
             await persistSession(started);
             return started;
@@ -8531,6 +8579,9 @@ function AcpmuxPane() {
                                                   anchorNow={quick || childRows ? undefined : transcriptAnchor}
                                                   // A prompt goes to the chat, not to the subagent shown in its place.
                                                   sends={childRows ? undefined : sends}
+                                                  onFollowingChange={
+                                                    childRows ? undefined : onTranscriptFollowingChange
+                                                  }
                                                   onAnchor={
                                                     quick || childRows || !shownSessionId
                                                       ? undefined
@@ -9154,6 +9205,10 @@ function AcpmuxPane() {
             }
             queueImage={readQueuedImage}
             onProject={chooseProject}
+            // A machine with no folder known here: the new chat starts there, in its default folder.
+            onComputer={(computer) =>
+              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
+            }
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
@@ -9478,6 +9533,7 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {

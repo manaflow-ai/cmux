@@ -712,6 +712,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/file_put_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_data",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -1068,6 +1080,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/icon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true
@@ -1253,6 +1271,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vm_host",
       "params": true,
       "result": true
     },
@@ -2608,6 +2632,13 @@
     },
     "PermissionGroupList": {
       "properties": {
+        "allowRefused": {
+          "description": "Set when this reader's group allows would be refused, with the\nrefusal's reason (`permission.person_required`: only the person\nallows a group, and a peer's link never is one). A deny still counts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "batching": {
           "$ref": "#/types/PermissionBatching"
         },

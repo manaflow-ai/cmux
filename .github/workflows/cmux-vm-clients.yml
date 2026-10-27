@@ -64,6 +64,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: workers/cmux-vm/cli -> target
 
       # Formatting is a style guard: on feat-cmux-next it warns (Leo 2026-10-19).

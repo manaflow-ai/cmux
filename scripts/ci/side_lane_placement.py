@@ -101,6 +101,7 @@ def _picker():
 
 
 pool = _picker()
+SIDE_RETRY_CAP_SECONDS = 5.0
 
 
 def _cascade():
@@ -350,6 +351,28 @@ def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | N
     return (label, tuple(jobs[:free])) if free > 0 else ("", ())
 
 
+def fresh_slot_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Why FRESH_LABEL took no job, for the placement summary: unread, unregistered, or its runners by state.
+
+    The slot's runners go offline while their glaeda gate holds the listener off (capacity units, disk, a
+    fleet build's host lock), which the runners API shows only as `offline`. On 2026-10-27 both slot runners
+    were offline when the DEV dailies at 04:23Z and 04:37Z were placed, and the summary said only "no idle
+    runner"; naming them tells a busy slot (it frees when its compile ends) from a held one (glaeda's).
+    """
+    if runners is None:
+        return "runners unread"
+    states: dict[str, list[str]] = {"busy": [], "offline": []}
+    for runner in runners:
+        if label not in pool.runner_labels(runner):
+            continue
+        state = "offline" if runner.get("status") != "online" else "busy" if runner.get("busy") else ""
+        if state:
+            states[state].append(str(runner.get("name") or "?"))
+    if not any(states.values()):
+        return "no runner carries it"
+    return "; ".join(f"{state}: {', '.join(sorted(names))}" for state, names in states.items() if names)
+
+
 def without_jobs(env: Mapping[str, str], jobs: Sequence[str]) -> dict[str, str]:
     """`env` with `jobs` dropped from JOBS, CASCADE_RUNS, FIRST_JOBS and FRESH_JOBS: they run on their own slot."""
     trimmed = dict(env)
@@ -494,12 +517,16 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    # One retry for the whole read, shared by both tokens, after at most 5 s, on a refusal that
+    # names a Retry-After: it adds at most one wait and one 15 s request (20 s) to today's reads,
+    # however many reads and tokens those take.
+    retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
         token = env.get(name, "")
         if not (token and repo):
             continue
         try:
-            runners = pool.GitHub(token, repo).runners()
+            runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
@@ -524,8 +551,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
         why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs
-                else f"; no idle `{env['FRESH_LABEL'].strip()}` runner, so the feed's compile is placed like the "
-                     "other jobs")
+                else f"; no idle `{env['FRESH_LABEL'].strip()}` runner "
+                     f"({fresh_slot_state(env['FRESH_LABEL'].strip(), runners)}), so the feed's compile is placed "
+                     "like the other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
