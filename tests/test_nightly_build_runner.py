@@ -67,6 +67,24 @@ class OwnedRoute(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(picker.owned_route(label, idle, "1")[0], "")
 
+    def test_the_nightly_slot_comes_first_while_idle(self) -> None:
+        # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER names glaeda's nightly slot, then the side label: an idle slot takes the
+        # build, and a busy one leaves it to the side label, never a wait.
+        slot = "glaeda-nightly-std-xcode-26.6"
+        self.assertTrue(picker.owned_label(slot))
+        for label in ("glaeda-nightly", "glaeda-nightly-std", "glaeda-nightlyx-std-xcode-26.6"):
+            self.assertFalse(picker.owned_label(label), label)
+        labels = f"{slot} {SIDE}"
+
+        def route(runners: list) -> str:  # attempt 1, with or without owned_route's attempt argument
+            try:
+                return picker.owned_route(labels, runners, "1")[0]
+            except TypeError:
+                return picker.owned_route(labels, runners)[0]
+
+        self.assertEqual(route([runner(SIDE), runner(slot)]), slot)
+        self.assertEqual(route([runner(SIDE), runner(slot, busy=True)]), SIDE)
+
     def test_a_label_the_rescue_does_not_watch_is_never_offered(self) -> None:
         # The DEV slot: a refusal there is never re-run (runs 40446901975, 40448164753).
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -257,6 +275,33 @@ class Workflow(unittest.TestCase):
                         self.assertEqual(label, owned)
                     else:
                         self.assertTrue(str(label).startswith("blacksmith-"), label)
+
+    def test_the_ghostty_helper_takes_the_owned_or_blacksmith_pick_never_the_dedicated_builder(self) -> None:
+        # Starved on Blacksmith macos-26 behind the bare label (run 40500413442). The dedicated
+        # builder's hook admits only build-nightly-app, so the helper never takes it.
+        job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
+        self.assertIn("pick-nightly-build-runner", job["needs"])
+        source = job["runs-on"].removeprefix("${{").removesuffix("}}")
+        pick = "pick-nightly-build-runner"
+        for attempt, owned, dedicated, blacksmith in itertools.product(
+                (1, 2), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
+            if (owned == DEDICATED) != (dedicated == DEDICATED):
+                continue
+            context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                       "github.event_name": "push", "github.ref": "refs/heads/nightly-next",
+                       "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
+                       "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+                       "vars.LINUX_RUNNER": "", "inputs.nightly_next_unsigned_run": "",
+                       "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": "false",
+                       f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.dedicated": dedicated,
+                       f"needs.{pick}.outputs.blacksmith": blacksmith}
+            with self.subTest(attempt=attempt, owned=owned, dedicated=dedicated, blacksmith=blacksmith):
+                label = evaluate(parse_expression(source), context)
+                if attempt == 1 and owned == SIDE:
+                    self.assertEqual(label, SIDE)
+                else:
+                    # The picker's moving label, else the default; never a dropped pick.
+                    self.assertEqual(label, blacksmith or SMALL)
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
