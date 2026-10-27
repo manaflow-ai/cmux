@@ -137,7 +137,27 @@ class CheckTests(unittest.TestCase):
         errors, _ = self.check(appcast((2, "cmux-next")), 2, probe=lambda url: (200, None))
         self.assertTrue(any("names no length" in error for error in errors), errors)
 
-    def test_the_probe_retries_and_falls_back_to_a_ranged_get(self):
+    def test_only_a_200_with_a_length_passes_the_enclosure_check(self):
+        for status, length in ((206, 10), (404, None), (200, None)):
+            errors, _ = self.check(appcast((2, "cmux-next")), 2, probe=lambda url, s=status, n=length: (s, n))
+            self.assertTrue(errors, (status, length))
+
+    def test_the_fallback_is_a_plain_get_read_for_its_headers(self):
+        import unittest.mock
+        seen = []
+        class Response:
+            def __init__(self, status, length):
+                self.status, self.headers = status, {"Content-Length": length} if length else {}
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.get_header("Range")))
+            return Response(200, None) if request.get_method() == "HEAD" else Response(200, "10")
+        with unittest.mock.patch.object(live.urllib.request, "urlopen", urlopen):
+            self.assertEqual(live.probe_once("https://files-next.cmux.com/x.dmg"), (200, 10))
+        self.assertEqual(seen, [("HEAD", None), ("GET", None)])
+
+    def test_the_probe_retries_and_retries_a_failed_probe(self):
         import unittest.mock
         answers = iter([(502, None), (200, 10)])
         with unittest.mock.patch.object(live, "probe_once", lambda url: next(answers)), \
@@ -203,6 +223,10 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("a regression cannot be ruled out", out)
         self.assertEqual(self.run_main("absent")[0], 0)
+        for empty in ("<rss><channel></channel></rss>", ""):
+            code, out = self.run_main(empty)
+            self.assertEqual(code, 1, repr(empty))
+            self.assertIn("a regression cannot be ruled out", out)
         self.assertEqual(self.run_main(appcast((1, "cmux-next")))[0], 0)
 
 

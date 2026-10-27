@@ -12,7 +12,7 @@ be a delay if we can just listen". The write already knows; this reads the live 
      tests/test_nightly_next_live_feed_check.py derives from UpdateRing.swift). With
      NIGHTLY_NEXT_DEV_RING=on a new build starts on cmux-next-dev by design: that is a
      warning naming the build Nightly is offered instead, not a failure;
-  3. that item's enclosure answers 200 (or 206 to a one-byte range) at its declared length;
+  3. that item's enclosure answers a plain GET with 200 at its declared length (Sparkle's request);
   4. the newest build Nightly is offered never moves back, and with the ring off it moved past
      what the feed offered before this write (--before, the feed as read before it).
 
@@ -90,12 +90,11 @@ def probe_once(url: str) -> tuple[int, int | None]:
         head_status = error.code
     except OSError:
         head_status = 0
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"})
+    # The request Sparkle makes: a plain GET. Only its status line and headers are read; closing
+    # the response drops the body unread.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            total = (response.headers.get("Content-Range") or "").rpartition("/")[2]
-            if response.status == 206 and total.isdigit():
-                return 206, int(total)
             length = response.headers.get("Content-Length")
             if response.status == 200 and (length or "").isdigit():
                 return 200, int(length)
@@ -111,7 +110,7 @@ def probe(url: str, attempts: int = 3, delay: float = 2.0) -> tuple[int, int | N
     status, length = 0, None
     for attempt in range(attempts):
         status, length = probe_once(url)
-        if status in (200, 206) and length is not None:
+        if status == 200 and length is not None:
             break
         if attempt < attempts - 1:
             time.sleep(delay)
@@ -140,7 +139,7 @@ def check(live: list[Item], build: int, before: list[Item] | None, dev_ring: str
         errors.append(f"build {newest.build} has no enclosure URL")
     else:
         status, length = probe(newest.url)
-        if status not in (200, 206):
+        if status != 200:
             errors.append(f"build {newest.build}'s enclosure {newest.url} answers HTTP {status}")
         elif length is None:
             errors.append(f"build {newest.build}'s enclosure {newest.url} names no length (HTTP {status}), so it is unverified")
@@ -176,6 +175,9 @@ def main(argv: list[str]) -> int:
                 text = handle.read()
             # 404 marker from the before step: no feed existed, so there is no floor.
             before = items(text) if text.strip() != "absent" else []
+            if text.strip() != "absent" and not before:
+                before_error = (f"the feed from before the write ({args.before}) lists no item, so a "
+                                "regression cannot be ruled out")
         except (OSError, ET.ParseError) as error:
             before_error = f"the feed from before the write ({args.before}) is unreadable ({error}), so a regression cannot be ruled out"
     live: list[Item] = []
