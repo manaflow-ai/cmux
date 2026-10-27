@@ -201,7 +201,7 @@ final class QuitCoordinator {
                 // Agent panes on screen draw their last page at the next launch.
                 let agentPages = await services.agentTabs.shownPageImages()
                 await services.agentTabs.launchImages.save(agentPages)
-                let terminalStore = TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                let terminalStore = services.terminalLaunchFrames
                 let terminalFrames = await terminalStore.frames(of: services.cache.terminals.mapValues(\.session))
                 await terminalStore.save(images: terminalFrames)  // and terminals their last frame
                 // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
