@@ -51,23 +51,27 @@ extension TabContentCache {
         // (`moveBrowser`), which rebinds the chrome's key but not this closure.
         // A plain Reload starts on the page it shows; only another address was typed.
         page.onStart = { [weak self, weak entry] requested in
-            self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, typed: requested == url ? nil : requested)
+            self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, shown: requested, typed: requested != url)
         }
         entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
 
     /// Reload, or an address typed, on a "Chromium unavailable" tab: the tab asks for its page again, on the
-    /// typed address or else its record's current one. While Chromium still cannot serve it (in this process,
+    /// typed address or else its record's current one (an incognito tab's record holds a placeholder, so it keeps
+    /// the address it showed). While Chromium still cannot serve it (in this process,
     /// until cmux restarts) it waits again, and a typed address goes to the tab's record so the restart opens it
     /// (never an incognito tab's: its URL stays in memory).
-    private func retryChromium(_ key: String, typed: URL?) {
+    private func retryChromium(_ key: String, shown: URL?, typed isTyped: Bool) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
         guard let tab = tabModel(key) else { return }  // a remote machine's tab included
+        let incognito = browserTabs.isIncognitoTab(key)
+        let typed = isTyped ? shown : nil
+        let next = typed ?? (incognito ? shown : tab.url.flatMap(URL.init(string:)))
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
-            _ = chromiumUnavailable(tab, url: typed ?? tab.url.flatMap(URL.init(string:)), reason: reason)
-            if let typed, typed.absoluteString != tab.url, tab.isFrontendOwned, !browserTabs.isIncognitoTab(key),
+            _ = chromiumUnavailable(tab, url: next, reason: reason)
+            if let typed, typed.absoluteString != tab.url, tab.isFrontendOwned, !incognito,
                !ProvisionalTab.isProvisional(surface: tab.surface) {
                 let daemon = browserTabs.daemon(for: tab), update = browserTabs.update, surface = tab.surface
                 // task-owner: one record write; the tab's next page writes over it

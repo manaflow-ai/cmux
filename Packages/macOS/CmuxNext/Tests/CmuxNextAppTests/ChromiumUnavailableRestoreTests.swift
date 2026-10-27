@@ -100,22 +100,56 @@ import Testing
         #expect(cache.existingBrowser(daemonTab.id)?.tab is DeferredBrowserTab)
     }
 
-    /// A plain Reload never writes the address it showed over the record (another client may have moved the tab).
-    @Test func aPlainReloadWritesNothingAndUsesTheRecord() async throws {
+    /// A plain Reload never writes the address it showed over the record: another client moved the tab, and
+    /// the retry follows the record.
+    @Test func aPlainReloadFollowsAChangedRecordAndWritesNothing() async throws {
         let cache = cache(.startFailed("CefInitialize failed"))
         let tab = restoredChromiumTab(66)
+        let moved = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 66), kind: .browser, url: "https://example.com/moved",
+                                         browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(tab.id) }
-        cache.findTab = { $0 == tab.id ? tab : nil }
+        var current = tab
+        cache.findTab = { $0 == tab.id ? current : nil }
         var written: [String] = []
         cache.browserTabs.update = { _, _, update in
             if let url = update.url { written.append(url) }
             return true
         }
         let first = try #require(cache.browser(for: tab))
+        current = moved  // workspace.open_url moved the record
         first.tab.reload()
         for _ in 0..<10 { await Task.yield() }
         #expect(written.isEmpty)
         let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
-        #expect(again.state.url?.absoluteString == tab.url)
+        #expect(again.state.url?.absoluteString == "https://example.com/moved")
+    }
+
+    /// An incognito tab's record holds a placeholder: Reload keeps the address the tab showed, a typed one stays
+    /// in memory, and nothing is written.
+    @Test func anIncognitoTabKeepsItsAddressAcrossRetries() async throws {
+        let cache = cache(.startFailed("CefInitialize failed"))
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 67), kind: .browser, url: "about:blank",
+                                       browserRenderer: "frontend", browserEngine: "cef"))
+        defer { cache.release(tab.id) }
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        cache.browserTabs.isIncognitoTab = { $0 == tab.id }
+        var written: [String] = []
+        cache.browserTabs.update = { _, _, update in
+            if let url = update.url { written.append(url) }
+            return true
+        }
+        let secret = try #require(URL(string: "https://private.example/"))
+        let first = cache.chromiumUnavailable(tab, url: secret, reason: .startFailed("x"))
+        first.tab.reload()
+        let second = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
+        #expect(second.state.url == secret)
+        let typed = try #require(URL(string: "https://private.example/typed"))
+        second.load(typed)
+        let third = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
+        #expect(third.state.url == typed)
+        third.reload()
+        #expect((cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)?.state.url == typed)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(written.isEmpty, "an incognito address never reaches the record")
     }
 }
