@@ -103,6 +103,9 @@ pub(super) fn send(
         submit,
         flow,
     } = params;
+    // The key press's first daemon stage, taken before any check (p04-input-094).
+    let received_ns =
+        if flow.is_some_and(|flow| flow != 0) { crate::input_stages::now_ns() } else { 0 };
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
         (None, Some(_)) if expect_foreground.is_some() || expect_agent.is_some() || submit => {
@@ -172,12 +175,12 @@ pub(super) fn send(
         let mut echo_flow = flow;
         if let Some(text) = text {
             let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
-            surface.write_bytes_flow(text.as_bytes(), text_flow)?;
+            surface.write_key_flow(text.as_bytes(), text_flow, received_ns)?;
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
             cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
-            surface.write_bytes_flow(&raw, echo_flow)?;
+            surface.write_key_flow(&raw, echo_flow, received_ns)?;
             cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }

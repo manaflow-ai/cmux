@@ -551,6 +551,8 @@ pub(super) fn attach_surface(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    // The terminal's key presses: each echo goes out with its stages (p04-input-094).
+    let key_stages = surface.input_stages();
     let worker_writer = writer.clone();
     let worker_mux = mux.clone();
     let worker_stream = outbound_stream.clone();
@@ -586,7 +588,8 @@ pub(super) fn attach_surface(
             // Each frame's encode is a 100 ms hang scope; the wait for it
             // and the hand-off that waits for room are not.
             let item = hangs.item(WatchKind::AttachOut);
-            let encoded = writer.encode_attach_frame(surface_id, &frame, shape);
+            let stages = key_stages.as_ref().and_then(|ring| ring.stages(frame.flow()));
+            let encoded = writer.encode_attach_frame(surface_id, &frame, shape, stages);
             drop(item);
             if let Err(error) = writer.send_encoded_backpressured(encoded, &outbound_stream) {
                 handle_attach_send_error(&attach.lifecycle, &error);

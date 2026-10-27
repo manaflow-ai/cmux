@@ -355,14 +355,16 @@ impl MessageWriter {
         self.render_service.serialize(value)
     }
 
-    /// [`Self::encode`] of an attach frame in `shape`.
+    /// [`Self::encode`] of an attach frame in `shape`; an output frame that
+    /// echoes a key press carries that press's `key_stages` (p04-input-094).
     pub(super) fn encode_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        self.render_service.serialize_attach_frame(surface, frame, shape)
+        self.render_service.serialize_attach_frame_with_stages(surface, frame, shape, key_stages)
     }
 
     /// The second half of [`Self::send_stream_backpressured`]: hand the

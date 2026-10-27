@@ -305,6 +305,10 @@ pub struct PtyTerminalRuntime {
     /// terminal's sink keep their own slot: the daemon does not read
     /// their PTY.
     pub(super) last_input_flow: crate::input_flow::InputFlowSlot,
+    /// This terminal's key presses on their way to their echo: the daemon's
+    /// receive, the PTY write and the echo's read (p04-input-094). Shared
+    /// with each attach writer, which sends the stamps with the echo.
+    pub(super) input_stages: Arc<crate::input_stages::InputStageRing>,
     /// Published byte offset and grid generation for snapshot viewers.
     pub(super) snapshot_position: snapshot_attach::SnapshotStreamPosition,
     /// Last effective color state emitted to attach streams. This suppresses

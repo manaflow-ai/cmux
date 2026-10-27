@@ -14,7 +14,7 @@ use super::attach_frames::{
     AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame, RefusedAttachFrame,
 };
 use super::terminal_colors_json;
-use super::{write_output_flow_json, write_pending_sequence_json};
+use super::{write_output_flow_json, write_output_key_stages_json, write_pending_sequence_json};
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::TerminalColors;
@@ -339,11 +339,24 @@ impl RenderService {
         Ok(writer.finish())
     }
 
+    #[cfg(test)]
     pub(super) fn serialize_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.serialize_attach_frame_with_stages(surface, frame, shape, None)
+    }
+
+    /// [`Self::serialize_attach_frame`] with the daemon stages of the key
+    /// press an output frame echoes (p04-input-094), sent now.
+    pub(super) fn serialize_attach_frame_with_stages(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
     ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         if let AttachFrame::ColorsChanged(colors) = frame {
@@ -366,6 +379,13 @@ impl RenderService {
             write_base64_json_string(&mut writer, output)?;
             writer.write_all(b"\"")?;
             write_output_sidecar_fields(&mut writer, frame.output_colors(), frame.flow(), shape)?;
+            if key_stages.is_some() {
+                write_output_key_stages_json(
+                    &mut writer,
+                    key_stages,
+                    crate::input_stages::now_ns(),
+                )?;
+            }
             writer.write_all(b"}")?;
         }
         Ok(writer.finish())

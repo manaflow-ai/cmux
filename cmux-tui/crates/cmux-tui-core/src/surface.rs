@@ -178,8 +178,8 @@ use crate::browser::{
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, Frame, MessageKind,
-    decode_terminal_exit, split_flow_trailer,
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, FLAG_INPUT_STAGES, Frame,
+    MessageKind, decode_terminal_exit, split_flow_trailer, split_stages_trailer,
 };
 
 /// Default maximum retained scrollback backing storage per terminal, in bytes:
@@ -688,6 +688,7 @@ impl Surface {
         let control_responses = attachment.control_responses();
         let smart_renderer = attachment.is_smart_renderer();
         let input_flow = attachment.input_flow;
+        let input_stages = attachment.input_stages;
         let snapshot = attachment.snapshot.clone();
         let applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -855,6 +856,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_stages: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -897,6 +899,7 @@ impl Surface {
             protocol_version,
             smart_renderer,
             input_flow,
+            input_stages,
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,

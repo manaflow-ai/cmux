@@ -19,7 +19,16 @@ impl HostedReader {
         // `flow`: the key press this output echoes, as the host stamped its PTY read.
         let (output, colors, flow) = match transition {
             HostedTransition::Output(output) => (output, None, 0),
-            HostedTransition::FlowOutput { output, flow } => (output, None, flow),
+            HostedTransition::FlowOutput { output, flow, host_stages } => {
+                // The echo's stages: the host's own write and read, else its arrival here.
+                match host_stages {
+                    Some((written, read)) if read != 0 => {
+                        pty.input_stages.host_echoed(flow, written, read);
+                    }
+                    _ => pty.input_stages.echoed(flow, crate::input_stages::now_ns()),
+                }
+                (output, None, flow)
+            }
             HostedTransition::OutputWithColors { output, colors } => (output, Some(colors), 0),
             _ => unreachable!(),
         };

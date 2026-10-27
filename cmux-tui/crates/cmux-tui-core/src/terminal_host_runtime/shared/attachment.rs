@@ -125,6 +125,9 @@ pub struct HostAttachment {
     /// The host takes a key press's flow on interactive input
     /// (`FLAG_INPUT_FLOW`, p09-observability-018).
     pub(crate) input_flow: bool,
+    /// The host's flow Output frames carry its PTY write and read of the key
+    /// press (`FLAG_INPUT_STAGES`, p04-input-094).
+    pub(crate) input_stages: bool,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.

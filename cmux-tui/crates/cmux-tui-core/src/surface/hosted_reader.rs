@@ -23,6 +23,9 @@ pub(super) struct HostedReader {
     /// The host connection negotiated `FLAG_INPUT_FLOW`: its output
     /// frames carry the key press they echo.
     pub(super) input_flow: bool,
+    /// The connection negotiated `FLAG_INPUT_STAGES`: those output frames
+    /// also carry the host's PTY write and read of the press (p04-input-094).
+    pub(super) input_stages: bool,
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
@@ -122,7 +125,8 @@ impl HostedReader {
             self.protocol_version,
             self.smart_renderer,
         )
-        .with_input_flow(self.input_flow);
+        .with_input_flow(self.input_flow)
+        .with_input_stages(self.input_stages);
         let mut received_exit = None;
         let mut resync_requested = false;
         let mut journal_target = None;
