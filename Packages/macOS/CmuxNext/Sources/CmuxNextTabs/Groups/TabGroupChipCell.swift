@@ -22,8 +22,11 @@ final class TabGroupChipCell {
             let elevation = PopupStyle.elevation2
             pill.shadowRadius = elevation.layerRadius
             pill.shadowOffset = elevation.layerOffset(flipped: true)
-            // Cast from the pill's outline (`layoutLayers`), as strongly as its fill cast before.
-            pill.shadowOpacity = isLifted ? ShadowOutline.opacity(elevation.alpha, under: pill.backgroundColor) : 0
+            // Cast from the pill's outline (`layoutLayers`) at the elevation's strength, the strength an
+            // opaque fill cast before. A group with no color has a clear pill, and its outline lifts it.
+            Motion.tabs.set(pill, "shadowOpacity", to: isLifted ? Float(elevation.alpha) : Float(0), fade: .lift)
+            // A lift that starts or ends while a strip move springs the pill casts from each frame's outline.
+            followPillShadow()
             layer.zPosition = isLifted ? 11 : 1
         }
     }
@@ -64,7 +67,7 @@ final class TabGroupChipCell {
         ]
         for sublayer in [layer, pill, nameLayer, countLayer, nameMask, iconLayer] { sublayer.actions = none }
         iconLayer.contentsGravity = .resizeAspect
-        pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "shadowOpacity": Self.fade]
+        pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
         pill.cornerCurve = .continuous
         nameMask.startPoint = CGPoint(x: 0, y: 0.5)
         nameMask.endPoint = CGPoint(x: 1, y: 0.5)
@@ -126,8 +129,19 @@ final class TabGroupChipCell {
     /// Pill frame in the root layer's coordinates.
     var pillFrame: CGRect { pill.frame }
 
-    /// A strip move springs the pill's size (`TabStripMove.animate`): a lifted pill's shadow keeps
-    /// its outline on the way.
+    /// Moves the chip to `frame` and `alpha` with `change`, from where it is (`TabStripMove.animate`,
+    /// `scroll`: the part of the move the strip's scroll made). The pill's size springs on the way,
+    /// and a lifted pill's shadow keeps its outline. True when anything moved.
+    func move(to frame: CGRect, alpha: Float, with change: TabStripMove, scroll: CGFloat) -> Bool {
+        let before = TabStripMove.snapshot(layer)
+        self.frame = frame
+        layer.opacity = alpha
+        guard change.animate(from: before, scroll: scroll) else { return false }
+        followPillShadow()
+        return true
+    }
+
+    /// The pill casts from the outline of each frame while a move springs its size and a shadow shows.
     func followPillShadow() {
         let radius = pill.cornerRadius
         pill.followShadowPath { ShadowOutline(size: $0, cornerRadius: radius).path }

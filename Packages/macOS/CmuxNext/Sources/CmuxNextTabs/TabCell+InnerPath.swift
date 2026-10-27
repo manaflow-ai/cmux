@@ -95,9 +95,7 @@ extension TabCell {
             addKeyframes(values, times: times, steps: steps, to: part)
         }
         // A lifted pill's shadow keeps its outline as the pill's width moves.
-        castPillShadow()
-        let radius = backgroundLayer.cornerRadius
-        backgroundLayer.followShadowPath(now: now) { ShadowOutline(size: $0, cornerRadius: radius).path }
+        followPillShadow(now: now)
         // The title shows where the path's form has it (it shows or hides once); its geometry is the
         // fade's (`TitleFade.follow`), so a title shown at either end fades with the width.
         let titles = samples.map(\.title)

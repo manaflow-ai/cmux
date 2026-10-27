@@ -81,11 +81,11 @@ extension CALayer {
     /// `outline` at every frame from `now` to the end of every animation on `bounds.size`
     /// (``MotionPath``, the values the render server shows, springs and retargets included), so a
     /// springing layer keeps a path and never falls back to a shadow derived from content. Replaces
-    /// the keyframes an earlier call added; adds none when nothing moves the size or the layer casts
-    /// no shadow. The model path stays the one for the model size.
+    /// the keyframes an earlier call added; adds none when nothing moves the size or the layer shows
+    /// no shadow (``castsShadow(after:)``). The model path stays the one for the model size.
     public func followShadowPath(now: CFTimeInterval = CACurrentMediaTime(), _ outline: (CGSize) -> CGPath?) {
         removeAnimation(forKey: Self.shadowPathFollowKey)
-        guard shadowOpacity > 0 else { return }
+        guard castsShadow(after: now) else { return }
         let size = MotionPath(self, "bounds.size", now: now)
         guard size.isExact, let end = size.end, end > now + 0.001 else { return }
         let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
@@ -99,6 +99,17 @@ extension CALayer {
         let counts = Set(paths.map(Self.elementCount))
         guard let animation = MotionPath.keyframes("shadowPath", values: paths, times: times, on: self, discrete: counts.count > 1) else { return }
         add(animation, forKey: Self.shadowPathFollowKey)
+    }
+
+    /// Whether the layer shows a shadow after media time `now`: its model strength is above 0, or an
+    /// animation of the strength still runs (a lift that ends fades its shadow out from a model of 0).
+    public func castsShadow(after now: CFTimeInterval) -> Bool {
+        if shadowOpacity > 0 { return true }
+        return (animationKeys() ?? []).contains { key in
+            guard let fade = animation(forKey: key) as? CAPropertyAnimation, fade.keyPath == "shadowOpacity" else { return false }
+            let begin = fade.beginTime > 0 ? convertTime(fade.beginTime, to: nil) : now
+            return begin + fade.duration / Double(max(fade.speed, .ulpOfOne)) > now
+        }
     }
 
     /// Ends ``followShadowPath(now:_:)``'s keyframes: the model path shows.

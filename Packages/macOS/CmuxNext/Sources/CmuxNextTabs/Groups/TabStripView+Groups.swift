@@ -93,11 +93,7 @@ extension TabStripView {
             let direct = groups.isDragged(id)
             var moved = false
             if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
-                let before = TabStripMove.snapshot(chip.layer)
-                chip.frame = frame
-                chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll)
-                if moved { chip.followPillShadow() }
+                moved = chip.move(to: frame, alpha: alpha, with: move, scroll: scroll)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha

@@ -78,6 +78,33 @@ import Testing
         #expect(layer.animation(forKey: CALayer.shadowPathFollowKey) == nil)
     }
 
+    /// A lift that ends fades its shadow out from a model strength of 0: while the fade runs the shadow
+    /// shows, so a moving size still gets the outline of every frame; after it, nothing casts.
+    @Test func aFadingShadowStillFollowsItsSize() throws {
+        let layer = CALayer()
+        layer.bounds = CGRect(x: 0, y: 0, width: 120, height: 28)
+        layer.shadowOpacity = 0
+        let fade = CABasicAnimation(keyPath: "shadowOpacity")
+        fade.fromValue = 0.1
+        fade.toValue = 0
+        fade.duration = 0.15
+        fade.beginTime = Self.now
+        layer.add(fade, forKey: "shadowOpacity")
+        let grow = CABasicAnimation(keyPath: "bounds.size.width")
+        grow.isAdditive = true
+        grow.fromValue = -40
+        grow.toValue = 0
+        grow.duration = 0.2
+        grow.beginTime = Self.now
+        layer.add(grow, forKey: "grow")
+        #expect(layer.castsShadow(after: Self.now))
+        layer.followShadowPath(now: Self.now) { ShadowOutline(size: $0, cornerRadius: 6).path }
+        #expect(layer.animation(forKey: CALayer.shadowPathFollowKey) != nil, "a fading shadow casts from the end outline")
+        #expect(!layer.castsShadow(after: Self.now + 0.15), "a faded shadow still counts as shown")
+        layer.followShadowPath(now: Self.now + 0.16) { ShadowOutline(size: $0, cornerRadius: 6).path }
+        #expect(layer.animation(forKey: CALayer.shadowPathFollowKey) == nil)
+    }
+
     @Test func aStillOrShadowlessLayerAddsNoFollow() {
         let still = CALayer()
         still.bounds = CGRect(x: 0, y: 0, width: 50, height: 20)
