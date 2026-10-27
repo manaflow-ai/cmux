@@ -111,6 +111,60 @@ struct PageChromiumWindowImageTests {
         await work.shutdown()
     }
 
+    /// A surface copy comes as base64 text (here a 512 x 512 noise PNG: about 1.4 MB of text, far above the
+    /// main thread's decode gates). Its base64 and image decodes run on the hosting's `.cpu` lane, one item per
+    /// picture, for ``PageWebView/chromiumImage()`` and ``PageWebView/snapshot()`` alike: the main thread records
+    /// no cpu-intensive site, and no DevTools call is made.
+    @Test func aLargeSurfaceCopyIsDecodedOnTheCPULane() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lanes = OSAllocatedUnfairLock<[BlockingLane]>(initialState: [])
+        let work = BackgroundWork(cpuWidth: 1, label: "test.page-surface-copy", onRan: { lane, _, _, _ in lanes.withLock { $0.append(lane) } })
+        let (view, page) = try await chromiumView(work: work)
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        let png = try Self.noisePNG(side: 512)
+        let base64 = png.base64EncodedString()
+        try #require(base64.utf8.count > BlockingKind.cpuIntensiveJSONBytes)
+        page.copiesSurface = true
+        page.surfaceCopy = PageSurfaceCopy(base64: base64, pixelSize: CGSize(width: 512, height: 512))
+        let table = BlockingViolationTable(mode: .record)
+        let calls = page.calls.count
+
+        let (image, snapshot) = await BlockingViolationTable.$scoped.withValue(table) {
+            (await view.chromiumImage(), await view.snapshot())
+        }
+        try await work.run(.userVisible, mayBlock: .cpu) {}
+        await table.flush()
+
+        #expect(image?.width == 512 && image?.height == 512)
+        #expect(snapshot?.size == NSSize(width: 300, height: 200))
+        #expect(page.surfaceCopies.count == 2)
+        #expect(lanes.withLock { $0.filter { $0 == .cpu }.count } >= 2, "a surface copy was not decoded on the .cpu lane")
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "a surface copy was decoded on the main thread: \(table.sites)")
+        #expect(page.calls.count == calls, "a DevTools call: \(page.calls.dropFirst(calls).map(\.method))")
+        view.close()
+        await work.shutdown()
+    }
+
+    /// A `side` x `side` PNG of noise: it barely compresses, so its data is about `side` x `side` x 4 bytes.
+    private static func noisePNG(side: Int) throws -> Data {
+        var seed: UInt32 = 0x2545_F491
+        var bytes = Data(capacity: side * side * 4)
+        for _ in 0..<(side * side) {
+            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
+            bytes.append(contentsOf: [UInt8(truncatingIfNeeded: seed), UInt8(truncatingIfNeeded: seed >> 8),
+                                      UInt8(truncatingIfNeeded: seed >> 16), UInt8(truncatingIfNeeded: seed >> 24)])
+        }
+        let provider = try #require(CGDataProvider(data: bytes as CFData))
+        let image = try #require(CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let encoded = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(encoded as CFMutableData, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        try #require(CGImageDestinationFinalize(destination))
+        return encoded as Data
+    }
+
     /// A `side` x `side` PNG of one colour: a few KiB of data, `side` x `side` x 4 bytes of pixels.
     private static func flatPNG(side: Int) throws -> Data {
         let context = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,

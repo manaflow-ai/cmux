@@ -281,7 +281,7 @@
     },
     "keystroke": {
       "type": "string",
-      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
+      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];:',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
     },
     "keyArgs": {
       "type": "object",
