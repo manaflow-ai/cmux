@@ -272,7 +272,7 @@ class WorkflowTests(unittest.TestCase):
             '{ [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }',
         ]
         for start, end in (("\n  sign-nightly-identity-legacy:", "Initialize cmux-next notices submodule"),
-                           ("\n  publish-nightly-identity-legacy:", "name: Select Xcode")):
+                           ("\n  publish-nightly-identity-legacy:", "name: Download the stapled cmux NIGHTLY DMG")):
             begin = text.index(start)
             step = text[text.index("name: Skip a build the old feed already has", begin):text.index(end, begin)]
             for line in rule:

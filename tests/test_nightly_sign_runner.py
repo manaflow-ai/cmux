@@ -38,7 +38,6 @@ SIGNING_JOBS = {
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
-    "publish-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
 }
