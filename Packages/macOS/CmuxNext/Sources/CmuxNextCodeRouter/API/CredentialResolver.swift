@@ -73,7 +73,13 @@ public struct CredentialResolver: Sendable {
     /// `parseCredential` (web/services/coderouter/accounts.ts) requires.
     func codexCredential() throws -> CodexCredential {
         let file = ProviderDetector(environment: environment).codexHome.appendingPathComponent("auth.json")
-        guard let tokens = environment.jsonObject(at: file)?["tokens"] as? [String: Any] else {
+        let root = environment.jsonObject(at: file)
+            ?? (ProviderDetector(environment: environment).codexUsesKeyring
+                ? environment.keychain.genericPassword(service: ProviderDetector.codexKeychainService).flatMap {
+                    (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+                }
+                : nil)
+        guard let tokens = root?["tokens"] as? [String: Any] else {
             throw CredentialResolutionError.incompleteSignIn
         }
         func field(_ name: String) throws -> String {
