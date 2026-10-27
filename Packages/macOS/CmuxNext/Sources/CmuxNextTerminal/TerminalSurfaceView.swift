@@ -110,6 +110,8 @@ public final class TerminalSurfaceView: NSView {
     var releasesGPUWhilePaused = false {
         didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
     }
+    /// Shown in a window that stays off screen, the surface lets its GPU memory go (``TerminalOffScreenRelease``).
+    var offScreenRelease: TerminalOffScreenRelease
     var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
@@ -122,7 +124,6 @@ public final class TerminalSurfaceView: NSView {
     private var appliedBacking = TerminalContentScale()
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
     var appliedDisplayID: UInt32? { appliedBacking.appliedDisplayID }
-    var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
@@ -184,12 +185,19 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         addCursorUpdateArea()
         bridge.target = self
         windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
         bridge.followLinkAnswers(on: mainWork)
+        // Enter, exit and moves in any window state, one area for the surface's life (`.inVisibleRect`). The I-beam
+        // has its own area (addCursorUpdateArea above): NSTrackingArea.h does not support `.activeAlways` with `.cursorUpdate`.
+        // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
+        // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
+                                       owner: self))
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 

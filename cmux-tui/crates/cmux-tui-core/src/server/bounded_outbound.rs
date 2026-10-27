@@ -632,8 +632,12 @@ impl BoundedOutbound {
         }
     }
 
-    /// The writer thread's wait for its own next item: an idle wait
-    /// (`Condvar::idle`), so a writer that disallows blocking may take it.
+    /// The writer's next item, or `None` once the queue is closed and empty.
+    /// Only the connection's writer (`mux-line-out`, `mux-ws-out`) calls it,
+    /// at the top of its loop: with nothing queued it is idle, holding no
+    /// one else's work, so the wait is an idle wait (Chromium's
+    /// `WaitableEvent::declare_only_used_while_idle`, which
+    /// `MessagePumpDefault` uses), not a blocking call (p02-threads 308).
     pub(super) fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().recover_poison();
         loop {

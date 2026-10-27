@@ -7,21 +7,39 @@ public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import os
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
 // the last layout drawn before the first connection, then replaced in place;
 // and the first connect begun in `main` with the remembered daemon socket.
 extension DaemonService {
+    /// Reads this process's Team ID, then begins the local daemon's first connect attempt with it
+    /// (`prestart`). `featureHello`: the app's daemon features for every hello.
+    /// Blocks on Security and the install key file: the app runs it on its system lane from `main`.
+    public nonisolated static func launchStart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                               resolvedTerminalEnvironment: (@Sendable () async -> [String: String])?,
+                                               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+                                               resolvesShellIntegration: Bool, echoesPlacementShift: Bool,
+                                               wireStats: DaemonWireStats?, hangWatch: (any HangWatchScoping)?,
+                                               featureHello: DaemonFeatureHello? = nil) -> DaemonLaunchStart {
+        let team = CodeSigningTeam.current()
+        return DaemonLaunchStart(team: team, prestart: prestart(
+            work: work, team: team, launch: launch, terminalEnvironment: terminalEnvironment,
+            resolvedTerminalEnvironment: resolvedTerminalEnvironment, terminalEnvironmentProvider: terminalEnvironmentProvider,
+            resolvesShellIntegration: resolvesShellIntegration, echoesPlacementShift: echoesPlacementShift,
+            wireStats: wireStats, hangWatch: hangWatch, featureHello: featureHello))
+    }
+
     /// Begins the local daemon's first connect attempt off the main thread,
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
     /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
     /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
-    /// service attaches.
-    public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    /// service attaches. `team`: this process's Team ID. The app calls it on its system lane, after the signature
+    /// read that gives `team` (it reads the install key file too).
+    public nonisolated static func prestart(work: BackgroundWork, team: String?, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
@@ -29,7 +47,7 @@ extension DaemonService {
                                      wireStats: DaemonWireStats? = nil,
                                      hangWatch: (any HangWatchScoping)? = nil,
                                      featureHello: DaemonFeatureHello? = nil) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build,
+        guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build, team: team,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
@@ -126,5 +144,34 @@ extension DaemonService {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
         for waiter in waiters { waiter.resume(returning: ()) }
+    }
+}
+
+/// What the app's launch makes on its system lane for the local daemon (`DaemonService.launchStart`):
+/// this process's Team ID, read there and never on the main thread, the first connect attempt begun with it,
+/// and the read of the daemon's launch snapshot begun from there (p08-startup-074).
+public nonisolated struct DaemonLaunchStart: Sendable {
+    /// This process's Team ID (`CodeSigningTeam`); nil for an ad-hoc or unsigned build.
+    public let team: String?
+    /// The first connect attempt; nil when its launcher could not be made (`DaemonService.start` reports why).
+    public let prestart: DaemonPrestart?
+    /// The read of the daemon's launch snapshot, begun on the files lane once the launcher named its session
+    /// (``reading(_:)``); nil without a launcher, and the start then posts its own read.
+    public let launchSnapshot: LaunchSnapshotPrefetch?
+
+    public init(team: String?, prestart: DaemonPrestart?, launchSnapshot: LaunchSnapshotPrefetch? = nil) {
+        self.team = team
+        self.prestart = prestart
+        self.launchSnapshot = launchSnapshot
+    }
+
+    /// The session and state directory whose launch snapshot the daemon's start applies; nil without a launcher.
+    public var snapshotNames: (session: String, stateDirectory: URL?)? {
+        prestart.map { (session: $0.launcher.configuration.session, stateDirectory: $0.launcher.configuration.stateDirectory) }
+    }
+
+    /// This start with `launchSnapshot`, the snapshot's read begun for ``snapshotNames``.
+    public func reading(_ launchSnapshot: LaunchSnapshotPrefetch) -> DaemonLaunchStart {
+        DaemonLaunchStart(team: team, prestart: prestart, launchSnapshot: launchSnapshot)
     }
 }

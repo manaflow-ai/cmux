@@ -94,6 +94,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
         root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -498,7 +499,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
     var editTeardown = (depth: 0, pending: false)
 
+    /// Nested order-ins of this window while it is not on screen (ShellWindow+Events.swift, `refusesOrderInKeyView`).
+    var orderInDepth = 0
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        // AppKit's own first key view while the window is placed on screen: the focus model places the keyboard.
+        if refusesOrderInKeyView(responder) { return false }
         // Only a modal of the overlay top layer takes the window's keyboard (`WindowOverlayHost.refusesFirstResponder`).
         if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
