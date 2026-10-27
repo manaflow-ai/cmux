@@ -172,4 +172,90 @@ fn owner_kind_is_written_once_and_never_replaces_a_record() {
     store.write(TEAM_ENROLL_FILE, "{}", 0o600).unwrap();
     record_owner_kind(&mut store).unwrap();
     assert_eq!(store.read(VM_KIND_FILE), None);
+    // A check that fails for any reason but "not found" writes nothing.
+    for broken in [VM_KIND_FILE, TEAM_ENROLL_FILE] {
+        let mut store = MemoryStore::default();
+        store.make_unreadable(broken);
+        assert!(record_owner_kind(&mut store).is_err(), "{broken}");
+        assert_eq!(store.mode_of(VM_KIND_FILE), None, "{broken}");
+    }
+}
+
+/// The agent's real store under a temporary root.
+#[cfg(target_os = "linux")]
+fn file_store() -> (tempfile::TempDir, super::role::FileStore, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = super::role::FileStore::new(crate::config::Paths::new(dir.path()));
+    let kind = dir.path().join(VM_KIND_FILE.trim_start_matches('/'));
+    (dir, store, kind)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn owner_kind_keeps_a_record_it_cannot_read() {
+    // Not UTF-8: it cannot be read as text, but it is a record, so it stays.
+    let (_dir, mut store, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    std::fs::write(&kind, [0xff, 0xfe, b'\n']).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read(&kind).unwrap(), [0xff, 0xfe, b'\n']);
+    // A path that cannot be checked (its directory is a file): an error, no write.
+    let (dir, mut store, _) = file_store();
+    std::fs::write(dir.path().join("etc"), "not a directory").unwrap();
+    assert!(record_owner_kind(&mut store).is_err());
+    assert_eq!(std::fs::read_to_string(dir.path().join("etc")).unwrap(), "not a directory");
+}
+
+/// A writer (the devbox sync, the create's write) that lands right after
+/// `record_owner_kind` checks for a record.
+#[cfg(target_os = "linux")]
+struct LandsAfterCheck {
+    inner: super::role::FileStore,
+    kind: std::path::PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl Store for LandsAfterCheck {
+    fn read(&self, file: &str) -> Option<String> {
+        self.inner.read(file)
+    }
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let present = self.inner.present(file)?;
+        if file == VM_KIND_FILE && !present {
+            std::fs::write(&self.kind, "team\n").unwrap();
+        }
+        Ok(present)
+    }
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        self.inner.write(file, text, mode)
+    }
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        self.inner.create_new(file, text, mode)
+    }
+    fn remove(&mut self, file: &str) {
+        self.inner.remove(file);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn owner_kind_never_replaces_a_record_written_after_its_check() {
+    let (dir, inner, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    let mut store = LandsAfterCheck { inner, kind: kind.clone() };
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "team\n");
+    // No temp file is left beside it.
+    let names: Vec<_> = std::fs::read_dir(kind.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["vm-kind"]);
+    // With nothing there, the same store writes `owner`, 0644.
+    let (_dir2, mut store, kind) = file_store();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&kind).unwrap().permissions().mode() & 0o777, 0o644);
+    drop(dir);
 }

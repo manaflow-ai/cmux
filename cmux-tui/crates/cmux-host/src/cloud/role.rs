@@ -79,13 +79,9 @@ impl FileStore {
     }
 }
 
-impl Store for FileStore {
-    fn read(&self, file: &str) -> Option<String> {
-        fs::read_to_string(self.at(file)).ok()
-    }
-
-    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
-        let path = self.at(file);
+impl FileStore {
+    /// A finished temp file next to `path`, holding `text` with `mode`.
+    fn temp_beside(path: &Path, text: &str, mode: u32) -> Result<PathBuf, String> {
         let dir = path.parent().ok_or("no parent directory")?;
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let tmp = dir.join(format!(
@@ -103,8 +99,42 @@ impl Store for FileStore {
             .map_err(|e| format!("{}: {e}", tmp.display()))?;
         out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         out.set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        drop(out);
+        Ok(tmp)
+    }
+}
+
+impl Store for FileStore {
+    fn read(&self, file: &str) -> Option<String> {
+        fs::read_to_string(self.at(file)).ok()
+    }
+
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let path = self.at(file);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        let path = self.at(file);
+        let tmp = Self::temp_beside(&path, text, mode)?;
         fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        let path = self.at(file);
+        let tmp = Self::temp_beside(&path, text, mode)?;
+        // link() fails on any existing entry (a file, a dangling symlink, a
+        // directory), so a record written after the caller's check is kept.
+        let linked = fs::hard_link(&tmp, &path);
+        let _ = fs::remove_file(&tmp);
+        match linked {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
     }
 
     fn remove(&mut self, file: &str) {

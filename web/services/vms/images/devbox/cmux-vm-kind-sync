@@ -1,21 +1,38 @@
 #!/bin/sh
 # Refreshes the machine's kind record (owner or team) from the VM-bound
-# reflection route. It writes only an answer it got: missing configuration or a
+# reflection route. The record is informational: acpmux no longer trusts it
+# (#26227). It writes only an answer it got: missing configuration or a
 # failed/invalid response leaves the record as it is (the image bakes `team`,
 # and the Cloud backend records the kind it assigned at create), so a failed
-# fetch never turns an owner VM `team`. Readers treat a missing or unreadable
-# record as `team` (agent-auth.sh).
+# fetch never turns an owner VM `team`.
+#
+# Writes hold a lock ($kind_file.lock), which also holds a reset generation.
+# The boot's clone reset (CMUX_VM_KIND_RESET=team) bumps it, and a fetched
+# answer is written only when no reset happened since its fetch began, so a
+# sync already running when a clone resets cannot put back the old answer.
 set -eu
 
 kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
 env_file=${CMUX_VM_MODEL_ENV_FILE:-/etc/cmux/model-plane.env}
+lock_file=$kind_file.lock
+kind_dir=${kind_file%/*}
+[ "$kind_dir" != "$kind_file" ] || kind_dir=.
+
+# Holds the lock on fd 9 until the script exits.
+lock() {
+  mkdir -p "$kind_dir"
+  exec 9>>"$lock_file"
+  flock -w 10 9
+}
+
+generation() {
+  gen=$(head -c 32 "$lock_file" 2>/dev/null | tr -cd 0-9)
+  echo "${gen:-0}"
+}
 
 write_kind() {
   kind=$1
-  dir=${kind_file%/*}
-  [ "$dir" != "$kind_file" ] || dir=.
-  mkdir -p "$dir"
-  tmp=$(mktemp "$dir/.vm-kind.XXXXXX")
+  tmp=$(mktemp "$kind_dir/.vm-kind.XXXXXX")
   trap 'rm -f "$tmp"' EXIT HUP INT TERM
   printf '%s\n' "$kind" >"$tmp"
   chmod 0644 "$tmp"
@@ -27,6 +44,9 @@ write_kind() {
 # The boot's snapshot-clone check asks for a reset: a clone may carry its
 # source's record, so it reads `team` until its own answer arrives.
 if [ "${CMUX_VM_KIND_RESET:-}" = team ]; then
+  lock || :
+  gen=$(($(generation) + 1))
+  printf '%s\n' "$gen" >"$lock_file"
   write_kind team
   exit 0
 fi
@@ -40,6 +60,9 @@ set -- -fsS --connect-timeout 2 --max-time 8 -H "authorization: Bearer $key" -H 
 if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
   set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
 fi
+started=$(generation)
 body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
 kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
+lock
+[ "$(generation)" = "$started" ] || exit 0
 write_kind "$kind"

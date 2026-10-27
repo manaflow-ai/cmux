@@ -29,11 +29,22 @@ const kindFile = (root: string) => path.join(kindDir(root), "vm-kind");
 describe("the image's cmux-vm-kind-sync", () => {
   const SYNC = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-vm-kind-sync");
 
-  /** Runs the sync against root with a curl that answers `answer` (or fails when null). */
-  async function sync(root: string, answer: VmGuestKind | null, extraEnv: Record<string, string> = {}) {
+  /**
+   * Runs the sync against root with a curl that answers `answer` (or fails
+   * when null). `duringFetch` runs inside the fake curl, before it answers.
+   */
+  async function sync(
+    root: string,
+    answer: VmGuestKind | null,
+    extraEnv: Record<string, string> = {},
+    duringFetch = "",
+  ) {
     const bin = path.join(root, "sync-bin");
     mkdirSync(bin, { recursive: true });
-    writeFileSync(path.join(bin, "curl"), answer ? `#!/bin/sh\nprintf '{"kind":"${answer}"}'\n` : "#!/bin/sh\nexit 22\n");
+    writeFileSync(
+      path.join(bin, "curl"),
+      answer ? `#!/bin/sh\n${duringFetch}\nprintf '{"kind":"${answer}"}'\n` : "#!/bin/sh\nexit 22\n",
+    );
     chmodSync(path.join(bin, "curl"), 0o755);
     const env = path.join(root, "model-plane.env");
     writeFileSync(env, "export CMUX_CODEROUTER_URL='https://cmux.example'\n");
@@ -70,5 +81,17 @@ describe("the image's cmux-vm-kind-sync", () => {
     expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
     const boot = readFileSync(path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
     expect(boot).toContain("CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync");
+  });
+
+  test("a clone reset during a running sync's fetch keeps team, and the next sync writes its answer", async () => {
+    // The clone carries its source's `owner`; a sync started before the reset
+    // answers `owner` after it. That stale answer must not undo the reset.
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    await sync(root, "owner", { SYNC_UNDER_TEST: SYNC }, 'CMUX_VM_KIND_RESET=team /bin/sh "$SYNC_UNDER_TEST" || exit 1');
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
+    await sync(root, "owner");
+    expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
+    expect(readdirSync(kindDir(root)).filter((name) => name.startsWith(".vm-kind"))).toEqual([]);
   });
 });
