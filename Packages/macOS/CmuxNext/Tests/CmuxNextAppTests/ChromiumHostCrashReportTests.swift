@@ -84,7 +84,7 @@ import Testing
     }
 
     private static func crashRecovery() -> CrashRecoveryService {
-        CrashRecoveryService(bundleID: nil, marksRun: false, work: BackgroundWork(label: "test.debug-crashes"),
+        CrashRecoveryService(bundleID: nil, runMarker: nil, work: BackgroundWork(label: "test.debug-crashes"),
                              mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 
