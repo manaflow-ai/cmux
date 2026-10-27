@@ -41,6 +41,12 @@ SIGNING_JOBS = {
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
 }
+# Each picker's re-run label, the other Blacksmith macOS 26 size.
+ALTERNATES = {
+    "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
+    "needs.find-nightly-next-recovery.outputs.sign_runner": "needs.find-nightly-next-recovery.outputs.sign_alternate",
+    "needs.legacy-identity-target.outputs.sign_runner": "needs.legacy-identity-target.outputs.sign_alternate",
+}
 # macOS jobs that still read vars.MACOS_RUNNER_26 directly: they build (no signing material)
 # and have owned-pool routes of their own.
 BUILD_JOBS = {"build-nightly-app", "prepare-nightly-variant-primary"}
@@ -80,6 +86,19 @@ class Pick(unittest.TestCase):
     def test_every_label_stalled_still_names_one(self) -> None:
         self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 90, SMALL: 90}), NOW)[0], SMALL)
 
+    def test_the_alternate_is_the_other_size_and_prefers_a_moving_one(self) -> None:
+        # Run 40489472569 (2026-10-27): both 26 sizes were stalled at the pick, so 6 vCPU won;
+        # a re-run of its signing jobs must not queue on 6 vCPU again.
+        for variable in ("", SMALL, LARGE, "glaeda-mini"):
+            for waits in ({}, {SMALL: 90}, {LARGE: 90}, {SMALL: 90, LARGE: 90}):
+                with self.subTest(variable=variable, waits=waits):
+                    snap = snapshot(waits)
+                    label = picker.pick(variable, snap, NOW)[0]
+                    other = picker.alternate(variable, label, snap, NOW)
+                    self.assertNotEqual(other, label)
+                    self.assertIn(other, (SMALL, LARGE))
+        self.assertEqual(picker.alternate(LARGE, LARGE, None, NOW), SMALL)
+
     def test_main_writes_the_output_and_never_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
@@ -88,10 +107,10 @@ class Pick(unittest.TestCase):
             def broken(token: str, repo: str) -> dict:
                 raise OSError("rate limit")
             self.assertEqual(picker.main(env, read=broken, now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={LARGE}\n")
+            self.assertEqual(output.read_text(), f"runner={LARGE}\nalternate={SMALL}\n")
             output.write_text("")
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\n")
 
 
 class Workflow(unittest.TestCase):
@@ -101,6 +120,10 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", runs_on)
+                # A re-run (attempt 2 on) takes the other size: GitHub never re-routes a queued job,
+                # so a label that stalls after the pick is left only by a re-run, which must not
+                # queue on it again (run 40489472569, 2026-10-27).
+                self.assertIn(f"|| github.run_attempt > 1 && {ALTERNATES[picked]} || {picked} ||", runs_on)
                 needs = jobs[name]["needs"]
                 self.assertIn(picked.split(".")[1], [needs] if isinstance(needs, str) else needs)
 
@@ -125,6 +148,8 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["run"].strip(), f"python3 {tooling}scripts/ci/nightly_sign_runner.py")
                 self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
                 self.assertEqual(jobs[job]["outputs"][output], "${{ steps.sign-runner.outputs.runner }}")
+                alternate = "alternate" if output == "runner" else "sign_alternate"
+                self.assertEqual(jobs[job]["outputs"][alternate], "${{ steps.sign-runner.outputs.alternate }}")
                 # legacy-identity-target takes release-next only for the release App credentials of its
                 # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
                 self.assertEqual(jobs[job].get("environment"), "release-next" if job == "legacy-identity-target" else None)
@@ -151,7 +176,8 @@ class OwnedVerify(unittest.TestCase):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
-                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || needs.pick-nightly-sign-runner.outputs.runner "
+                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || github.run_attempt > 1 && "
+                              "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"github.run_attempt == 1 && {self.OWNED} != '' && vars.CMUX_CI_XCODE_APP_PR", xcode)
