@@ -1077,6 +1077,8 @@ mod tests {
                                 "update": {"sessionUpdate": "current_mode_update",
                                            "currentModeId": "full-access"}})),
         };
+        // Once its exit was handled (which drops the count too): the report comes after it.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         tap(crate::agent::Direction::In, &report, None);
         assert_eq!(
             chat.floor.unapplied_full_access.load(Ordering::SeqCst),
