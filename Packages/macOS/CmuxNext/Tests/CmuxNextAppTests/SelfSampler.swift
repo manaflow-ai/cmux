@@ -28,7 +28,7 @@ final class SelfSampler {
     /// Samples this process for `seconds` while `body` runs, then returns `sample`'s report (nil,
     /// with a recorded issue, when it failed or was stopped) and the body's value. If the body
     /// throws, `sample` is stopped at once and reaped, and the body's error is rethrown.
-    static func run<T>(name: String, seconds: Int, _ body: (SelfSampler) async throws -> T) async throws -> (report: String?, value: T) {
+    static func run<T>(name: String, seconds: Int, _ body: @MainActor (SelfSampler) async throws -> T) async throws -> (report: String?, value: T) {
         let sampler = try SelfSampler(name: name, seconds: seconds)
         let result: Result<T, any Error>
         do { result = .success(try await body(sampler)) } catch { result = .failure(error) }
