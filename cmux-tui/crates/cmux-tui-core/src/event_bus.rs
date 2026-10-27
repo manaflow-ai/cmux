@@ -610,7 +610,9 @@ impl MuxEventMailbox {
 impl MuxEventMailboxState {
     /// Replaces the pending event of `key`, if any. The kept event takes
     /// the higher of the two causes: a person's change folded into a later
-    /// program one is still the person's.
+    /// program one is still the person's. It moves to `sequence` unless a
+    /// reply is parked after the replaced event (`reply_fence`): then it
+    /// keeps that place, so the reply still follows it.
     fn push_coalesced(
         &mut self,
         sequence: u128,
@@ -618,10 +620,13 @@ impl MuxEventMailboxState {
         event: MuxEvent,
         cause: EventCause,
     ) -> bool {
-        let mut cause = cause;
+        let (mut sequence, mut cause) = (sequence, cause);
         if let Some(previous) = self.coalesced_sequences.get(&key).copied() {
             if let Some((_, _, previous_cause)) = self.coalesced.remove(&previous) {
                 cause = cause.merge(previous_cause);
+            }
+            if self.fences.range(previous..).next().is_some() {
+                sequence = previous;
             }
         } else if !self.reserve_pending_slot() {
             return false;

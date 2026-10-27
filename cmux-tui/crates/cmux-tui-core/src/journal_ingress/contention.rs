@@ -56,8 +56,9 @@ pub(super) fn is_transient(error: &anyhow::Error, deadline: Instant) -> bool {
 }
 
 /// A batch passed its deadline under contention: fail the events whose
-/// callers wait (they get the timeout), keep the terminal output nobody
-/// waits on, and give it a new deadline. Once admission is closed
+/// callers wait (they get the timeout), keep the events the writer only
+/// applies (terminal output nobody waits on, admitted intents whose request
+/// already replied), and give them a new deadline. Once admission is closed
 /// (shutdown) it stops the writer as before and returns false, so no output
 /// commits after the shutdown's final barrier.
 pub(super) fn expire(
@@ -73,7 +74,7 @@ pub(super) fn expire(
     }
     receivers.state.stats.deadline_expired();
     let (waiting, kept): (Vec<_>, Vec<_>) =
-        std::mem::take(batch).into_iter().partition(|queued| queued.completion.is_some());
+        std::mem::take(batch).into_iter().partition(|queued| !queued.apply_only());
     super::complete_batch_error(
         &waiting,
         format!(

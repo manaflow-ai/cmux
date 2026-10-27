@@ -337,6 +337,14 @@ impl QueuedJournalEvent {
         self.completion.as_ref().map(JournalIngressCompletion::deadline)
     }
 
+    /// True when no request waits on this commit to reply: background
+    /// events, and admitted intents whose request already replied. The
+    /// writer only applies these: it retries them past a deadline instead of
+    /// answering with the timeout (p05-ipc.md 3.6).
+    fn apply_only(&self) -> bool {
+        self.completion.as_ref().is_none_or(JournalIngressCompletion::replied_before_commit)
+    }
+
     #[cfg(test)]
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
@@ -1215,7 +1223,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let later = batch.split_off(batch.len() / 2);
                             pending.push_front(later);
                             pending.push_front(batch);
-                        } else if batch.first().is_some_and(|event| event.completion.is_none())
+                        } else if batch.first().is_some_and(QueuedJournalEvent::apply_only)
                             && uncompleted_nonretryable_failures
                                 < JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS
                         {
@@ -1228,7 +1236,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
-                        } else if batch.first().is_some_and(|event| event.completion.is_none()) {
+                        } else if batch.first().is_some_and(QueuedJournalEvent::apply_only) {
                             let _admit = receivers.state.enqueue_admission.lock().recover_poison();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
