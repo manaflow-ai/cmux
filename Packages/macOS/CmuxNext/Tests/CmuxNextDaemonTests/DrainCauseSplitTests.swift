@@ -112,7 +112,8 @@ import Testing
         let causes: [ObservationCause] = [.program, .automation, .automation, .program]
         for (index, cause) in causes.enumerated() {
             let surface = SurfaceID(rawValue: UInt64(index + 1))
-            _ = driver.inbox.append(DaemonEventEnvelope(sequence: UInt64(index + 1), event: .titleChanged(surface: surface, title: "new"), cause: cause))
+            let event = DaemonEvent.titleChanged(surface: surface, title: "new")
+            _ = driver.inbox.append(DaemonEventEnvelope(sequence: UInt64(index + 1), event: event, cause: cause))
         }
         store.drain()
         #expect(store.drainTailCount == 4)
