@@ -160,7 +160,9 @@ pub(crate) fn run_host_parser(
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = waits::recv(&parser_command_receiver) {
+    // The parser's wait for its next command is idle: it holds no one
+    // else's work at the top of its loop (p02-threads 308).
+    while let Ok(command) = waits::idle_recv(&parser_command_receiver) {
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(
