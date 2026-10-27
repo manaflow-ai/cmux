@@ -320,6 +320,23 @@ done
         await gate.open()
     }
 
+    @Test func newTransferPreservesOtherMachinesPendingCleanup() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "old", scope: scope, confirmed: true) { _ in true }
+        await files.pause()
+        await #expect(throws: CloudCodexBrokerError.targetOffline) { try await adapter.revoke(machineID: "old", scope: scope) }
+        await files.resume()
+        try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
+        #expect(adapter.pendingCleanup.contains("old"))
+        try await adapter.revoke(machineID: "old", scope: scope)
+        #expect(adapter.pendingCleanup.isEmpty)
+        await adapter.shutdown()
+    }
+
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
