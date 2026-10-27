@@ -345,7 +345,7 @@ grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the 
 # watchdog did not, so a known-issue pass still looked like a test that had been running for the
 # whole stuck limit. The cost is not a false red, it is a healthy run SAMPLED AND KILLED while its
 # other tests were still going. Every terminal shape appears here, and only the genuinely stuck
-# test may be named.
+# test may be named. A skip has no start: swift-testing skips a test instead of starting it.
 cat > "$TMP/stuckshapes.out" <<'EOF2'
 ◇ Test knownIssuePass() started.
 ━ Test knownIssuePass() passed after 0.300 seconds with 2 known issues.
@@ -355,7 +355,6 @@ cat > "$TMP/stuckshapes.out" <<'EOF2'
 ✘ Test xKnownIssue() passed after 0.001 seconds with 1 known issue.
 ◇ Test cancelledHere() started.
 ➜ Test cancelledHere() was cancelled after 0.001 seconds.
-◇ Test skippedHere() started.
 ➜ Test skippedHere() skipped.
 ◇ Test eachPasses(n:) started.
 ✔ Test eachPasses(n:) with 2 test cases passed after 0.003 seconds.
@@ -617,6 +616,20 @@ err=$(grep '^::error' <<<"$out")
 grep -q 'duplicate()' <<<"$err" || fail "the error does not name duplicate()" "$err"
 # The block prefix is internal: a person reads the bare name.
 ! grep -q $'\x02' <<<"$err" || fail "the error shows the internal block separator" "$(cat -v <<<"$err")"
+
+# Within one process too: two suites can hold the same bare test name, and a skip is never the end
+# of a start (swift-testing skips a test instead of starting it). Suite A's duplicate() is lost,
+# suite B's duplicate() is skipped: that skip must not close A's start.
+cat > "$TMP/suiteskip.out" <<'EOF'
+◇ Test run started.
+◇ Suite A started.
+◇ Test duplicate() started.
+➜ Test duplicate() skipped: "not here"
+✔ Test run with 1 test in 2 suites passed after 0.002 seconds.
+EOF
+run suiteskip 0
+[[ "$status" != 0 ]] || fail "a skip in another suite closed a lost start of the same name" "$out"
+grep '^::error' <<<"$out" | grep -q 'duplicate()' || fail "the error does not name duplicate()" "$out"
 
 # Only the generated parameterized-case shape is skipped as a start. A test whose display name
 # merely begins "case passing" is a test: lost, it must fail the run, not vanish from the count.

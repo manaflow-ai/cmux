@@ -157,6 +157,14 @@ names_awk='
 # per case ("✔ Test case passing 1 argument ... passed after ...") whose start line the rule below
 # deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
 # all. Banked, either could have closed a later, real run of the same name.
+#
+# A skip closes nothing at all. swift-testing skips a test INSTEAD of starting it, so a skip is
+# never the end of a start, and two suites in one process can hold the same bare test name: suite
+# A's exportIsFresh() started and lost, then suite B's exportIsFresh() skipped, would otherwise
+# close A's start and a lost test would read as finished. (Measured on a real job log: one such
+# cross-suite skip in 220.) A skip still counts as progress for the watchdog, which counts finish
+# lines, not this bookkeeping. If a started test ever ended in a skip, it would read as
+# unfinished and fail the job by name: the loud side, not a silent pass.
 count_awk='
   /^◇ Test run started\.$/ { count_block++; block_starts[count_block] = 0 }
   is_start($0) {
@@ -166,7 +174,7 @@ count_awk='
     started[counted_name]++
     start_count++
   }
-  is_finish($0) {
+  is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
