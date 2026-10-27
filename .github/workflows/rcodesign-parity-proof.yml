@@ -404,7 +404,7 @@ jobs:
           mkdir -p "$work"
           tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
           if [[ "$HELPER_FIRST" == true ]]; then
-            CMUX_SIGNER="$RCODESIGN" CMUX_SIGN_MODE=helper-first CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+            CMUX_SIGNER="${RCODESIGN}" CMUX_SIGN_MODE=helper-first CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
               .next-signer/scripts/ci/release-signer/sign-app.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" 2>&1 | tee sign.log
             grep -E 'Computer Use helper notarized|accepted ticket covers|stapled ticket covers' sign.log | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
           else
