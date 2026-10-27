@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The color a Chromium page shows between a navigation committing and the
@@ -32,6 +32,15 @@ extension CEFTab {
             document: BrowserResizeTunables.pageBackdrop.value ? pageBackdropARGB : nil,
             newTab: PageBackground.themeARGB(in: container, surface: .newTabPage),
             loading: PageBackground.themeARGB(in: container))
+    }
+
+    /// What Chromium paints behind the document (`pageBaseARGB`, or a cmux page's theme surface); nil
+    /// before the first real page (the New Tab page is a hole that shows the window backdrop) and on a
+    /// see-through page.
+    public var pageBackgroundColor: CGColor? {
+        guard pastFirstRealPage, !pageSeeThrough else { return nil }
+        let argb = pageThemeSurface.map { PageBackground.themeARGB(in: container, surface: $0) } ?? pageBaseARGB
+        return PageBackground.cgColor(argb: argb)
     }
 
     /// The theme base of a committed document that has not settled yet; nil

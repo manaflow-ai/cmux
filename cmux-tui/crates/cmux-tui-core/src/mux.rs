@@ -331,7 +331,7 @@ mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 pub(crate) use terminal_sizing::host_policy;
-mod terminal_work;
+pub(crate) mod terminal_work;
 mod topology_result;
 mod tree_close;
 mod workspace_close_guard;

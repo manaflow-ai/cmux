@@ -20,11 +20,15 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+#[cfg(unix)]
+mod read_loop;
 mod render_geometry;
 #[cfg(unix)]
 mod resize_audit;
 #[cfg(unix)]
 mod resize_conformance;
+#[cfg(unix)]
+mod resize_sequence;
 mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;

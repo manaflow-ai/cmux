@@ -215,7 +215,7 @@ public final class TerminalSession {
         view.attachFind(find)
 
         target.session = self
-        eventsTask = Self.consume(io.events, with: TerminalEventRouter(
+        eventsTask = Self.consume(io.events, from: io, with: TerminalEventRouter(
             lane: surfaceView.lane, mailbox: events, input: input,
             replace: { [weak self] event -> TerminalOutputLane?? in
                 guard let self else { return nil }
@@ -309,11 +309,14 @@ public final class TerminalSession {
 
     /// Consumes `events` off the main actor (``TerminalEventRouter``): the loop never waits for the
     /// main actor except to swap in a fresh surface for a replay into one with content.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+    /// Each output chunk, once routed, is credited back to `io` (``TerminalIO/outputConsumed(_:)``),
+    /// so an IO that bounds its stream reads on.
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, from io: any TerminalIO,
                                             with router: TerminalEventRouter) -> Task<Void, Never> {
         Task.detached(priority: .high) {
             var router = router
             for await event in events {
+                defer { if case .output(let data) = event { io.outputConsumed(data.count) } }
                 guard await router.route(event) else { return }
             }
         }
@@ -392,6 +395,7 @@ public final class TerminalSession {
     /// that takes the old one's place (cmux-tui-contract.md 3.2).
     private func swapSurface() {
         let old = surfaceView
+        applyWaitingActions() // the old surface's held pwd and progress: the fresh one starts from the model
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,

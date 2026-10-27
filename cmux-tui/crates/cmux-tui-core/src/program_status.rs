@@ -299,14 +299,15 @@ impl ProgramStatusRecords {
         })
     }
 
-    /// True once per visible change, marking it published.
-    /// Whether a records change, a shown change or an alert waits to be
-    /// published, without taking it.
+    /// Whether a take of the change, the shown status or the alerts would
+    /// find something, taking nothing.
     pub(crate) fn has_pending(&self, running: bool) -> bool {
         self.revision != self.published
             || self.shown(running) != self.shown_published
             || !self.alerts.is_empty()
     }
+
+    /// True once per visible change, marking it published.
 
     pub(crate) fn take_change(&mut self) -> bool {
         let changed = self.revision != self.published;

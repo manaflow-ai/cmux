@@ -663,14 +663,14 @@ impl TerminalMetadata {
 
     /// Whether the command, prompt or last-output fact changed since the last
     /// call (marks it taken).
-    /// Whether a progress or busy change waits to be published, without
-    /// taking it ([`Self::take_progress_change`], [`Self::take_busy_change`]).
-    pub(crate) fn has_publication_change(&self) -> bool {
-        self.progress() != self.published_progress || self.activity.has_change()
-    }
-
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
+    }
+
+    /// Whether [`Self::take_progress_change`] or [`Self::take_busy_change`]
+    /// has a change to take, taking nothing.
+    pub(crate) fn has_progress_or_busy_change(&self) -> bool {
+        self.progress() != self.published_progress || self.activity.has_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host

@@ -15,6 +15,13 @@
 //! must stay ordered share one pipe; unrelated streams do not. A stream frame
 //! longer than the connection's chunk size (BULK_FRAME_MAX) leaves in chunks,
 //! so a reply waits for at most one chunk of it.
+//!
+//! The writer thread takes every ready item, in that order, up to
+//! [`WRITE_BATCH_BYTES`] and writes them with one `writev` of their buffers
+//! (headers and payloads unconcatenated), as Mojo's
+//! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
+//! writes its queued messages. A chunk ends its batch, so the one-chunk bound
+//! above holds for the batched writer too.
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -29,6 +36,10 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
+use super::attach_streams::AttachStreamAdmission;
+use super::attach_streams::AttachStreamError;
+use super::attach_streams::ClientStreamId;
+use super::attach_streams::ClientStreams;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use cmux_ipc::FrameHeader;
@@ -56,6 +67,12 @@ use lanes::{LaneTurns, RegularOutbound, StreamLanes};
 #[path = "bounded_outbound_tests.rs"]
 mod tests;
 
+#[path = "outbound_batch.rs"]
+mod batch;
+pub(super) use batch::write_counted_batch;
+#[cfg(test)]
+pub(super) use batch::write_line_outbound_item;
+
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
     pub(super) changed: Condvar,
@@ -82,6 +99,18 @@ pub(super) struct BoundedOutboundState {
     stream_items: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
+    /// Client-minted stream ids held until their terminal is queued
+    /// (attach-streams-v1): freeing one is part of queuing its terminal.
+    pub(super) client_streams: ClientStreams,
+}
+
+impl BoundedOutboundState {
+    /// `stream`'s terminal is queued (or will never be): nothing more of it
+    /// is admitted, and its client-minted id is free.
+    fn mark_terminal_queued(&mut self, stream: &OutboundStream) -> bool {
+        self.client_streams.release(stream);
+        stream.terminal_enqueued.swap(true, Ordering::AcqRel)
+    }
 }
 
 pub(super) struct StreamOutboundUsage {
@@ -288,6 +317,19 @@ impl BoundedOutbound {
         state.enqueue_stream_item(message, initial);
     }
 
+    /// Takes `stream`'s client-minted id until its terminal is queued.
+    pub(super) fn claim_client_stream(
+        &self,
+        stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
+        self.state.lock().recover_poison().client_streams.claim(stream, admission)
+    }
+
+    pub(super) fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
+        self.state.lock().recover_poison().client_streams.get(id)
+    }
+
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
         Self::push_control_locked(&mut state, text)?;
@@ -325,7 +367,7 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
-        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+        if state.mark_terminal_queued(stream) {
             return Ok(());
         }
         Self::push_control_locked(&mut state, text)?;
@@ -378,7 +420,7 @@ impl BoundedOutbound {
                     RegularOutbound::line(text, stream),
                     false,
                 );
-                stream.terminal_enqueued.store(true, Ordering::Release);
+                state.mark_terminal_queued(stream);
                 stream.close();
                 drop(state);
                 self.changed.notify_all();
@@ -395,7 +437,7 @@ impl BoundedOutbound {
     ) -> std::io::Result<()> {
         stream.close();
         Self::purge_stream_locked(state, stream.id);
-        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+        if state.mark_terminal_queued(stream) {
             return Ok(());
         }
         let overflow_text = stream.overflow_text.lock().recover_poison().clone();
@@ -534,6 +576,7 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.control.retain(|item| !matches!(item, ControlOutbound::Flush(_)));
+        state.client_streams.clear();
         drop(state);
         self.changed.notify_all();
     }
@@ -543,6 +586,7 @@ impl BoundedOutbound {
         state.closed = true;
         state.clear_streams();
         state.control.clear();
+        state.client_streams.clear();
         state.control_messages = 0;
         state.control_bytes = 0;
         drop(state);
@@ -552,35 +596,10 @@ impl BoundedOutbound {
     pub(super) fn close_after_control(&self) {
         let mut state = self.state.lock().recover_poison();
         state.clear_streams();
+        state.client_streams.clear();
         state.closed = true;
         drop(state);
         self.changed.notify_all();
-    }
-}
-
-pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
-    writer: &mut W,
-    item: OutboundItem,
-) -> std::io::Result<()> {
-    match item {
-        OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
-        }
-        OutboundItem::Frame(header, text) => {
-            writer.write_all(&header.encode())?;
-            writer.write_all(text.as_bytes())
-        }
-        OutboundItem::Chunk { header, text, range } => {
-            let payload = text.as_bytes().get(range).ok_or(std::io::ErrorKind::InvalidData)?;
-            writer.write_all(&header.encode())?;
-            writer.write_all(payload)
-        }
-        OutboundItem::Flush(flushed) => {
-            writer.flush()?;
-            let _ = flushed.send(());
-            Ok(())
-        }
     }
 }
 
@@ -778,6 +797,18 @@ impl MessageSink for QueuedSink {
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn claim_client_stream(
+        &self,
+        stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
+        self.outbound.claim_client_stream(stream, admission)
+    }
+
+    fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
+        self.outbound.client_stream(id)
     }
 
     fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {

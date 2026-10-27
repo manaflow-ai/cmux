@@ -250,7 +250,7 @@ final class AppServices {
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")  // Find Work's `gh` reads; tests replace it
-    private(set) lazy var pullRequests = AgentPullRequestReads()  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
+    private(set) lazy var pullRequests = AgentPullRequestReads(mainWork: mainWork)  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
@@ -326,13 +326,15 @@ final class AppServices {
     /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
 
-    /// Every declared feature's value for this launch: this build's channel, the launch
+    /// Every declared feature's value for this launch: this build's channel and default set (a dogfood build's
+    /// switches, ``FeatureDogfoodSet``, by the tag it ships), the launch
     /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local choices (the Labs page's, then
     /// the Debug tunables features replace: ``FeatureLaunchLocalOverrides``) whose launch reads have ended.
     /// The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment,
+                                                buildDefaults: FeatureDogfoodSet.chromeParity.buildDefaults(forTag: environment.launch.build.tag)),
                     local: FeatureLaunchLocalOverrides(labs: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(),
                                                        tunables: environment.featureTunableOverrides?.value ?? [:]))
     }
@@ -363,6 +365,8 @@ final class AppServices {
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
     /// reaches Ghostty at once.
     private(set) lazy var terminalPointerFrames: FrameInputCoalescers? = features.isEnabled(.terminalPointerFrames) ? pointerFrames : nil
+    /// Tab strip wheels (feature `tabStripScrollFrames`, p04-input-087): one layer moves per frame. Nil: each event lays out.
+    private(set) lazy var tabScrollFrameInput: FrameInputCoalescers? = features.isEnabled(.tabStripScrollFrames) ? pointerFrames : nil
     /// Remote panes (feature `pointerFrameRemoteInput`): remote desktop and remote browser tabs send moves, drags and
     /// mid-gesture scrolls to the host on a frame interval's first event and once more at its frame (p04-input-035).
     /// Nil while it is off: each event goes to the host at once.
@@ -427,7 +431,8 @@ final class AppServices {
     private(set) lazy var hiddenFrames: HiddenFrameLRU? = makeHiddenFrameLRU()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.discardKinds(
-        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse)))
+        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse),
+        sidebarSections: features.isEnabled(.memoryDiscardSidebarSections)))
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
@@ -437,7 +442,7 @@ final class AppServices {
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool: PageHostPool = {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                hoverFrameInput: hoverFrameInput)
+                                deadlines: mainDeadlines, hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
         return pool
     }()
@@ -453,7 +458,8 @@ final class AppServices {
                 },
                 keyRouter: keyRouter, work: work, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
-            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
+            startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         return host
@@ -474,6 +480,11 @@ final class AppServices {
     private(set) lazy var overlayPageDiscards = OverlayPageDiscards(memory: memoryCoordinator) { [weak self] in
         self?.memoryHistograms.recordDiscard(kind: ContentKind.overlayPage.rawValue)
     }
+    /// The one discard path of right sidebar sections and docked Home views (`ContentKind.sidebarSection`, p07-memory-100):
+    /// feature `memoryDiscardSidebarSections` (default off) lets a hidden one go after 10 min or at critical pressure; nil keeps each.
+    private(set) lazy var sidebarSectionDiscards: SidebarSectionDiscards? = features.isEnabled(.memoryDiscardSidebarSections)
+        ? SidebarSectionDiscards(memory: memoryCoordinator) { [weak self] in self?.memoryHistograms.recordDiscard(kind: ContentKind.sidebarSection.rawValue) }
+        : nil
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -708,8 +719,8 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
-         features: FeatureList? = nil) {
+         crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
+         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
@@ -757,7 +768,12 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
-        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil)  // after the run marker's handlers
+        // The fatal-hang record needs the run marker, whose folder the next launch reads (p09-observability-110).
+        let hangSinks = watchdog.map { [features = self.features, marker = crashRecovery.marker] in
+            WatchdogHangSinks(watchdog: $0, keepsFatalHangRecord: features.isEnabled(.fatalHangReports) && marker != nil,
+                              markerFolder: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
+        }
+        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks, forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }

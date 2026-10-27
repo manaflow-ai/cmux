@@ -202,6 +202,8 @@ extension AgentPaneImageCopies {
             guard let action = item.action, let target = item.target as? NSObject else { continue }
             let rebuilt = AgentPaneMenuAction { [weak item] in
                 // task-owner: one rebuild of a local SVG off the main actor; ends when the row acts
+                // main-hop-allow: the person's menu row, userBlocking (p06 rule 2): rebuild runs off main; its one resume
+                // performs the row's action on its NSMenuItem, which is main-only and not Sendable
                 Task { @MainActor in
                     guard await rebuild(file, to: copy) else { return NSSound.beep() }
                     _ = target.perform(action, with: item)

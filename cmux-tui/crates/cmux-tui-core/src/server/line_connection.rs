@@ -223,18 +223,16 @@ pub(super) fn serve_connection(
         // Ends the connection however the writer ends, a panic included: a
         // dead writer with an open socket left its client waiting forever.
         let _end = WriterEnd { writer: writer_close, socket: writer_socket };
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv).
-        while let Some(item) = writer_outbound.recv() {
-            // Each item's write is a 100 ms hang scope; the wait above is not.
-            let _item = writer_hangs.item(WatchKind::LineOut);
-            match &item {
-                OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
-                OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
-                    writer_ipc.frame_sent(header.kind(), header.frame_len());
-                }
-                OutboundItem::Flush(_) => {}
-            }
-            if write_line_outbound_item(&mut writer_ipc.counted(&mut *write_half), item).is_err() {
+        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+        let mut batch = Vec::new();
+        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
+        while writer_outbound.recv_batch(&mut batch) {
+            // Each batch's write is a 100 ms hang scope; the wait above is not.
+            let _batch = writer_hangs.item(WatchKind::LineOut);
+            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            // The written texts go now, not when the next item arrives.
+            batch.clear();
+            if written.is_err() {
                 writer_outbound.close();
                 break;
             }

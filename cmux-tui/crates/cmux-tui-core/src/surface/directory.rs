@@ -76,6 +76,27 @@ impl Surface {
         records.shown(!self.is_dead())
     }
 
+    /// Whether [`Self::publish_pending_directory`] or
+    /// [`Self::publish_pending_progress`] has something to publish. Reads
+    /// in-memory state only, so a reader can ask after every chunk and hand
+    /// the publication (the registry's sqlite) to a thread that may block.
+    pub(crate) fn has_pending_publication(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.directory_pending.load(Ordering::Acquire) {
+            return true;
+        }
+        let (metadata_changed, records) = {
+            let metadata =
+                pty.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (metadata.has_progress_or_busy_change(), metadata.program_status())
+        };
+        metadata_changed
+            || records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .has_pending(!self.is_dead())
+    }
+
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
     /// program status as a terminal upsert, then post the notifications the records asked for
     /// (after the upsert, so a client that opens the notification finds the
@@ -160,25 +181,6 @@ impl Surface {
         let Some(pty) = self.as_pty() else { return };
         let Some(mux) = pty.mux.upgrade() else { return };
         mux.post_terminal_notifications_off_output(self.id, &pty.publications, notifications);
-    }
-
-    /// Whether a cwd, progress or program status change waits to be
-    /// published. Memory only.
-    fn has_pending_publication(&self) -> bool {
-        let Some(pty) = self.as_pty() else { return false };
-        if pty.directory_pending.load(Ordering::Acquire) {
-            return true;
-        }
-        let records = {
-            let metadata =
-                pty.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if metadata.has_publication_change() {
-                return true;
-            }
-            metadata.program_status()
-        };
-        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        records.has_pending(!self.is_dead())
     }
 
     /// The queued publication ([`Self::post_pending_publications`]), on the

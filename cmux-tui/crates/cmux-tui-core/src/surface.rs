@@ -22,6 +22,7 @@ mod host_launch;
 mod host_state;
 mod input;
 mod local_output;
+mod local_reader;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -95,7 +96,9 @@ use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
-use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
+use terminal_runtime::{
+    PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard, TerminalReader,
+};
 #[cfg(test)]
 mod test_pty;
 #[cfg(test)]
@@ -925,7 +928,7 @@ impl Surface {
             .expect("hosted PTY surface owns its reader")
             .reader_thread
             .lock()
-            .unwrap() = Some(reader_thread);
+            .unwrap() = Some(TerminalReader::Thread(reader_thread));
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
