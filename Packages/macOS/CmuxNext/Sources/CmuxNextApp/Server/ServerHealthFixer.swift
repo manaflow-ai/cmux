@@ -1,5 +1,6 @@
 import CmuxNextServer
 import CmuxNextServerHelper
+import CmuxNextWakeups
 import Foundation
 
 /// A health check's one-click fix through the privileged helper
@@ -20,10 +21,13 @@ struct ServerHealthFixer {
     let ledger: ServerFixLedger
 
     /// The App's fixer: the helper of this build.
-    static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
-        async throws(ServerHelperClient.Failure) in
-        try await ServerHelperClient.run(fix, revert: revert, willCall: willCall)
-    }, ledger: .standard)
+    static func helper(work: BackgroundWork) -> ServerHealthFixer {
+        let helper = ServerServiceRegistration.helper(work: work)
+        return ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
+            async throws(ServerHelperClient.Failure) in
+            try await ServerHelperClient.run(fix, revert: revert, helper: helper, willCall: willCall)
+        }, ledger: .standard)
+    }
 
     /// The Fix button for a check this app fixes itself: app text, never the
     /// server's title (the click runs the allowlist, not the server's words).
@@ -42,9 +46,9 @@ struct ServerHealthFixer {
 
     /// `localFix` for every check with allowlisted fixes.
     static var localFixes: [HealthCheckID: HealthFix] {
-        Dictionary(uniqueKeysWithValues: Set(ServerFix.allCases.map { HealthCheckID($0.check) }).compactMap { check in
+        Dictionary(Set(ServerFix.allCases.map { HealthCheckID($0.check) }).compactMap { check in
             localFix(for: check).map { (check, $0) }
-        })
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// `sleep.enabled`: no system or disk sleep on AC, wake for network;

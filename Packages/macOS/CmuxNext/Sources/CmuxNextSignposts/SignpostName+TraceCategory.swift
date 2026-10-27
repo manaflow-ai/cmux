@@ -13,9 +13,10 @@ nonisolated extension SignpostName {
             .key
         case .switchWorkspace, .switchTab, .switchPaneFocus, .switchAppActivation: .switch
         case .createTab, .createWorkspace: .create
-        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
+        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput, .cefMemoryPressureVote: .cef
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete, .launchReadDone:
+             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete, .launchReadDone,
+             .launchActionCatalogFirstMainAccess:
             .launch
         case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
              .stallRenderStarved, .stallGhosttyRuntimePhase:
@@ -31,7 +32,7 @@ nonisolated extension SignpostName {
              .crashDumpWithoutCrashing:
             .crash
         case .controlRequest: .control
-        case .ghosttyRender: .ghostty
+        case .ghosttyRender, .ghosttyLockWait: .ghostty
         case .resizeFrame: .resize
         case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
         case .burstEvent: .burst

@@ -77,6 +77,31 @@
         "settled"
       ],
       "note": "turning the reporting source off takes it off every project it reported"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.source.update",
+        "params": {
+          "source": "oracle",
+          "enabled": false
+        },
+        "idempotencyKey": "project-source-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -56,6 +56,35 @@
         "settled"
       ],
       "note": "a workspace of another machine gets that machine's section and lands at its end"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.adopt",
+        "params": {
+          "refs": [
+            {
+              "session_id": "oracle-remote",
+              "workspace_id": "ws_0123456789abcdef0123456789abcdef"
+            }
+          ]
+        },
+        "idempotencyKey": "sidebar-adopt-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

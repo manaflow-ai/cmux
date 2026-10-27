@@ -133,7 +133,7 @@ rows.
 
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
 (proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
-observed_role). The app is napped while no window shows; renderers the debug.webui census marks hidden (or every
+observed_role). The app and the Chromium Host (task 128) are napped while no window shows; renderers the debug.webui census marks hidden (or every
 renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); in tabs-static
 (`judge_shown_renderers`) a renderer it marks shown is not backgrounded (kUserBlocking, task 107); the daemon and
 terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
@@ -2235,7 +2235,8 @@ def expected_role(session, row, budget=None, sessions=None):
     if (name == "cef-renderer" and facts.get("judge_shown_renderers") and facts.get("shown")
             and renderer_visibility(row) == "shown"):
         return "not-background"
-    if facts.get("shown") is False and name == "app":
+    # The Chromium Host holds its App Nap activity only while a page shows (host_page_activity.h, task 128).
+    if facts.get("shown") is False and name in ("app", "cef-host"):
         return "napped"
     if facts.get("shown") and name in ("daemon", "terminal-host"):
         return "not-background"

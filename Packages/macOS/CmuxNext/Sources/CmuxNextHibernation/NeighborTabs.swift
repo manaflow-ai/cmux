@@ -17,6 +17,11 @@ package struct NeighborTabs {
         panes[pane] = (order, selected)
     }
 
+    /// The pane whose strip lists `key`, nil when no recorded pane does.
+    package func pane(listing key: String) -> ObjectIdentifier? {
+        panes.first { $0.value.order.contains(key) }?.key
+    }
+
     package mutating func remove(_ pane: ObjectIdentifier) {
         panes[pane] = nil
         offScreen.remove(pane)

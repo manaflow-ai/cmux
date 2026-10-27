@@ -132,6 +132,31 @@
         "settled"
       ],
       "note": "the focused pane's selected tab is the app-drawn browser, so the link reuses it and navigates its frontend record (open_url.rs rule 3); no cmux-browser provider is needed"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.open_url",
+        "params": {
+          "url": "http://127.0.0.1:9/oracle"
+        },
+        "idempotencyKey": "workspace-open-url-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -1,6 +1,7 @@
 import Observation
 
-/// Follows a main-actor expression for a view, only while the view's ``VisibilityNode`` is visible
+/// Follows a main-actor expression for a view, only while the view's ``VisibilityNode`` renders (it is
+/// visible, or a capture vote holds it: ``VisibilityNode/wantsFrames``)
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, section C). Use it only when `apply` touches
 /// views; an `apply` that writes the model, the daemon, the disk or another owner uses
 /// `ServiceObservation`, which also runs while nothing is on screen.
@@ -16,7 +17,7 @@ import Observation
 ///
 /// Behavior:
 /// 1. `init` reads and applies the current value in the caller's turn. It arms tracking
-///    (`withObservationTracking`, the same path on every macOS) only while the node is visible.
+///    (`withObservationTracking`, the same path on every macOS) only while the node renders.
 /// 2. The first change of anything `read` read marks the observation dirty with the
 ///    scheduler's ``ObservationCauses/currentCause`` (Observation's will-set). Until the cause is
 ///    person, it re-arms the tracking in that turn (one read), so each later change of what it
@@ -29,9 +30,9 @@ import Observation
 ///    A person-caused flush is also queued for the input-response pass, which applies it before
 ///    the commit (``ObservationCauses/flushPersonCaused()``); one the pass did not reach runs in
 ///    its `userBlocking` task.
-/// 4. When the node stops being visible, a cancel signal fires the armed tracking, so the
-///    registrar drops it, and a dirty flush is dropped: a hidden view reads nothing. When the node
-///    shows again it reads once and applies the value.
+/// 4. When the node stops rendering (it is hidden and no capture vote holds it), a cancel signal
+///    fires the armed tracking, so the registrar drops it, and a dirty flush is dropped: a hidden
+///    view reads nothing. When the node renders again it reads once and applies the value.
 /// 5. A value whose type is `Equatable` is applied only when it differs from the last one applied.
 ///
 /// A change must happen on the main actor: a will-set from another thread reaches the main actor
@@ -81,11 +82,11 @@ public final class VisibleObservation<Value> {
         taskOwner = work.taskOwner(owner)
         tracker = ObservationTracker(counts: work.observationOwner(owner), causes: work.causes, read: read)
         tracker.client = self
-        let value = node.isVisible ? tracker.track() : tracker.readUntracked()
+        let value = node.wantsFrames ? tracker.track() : tracker.readUntracked()
         if isEqual != nil { last = value }
         apply(value)
-        visibility = node.subscribe(owner: owner) { [weak self] state in
-            if state.isVisible { self?.show() } else { self?.hide() }
+        visibility = node.subscribeRendering(owner: owner) { [weak self] rendering in
+            if rendering { self?.show() } else { self?.hide() }
         }
     }
 
@@ -128,7 +129,7 @@ public final class VisibleObservation<Value> {
     /// A queued flush task: flushes when the pending flush's class is still `workClass` (a raised
     /// cause has its own task on the higher class's queue).
     private func flushQueued(_ workClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.isVisible else {
+        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.wantsFrames else {
             return work.budget.noteRanNothing()
         }
         flushNow()
@@ -168,7 +169,7 @@ extension VisibleObservation: ObservationTrackerClient {
     }
 
     func flushPersonCaused() -> Bool {
-        guard !cancelled, node.isVisible, !node.isFrozen else { return false }
+        guard !cancelled, node.wantsFrames, !node.isFrozen else { return false }
         // Its userBlocking task finds nothing pending and returns.
         work.budget.run(.frame, owner: taskOwner) { flushNow() }
         return true

@@ -17,9 +17,6 @@ public final class AgentPaneGitLink {
     /// The commits' and pushes' own connection, opened at the first write.
     private var writeLink: AgentPaneGitLink?
     private var opening: Task<DaemonConnection, any Error>?
-    /// Reads and drops the connection's tree events: every handshake
-    /// subscribes, and nothing here uses them.
-    private var drain: Task<Void, Never>?
 
     public init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
         self.daemon = daemon
@@ -94,7 +91,7 @@ public final class AgentPaneGitLink {
         }
     }
 
-    /// Ends the link for good (its machine left the app): closes the connection, which ends the drain.
+    /// Ends the link for good (its machine left the app): closes the connection.
     public func close() {
         writeLink?.close()
         writeLink = nil
@@ -112,16 +109,13 @@ public final class AgentPaneGitLink {
                 configuration: DaemonConnection.Configuration(
                     clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil),
                 endpointProvider: { try await daemon.endpoint() })
+            // Every handshake subscribes, and nothing here uses the events: dropped as they come.
+            connection.discardEvents()
             do {
                 try await connection.start()
             } catch {
                 await connection.close()
                 throw error
-            }
-            drain = Task {
-                do {
-                    for try await _ in connection.events {}
-                } catch {}
             }
             return connection
         }

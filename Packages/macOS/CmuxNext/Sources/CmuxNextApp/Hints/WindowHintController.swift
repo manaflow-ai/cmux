@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextFocusUI
 
 /// Hint mode (`hints.show`, Cmd-J; cx-zjtn.1): every clickable control in
 /// the window gets a one or two letter label (``LinkHintSession``'s Vimium
@@ -28,15 +29,21 @@ final class WindowHintController {
 
     /// Asking the pages for their targets; the keys typed meanwhile.
     private struct Pending {
-        let task: Task<Void, Never>
+        let query: PageCollection
         weak var window: NSWindow?
         var keys: [NSEvent] = []
     }
 
-    private var session: Session?
-    private var pending: Pending?
+    private var session: Session? { didSet { noteActive() } }
+    private var pending: Pending? { didSet { noteActive() } }
 
     var isActive: Bool { session != nil || pending != nil }
+
+    /// The key router's modes: while labels show or wait, the router asks this controller first for typing keys too
+    /// (``KeyRouterMode/windowHints``). `AppServices` passes the router's instance.
+    var keyModes: KeyRouterModes? { didSet { noteActive() } }
+
+    private func noteActive() { keyModes?.set(.windowHints, isActive) }
 
     /// Labels the controls of `controller`'s window, or ends a session that
     /// shows (the action toggles). Returns false when nothing is clickable.
@@ -49,15 +56,16 @@ final class WindowHintController {
         guard let window = controller.window, let content = window.contentView else { return false }
         let found = WindowHintTargets.collect(in: content)
         guard !found.pages.isEmpty else { return show(found.targets, in: controller) }
-        let task = Task { [weak self, weak controller] in
-            let pages = await WindowHintTargets.pageTargets(of: found.pages, clip: found.bounds)
-            guard !Task.isCancelled, let self, let controller, let waiting = self.pending else { return }
+        // The labels show when the pages answered or the person's userBlocking deadline ended the wait.
+        let query = WindowHintTargets.pageTargets(of: found.pages, clip: found.bounds,
+                                                  deadlines: controller.services.mainDeadlines) { [weak self, weak controller] pages in
+            guard let self, let controller, let waiting = self.pending else { return }
             self.pending = nil
             let targets = found.targets + pages
             guard self.show(Array(targets.prefix(WindowHintTargets.limit)), in: controller) else { return }
             for event in waiting.keys where self.session != nil { _ = self.interceptKeyDown(event, in: waiting.window) }
         }
-        pending = Pending(task: task, window: window)
+        pending = Pending(query: query, window: window)
         return true
     }
 
@@ -128,7 +136,7 @@ final class WindowHintController {
     }
 
     func cancel() {
-        pending?.task.cancel()
+        pending?.query.cancel()
         pending = nil
         session?.overlay.removeFromSuperview()
         session = nil

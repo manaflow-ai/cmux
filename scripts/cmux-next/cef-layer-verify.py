@@ -4,15 +4,23 @@
 Launches a tagged cmux-next app (scratch config, no activation) with layer hosting set by --mode, opens a probe page
 in a Chromium tab and checks:
 
-  --mode on       `browserResize.layerHosting` on: every page window hosts from fork API 26 (the A/B benches' "on")
-  --mode off      `browserResize.layerHosting` off and the feature `cefLayerHosting` off: no page hosts
-  --mode default  no tunable set, `CMUX_ENABLE_FEATURES=cefLayerHosting` (p03-rendering-050): a pane's page hosts
-                  only where the app makes every Track A call for the fork; expects what mode on expects
+  --mode on       the bench-only feature `cefLayerHostingEveryPage` on (its tunable `browserResize.layerHostingEveryPage`):
+                  every page window hosts from fork API 26, DevTools and popups too (the A/B benches' "on")
+  --mode off      both layer hosting features off: no page hosts
+  --mode default  the feature `cefLayerHosting` on (its tunable `browserResize.layerHosting`, p03-rendering-050): a
+                  pane's page hosts only where the app makes every Track A call for the fork (resize fence, embedder
+                  visibility); DevTools and popups do not host. Expects what mode on expects, so it fails on a fork
+                  without every Track A call (`valid`: hosting_without_track_a)
+
+Both tunables are features' local overrides (p12-perf-process-100): the app reads them from its debug-tunables.json
+once, at launch, before its features resolve, so a mode is set in the file before the app starts, never live. The
+environment lists (`CMUX_ENABLE_FEATURES`) do not reach the app: its launch strips inherited `CMUX_*` variables.
 
 Input is real HID events (CGEventPost: the pointer moves on the fleet host), because the point is that the
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
+  arm         features.list resolves both layer hosting features as the mode sets them (source `local` where set)
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
               in mode on (below 26 the app never hosts, so an "on" number would be an "off" number); in mode default
               debug.cef tracker.hosting_without_track_a == 0 (the app makes every Track A call for this fork)
@@ -43,9 +51,10 @@ window and skip that. The python process needs the host's event-posting permissi
   drag        an HID drag inside the page fires the page's pointer events (mousedown, moves, mouseup)
   context     an HID right click opens Chromium's context menu (the page sees a contextmenu event)
 
---checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode). --tunables build sets the
-tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
-of a scratch file, and records that path.
+--checks hosted runs only `arm`, `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode).
+--tunables build sets the tunables in the build's own debug-tunables.json (the path `debug.tunables` reports, which
+the benches read) instead of a scratch file, and records that path: a first launch asks the app for the path, the
+file is written after it quit, and a second launch is the one checked.
 
 Each row prints PASS or FAIL; OUT/verify-<mode>.json holds them, the debug.cef values and the tunables file. IME,
 accessibility, DevTools, popups and full screen are not covered here (see the design doc's feature table).
@@ -65,12 +74,10 @@ parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
                          "(any GUI slot; proves the page window takes AppKit's events, not the WindowServer's routing)")
-parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid, hosted, hosted.fork and show.again rows")
+parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the arm, valid, hosted, hosted.fork and show.again rows")
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
-                    help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
+                    help="build: set the tunables in the build's own debug-tunables.json (what the benches read)")
 opts = parser.parse_args()
-if opts.mode == "default" and opts.tunables == "build":
-    parser.error("--mode default sets no tunable: use --tunables scratch")
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -81,8 +88,14 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
-KEY = "browserResize.layerHosting"
-json.dump({"version": 1, "values": {} if opts.mode == "default" else {KEY: opts.mode == "on"}}, open(TUNABLES, "w"))
+KEY = "browserResize.layerHosting"  # feature cefLayerHosting's local override
+EVERY_PAGE_KEY = "browserResize.layerHostingEveryPage"  # bench-only feature cefLayerHostingEveryPage's
+FEATURES = {KEY: "cefLayerHosting", EVERY_PAGE_KEY: "cefLayerHostingEveryPage"}
+# Each mode's tunables: written before the app starts (the features resolve once, at launch).
+ARMS = {"on": {KEY: False, EVERY_PAGE_KEY: True}, "off": {KEY: False, EVERY_PAGE_KEY: False},
+        "default": {KEY: True, EVERY_PAGE_KEY: False}}
+ARM = ARMS[opts.mode]
+json.dump({"version": 1, "values": ARM}, open(TUNABLES, "w"))
 HOSTED = opts.mode != "off"
 WINDOW = (80, 80, 1400, 900)
 LAYER_HOSTING_FORK_API = 26
@@ -294,17 +307,29 @@ def capture_bars(name):
     return red, blue, rows
 
 
-def write_build_tunable(path, value):
+def write_build_tunables(path, values):
     """The build's own override file, after the app quit (its coalesced writer cannot race this)."""
     try:
         with open(path) as existing:
             data = json.load(existing)
     except (OSError, ValueError):
         data = {"version": 1, "values": {}}
-    data.setdefault("values", {})[KEY] = value
+    data.setdefault("values", {}).update(values)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as out:
         json.dump(data, out, indent=2, sort_keys=True)
+
+
+def check_arm():
+    """arm: the launch resolved both layer hosting features as this mode's tunables set them (features.list)."""
+    listed = rpc("features.list") or {}
+    rows = {f.get("name"): f for f in listed.get("features") or [] if isinstance(f, dict)}
+    got = {name: {"state": (rows.get(name) or {}).get("state"), "source": (rows.get(name) or {}).get("source")}
+           for name in FEATURES.values()}
+    FACTS["features"] = got
+    want = {FEATURES[key]: "on" if value else "off" for key, value in ARM.items()}
+    row("arm", all(got[name]["state"] == state for name, state in want.items()),
+        {"want": want, "got": got, "error": listed.get("error")})
 
 
 def check_valid_and_hosted():
@@ -376,7 +401,8 @@ def check_show_again():
     wait(lambda: page_rect() is not None, 5, 0.05)
 
 
-def main():
+def launch(name):
+    """Starts the app; (process, up) once its socket answers or the wait gave up."""
     global SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
@@ -386,10 +412,8 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
-    if opts.mode == "default":
-        env["CMUX_ENABLE_FEATURES"] = "cefLayerHosting"
     os.makedirs(opts.out, exist_ok=True)
-    log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
+    log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}-{name}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
 
@@ -401,18 +425,45 @@ def main():
                 if (rpc("debug.windows") or {}).get("windows"):
                     return True
         return False
+    return app, bool(wait(up, 120))
+
+
+def stop(app):
+    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     try:
-        if not wait(up, 120):
+        app.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        os.kill(app.pid, signal.SIGKILL)
+    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
+                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+
+
+def locate_build_tunables():
+    """--tunables build: the build's own debug-tunables.json (the file the benches' launches read), asked of a first
+    launch, then written with this mode's tunables after it quit. False when the app gave no path."""
+    app, ready = launch("locate")
+    try:
+        state = (rpc("debug.tunables") or {}) if ready else {}
+    finally:
+        stop(app)
+    FACTS["tunables_file"] = state.get("file")
+    if not state.get("file"):
+        row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")
+        return False
+    write_build_tunables(state["file"], ARM)
+    return True
+
+
+def main():
+    if opts.tunables == "build" and not locate_build_tunables():
+        return
+    app, ready = launch("check")
+    try:
+        if not ready:
             row("launch", False, "the app did not come up")
             return
         time.sleep(4)  # test harness: launch work settles
-        if opts.tunables == "build":
-            # The benches launch with no override: they read this file. Set the value live for this launch too.
-            state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
-            FACTS["tunables_file"] = state.get("file")
-            if not state.get("file"):
-                row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")
-                return
+        check_arm()
         probe = os.path.join(SCRATCH, "probe.html")
         open(probe, "w").write(PAGE)
         opened = action("openBrowser.chromium", {"url": pathlib.Path(probe).as_uri()}, timeout=120)
@@ -514,18 +565,15 @@ def main():
              for name, b in (("moving", moving), ("settled", settled))})
     finally:
         if not opts.keep:
-            rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-            try:
-                app.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                os.kill(app.pid, signal.SIGKILL)
-            subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                           env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+            stop(app)
         if opts.tunables == "build" and FACTS.get("tunables_file") and not opts.keep:
-            write_build_tunable(FACTS["tunables_file"], opts.mode == "on")
-        json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS},
-                  open(os.path.join(opts.out, f"verify-{opts.mode}.json"), "w"), indent=2)
+            write_build_tunables(FACTS["tunables_file"], ARM)  # what the benches after this launch read
 
 
-main()
+try:
+    main()
+finally:
+    os.makedirs(opts.out, exist_ok=True)
+    json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS},
+              open(os.path.join(opts.out, f"verify-{opts.mode}.json"), "w"), indent=2)
 sys.exit(0 if ROWS and all(r["ok"] for r in ROWS) else 1)

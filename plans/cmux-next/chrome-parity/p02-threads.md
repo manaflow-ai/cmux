@@ -347,7 +347,8 @@ R4. Actor methods that block use a custom serial executor on a named queue at th
     HomeCache pattern, `// executor: <label>`). Use `await work.run` in an actor method only when it
     reads no actor state after the await.
 R5. No hand-written Task.detached outside CmuxNextWakeups; no DispatchQueue.global; no
-    `delegateQueue: nil`; no `runModal(`; no blocking in static, lazy or global initializers.
+    `delegateQueue: nil`; no nested `runModal(` (NSPrintOperation's sheet form with `delegate:` is not
+    one); no blocking in static, lazy or global initializers.
 R6. Every queue, thread, OperationQueue, tokio runtime, child process and launchd plist states its QoS
     or role, and the label is in threading-model.md.
 R7. `.blockShutdown` only for one bounded write (< 50 ms). Migrations are resumable.
@@ -373,7 +374,7 @@ R12. Compat changes land in one early batch (wave 0) and Compat is then frozen f
   threading-model.md "Reviewed blocking allowances"; arch-ratchet blocking_allow_escapes 3 or fewer.
   Rust: `rg -c 'AllowReason::' cmux-tui/crates --glob '!**/cmux-threads/**'` sites are listed in the
   doc and the enum has 3 or fewer variants.
-- **INV-5** `rg -n 'DispatchQueue\.global\(|delegateQueue: *nil|\.runModal\(|OSAllocatedUnfairLock|NSLock\(' Packages/macOS/CmuxNext/Sources --glob '!**/CmuxNextWakeups/**' --glob '!**/CmuxNextCompat/**'`
+- **INV-5** `rg -n --pcre2 'DispatchQueue\.global\(|delegateQueue: *nil|\.runModal\((?![^)]*delegate:)|OSAllocatedUnfairLock|NSLock\(' Packages/macOS/CmuxNext/Sources --glob '!**/CmuxNextWakeups/**' --glob '!**/CmuxNextCompat/**'`
   = 0, except audio-tap locks marked `// lock-allow: realtime audio tap`.
 - **RUN-1** Fleet Debug build: every-action-sweep light and STRESS, then lifecycle-sweep (RUN-12), with
   CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1, exit 0 with 0 traps. `debug.blocking` reports
@@ -448,7 +449,7 @@ Each hit or row is one task item; the orchestrator chunks at 25 hits by call-gra
 - **MQ-20 std lock types in daemon request paths.** clippy disallowed_types for std::sync::{Mutex,RwLock,Condvar} opted in per module in server/ and mux/. Task 227.
 - **MQ-21 one-shot daemon threads.** Spawns whose closure has no loop, and every `name(format!(` per-id thread (16 in cmux-tui-core). Task 230.
 - **MQ-22 once-blocking.** `--rule once-blocking` (11). Task 122.
-- **MQ-23 compiler permit queue.** After task 111: `swift build 2>&1 | rg 'blocking.*deprecated|unavailable from asynchronous'` on the fleet. Each diagnostic is an MQ-1/MQ-3 item; the queue is empty when INV-1 is.
+- **MQ-23 compiler permit queue.** After task 111: `swift build 2>&1 | rg 'is deprecated: Pass the BlockingPermit|unavailable from asynchronous'` on the fleet. Each diagnostic is an MQ-1/MQ-3 item; the queue is empty when INV-1 is.
 
 ## 7. Schedule and test phases (72 h)
 
@@ -1228,7 +1229,10 @@ declared=null; hidden-workspace Ghostty threads read UTILITY; the doc names the 
 S/CmuxNextFilesUI/FilesPrompts.swift, S/CmuxNextScreenshots/ScreenshotsCommands.swift,
 S/CmuxNextHomeEngine/HomeChiefSettingsView.swift, S/CmuxNextBrowser/Engine/BrowserPagePrint.swift,
 guardrails.py. Change: beginSheetModal or begin(completionHandler:); alerts move to CmuxDialogSpec; add
-`runModal(` to ALWAYS_BLOCKING. Acceptance: `rg -n '\.runModal\(' S` = 0; fixture refuses a new one.
+`runModal(` to ALWAYS_BLOCKING. Reviewed exception: NSPrintOperation's sheet form
+`runModal(for: window, delegate: ...)` returns once the sheet shows (AppKit documents it as document-modal), so
+BrowserPagePrint keeps it, with `canSpawnSeparateThread = true` so the job spools off main. Acceptance:
+`rg -n --pcre2 '\.runModal\((?![^)]*delegate:)' S` = 0; fixture refuses a new one and accepts the sheet form.
 Test: T0; T2.
 
 **133 Key echo path never hops through the pool.** Files: S/CmuxNextDaemon/Connection/{DaemonConnection,

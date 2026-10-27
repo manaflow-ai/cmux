@@ -30,6 +30,11 @@ public struct CloudHostReplicaSetRequest: DaemonRequest, CustomStringConvertible
 
     /// Never prints the token.
     public var description: String { "cloud-host-replica-set(\(apiBaseURL), expires_at: \(expiresAt))" }
+
+    enum CodingKeys: String, CodingKey {
+        case apiBaseURL = "api_base_url", installToken = "install_token", expiresAt = "expires_at"
+        case clientVersion = "client_version", hostName = "host_name"
+    }
 }
 
 /// `cloud-host-replica-clear`: drops the lease. `purge` deletes the cloud
