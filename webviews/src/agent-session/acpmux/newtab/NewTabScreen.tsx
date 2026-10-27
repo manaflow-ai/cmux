@@ -883,7 +883,12 @@ export function NewTabScreen(props: Props) {
     if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(agent, prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "", project);
+    const asked = askChat(
+      agent,
+      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      project,
+    );
+    if (asked === false) created.current = false;
   };
   const send = () => {
     touch();

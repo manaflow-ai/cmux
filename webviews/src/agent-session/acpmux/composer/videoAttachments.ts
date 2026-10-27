@@ -116,8 +116,14 @@ export function useVideoInfo(
   const shown = useSyncExternalStore(subscribe, readingNow, readingNow);
   useEffect(() => {
     const reads = out.current;
+    const requested = asked.current;
     return () => {
-      for (const token of reads.keys()) drop(reads, token);
+      // Activity can tear down effects while retaining this hook's state. Retry only reads that
+      // were interrupted; a settled response has already left `reads` and remains marked asked.
+      for (const [token, { chip }] of reads) {
+        requested.delete(chip);
+        drop(reads, token);
+      }
     };
   }, []);
   useEffect(() => {

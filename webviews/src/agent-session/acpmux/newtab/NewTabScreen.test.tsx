@@ -282,34 +282,41 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
   expect((sandboxed[0] as unknown[])[2]).toEqual([expect.objectContaining({ path: "/tmp/notes.txt" })]);
 });
 
-test("a Sandboxed New chat that starts nothing leaves New chat and the other creates working", async () => {
+test.each(
+  [false, true].flatMap((setup) => (["chat", "terminal", "browser"] as const).map((kind) => ({ setup, kind }))),
+)("a refused sandbox start leaves creates working: %j", async ({ setup, kind }) => {
   const asks: unknown[][] = [];
   const sandboxed: unknown[][] = [];
+  const creates: string[] = [];
+  let resume: ((harness: string) => void) | undefined;
   const render = (mode: "sandboxed" | "persistent") =>
     root!.render(
       <NewTabScreen
-        snapshot={noChat()}
+        {...firstRunProps}
+        snapshot={setup && mode === "sandboxed" ? firstRunProps.snapshot : noChat()}
         onAsk={(...args) => asks.push(args)}
-        onOpen={() => {}}
-        onSearch={() => {}}
-        onShell={() => {}}
-        onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
+        onCreate={(kind) => creates.push(kind)}
+        onSetup={(continuation) => {
+          resume = continuation;
+        }}
         environments
         runMode={{ mode, onMode: () => {} }}
-        // An empty prompt starts no sandbox.
         onSandbox={(...args) => (sandboxed.push(args), false)}
       />,
     );
   await act(async () => render("sandboxed"));
-  const newChat = () => container.querySelector<HTMLButtonElement>('[data-create="chat"]');
-  expect(newChat()).toBeTruthy();
-  await act(async () => newChat()!.click());
+  const create = (kind: string) => container.querySelector<HTMLButtonElement>(`[data-create="${kind}"]`)!;
+  await act(async () => create("chat").click());
+  if (setup) {
+    expect(resume).toBeDefined();
+    await act(async () => resume!("claude"));
+  }
   expect(sandboxed.length).toBe(1);
+  expect(asks).toEqual([]);
   await act(async () => render("persistent"));
-  await act(async () => newChat()!.click());
-  expect(asks.length).toBe(1);
+  await act(async () => create(kind).click());
+  expect(asks.length).toBe(kind === "chat" ? 1 : 0);
+  expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
 
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
