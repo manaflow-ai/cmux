@@ -87,6 +87,15 @@ impl std::fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
+/// A result reply as [`Message::to_value`] writes it, borrowed: the fields in its map's key
+/// order, so the line is the same.
+#[derive(Serialize)]
+struct ReplyLine<'a> {
+    id: &'a Id,
+    jsonrpc: &'static str,
+    result: &'a Value,
+}
+
 impl Message {
     pub fn parse(line: &str) -> Result<Self, RpcError> {
         let value: Value = serde_json::from_str(line)
@@ -147,7 +156,17 @@ impl Message {
     }
 
     pub fn to_line(&self) -> String {
-        let mut s = self.to_value().to_string();
+        let mut s = match self {
+            // A result goes out by reference: `to_value` deep-copied every reply, the whole
+            // session list included (14.7 MB, 2-3 times a second on cosmic-gray, 2026-10-27).
+            Message::Response { id, result, error: None } => {
+                let null = Value::Null;
+                let reply =
+                    ReplyLine { id, jsonrpc: "2.0", result: result.as_ref().unwrap_or(&null) };
+                serde_json::to_string(&reply).unwrap_or_else(|_| self.to_value().to_string())
+            }
+            _ => self.to_value().to_string(),
+        };
         s.push('\n');
         s
     }
@@ -546,5 +565,19 @@ mod bounded_tests {
         assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
         let small = Message::ok(json!(9), json!({"ok": true}));
         assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
+
+    /// A result reply's line, written by reference, is the line its value makes.
+    #[test]
+    fn a_result_line_is_the_line_of_its_value() {
+        let result =
+            json!({"sessions": [{"sessionId": "a", "z": 1, "b": [null, "x"]}], "nextCursor": null});
+        for reply in [
+            Message::ok(json!(7), result),
+            Message::ok(json!("id-1"), Value::Null),
+            Message::Response { id: json!(8), result: None, error: None },
+        ] {
+            assert_eq!(reply.to_line(), format!("{}\n", reply.to_value()));
+        }
     }
 }
