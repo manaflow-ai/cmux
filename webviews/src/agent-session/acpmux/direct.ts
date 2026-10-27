@@ -3571,10 +3571,12 @@ export class AcpmuxDirectClient {
     const secret = this.pendingSecret;
     const observedTurnStartedAtMs = this.observedTurnStartedAtMs;
     const observedTurnId = this.observedTurnId;
+    const turnEndedAtMs = this.turnEndedAtMs;
     this.rebuild();
     this.summary = summary;
     this.observedTurnStartedAtMs = observedTurnStartedAtMs;
     this.observedTurnId = observedTurnId;
+    this.turnEndedAtMs = turnEndedAtMs;
     this.limitsSeq = limitsSeq;
     this.limitsVersion = limitsVersion;
     this.queue = queue;
