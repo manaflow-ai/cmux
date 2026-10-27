@@ -87,6 +87,8 @@ public final class SidebarDocStore {
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
     @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
+    /// Where `show` builds a projection in chunks (`showInChunks(on:)`); nil: at once.
+    @ObservationIgnored var showChunks: SidebarDocShowChunks?
     /// `projectionCache` as a memory consumer of the app's coordinator (`registerMemoryConsumer(with:)`).
     @ObservationIgnored var projectionMemory: SidebarDocProjectionMemory?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the

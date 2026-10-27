@@ -103,6 +103,31 @@ extension MainWorkScheduler {
         post(workClass, owner: owner, site: MainPostSite(file: file, line: line), body)
     }
 
+    /// Queues `body`, the rest of a task that stopped between two chunks because
+    /// ``MainFrameBudget/shouldYield()`` said so, at the front of `workClass`'s queue: Blink's
+    /// `scheduler.yield()` continuation (third_party/blink/renderer/modules/scheduler/dom_scheduler.cc), which runs
+    /// ahead of every task of its priority, posted before it or after. It runs on the next frame, first of its class,
+    /// so the frame it stopped in renders and the person's pending input goes first; continuations run in the order
+    /// they were posted. Never inline: the caller returns first.
+    ///
+    /// - Parameters:
+    ///   - workClass: The class of the task that yielded (its continuation keeps it).
+    ///   - owner: The task's owner, interned on this scheduler's board (``MainTaskBoard/owner(_:)``).
+    ///   - file: The posting file (leave the default).
+    ///   - line: The posting line (leave the default).
+    ///   - body: The rest of the task.
+    public func postContinuation(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, file: StaticString = #fileID, line: UInt = #line,
+                                 _ body: @escaping @MainActor () -> Void) {
+        let post = MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: budget.nowNanos)
+        classQueue(workClass).appendContinuation(owner: owner, post: post, body)
+    }
+
+    /// ``postContinuation(_:owner:file:line:_:)`` with an owner name, interned on the board once per scheduler.
+    public func postContinuation(_ workClass: BudgetedWorkClass, owner: String, file: StaticString = #fileID, line: UInt = #line,
+                                 _ body: @escaping @MainActor () -> Void) {
+        postContinuation(workClass, owner: taskOwner(owner), file: file, line: line, body)
+    }
+
     /// ``post(_:owner:file:line:_:)`` from any thread: the task reaches main on the next main run
     /// loop turn, in the common modes (so a menu's tracking loop does not hold it), and that turn is
     /// its first chance to run. Main-actor code calls ``post(_:owner:file:line:_:)`` instead, which

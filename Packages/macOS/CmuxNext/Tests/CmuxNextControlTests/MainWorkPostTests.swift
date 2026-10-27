@@ -161,12 +161,105 @@ import Testing
         keeper.stop()
     }
 
+    /// A 10-chunk visible task (0.7 ms a chunk, the visible share 2.5 ms) asks `shouldYield` after each chunk: it stops
+    /// after chunk 3, when a fourth would pass the share, and posts the rest as a continuation (task 200). The next
+    /// frame resumes it with chunk 4 ahead of a visible post queued before the continuation, and no frame spends more
+    /// than the share on it.
+    @Test func aTenChunkTaskThatYieldsAfterChunkThreeResumesBeforeLaterPostsOfItsClass() {
+        let clock = PostClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in PostFakeLink() }
+        let keeper = LinkKeeper(on: work)
+        let task = ChunkedTask(work: work, clock: clock)
+        work.post(.visible, owner: "sidebar.show") { task.run() }
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(task.ran == ["1", "2", "3"], "a fourth chunk would pass the visible share: it yields after chunk 3")
+        for (frame, expected) in [(2, ["4", "5", "6", "later"]), (3, ["7", "8", "9"]), (4, ["10"])] {
+            let before = task.ran.count
+            clock.advance(ms: 17)
+            work.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
+            #expect(Array(task.ran[before...]) == expected, "frame \(frame)")
+        }
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 5, refreshInterval: 1.0 / 60)
+        #expect(work.postedCount(.visible) == 0)
+        #expect(work.budget.stats.maxFrameNanos[0] <= MainFrameBudget.nanos(work.budget.budgets.visible),
+                "a frame spent more than the visible share on the chunked task")
+        keeper.stop()
+    }
+
+    /// Continuations go to the front of their class's queue, in the order they were posted, and wait for a frame.
+    @Test func continuationsRunInPostingOrderAheadOfEarlierPosts() {
+        let clock = PostClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in PostFakeLink() }
+        let keeper = LinkKeeper(on: work)
+        var ran: [String] = []
+        work.post(.visible, owner: "plain") { ran.append("plain") }
+        work.postContinuation(.visible, owner: "first") { ran.append("first") }
+        work.postContinuation(.visible, owner: "second") { ran.append("second") }
+        #expect(ran.isEmpty, "a continuation never runs inline")
+        #expect(work.postedCount(.visible) == 3)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(ran == ["first", "second", "plain"])
+        keeper.stop()
+    }
+
+    /// `shouldYield` answers a person's pending input anywhere, and inside a budgeted task also whether one more chunk,
+    /// as long as the last one, would pass the class's share.
+    @Test func shouldYieldForPendingInputAndWhenTheNextChunkWouldPassTheShare() {
+        let clock = PostClock()
+        let input = PostFakeInput()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in PostFakeLink() }
+        let keeper = LinkKeeper(on: work)
+        input.pending = true
+        #expect(work.budget.shouldYield(), "a key is pending")
+        input.pending = false
+        clock.advance(ms: 1)
+        #expect(!work.budget.shouldYield(), "outside a task, with nothing pending")
+        var answers: [Bool] = []
+        work.post(.visible, owner: "chunks") {
+            clock.advance(ms: 1)
+            answers.append(work.budget.shouldYield()) // 1 ms spent, a 1 ms chunk next: 2 of 2.5 ms
+            clock.advance(ms: 1)
+            answers.append(work.budget.shouldYield()) // 2 ms spent, a 1 ms chunk next: past the share
+        }
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(answers == [false, true])
+        keeper.stop()
+    }
+
     /// Runs main run loop passes (not main-queue jobs) until `done` or 5 s.
     private func spinMainRunLoop(until done: () -> Bool) {
         let end = Date(timeIntervalSinceNow: 5)
         while !done(), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
+    }
+}
+
+/// Ten chunks of 0.7 ms each, run as a visible task that yields when ``MainFrameBudget/shouldYield()`` says so and
+/// posts its rest as a continuation; at its first yield it posts a plain visible task ("later") before the continuation.
+@MainActor
+private final class ChunkedTask {
+    private let work: MainWorkScheduler
+    private let clock: PostClock
+    private var next = 1
+    private(set) var ran: [String] = []
+
+    init(work: MainWorkScheduler, clock: PostClock) {
+        self.work = work
+        self.clock = clock
+    }
+
+    func run() {
+        repeat {
+            ran.append("\(next)")
+            clock.advance(ms: 0.7)
+            next += 1
+        } while next <= 10 && !work.budget.shouldYield()
+        guard next <= 10 else { return }
+        if next == 4 { work.post(.visible, owner: "sidebar.later") { [weak self] in self?.ran.append("later") } }
+        work.postContinuation(.visible, owner: "sidebar.show") { [weak self] in self?.run() }
     }
 }
 

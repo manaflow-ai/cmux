@@ -356,7 +356,7 @@ public final class MainFrameBudget {
     /// Whether the frame's scheduled work may go on at `now`: under the fixed limit (what the
     /// window already spent counts, a window a task opened before the tick included) and before the
     /// frame's deadline, when it has one.
-    private func underFrameLimit(_ now: UInt64) -> Bool {
+    func underFrameLimit(_ now: UInt64) -> Bool {
         if let deadline, now >= deadline { return false }
         return frameSpentNow(now) < scheduledLimitNanos
     }
@@ -550,7 +550,7 @@ public final class MainFrameBudget {
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
-    private func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
+    func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
         var total = spent[index]
         for task in open where task.workClass == workClass { total &+= task.ownNanos(at: now) }
         return total
@@ -571,7 +571,7 @@ public final class MainFrameBudget {
         starvation?.resetStats()
     }
 
-    private func inputPending(_ now: UInt64) -> Bool {
+    func inputPending(_ now: UInt64) -> Bool {
         if board.pendingInputCount > 0 { return true }
         if now &- inputAnswer.at < 250_000 { return inputAnswer.pending }
         let pending = input.hasPendingInput(uptime: TimeInterval(now) / 1_000_000_000)

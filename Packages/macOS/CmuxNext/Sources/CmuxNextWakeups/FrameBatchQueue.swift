@@ -44,6 +44,11 @@ public final class FrameBatchQueue {
     /// array is compacted when it empties, or when the run prefix is most of it.
     private var pending: [Item] = []
     private var head = 0
+    /// Posted continuations from ``continuationHead`` on (``appendContinuation(owner:post:_:)``): they run before
+    /// ``pending``, in the order they were posted, as Blink runs a `scheduler.yield()` continuation queue ahead of the
+    /// task queue of its priority (third_party/blink/renderer/platform/scheduler/public/web_scheduling_queue_type.h).
+    private var continuations: [Item] = []
+    private var continuationHead = 0
     private let client: FrameClient
     /// A budgeted queue's person and frontend work that the input-response pass did not take, in
     /// order: it runs whole on the next frame (``unbudgetedClient``), never under the class budget.
@@ -121,7 +126,7 @@ public final class FrameBatchQueue {
     }
 
     /// Work queued and not run yet (both kinds; not what the input-response pass took).
-    public var count: Int { pending.count - head + unbudgeted.count }
+    public var count: Int { pending.count - head + continuations.count - continuationHead + unbudgeted.count }
 
     /// Person and frontend work waiting for the next frame in a budgeted queue.
     package var unbudgetedCount: Int { unbudgeted.count }
@@ -157,9 +162,17 @@ public final class FrameBatchQueue {
         pending.append(Item(work: work, owner: owner, post: post))
     }
 
+    /// Queues posted work as `owner` ahead of every task ``append(owner:post:_:)`` queued, after the continuations
+    /// queued before it, and ticks on the next frame: a drain runs only the continuations queued before it started, so
+    /// the rest of a task that yielded never runs in the frame it yielded in.
+    func appendContinuation(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
+        continuations.append(Item(work: work, owner: owner, post: post))
+        client.activate()
+    }
+
     /// Ticks on the next frame while work is queued (no effect while ticking).
     func activate() {
-        guard pending.count > head else { return }
+        guard pending.count > head || continuations.count > continuationHead else { return }
         client.activate()
     }
 
@@ -172,23 +185,23 @@ public final class FrameBatchQueue {
         drainBudgeted(limit: limit)
     }
 
-    /// Runs the work queued before this frame, from the front, while the class may run (the
-    /// scheduler let the first task start); the rest stays in place, ahead of work queued
-    /// meanwhile, which waits for the next frame. No copy and no re-insert: a backlog of N costs
-    /// O(N) over all its frames. True while work is left.
+    /// Runs the work queued before this frame, continuations first, from the front, while the
+    /// class may run (the scheduler let the first task start); the rest stays in place, ahead of
+    /// work queued meanwhile, which waits for the next frame. No copy and no re-insert: a backlog
+    /// of N costs O(N) over all its frames. True while work is left.
     private func drainBudgeted(limit: Int = .max) -> Bool {
         guard let budgeted else { return drainAll() }
         let budget = budgeted.budget, mainClass = budgeted.workClass
-        let end = limit >= pending.count - head ? pending.count : head + limit
+        let continued = continuations.count, end = pending.count
         var ran = 0
-        while head < end {
+        while ran < limit, continuationHead < continued || head < end {
             if ran > 0, !budget.mayRun(mainClass) { break }
-            let item = takeHead()
+            let item = continuationHead < continued ? takeContinuation() : takeHead()
             budget.run(mainClass, owner: item.owner ?? budgeted.owner, posted: item.post) { item.work?() }
             ran += 1
         }
         compact()
-        return head < pending.count
+        return head < pending.count || continuationHead < continuations.count
     }
 
     /// Runs everything queued before this frame (a frame queue); true while more arrived during it.
@@ -207,9 +220,21 @@ public final class FrameBatchQueue {
         return item
     }
 
+    /// The continuation at ``continuationHead``, its slot cleared.
+    private func takeContinuation() -> Item {
+        let item = continuations[continuationHead]
+        continuations[continuationHead] = Item()
+        continuationHead += 1
+        return item
+    }
+
     /// Drops the run prefix: all of it, keeping the buffer, once the queue is empty; otherwise
     /// once it is most of the array (amortized O(1) per item under a standing backlog).
     private func compact() {
+        if continuationHead == continuations.count {
+            continuations.removeAll(keepingCapacity: true)
+            continuationHead = 0
+        }
         if head == pending.count {
             pending.removeAll(keepingCapacity: true)
             head = 0
