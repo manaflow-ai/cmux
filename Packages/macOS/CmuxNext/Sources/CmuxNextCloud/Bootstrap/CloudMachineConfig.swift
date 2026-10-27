@@ -349,49 +349,65 @@ public struct CloudMachineConfig: Equatable, Sendable {
                 return []
             with os.fdopen(fd, "rb") as f:
                 st = os.fstat(f.fileno())
-                if not stat.S_ISREG(st.st_mode) or st.st_size > 4 << 20:
-                    return []
+                if not stat.S_ISREG(st.st_mode):
+                    return []  # never sourced (machine.env takes a regular file only)
+                if st.st_size > 4 << 20:
+                    raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
                 # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
                 text = f.read().decode("utf-8", "surrogateescape")
             # Every value, however short (`cmux cloud secret set` takes 8 characters and up; a shorter one was
-            # written by hand), as the file holds it too (a setup that prints the file prints that form), each
-            # line of one that spans lines, and whole any line no `export NAME='…'` covers (a hand-written form).
-            values, rest, at = set(), [], 0
+            # written by hand), as the file holds it too (a setup that prints the file prints that form), and each
+            # line of one that spans lines. Only the form the receiver writes: any other line (a hand-written
+            # `export A="…"`, whose value no parse here could be sure of) refuses setup instead of leaking it.
+            values, at = set(), 0
             for m in re.finditer(r"^export [A-Za-z_][A-Za-z0-9_]*='((?:[^']|'\\'')*)'[ \t\r]*$", text, re.M):
-                rest.append(text[at:m.start()])
+                if text[at:m.start()].strip():
+                    break
                 at = m.end()
                 for form in (m.group(1).replace("'\\''", "'"), m.group(1)):
                     values |= {form} | {line.strip() for line in form.splitlines()}
-            for chunk in rest + [text[at:]]:
-                values |= {line.strip() for line in chunk.splitlines()}
+            if text[at:].strip():
+                raise Refused(f"{SECRETS_FILE} has a line cmux did not write (only export NAME='value'): "
+                              "deliver the secrets again (cmux cloud deliver-secrets)")
             return sorted({v.encode("utf-8", "surrogateescape") for v in values if v}, key=len, reverse=True)
 
 
         class Masked:
-            """Writes to `log` with every secret value replaced by ***. The last (longest value - 1) bytes are held
-            back until more output or the end comes, so a value split across two reads is still masked whole."""
+            """Writes to `log` with every byte of every value's occurrences masked, each masked run as ***.
+            Occurrences are all found in the original bytes (never in output already rewritten) and may overlap,
+            so no part of a longer value survives a shorter one's mask. The last (longest value - 1) bytes wait
+            for more output or the end: an occurrence starting before them is whole in the buffer, and its bytes
+            past the cut stay masked in the next write (`carry`)."""
 
             def __init__(self, log, values):
-                self.log, self.values, self.pending = log, values, b""
+                self.log, self.values, self.pending, self.carry = log, values, b"", 0
                 self.keep = max((len(v) for v in values), default=1) - 1
 
-            def masked(self, data):
+            def write(self, final):
+                buf = self.pending
+                cut = len(buf) if final else max(0, len(buf) - self.keep)
+                cover = bytearray(len(buf))
+                end = min(self.carry, len(buf))
+                cover[:end] = b"\1" * end
                 for v in self.values:
-                    data = data.replace(v, b"***")
-                return data
+                    i = buf.find(v)
+                    while 0 <= i < cut:
+                        cover[i:i + len(v)] = b"\1" * len(v)
+                        end = max(end, i + len(v))
+                        i = buf.find(v, i + 1)
+                out = []
+                for run in re.finditer(rb"\x00+|\x01+", bytes(cover[:cut])):
+                    out.append(b"***" if run.group()[0] else buf[run.start():run.end()])
+                self.pending, self.carry = buf[cut:], max(0, max(end, self.carry) - cut)
+                self.log.write(b"".join(out).decode("utf-8", "replace"))
+                self.log.flush()
 
             def feed(self, data):
-                self.pending = self.masked(self.pending + data)
-                # After masking, no whole value is left; only a value's beginning can sit in the last `keep` bytes.
-                cut = max(0, len(self.pending) - self.keep)
-                out, self.pending = self.pending[:cut], self.pending[cut:]
-                self.log.write(out.decode("utf-8", "replace"))
-                self.log.flush()
+                self.pending += data
+                self.write(final=False)
 
             def close(self):
-                self.log.write(self.masked(self.pending).decode("utf-8", "replace"))
-                self.pending = b""
-                self.log.flush()
+                self.write(final=True)
 
 
         def group_alive(pgid):
