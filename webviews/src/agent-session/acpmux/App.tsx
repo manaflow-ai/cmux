@@ -8717,6 +8717,30 @@ function AcpmuxPane() {
         : {})}
     />
   );
+  // A new chat in a workspace without a folder starts in its private folder (FolderChoice.tsx): the
+  // folder chip's menu says so, and its Choose folder… is the workspace's folder sheet, which also
+  // makes the pick the folder of the pane's next chats.
+  const folderChoiceOffered =
+    !pendingFolder &&
+    !showNewTab &&
+    showsFolderChoice({
+      offered: chooseFolder,
+      freshChat,
+      quick,
+      projectDraft,
+      sessionId: snapshot.sessionId,
+      missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+    });
+  const chooseWorkspaceFolder = () => {
+    setFolderError(undefined);
+    void callNative<{ cwd?: string }>("workspace.chooseFolder")
+      .then((result) => {
+        if (!result?.cwd) return;
+        setChooseFolder(false);
+        chooseProject(result.cwd);
+      })
+      .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+  };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
   const composer = readOnlySubagent ? (
@@ -8812,34 +8836,11 @@ function AcpmuxPane() {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {!pendingFolder && !showNewTab && (
-          <Notice
-            id="folder-choice"
-            tier="hint"
-            when={showsFolderChoice({
-              offered: chooseFolder,
-              freshChat,
-              quick,
-              projectDraft,
-              sessionId: snapshot.sessionId,
-              missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-            })}
-          >
-            <FolderChoice
-              error={folderError}
-              onChoose={() => {
-                setFolderError(undefined);
-                void callNative<{ cwd?: string }>("workspace.chooseFolder")
-                  .then((result) => {
-                    if (!result?.cwd) return;
-                    setChooseFolder(false);
-                    chooseProject(result.cwd);
-                  })
-                  .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
-              }}
-            />
-          </Notice>
-        )}
+        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
+            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
+          <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
+        </Notice>
         <Notice id="background" tier="status" when={background.notice}>
           <output className="acpmux-switch-notice acpmux-background-notice">
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
@@ -9106,16 +9107,19 @@ function AcpmuxPane() {
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
-              freshChat && !quick
-                ? () => {
-                    void callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => {
-                        if (result?.cwd) chooseProject(result.cwd);
-                      })
-                      .catch(() => undefined);
-                  }
-                : undefined
+              folderChoiceOffered
+                ? chooseWorkspaceFolder
+                : freshChat && !quick
+                  ? () => {
+                      void callNative<{ cwd?: string }>("project.browse")
+                        .then((result) => {
+                          if (result?.cwd) chooseProject(result.cwd);
+                        })
+                        .catch(() => undefined);
+                    }
+                  : undefined
             }
             // The host runs commands on this Mac: a Cloud chat has no shell mode.
             onShell={
