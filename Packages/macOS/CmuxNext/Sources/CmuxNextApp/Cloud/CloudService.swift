@@ -21,6 +21,8 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
+    /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
+    @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?

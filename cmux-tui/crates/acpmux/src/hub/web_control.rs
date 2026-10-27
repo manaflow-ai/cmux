@@ -107,6 +107,17 @@ impl Hub {
         session: &Session,
         writes: impl IntoIterator<Item = ModeWrite>,
     ) {
+        self.write_mode_state_settling(session, writes, false);
+    }
+
+    /// `write_mode_state`; `settles`: the write applies a full-access report the tap counted, and
+    /// takes its count back under the same lock (`permissions::settle_full_access_report`).
+    pub(crate) fn write_mode_state_settling(
+        &self,
+        session: &Session,
+        writes: impl IntoIterator<Item = ModeWrite>,
+        settles: bool,
+    ) {
         let table = self.web_modes();
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -128,6 +139,9 @@ impl Hub {
                     },
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
+            }
+            if settles {
+                super::permissions::settle_full_access_report(session);
             }
             // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
             // anywhere else (the harness's own update, through either form) takes the mark, under
