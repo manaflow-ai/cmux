@@ -574,10 +574,16 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt), and
+    /// where the transcript rests (`scrollOffset`, `scrollBottom`, `scrollTop`, `pinned`).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
+        // Where the transcript rests: its offset, the bottom (newest message) and top ends, and the pin.
+        out["scrollOffset"] = Double(demo.collection.contentOffset.y)
+        out["scrollBottom"] = Double(demo.pinnedOffset)
+        out["scrollTop"] = Double(demo.minOffset)
+        out["pinned"] = demo.store.state.ui.scroll.pinnedToBottom && demo.store.state.atNewest ? 1 : 0
         let rows = demo.model.rows
         // crash program: no index math.
         for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
