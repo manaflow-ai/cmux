@@ -470,4 +470,27 @@ mod tests {
         assert!(peak <= MAX_TERMINAL_WORKERS, "peak {peak} workers");
         assert!(peak > 1, "jobs did not overlap");
     }
+
+    /// A worker registers with the process's hang watch and watches each
+    /// job: a job past its 10 s deadline (on the watch's test clock) is a
+    /// hang of the `mux-terminal-work` thread.
+    #[test]
+    fn terminal_work_job_past_its_deadline_is_a_hang_of_its_worker() {
+        const THREAD: &str = "mux-terminal-work";
+        let harness = crate::hang_watch_test_support::Harness::get();
+        let _serial = harness.serial();
+        // The pool starts its workers after the watch runs, so they register.
+        let pool = TerminalWorkPool::for_test();
+        let before = harness.hangs_of(THREAD).len();
+        let (reported, hangs) = std::sync::mpsc::channel();
+        let queued = pool.try_submit(Box::new(move || {
+            harness.advance(TERMINAL_JOB_HANG_DEADLINE + Duration::from_secs(1));
+            let _ = reported.send(harness.wait_for(THREAD, before + 1));
+        }));
+        assert!(queued.is_ok(), "the job is queued");
+        let hangs = hangs.recv().expect("the job reports its hang");
+        let hang = hangs.last().expect("a hang of the worker");
+        assert_eq!(hang.kind, cmux_hang_watch::ThreadKind::Pool);
+        assert_eq!(hang.deadline_ms, 10_000);
+    }
 }

@@ -22,12 +22,13 @@ use std::time::Duration;
 
 use cmux_hang_watch::Scope;
 
-use super::Command;
 use super::command_names::MethodClass;
+use super::{Command, RequestHead};
 
-/// How long a frame may take before it reaches its request: the head
-/// parse, the admission and the hand-off to the connection's queue
-/// (the Swift daemon reader's 1 s line scope, task 069).
+/// How long a frame may take before it reaches its request (a `Command`,
+/// a v2 resource operation or a feature route, each then watched at its
+/// class deadline): the head parse, the admission and the hand-off to the
+/// connection's queue (the Swift daemon reader's 1 s line scope, task 069).
 pub(super) const FRAME_HANG_DEADLINE: Duration = Duration::from_secs(1);
 
 /// The scope of the frame or request this thread runs, and the request's
@@ -100,6 +101,14 @@ impl Drop for RequestHang {
         let closed = CURRENT.try_with(|current| current.borrow_mut().take());
         drop(closed);
     }
+}
+
+/// Runs a feature or operation route (server/routes.rs) for the line
+/// `head` reads: the route is the line's request, so it is watched at the
+/// class its span names ([`RequestHead::method`]), not at the frame's.
+pub(super) fn route<R>(head: &RequestHead<'_>, entry: impl FnOnce() -> R) -> R {
+    let _owner = RequestHang::enter(head.method().class);
+    entry()
 }
 
 /// The class of the request this thread runs, if any.

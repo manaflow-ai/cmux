@@ -158,7 +158,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(&head, || (route.entry)(&route_line)) {
             return match routed.as_mut() {
                 Some(span) => span.answered(keep_open),
                 None => keep_open,
@@ -215,7 +215,7 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
         line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
         let route_line = routes::RouteLine { mux, client, message, writer, head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(head, || (route.entry)(&route_line)) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
