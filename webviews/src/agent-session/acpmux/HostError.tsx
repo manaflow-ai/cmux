@@ -6,10 +6,12 @@ import { useT } from "./i18n";
 /// start (a folder harness without its Enable) uses the same card with its own `hint` (null: none)
 /// and button (`action`, the label for `onRetry`); without `onRetry` it has no button. A daemon
 /// another binary runs on this app's socket adds Restart acpmux (`onRestart`, in flight while
-/// `restarting`), which stops that daemon and starts this app's own; its hint says so.
+/// `restarting`), which stops that daemon and starts this app's own; its hint says so. During an
+/// automatic transport recovery, `reconnecting` replaces the card with a neutral spinner.
 export function HostError({
   message,
   retrying,
+  reconnecting = false,
   onRetry,
   hint,
   action,
@@ -18,6 +20,8 @@ export function HostError({
 }: {
   message: string;
   retrying?: boolean;
+  /// A transport or daemon is recovering; keep the last failure out of the alert surface.
+  reconnecting?: boolean;
   onRetry?(): void;
   hint?: string | null;
   action?: string;
@@ -25,6 +29,19 @@ export function HostError({
   onRestart?(): void;
 }) {
   const t = useT();
+  if (reconnecting) {
+    return (
+      <output className="acpmux-reconnecting" aria-live="polite">
+        <span className="acpmux-harness-spinner" aria-hidden="true" />
+        <span>{t("header.reconnecting")}…</span>
+        {onRestart && (
+          <button type="button" onClick={onRestart} disabled={restarting}>
+            {t(restarting ? "host.restarting" : "host.restart")}
+          </button>
+        )}
+      </output>
+    );
+  }
   const fallbackHint = t(onRestart ? "host.restartHint" : "host.retrying");
   const shownHint = hint === undefined ? fallbackHint : hint;
   return (

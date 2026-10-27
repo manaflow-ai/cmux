@@ -244,6 +244,12 @@
 /* A tab's chat that is not here (ChatUnavailableState.tsx): the hero's place and type, a muted line
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
+.acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
+.acpmux-reconnecting{display:flex;align-items:center;justify-content:center;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-reconnecting .acpmux-harness-spinner{flex:none}
+.acpmux-reconnecting button{margin-left:var(--acpmux-unavailable-actions-gap,8px);border:0;border-radius:var(--acpmux-composer-radius,8px);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-reconnecting button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+.acpmux-reconnecting button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
 .acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}

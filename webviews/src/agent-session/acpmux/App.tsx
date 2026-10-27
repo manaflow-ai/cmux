@@ -6444,6 +6444,9 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  /// A daemon/socket is recovering. While true the old error is retained for diagnostics but never
+  /// painted as an alert; a successful client clears it, and a non-retryable refusal remains red.
+  const [hostRetrying, setHostRetrying] = useState(false);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
@@ -7023,6 +7026,7 @@ function AcpmuxPane() {
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
+          setHostRetrying(false);
           return;
         }
         // A new chat in mock mode starts without a session too, as against a real daemon.
@@ -7072,6 +7076,7 @@ function AcpmuxPane() {
             setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
+            setHostRetrying(true);
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
@@ -7100,6 +7105,7 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
+        setHostRetrying(false);
         setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
@@ -7741,9 +7747,10 @@ function AcpmuxPane() {
           // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
           // in flight asks again itself when it ends.
           if (restartGate.mayAsk()) {
+            setHostRetrying(true);
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-          }
+          } else setHostRetrying(false);
         }
       } finally {
         connecting = false;
@@ -7762,6 +7769,7 @@ function AcpmuxPane() {
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
+      setHostRetrying(true);
       void connectHost();
     };
     cancelRetry.current = () => {
@@ -7786,6 +7794,7 @@ function AcpmuxPane() {
       setStartModeSource(undefined);
       retryHost.current = undefined;
       cancelRetry.current = undefined;
+      setHostRetrying(false);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -9304,9 +9313,14 @@ function AcpmuxPane() {
     )
   );
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostError}>
+    <Notice
+      id="host-error"
+      tier={hostRetrying || restartingAcpmux ? "status" : "error"}
+      when={hostError || hostRetrying}
+    >
       <HostError
         message={hostError ?? ""}
+        reconnecting={hostRetrying || restartingAcpmux}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         restarting={restartingAcpmux}

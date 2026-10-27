@@ -80,3 +80,16 @@ test("without the offer the card keeps only Retry and says cmux tries again", as
   expect(buttons(container)).toEqual(["Retry"]);
   expect(container.textContent).toContain("cmux tries again on its own");
 });
+
+test("a reconnect is a quiet status with a spinner, never an alert", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostError message="socket closed" reconnecting onRetry={() => undefined} />);
+  });
+  expect(container.querySelector("output.acpmux-reconnecting")).not.toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector(".acpmux-harness-spinner")).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).not.toContain("socket closed");
+});
