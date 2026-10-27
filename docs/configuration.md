@@ -469,6 +469,58 @@ Behavior notes:
 - When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
 - Remote, SSH, and cloud terminals are never switched.
 
+## `automation.sessionPriority`
+
+Gives each Claude Code pane the reasoning effort its workspace's priority asks for. You rank workspaces by moving them in the sidebar; cmux restarts a Claude pane with the matching effort between turns and resumes the same conversation.
+
+```json
+{
+  "automation": {
+    "sessionPriority": {
+      "enabled": true,
+      "urgentCount": 3,
+      "matrix": {
+        "urgent": {
+          "easy": { "effort": "medium" },
+          "normal": { "effort": "high" },
+          "hard": { "effort": "xhigh", "model": "opus" }
+        },
+        "slow": {
+          "easy": { "effort": "low" },
+          "normal": { "effort": "medium" },
+          "hard": { "effort": "medium" }
+        }
+      }
+    }
+  }
+}
+```
+
+- `enabled`: default `false`. Toggle it from **Settings > Automation > Prioritize Claude Sessions by Sidebar Order**.
+- `urgentCount`: default `3`. Per window, the top `urgentCount` workspaces that run Claude (pinned workspaces first) are **urgent**; every other Claude workspace is **slow**.
+- `matrix`: the effort (`low`, `medium`, `high`, `xhigh` or `max`) and optional `model` for each tier and difficulty. Empty (the default) uses the shipped matrix below. A matrix you set replaces it, and a cell you leave out is not adjusted, so list every cell you want.
+
+Shipped matrix (no model cells):
+
+| | easy | normal | hard |
+| --- | --- | --- | --- |
+| urgent | `medium` | `high` | `xhigh` |
+| slow | `low` | `medium` | `medium` |
+
+The example above also sets a model for urgent/hard. A model cell is opt-in and changes the model in the middle of the conversation, so leave it out unless you want that.
+
+Behavior notes:
+
+- Only moves you make count. Dragging a workspace, **Move to Top**, or the move shortcuts change its priority; cmux's own bumps (such as `app.reorderOnNotification`) never do. With `app.reorderOnNotification` on, the list order can differ from the priority, so the tier icon in the row is authoritative.
+- **Difficulty**: each workspace has a difficulty. A manual choice (right-click > **Claude Difficulty**, the command palette, or `cmux session-priority difficulty`) wins; otherwise an automatic value is used when one exists, else `normal`. **Auto** returns to automatic.
+- **When it restarts**: when a Claude pane's running effort differs from its target, cmux restarts that pane only between turns: Claude is idle at an empty prompt, the pane got no input for 10 seconds, and it is not inside `tmux` or `screen`. It resumes the same conversation with `CLAUDE_CODE_EFFORT_LEVEL=<level>` on the resume command. One restart runs at a time.
+- **One attempt per conversation and target**: a target that does not take shows **not applied** in the sidebar row. cmux tries again only after the tier, the difficulty, these settings or the conversation change.
+- **Why the environment variable**: cmux does not type `/effort`, because Claude Code saves it into your settings (`modelSettings`) and would change the defaults of your other sessions.
+- **Left alone**: a workspace is not adjusted when you mark it **Don't Adjust Claude Effort Here** (right-click, command palette, or `cmux session-priority manual on`), when Claude was launched with `--effort`, when the workspace environment sets `CLAUDE_CODE_EFFORT_LEVEL`, or when you ran `/effort` or `/model` in it. The first and last are lifted by **Adjust Claude Effort Automatically**; the launch cases are not something cmux can lift.
+- **Turning it off** stops all typing and removes the sidebar rows. A Claude that is already running with the variable keeps it until it restarts.
+- Remote, SSH, and cloud panes are never touched.
+- `cmux session-priority` shows each workspace's tier, difficulty, target and state, and sets difficulty and the manual flag.
+
 ## `agentMessages.enabled`
 
 The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.

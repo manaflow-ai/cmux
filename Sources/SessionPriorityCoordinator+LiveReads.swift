@@ -37,6 +37,13 @@ extension SessionPriorityCoordinator {
         }
     }
 
+    /// Whether cmux saw a `/effort` or `/model` on one of the workspace's panes.
+    /// A cheap read of the pane records, for the sidebar menu's per-row snapshot
+    /// (`snapshot(for:)` plans the whole window).
+    func hasUserCommandOnScreen(in workspace: Workspace) -> Bool {
+        workspace.orderedPanelIds.contains { state.records[$0]?.state == .manual(.userCommandOnScreen) }
+    }
+
     /// The window's tiers and targets.
     static func plan(
         for tabManager: TabManager,

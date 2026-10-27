@@ -3415,11 +3415,13 @@
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
+		B6FBD51208CD73812CDDEDA3 /* SessionPriorityActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D4360909B94B156D6309FE /* SessionPriorityActions.swift */; };
 		48BB4C84DF82F8FDDBFD0C01 /* SessionPriorityApplyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */; };
 		8EF2DB6119B4A8F7CB3B19EC /* SessionPriorityApplyGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */; };
 		BD1B01EFB89C3FD91FAF22AF /* SessionPriorityApplyQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC881599FA22878617EA728 /* SessionPriorityApplyQueue.swift */; };
 		3513B8D83323FEF169B913DC /* SessionPriorityApplyQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */; };
 		0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */; };
+		31EAC0ACD90B594B34B3E592 /* SessionPriorityContextMenuSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21A842B70EE3A9EC96CDFB1 /* SessionPriorityContextMenuSnapshotTests.swift */; };
 		BB77C78C16DF7E7C1D6B86F5 /* SessionPriorityCoordinator+LiveReads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A78CD8EBD6997DD0CFC5DA /* SessionPriorityCoordinator+LiveReads.swift */; };
 		00BBCB89F3060084AA617224 /* SessionPriorityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA4CD57D2810F4B410D9FCC /* SessionPriorityCoordinator.swift */; };
 		BDDEFC5012E6EAD98F03CECA /* SessionPriorityCoordinatorHook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */; };
@@ -3430,6 +3432,8 @@
 		5EAD543B5642B0EB5DCDD953 /* SessionPriorityManualSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B22E52E4A7E43ADA6F2F1A /* SessionPriorityManualSignals.swift */; };
 		84636BC419A0EA97E74FDEB8 /* SessionPriorityManualSignalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78E8C2AAFA13419F088C8DF /* SessionPriorityManualSignalsTests.swift */; };
 		293B0ADF736B9F8A913506AC /* SessionPriorityNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4E7C821999E70F7A1E63745 /* SessionPriorityNotice.swift */; };
+		F0519A17B0A5704E136B412F /* SessionPriorityPaletteCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DB391B8F37F6F876D5B593C /* SessionPriorityPaletteCommands.swift */; };
+		E741D7F9F6A2DD3CF57F5040 /* SessionPriorityPaletteCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */; };
 		88BE878953C5E88F54022E78 /* SessionPriorityPaneDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B49FFC7540803DB1D2193E /* SessionPriorityPaneDecision.swift */; };
 		496EFB2472D7B295B0FD9206 /* SessionPriorityPaneDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E300CA745156AD76CEF14B /* SessionPriorityPaneDecisionTests.swift */; };
 		150BCE042D3E9923118EE980 /* SessionPriorityPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED59F9F92CC6FA4735491B5 /* SessionPriorityPlan.swift */; };
@@ -3682,6 +3686,7 @@
 		B804A0240000000000000024 /* SidebarWorkspaceRowCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0240000000000000024 /* SidebarWorkspaceRowCellView.swift */; };
 		B804A02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift */; };
 		970900020000000000000001 /* SidebarWorkspaceRowColorMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970900020000000000000002 /* SidebarWorkspaceRowColorMenu.swift */; };
+		A8DB21166612AE250834DC8C /* SidebarWorkspaceRowCommands+SessionPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65379B1362F2E96C96BCEC67 /* SidebarWorkspaceRowCommands+SessionPriority.swift */; };
 		B804A0220000000000000022 /* SidebarWorkspaceRowCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0220000000000000022 /* SidebarWorkspaceRowCommands.swift */; };
 		B8624C9A000000000000009A /* SidebarWorkspaceRowHeightCacheRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D9A000000000000009A /* SidebarWorkspaceRowHeightCacheRegressionTests.swift */; };
 		B8624C990000000000000099 /* SidebarWorkspaceRowHeightInvariantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D990000000000000099 /* SidebarWorkspaceRowHeightInvariantTests.swift */; };
@@ -3935,6 +3940,7 @@
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
 		E15B00000000000000000002 /* SystemCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15B00000000000000000001 /* SystemCommands.swift */; };
 		FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */; };
+		4CA1271DAFD6C34B316CF84A /* TabItemView+SessionPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03EAECDFF04F6D3527A47CE6 /* TabItemView+SessionPriority.swift */; };
 		C9A5720DC9A5720DC9A5720D /* TabItemView+WorkspaceContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720EC9A5720EC9A5720E /* TabItemView+WorkspaceContextMenu.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */; };
@@ -8158,11 +8164,13 @@
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		66D4360909B94B156D6309FE /* SessionPriorityActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityActions.swift; sourceTree = "<group>"; };
 		997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyGate.swift; sourceTree = "<group>"; };
 		FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyGateTests.swift"; sourceTree = "<group>"; };
 		CBC881599FA22878617EA728 /* SessionPriorityApplyQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyQueue.swift; sourceTree = "<group>"; };
 		3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyQueueTests.swift"; sourceTree = "<group>"; };
 		4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyResult.swift; sourceTree = "<group>"; };
+		A21A842B70EE3A9EC96CDFB1 /* SessionPriorityContextMenuSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityContextMenuSnapshotTests.swift"; sourceTree = "<group>"; };
 		39A78CD8EBD6997DD0CFC5DA /* SessionPriorityCoordinator+LiveReads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityCoordinator+LiveReads.swift"; sourceTree = "<group>"; };
 		0DA4CD57D2810F4B410D9FCC /* SessionPriorityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCoordinator.swift; sourceTree = "<group>"; };
 		4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCoordinatorHook.swift; sourceTree = "<group>"; };
@@ -8173,6 +8181,8 @@
 		03B22E52E4A7E43ADA6F2F1A /* SessionPriorityManualSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityManualSignals.swift; sourceTree = "<group>"; };
 		C78E8C2AAFA13419F088C8DF /* SessionPriorityManualSignalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityManualSignalsTests.swift"; sourceTree = "<group>"; };
 		F4E7C821999E70F7A1E63745 /* SessionPriorityNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityNotice.swift; sourceTree = "<group>"; };
+		6DB391B8F37F6F876D5B593C /* SessionPriorityPaletteCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityPaletteCommands.swift; sourceTree = "<group>"; };
+		B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPaletteCommandsTests.swift"; sourceTree = "<group>"; };
 		40B49FFC7540803DB1D2193E /* SessionPriorityPaneDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityPaneDecision.swift; sourceTree = "<group>"; };
 		A9E300CA745156AD76CEF14B /* SessionPriorityPaneDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPaneDecisionTests.swift"; sourceTree = "<group>"; };
 		2ED59F9F92CC6FA4735491B5 /* SessionPriorityPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityPlan.swift; sourceTree = "<group>"; };
@@ -8425,6 +8435,7 @@
 		B804B0240000000000000024 /* SidebarWorkspaceRowCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowCellView.swift; sourceTree = "<group>"; };
 		B804B02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowChecklistSection.swift; sourceTree = "<group>"; };
 		970900020000000000000002 /* SidebarWorkspaceRowColorMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowColorMenu.swift; sourceTree = "<group>"; };
+		65379B1362F2E96C96BCEC67 /* SidebarWorkspaceRowCommands+SessionPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands+SessionPriority.swift"; sourceTree = "<group>"; };
 		B804B0220000000000000022 /* SidebarWorkspaceRowCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift; sourceTree = "<group>"; };
 		B8624D9A000000000000009A /* SidebarWorkspaceRowHeightCacheRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowHeightCacheRegressionTests.swift; sourceTree = "<group>"; };
 		B8624D990000000000000099 /* SidebarWorkspaceRowHeightInvariantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowHeightInvariantTests.swift; sourceTree = "<group>"; };
@@ -8670,6 +8681,7 @@
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
 		E15B00000000000000000001 /* SystemCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommands.swift; sourceTree = "<group>"; };
 		65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyShortcutPolicyTests.swift; sourceTree = "<group>"; };
+		03EAECDFF04F6D3527A47CE6 /* TabItemView+SessionPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+SessionPriority.swift"; sourceTree = "<group>"; };
 		C9A5720EC9A5720EC9A5720E /* TabItemView+WorkspaceContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceContextMenu.swift"; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceNotificationsMenu.swift"; sourceTree = "<group>"; };
@@ -12854,6 +12866,10 @@
 				C9F576E371C5320971F96134 /* SessionPriorityCoordinatorState.swift */,
 				F4E7C821999E70F7A1E63745 /* SessionPriorityNotice.swift */,
 				9A927D27D1B01A0EAECBA683 /* TerminalController+ControlSessionPriorityContext.swift */,
+				66D4360909B94B156D6309FE /* SessionPriorityActions.swift */,
+				6DB391B8F37F6F876D5B593C /* SessionPriorityPaletteCommands.swift */,
+				65379B1362F2E96C96BCEC67 /* SidebarWorkspaceRowCommands+SessionPriority.swift */,
+				03EAECDFF04F6D3527A47CE6 /* TabItemView+SessionPriority.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14524,6 +14540,8 @@
 				3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */,
 				23BC6905A7EB08C9BE1CD11C /* SessionPriorityCoordinatorStateTests.swift */,
 				F0E4BA924EA618218E4E2B0C /* CLISessionPriorityTests.swift */,
+				A21A842B70EE3A9EC96CDFB1 /* SessionPriorityContextMenuSnapshotTests.swift */,
+				B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17188,6 +17206,7 @@
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */,
 				C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */,
+				B6FBD51208CD73812CDDEDA3 /* SessionPriorityActions.swift in Sources */,
 				48BB4C84DF82F8FDDBFD0C01 /* SessionPriorityApplyGate.swift in Sources */,
 				BD1B01EFB89C3FD91FAF22AF /* SessionPriorityApplyQueue.swift in Sources */,
 				0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */,
@@ -17198,6 +17217,7 @@
 				384AA91C89A2BE1F51D482AA /* SessionPriorityLaunchArguments.swift in Sources */,
 				5EAD543B5642B0EB5DCDD953 /* SessionPriorityManualSignals.swift in Sources */,
 				293B0ADF736B9F8A913506AC /* SessionPriorityNotice.swift in Sources */,
+				F0519A17B0A5704E136B412F /* SessionPriorityPaletteCommands.swift in Sources */,
 				88BE878953C5E88F54022E78 /* SessionPriorityPaneDecision.swift in Sources */,
 				150BCE042D3E9923118EE980 /* SessionPriorityPlan.swift in Sources */,
 				90350094933FCC8335BA1D79 /* SessionPriorityRank.swift in Sources */,
@@ -17356,6 +17376,7 @@
 				B804A0240000000000000024 /* SidebarWorkspaceRowCellView.swift in Sources */,
 				B804A02B000000000000002B /* SidebarWorkspaceRowChecklistSection.swift in Sources */,
 				970900020000000000000001 /* SidebarWorkspaceRowColorMenu.swift in Sources */,
+				A8DB21166612AE250834DC8C /* SidebarWorkspaceRowCommands+SessionPriority.swift in Sources */,
 				B804A0220000000000000022 /* SidebarWorkspaceRowCommands.swift in Sources */,
 				6707F0116707F0116707F011 /* SidebarWorkspaceRowInput.swift in Sources */,
 				B804A0230000000000000023 /* SidebarWorkspaceRowModel.swift in Sources */,
@@ -17517,6 +17538,7 @@
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,
 				A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
+				4CA1271DAFD6C34B316CF84A /* TabItemView+SessionPriority.swift in Sources */,
 				C9A5720DC9A5720DC9A5720D /* TabItemView+WorkspaceContextMenu.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */,
@@ -19622,9 +19644,11 @@
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				8EF2DB6119B4A8F7CB3B19EC /* SessionPriorityApplyGateTests.swift in Sources */,
 				3513B8D83323FEF169B913DC /* SessionPriorityApplyQueueTests.swift in Sources */,
+				31EAC0ACD90B594B34B3E592 /* SessionPriorityContextMenuSnapshotTests.swift in Sources */,
 				6B7833C5E362302C3AA139AE /* SessionPriorityCoordinatorStateTests.swift in Sources */,
 				2DD3A40C594858A2BAD2A30A /* SessionPriorityLaunchArgumentsTests.swift in Sources */,
 				84636BC419A0EA97E74FDEB8 /* SessionPriorityManualSignalsTests.swift in Sources */,
+				E741D7F9F6A2DD3CF57F5040 /* SessionPriorityPaletteCommandsTests.swift in Sources */,
 				496EFB2472D7B295B0FD9206 /* SessionPriorityPaneDecisionTests.swift in Sources */,
 				E6CF0F6241DCD6B8CFF67CB1 /* SessionPriorityPlanTests.swift in Sources */,
 				835511D53125D8DAF273E18A /* SessionPriorityRankTests.swift in Sources */,

@@ -8155,6 +8155,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
+        contributions.append(contentsOf: SessionPriorityPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -9394,6 +9395,7 @@ struct ContentView: View {
             tabManager.selectWorkspace(workspace)
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
+        SessionPriorityPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {
             closeOtherSelectedWorkspaces()
         }
@@ -15415,7 +15417,8 @@ struct VerticalTabsSidebar: View, Equatable {
             inferredTaskStatus: workspaceSnapshot.taskStatusInput.inferred,
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
             isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
-            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor
+            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor,
+            sessionPriorityMenu: SessionPriorityMenuState(workspace: tab)
         )
         return result
     }
@@ -15615,6 +15618,12 @@ struct VerticalTabsSidebar: View, Equatable {
                     tabManager.tabs.first { $0.id == workspaceId }
                 }
                 WorkspaceTodoActions.hideStatus(for: workspaces)
+            },
+            applyClaudeDifficulty: { difficulty, ids in
+                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+            },
+            setSessionPriorityManual: { on, ids in
+                SessionPriorityActions.setManual(on, for: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
             },
             requestChecklistAdd: {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
