@@ -26,7 +26,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const page = await pane.open({ width: 900, height: 640 });
     try {
       await page.evaluate(async () => {
-        const module = (await import(/* @vite-ignore */ "/header/tabRow.ts")) as {
+        const url = "/header/tabRow.ts";
+        const module = (await import(/* @vite-ignore */ url)) as {
           setTabRow(value: { height: number; trailingInset: number }): void;
         };
         module.setTabRow({ height: 40, trailingInset: 12 });
@@ -48,10 +49,9 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 240, height: 100 } });
     // This is the stylesheet that build-agent-pane-web.sh inlines into the shipped agent pane.
     // webviews/src/styles.css belongs to the page host and is deliberately not part of this fixture.
-    const shellCss = [
-      read("agent-session/acpmux/styles.css"),
-      read("agent-session/acpmux/header/header.css"),
-    ].join("\n");
+    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join(
+      "\n",
+    );
     await page.setContent(`<!doctype html><html><head><style>
       html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); }
       ${shellCss}
@@ -64,18 +64,16 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const shot = PNG.sync.read(await page.screenshot());
     const pixel = (x: number, y: number) => {
       const offset = (y * shot.width + x) * 4;
-      return [...shot.data.slice(offset, offset + 4)];
+      return Array.from(shot.data.subarray(offset, offset + 4));
     };
     // Every pixel in the offered row, including its bottom edge, is the native strip beneath it.
     expect(pixel(20, 8)).toEqual([10, 20, 30, 255]);
     expect(pixel(20, 39)).toEqual([10, 20, 30, 255]);
     // The page fill starts immediately after the offered row.
     expect(pixel(20, 50)).toEqual([200, 10, 20, 255]);
-    expect(
-      await page
-        .locator(".acpmux-header")
-        .evaluate((node) => getComputedStyle(node, "::after").content),
-    ).toBe("none");
+    expect(await page.locator(".acpmux-header").evaluate((node) => getComputedStyle(node, "::after").content)).toBe(
+      "none",
+    );
     await page.close();
   });
 
