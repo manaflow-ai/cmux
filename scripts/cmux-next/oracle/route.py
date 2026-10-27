@@ -15,7 +15,9 @@ JSON object per line, a diff.py finding (`journey`, `step`, `checkpoint`, `point
 `evidence`, ...) plus what confirm learned:
     "confidence": "confirmed" | "flaky" | "base-red" | "unconfirmed"
     "verdicts": {"head": {"verdict": "fail", "run": RUN_ID}, "head_retry": {...}, "base": {"verdict": "pass", ...}}
-    "switch": NAME (a `diff --switch` divergence) or "base" and "head": commit SHAs (a `diff --base --head` one)
+    "switch": NAME (a `diff --switch` divergence) or "base" and "head": commit SHAs (a `diff --base --head` one);
+    a line's own target is used as a whole (half a commit pair is unroutable), --switch or --base/--head only for
+    a line that names none
     optional "product": the oracle product the case ran on (default daemon)
 Only a line that is confirmed is routed: confidence "confirmed" and the three verdicts "head fails twice,
 base passes" (3F.5), each with its run id. Any other line is counted by its reason and goes nowhere: confirm
@@ -35,9 +37,10 @@ The owning program is the chrome-parity program id (pNN-name) the owner cell nam
 plan's file name.
 
 Output (--out, default /tmp/oracle/route.jsonl, replaced as a whole): one line per confirmed divergence,
-the same divergence (case, pointer, switch or commits) once, with `owner`, `area`, `program`, `doc`, every
-matched row in `owners`, the three `verdicts` with their run ids, `replay` (confirm's diff.py command over
-the recorded runs) and `rerun` (the oracle.py command that builds and compares the case again).
+the same divergence (case, pointer, product, and switch at its source ref or commit pair) once, with
+`owner`, `area`, `program`, `doc`, every matched row in `owners`, the three `verdicts` with their run ids,
+`replay` (confirm's diff.py command over the recorded runs) and `rerun` (the oracle.py command that builds
+and compares the case again).
 
 Chrome reference:
 - depot_tools/owners_client.py and owners_finder.py: a file's owners come from the closest OWNERS file;
@@ -203,12 +206,18 @@ def unconfirmed_reason(item: Dict[str, Any]) -> Optional[str]:
 
 
 def target_of(item: Dict[str, Any], default: Target) -> Target:
-    """The line's own switch or commits win over the command line's."""
-    switch = item.get("switch") or default.switch
+    """The line's own target as a whole, else the command line's.
+
+    A line that names a switch maps to it; a line that names base or head maps to its own pair only (half a pair
+    is unroutable, never completed from the command line); the command line's target serves only a line that
+    names none of the three.
+    """
+    switch, base, head = item.get("switch"), item.get("base"), item.get("head")
     if switch:
         return Target(switch=str(switch))
-    base, head = item.get("base") or default.base, item.get("head") or default.head
-    return Target(base=str(base) if base else None, head=str(head) if head else None)
+    if base or head:
+        return Target(base=str(base) if base else None, head=str(head) if head else None)
+    return default
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -301,7 +310,10 @@ class Router:
             return self._owned("switch-plan", files, fallback=switch_owner, fallback_source="switch-owner",
                                program=plan_program.group(0) if plan_program else None,
                                switch_owner=switch_owner, plan=plan)
-        if not (target.base and target.head):
+        if bool(target.base) != bool(target.head):
+            given, missing = ("base", "head") if target.base else ("head", "base")
+            raise ValueError(f"names a {given} commit but no {missing}: half a commit pair to map")
+        if not target.base:
             raise ValueError("no switch and no base/head commits to map")
         base, head = resolve(self.roots, target.base), resolve(self.roots, target.head)
         if base == head:
@@ -329,16 +341,26 @@ class Router:
 # Output
 
 
+def product_of(item: Dict[str, Any]) -> str:
+    product = item.get("product")
+    return product if isinstance(product, str) and product else "daemon"
+
+
+def source_of(item: Dict[str, Any]) -> Optional[str]:
+    ref = item.get("source")
+    return ref if isinstance(ref, str) and ref else None
+
+
 def rerun_command(item: Dict[str, Any], mapping: Mapping, target: Target) -> str:
     """The oracle.py command that builds and compares this one case again (fresh, not from the queue's receipts)."""
     parts = ["python3", "-I", "scripts/cmux-next/oracle/oracle.py", "diff"]
-    product = item.get("product")
-    if isinstance(product, str) and product and product != "daemon":
+    product = product_of(item)
+    if product != "daemon":
         parts += ["--product", product]
     if target.switch:
         parts += ["--switch", target.switch]
-        ref = item.get("source")
-        if isinstance(ref, str) and ref:
+        ref = source_of(item)
+        if ref:
             parts += ["--ref", ref]
     else:
         parts += ["--base", mapping.base or "", "--head", mapping.head or ""]
@@ -347,8 +369,12 @@ def rerun_command(item: Dict[str, Any], mapping: Mapping, target: Target) -> str
 
 
 def route_key(item: Dict[str, Any], mapping: Mapping, target: Target) -> str:
-    scope = f"switch:{target.switch}" if target.switch else f"{mapping.base}..{mapping.head}"
-    text = json.dumps([item["journey"], item.get("pointer"), scope], separators=(",", ":"))
+    """One divergence: the case and pointer on one product, over one switch at one source ref or one commit pair."""
+    if target.switch:
+        scope = ["switch", target.switch, source_of(item)]
+    else:
+        scope = ["commits", mapping.base, mapping.head]
+    text = json.dumps([item["journey"], item.get("pointer"), product_of(item), scope], separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 

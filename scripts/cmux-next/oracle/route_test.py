@@ -173,6 +173,47 @@ class RouteTest(unittest.TestCase):
         self.assertIn("duplicates dropped: 1", output)
         self.assertEqual(lines[0]["program"], "p15-oracle")
 
+    def test_line_commits_win_over_command_line_switch(self) -> None:
+        head = self.commit(["Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView.swift"])
+        items = [finding("tabs/own-pair", base=self.base, head=head), finding("tabs/no-target")]
+        code, lines, output = self.run_route(items, "--switch", "intents")
+        self.assertEqual(code, 0, output)
+        own, default = lines
+        self.assertEqual((own["case"], own["switch"], own["mapped_from"], own["owner"]),
+                         ("tabs/own-pair", None, "changed-files", "PL-tabs"))
+        self.assertEqual((own["base"], own["head"]), (self.base, head))
+        self.assertIn(f"--base {self.base} --head {head} ", own["rerun"])
+        self.assertNotIn("--switch", own["rerun"])
+        self.assertEqual((default["case"], default["switch"], default["owner"]), ("tabs/no-target", "intents", "PL-intents"))
+
+    def test_half_commit_pair_is_unroutable_not_completed_from_command_line(self) -> None:
+        middle = self.commit(["scripts/cmux-next/oracle/x.py"])
+        head = self.commit(["cmux-tui/crates/cmux-tui-core/src/store.rs"])
+        items = [finding("a/base-only", base=self.base), finding("a/head-only", head=head), finding("a/none")]
+        code, lines, output = self.run_route(items, "--base", middle, "--head", head)
+        self.assertEqual(code, 1, output)
+        self.assertEqual([(line["case"], line["base"], line["head"]) for line in lines], [("a/none", middle, head)])
+        self.assertIn("a/base-only: names a base commit but no head", output)
+        self.assertIn("a/head-only: names a head commit but no base", output)
+
+    def test_same_case_on_two_products_or_two_refs_routes_each(self) -> None:
+        head = self.commit(["scripts/cmux-next/oracle/x.py"])
+        items = [finding("a/b", base=self.base, head=head), finding("a/b", base=self.base, head=head, product="app"),
+                 finding("a/b", base=self.base, head=head, product="daemon"),
+                 finding("s/c", switch="intents"), finding("s/c", switch="intents", source="e" * 40),
+                 finding("s/c", switch="intents", product="app")]
+        code, lines, output = self.run_route(items)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(lines), 5, output)
+        self.assertIn("duplicates dropped: 1", output)
+        self.assertEqual(len({line["key"] for line in lines}), 5)
+        reruns = [line["rerun"] for line in lines]
+        self.assertNotIn("--product", reruns[0])
+        self.assertIn("--product app", reruns[1])
+        self.assertIn(f"--ref {'f' * 40}", reruns[2])
+        self.assertIn(f"--ref {'e' * 40}", reruns[3])
+        self.assertIn("--product app --switch intents", reruns[4])
+
     def test_confirmed_line_with_nothing_to_map_exits_1(self) -> None:
         head = self.commit(["scripts/cmux-next/oracle/x.py"])
         items = [finding("a/none"), finding("a/same", base=head, head=head), finding("a/ok", base=self.base, head=head)]
