@@ -912,8 +912,12 @@ class Journey:
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
                 self.wait_screen(end)
-                # The next key waits out the creation hold (CREATION_HOLD_SECONDS); checks need not.
-                self.hold_from = getattr(self, "last_key_at", now())
+                # The next key waits out this terminal's creation hold (CREATION_HOLD_SECONDS); checks need
+                # not. Counted from now, when the terminal is made and shows its prompt, not from the last
+                # key: keys pressed while a creation is pending wait in its hold and run one creation at a
+                # time, so a burst's last terminal is made, and its hold starts, long after the last key
+                # (app-life-many-tabs on v2.2.1: 19 Ctrl-` presses in 2.8 s, the 20th tab 16 s later).
+                self.hold_from = now()
                 return dict(adopted, workspace=place[0].get("name"))
             time.sleep(0.2)
         raise StepError(f"no new focused terminal pane within {step.get('timeout', 20)} s ({last or 'no focused terminal pane'})")

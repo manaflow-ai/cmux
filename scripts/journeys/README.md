@@ -142,8 +142,10 @@ after Cmd-D, Ctrl-\`, a restore; at most its 2 s `holdLimit`) are replayed throu
 `NSApp.sendEvent`, which only reaches the key window, so in a slot they are lost. A person's
 window is key, so this is the slot's limit, not the app's. After `focused_terminal`, `relaunch`
 and `outwait_hold`, the next `type` or `key` therefore waits until 2.5 s after the key that made
-the terminal (checks do not wait). Typing ahead into a terminal still being made is not covered
-by journeys in a slot.
+the terminal, or, after `focused_terminal`, after the terminal showed its prompt (checks do not
+wait): keys pressed while a creation is pending wait in its hold and run one creation at a time,
+so a burst's last terminal (19 Ctrl-\` presses) is made, and its hold starts, long after the last
+key. Typing ahead into a terminal still being made is not covered by journeys in a slot.
 
 `mark` names the moment of a step (for `type` with `enter`, the moment Return is pressed);
 `expect`'s `since` measures from it. Strings may use `${nonce}` (six digits, new each run, so
