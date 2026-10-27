@@ -108,7 +108,8 @@ struct LaunchSnapshotWindow {
         let settings = services.settings
         let facts = WindowPictureStore.LaunchFacts(savedPicture: settings.map { $0.loadCount >= 1 && $0.snapshot.savedPicture } ?? false,
                                                    recovered: services.crashRecovery.recovery.isRestart,
-                                                   incognitoLeftovers: manager.incognitoLedger.mayHaveLeftovers)
+                                                   incognitoLeftovers: manager.incognitoLedger.mayHaveLeftovers,
+                                                   savedScreensStale: !services.crashRecovery.relaunchReattach(features: services.features).keepsSavedScreens)
         // A refusal records its own `launch_picture_refused.<reason>` mark.
         guard let shown = pictures.takeFront(matching: opening, launch: facts), shown.picture.windowID == window.id else {
             return skip(phase, window)

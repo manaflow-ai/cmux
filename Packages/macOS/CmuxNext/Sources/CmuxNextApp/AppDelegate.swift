@@ -96,8 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
-        // `launch.visible_panes_shown`: every pane on screen shows its content (bench_launch.py after-kill).
-        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup, shown: { DebugTimings.markLaunch("launch.visible_panes_shown") })
+        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
@@ -168,9 +167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
-        // Before any window mounts a pane: after a run that ended with no quit, the saved terminal frames are an earlier quit's.
-        RelaunchReattach(previousRunEndedUnasked: services.crashRecovery.marker?.previousExit != nil, enabled: services.features.isEnabled(.relaunchReattach))
-            .apply(discardSavedFrames: { services.terminalLaunchFrames.discardLaunchRead() }, mark: { DebugTimings.markLaunch($0) })
+        // Before any window mounts a pane (p01-process-152); the ring and host takeover are stand-ins until 131 and 150 land.
+        services.crashRecovery.relaunchReattach(features: services.features).apply(steps: .unavailable,
+            discardSavedFrames: { services.terminalLaunchFrames.discardLaunchRead() }, mark: { DebugTimings.markLaunch($0) })
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
@@ -227,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, windows: services.windows, on: services.mainWork)
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
         daemonPrompts = DaemonPrompts.start(services)
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)

@@ -158,8 +158,8 @@ import Testing
     }
 
     /// p01-process-152 (bench_launch.py after-kill): `launch.visible_panes_shown` is the moment every pane on screen
-    /// shows its content, so a relaunch's terminal screens are timed from the first frame. It comes once, before the
-    /// last pane's release, and only when that pane loaded.
+    /// was handed its content (the app then waits for the terminals' frames: LaunchTerminalsDrawnTests). It comes once,
+    /// before the last pane's release, and only when that pane loaded.
     @Test func shownRunsOnceWhenTheLastVisiblePaneLoads() async {
         let f = PaneRefsFixture()
         f.screen.show([Pane(key: "a", state: .loading), Pane(key: "b", state: .loading)])
@@ -363,8 +363,8 @@ private final class PaneRefsFixture {
         self.recorder = recorder
         self.bound = bound
         self.shown = shown
-        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, phase: phase, bound: bound,
-                               shown: { [shown] in shown.releaseCounts.append(recorder.releaseCount) })
+        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, phase: phase, bound: bound)
+        refs.whenShown { [shown] in shown.releaseCounts.append(recorder.releaseCount) }
     }
 }
 

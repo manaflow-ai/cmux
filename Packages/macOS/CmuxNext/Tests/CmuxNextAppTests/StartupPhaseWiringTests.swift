@@ -161,7 +161,7 @@ import Testing
         defer { TerminalTimings.onContentApplied = previous }
         let refs = VisiblePaneRefs(hold: { _ in { _ in } })
         let settle = LaunchSettle(reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)), paneRefs: refs)
-        TerminalTimings.onContentApplied = {}
+        TerminalTimings.onContentApplied = { _ in }
         settle.terminalContentApplied()
         settle.terminalContentApplied()
         #expect(TerminalTimings.onContentApplied != nil, "the restore ref still holds: later content is a signal too")

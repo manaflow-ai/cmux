@@ -74,10 +74,14 @@ ran first. Exit 0 when it holds:
     python3 scripts/cmux-next/bench_launch.py order --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
 
 The relaunch after kill -9 (p01-process-152): split the first workspace into --terminals terminals, quit keeping the
-sessions (the quit saves their frames) and relaunch; then --runs times change every screen, SIGKILL the app (the daemon
-keeps running), relaunch and read the launch marks. Exit 0 when every relaunch reattached to the running daemon and
-showed every terminal screen (`launch.visible_panes_shown`) within --budget-ms (300) of its first window frame, and
-with --feature on (relaunchReattach) drew no earlier quit's frame:
+sessions (the quit saves their frames and window picture) and relaunch; then --runs times change every screen, let the
+app live past the quick-crash window (--survive, 62 s), SIGKILL it (the daemon keeps running), relaunch and read the
+launch marks and `debug.crashes`. Exit 0 when every relaunch was a clean launch (not a restart-loop safe mode),
+reattached to the running daemon and drew every terminal screen (`launch.visible_terminals_drawn`) within --budget-ms
+(300) of its first window frame, and with --feature on (relaunchReattach) drew no earlier quit's terminal frame or
+window picture, and every terminal laid out once (`debug.surfaces`: no surface swap, at most one grid size).
+`takeover` says whether the ring mapping (p01-process-131) and the host adoption (p01-process-150) ran:
+`unavailable` until both are in the build, and the result says `complete: false` then:
 
     python3 scripts/cmux-next/bench_launch.py after-kill --app "/path/cmux DEV <tag>.app" [--runs 3] [--feature on|off]
     python3 scripts/cmux-next/bench_launch.py --after-kill --app ...   # the same
@@ -1792,39 +1796,83 @@ def socket_probe(opts, make_app=None):
 
 # The relaunch after `kill -9` of the app (p01-process-152, done check 20 of plans/cmux-next/chrome-parity/p01-process.md):
 # the daemon kept every terminal, so each terminal's screen shows within AFTER_KILL_BUDGET_MS of the first window
-# frame. The marks are the app's launch marks (debug.timings): VisiblePaneRefs' `launch.visible_panes_shown` (every
-# pane on screen shows its content), DaemonService's `daemon_reattached` (the launch found the daemon running) and
-# `daemon.spawned` (it started one), RelaunchReattach's `relaunch.saved_frames_skipped`, and TerminalLaunchFrames'
-# `terminal.launch_frame_shown` (an earlier quit's frame drew over a terminal).
+# frame. The marks are the app's launch marks (debug.timings): LaunchTerminalsDrawn's `launch.visible_terminals_drawn`
+# (every terminal on screen drew the frame after its first content; `launch.visible_panes_shown` is only the content
+# queued), DaemonService's `daemon_reattached` (the launch found the daemon running) and `daemon.spawned` (it started
+# one), RelaunchReattach's `relaunch.*` marks, TerminalLaunchFrames' `terminal.launch_frame_shown` (an earlier quit's
+# frame drew over a terminal) and LaunchPicturePhase's `launch_picture_shown` (the earlier quit's window picture).
 AFTER_KILL_BUDGET_MS = 300
 AFTER_KILL_FIRST_FRAME = "first_window_frame_committed"
-AFTER_KILL_SHOWN = "launch.visible_panes_shown"
+AFTER_KILL_SHOWN = "launch.visible_terminals_drawn"
+# LaunchRecovery.quickCrashWindow is 60 s: a run killed sooner makes the next launch watch for a restart loop, and the
+# one after it a safe-mode restart (no browser pages, the restart notice), which is not the launch after one kill -9.
+AFTER_KILL_SURVIVE_S = 62
+AFTER_KILL_TAKEOVER = {"rings": ("relaunch.rings_mapping", "relaunch.rings_unavailable"),
+                       "host": ("relaunch.host_adopting", "relaunch.host_unavailable")}
 AFTER_KILL_FEATURE = "relaunchReattach"
 AFTER_KILL_FEATURES = {"on": {AFTER_KILL_FEATURE: True}, "off": {AFTER_KILL_FEATURE: False}, "default": None}
 AFTER_KILL_WORKSPACE = re.compile(r"(workspace:\d+)")
 AFTER_KILL_TERMINAL = re.compile(r"surface (surface:\d+) \[terminal\]")
 
 
-def after_kill_row(marks):
-    """One relaunch's row from its launch marks (`launch_ms_since_process_start`, ms since process start)."""
-    first, shown = marks.get(AFTER_KILL_FIRST_FRAME), marks.get(AFTER_KILL_SHOWN)
-    return {"first_frame_ms": first, "panes_shown_ms": shown,
-            "screens_after_first_frame_ms": None if first is None or shown is None else round(shown - first, 1),
+def after_kill_takeover(marks):
+    """Each takeover step's state from RelaunchReattach's marks: "started", "unavailable" or None (not run)."""
+    def state(started, unavailable):
+        return "started" if started in marks else "unavailable" if unavailable in marks else None
+    return {step: state(*names) for step, names in AFTER_KILL_TAKEOVER.items()}
+
+
+def after_kill_layout(surfaces):
+    """The terminals' layouts in a `debug.surfaces` reply: one layout is the snapshot drawn in the surface the pane
+    mounted (no `surface_swaps`: a replay swaps in a fresh surface) at the size it first fit (at most one `full_resize`
+    rebuild). None when the reply has no terminal."""
+    terminals = swaps = extra = 0
+    for window in (surfaces or {}).get("windows") or []:
+        for pane in window.get("panes") or []:
+            if "attach" not in pane:  # SurfaceDiagnosticsReport adds `attach` to terminal panes only
+                continue
+            counters = (pane.get("surface") or {}).get("render_counters") or {}
+            terminals += 1
+            swaps += int(pane.get("surface_swaps") or 0)
+            extra += max(0, int(counters.get("full_resize") or 0) - 1)
+    if not terminals:
+        return None
+    return {"terminals": terminals, "surface_swaps": swaps, "extra_resizes": extra, "one_layout": swaps == 0 and extra == 0}
+
+
+def after_kill_row(marks, recovery=None, layout=None):
+    """One relaunch's row from its launch marks (`launch_ms_since_process_start`, ms since process start), its
+    `debug.crashes` launch recovery ("clean", "restarted", "restartedSafely"; None when it was not read) and its
+    terminals' layout (``after_kill_layout``)."""
+    first, drawn = marks.get(AFTER_KILL_FIRST_FRAME), marks.get(AFTER_KILL_SHOWN)
+    return {"first_frame_ms": first, "terminals_drawn_ms": drawn, "panes_shown_ms": marks.get("launch.visible_panes_shown"),
+            "screens_after_first_frame_ms": None if first is None or drawn is None else round(drawn - first, 1),
+            "recovery": recovery,
             "reattached": "daemon_reattached" in marks, "daemon_started": "daemon.spawned" in marks,
             "saved_frames_skipped": "relaunch.saved_frames_skipped" in marks,
-            "saved_frame_shown": "terminal.launch_frame_shown" in marks}
+            "saved_frame_shown": "terminal.launch_frame_shown" in marks,
+            "saved_picture_shown": "launch_picture_shown" in marks,
+            "takeover": after_kill_takeover(marks), "layout": layout}
 
 
 def after_kill_summary(runs, budget_ms=AFTER_KILL_BUDGET_MS, feature="on"):
-    """The verdict over relaunches: every run measured its screens, reattached to the running daemon, and showed every
-    terminal's screen within `budget_ms` of its first frame; with the feature on, no run drew an earlier quit's frame."""
+    """The verdict over relaunches: every run was a clean launch (the one a person gets after one kill -9, not the
+    restart-loop safe mode), measured its screens, reattached to the running daemon, and drew every terminal's screen
+    within `budget_ms` of its first frame; with the feature on, no run drew an earlier quit's terminal frame or window
+    picture, and every run laid each terminal out once (``after_kill_layout``). `complete` says whether the feature-on runs also mapped the rings and adopted the host."""
     measured = [run["screens_after_first_frame_ms"] for run in runs if run.get("screens_after_first_frame_ms") is not None]
     reattached = sum(1 for run in runs if run.get("reattached"))
-    stale = sum(1 for run in runs if run.get("saved_frame_shown"))
+    not_clean = sum(1 for run in runs if run.get("recovery") != "clean")
+    stale = sum(1 for run in runs if run.get("saved_frame_shown") or run.get("saved_picture_shown"))
+    relaid = sum(1 for run in runs if not (run.get("layout") or {}).get("one_layout"))
+    took_over = sum(1 for run in runs
+                    if run.get("takeover") and all(state == "started" for state in run["takeover"].values()))
     worst = max(measured) if measured else None
-    ok = (bool(runs) and len(measured) == len(runs) and reattached == len(runs) and worst <= budget_ms
-          and (feature != "on" or stale == 0))
-    return {"runs": len(runs), "measured": len(measured), "reattached_runs": reattached, "stale_frame_runs": stale,
+    ok = (bool(runs) and not_clean == 0 and len(measured) == len(runs) and reattached == len(runs) and worst <= budget_ms
+          and (feature != "on" or (stale == 0 and relaid == 0)))
+    return {"runs": len(runs), "measured": len(measured), "reattached_runs": reattached, "not_clean_runs": not_clean,
+            "stale_frame_runs": stale, "relaid_out_runs": relaid, "takeover_runs": took_over,
+            "complete": feature == "on" and bool(runs) and took_over == len(runs),
             "screens_after_first_frame_p50_ms": round(statistics.median(measured), 1) if measured else None,
             "screens_after_first_frame_max_ms": worst, "budget_ms": budget_ms, "feature": feature, "ok": ok}
 
@@ -1860,8 +1908,15 @@ def after_kill_type(cli, surfaces, round_index):
         cli("send", "--surface", surface, f"clear; echo after-kill round {round_index} terminal {index}\n")
 
 
+def after_kill_recovery(app):
+    """How the relaunch follows the killed run (`debug.crashes` launch.recovery), or None when it does not say."""
+    report = app.rpc("debug.crashes")
+    launch = report.get("launch") if isinstance(report, dict) else None
+    return launch.get("recovery") if isinstance(launch, dict) else None
+
+
 def after_kill_marks(app, seconds, poll=time.sleep, clock=time.monotonic):
-    """The relaunch's launch marks once `launch.visible_panes_shown` is among them, else what it has at `seconds`."""
+    """The relaunch's launch marks once `launch.visible_terminals_drawn` is among them, else what it has at `seconds`."""
     deadline = clock() + seconds
     while True:
         timings = app.rpc("debug.timings")
@@ -1871,12 +1926,13 @@ def after_kill_marks(app, seconds, poll=time.sleep, clock=time.monotonic):
         poll(0.1)
 
 
-def after_kill(opts, make_app=None, run_cli=None, poll=time.sleep):
+def after_kill(opts, make_app=None, run_cli=None, poll=time.sleep, clock=time.monotonic):
     """`after-kill`: launches the app, splits its first workspace into `opts.terminals` terminals, quits keeping the
-    sessions (the quit saves their frames), launches again; then `opts.runs` times changes every screen, SIGKILLs the
-    app (the daemon keeps running), relaunches on the kept state and reads the marks (``after_kill_row``). Prints one
-    BENCH-LAUNCH line with ``after_kill_summary`` and the runs; exit 0 when it holds. `make_app` builds the BenchApp
-    and `run_cli(app, *args)` runs its CLI (tests pass stubs)."""
+    sessions (the quit saves their frames), launches again; then `opts.runs` times changes every screen, waits until the
+    app lived `opts.survive` seconds (past the quick-crash window, so each relaunch is a clean launch), SIGKILLs it (the
+    daemon keeps running), relaunches on the kept state and reads the marks and the recovery (``after_kill_row``).
+    Prints one BENCH-LAUNCH line with ``after_kill_summary`` and the runs; exit 0 when it holds. `make_app` builds the
+    BenchApp and `run_cli(app, *args)` runs its CLI (tests pass stubs)."""
     app = (make_app or BenchApp)(opts.app, out=opts.out, local_features=AFTER_KILL_FEATURES[opts.feature])
 
     def cli(*args):
@@ -1887,9 +1943,12 @@ def after_kill(opts, make_app=None, run_cli=None, poll=time.sleep):
                               env=env)
         return done.stdout
 
+    launched = [clock()]
+
     def relaunch():
         app.fresh_state = False  # the tag's saved state and its running daemon are kept
         app.launch(timeout=opts.timeout)
+        launched[0] = clock()
         if app.teardown:
             app.teardown.remember()
 
@@ -1910,12 +1969,16 @@ def after_kill(opts, make_app=None, run_cli=None, poll=time.sleep):
             for index in range(opts.runs):
                 after_kill_type(cli, surfaces, index + 1)
                 poll(opts.settle)
+                lived = clock() - launched[0]
+                if lived < opts.survive:
+                    poll(opts.survive - lived)  # killed sooner, the next launch is a safe-mode restart
                 app.process.send_signal(signal.SIGKILL)  # the app this BenchApp started; never the daemon
                 app.process.wait(20)
                 run = {"run": index + 1}
                 try:
                     relaunch()
-                    run.update(after_kill_row(after_kill_marks(app, opts.mark_timeout, poll=poll)))
+                    marks = after_kill_marks(app, opts.mark_timeout, poll=poll)
+                    run.update(after_kill_row(marks, after_kill_recovery(app), after_kill_layout(app.rpc("debug.surfaces"))))
                 except LaunchError as error:
                     run["reason"] = error.reason
                 note(f"bench-launch: after-kill run {index + 1}: {json.dumps(run)}")
@@ -1977,6 +2040,8 @@ def main(argv=None):
                       help=f"the {AFTER_KILL_FEATURE} feature's local choice (default on)")
     kill.add_argument("--timeout", type=float, default=180)
     kill.add_argument("--settle", type=float, default=1.5, help="seconds after typing before a quit or kill")
+    kill.add_argument("--survive", type=float, default=AFTER_KILL_SURVIVE_S,
+                      help="seconds each app lives before its SIGKILL, past the 60 s quick-crash window (default 62)")
     kill.add_argument("--mark-timeout", type=float, default=20,
                       help=f"seconds a relaunch may take to mark {AFTER_KILL_SHOWN}")
     kill.add_argument("--budget-ms", type=float, default=AFTER_KILL_BUDGET_MS)

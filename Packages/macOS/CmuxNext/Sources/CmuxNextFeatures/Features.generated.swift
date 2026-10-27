@@ -1533,12 +1533,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A launch after a run that ended without a quit (kill -9, a crash, power loss) skips the terminal frames an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first.
+    /// A launch after a run that ended without a quit in this boot (kill -9, a crash) skips the terminal frames and the window picture an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first. After a reboot they still show.
     public static let relaunchReattach = Feature(
         index: 88,
         name: "relaunchReattach",
         owner: "Performance Lead",
-        description: "A launch after a run that ended without a quit (kill -9, a crash, power loss) skips the terminal frames an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first.",
+        description: "A launch after a run that ended without a quit in this boot (kill -9, a crash) skips the terminal frames and the window picture an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first. After a reboot they still show.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

@@ -67,6 +67,21 @@ struct WindowPictureLaunchRulesTests {
         #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.recovered = true }) == .refuse(.crashRecovery))
     }
 
+    /// p01-process-152: after `kill -9` the launch is not a crash recovery, but the picture is still the quit's before
+    /// the killed run, terminal regions included, while the daemon's newer screens come live: never shown under
+    /// `relaunchReattach`, which says so through the same value as the terminal frames' discard.
+    @Test func aKillNineLaunchThatReattachesShowsNone() {
+        let killed = RelaunchReattach(previousEnd: .killed, enabled: true)
+        #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.savedScreensStale = !killed.keepsSavedScreens })
+            == .refuse(.reattach))
+        let off = RelaunchReattach(previousEnd: .killed, enabled: false)
+        #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.savedScreensStale = !off.keepsSavedScreens })
+            == .show(stale: []), "the feature off keeps today's launch")
+        let shutdown = RelaunchReattach(previousEnd: .systemShutdown, enabled: true)
+        #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.savedScreensStale = !shutdown.keepsSavedScreens })
+            == .show(stale: []), "no daemon survived a reboot: the picture is the best first frame")
+    }
+
     @Test func incognitoLeftoversShowNone() {
         #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.incognitoLeftovers = true })
             == .refuse(.incognitoLeftovers))

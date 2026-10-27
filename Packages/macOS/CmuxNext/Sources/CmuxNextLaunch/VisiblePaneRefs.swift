@@ -109,7 +109,7 @@ public final class VisiblePaneRefs {
 
     private let hold: @MainActor (StaticString) -> Release
     private let phase: StartupPhase?
-    /// Runs once, when the last pane ref ends because its pane loaded (``init(hold:phase:bound:shown:)``).
+    /// Runs once, when the last pane ref ends because its pane loaded (``whenShown(_:)``).
     private var shown: (@MainActor () -> Void)?
     private let bound: DemandTimer
     private let changes = Changes()
@@ -132,26 +132,30 @@ public final class VisiblePaneRefs {
     ///   - hold: Takes one startup ref by name and returns its release.
     ///   - phase: The launch phase whose restore and visible-page references this marks (nil: none).
     ///   - bound: The visible-pane bound's timer; tests inject a manual clock.
-    ///   - shown: Runs once, just before the releases, when the restore ended and the last visible pane's ref ends
-    ///     because that pane loaded: every pane on screen shows its content (a terminal its screen). It never runs
-    ///     when the bound, the daemon or a launch with no pane on screen ended the refs (the app's launch mark
-    ///     `launch.visible_panes_shown`, which bench_launch.py `after-kill` reads).
     public init(hold: @escaping @MainActor (StaticString) -> Release, phase: StartupPhase? = nil,
-                bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"), shown: (@MainActor () -> Void)? = nil) {
+                bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
         self.hold = hold
         self.phase = phase
         self.bound = bound
-        self.shown = shown
         restore = hold("WindowManager.restore")
     }
 
     /// Takes the restore ref of `startup`, and marks `phase`'s restore and visible-page references.
     public convenience init(startup: StartupScheduler, phase: StartupPhase?,
-                            bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"), shown: (@MainActor () -> Void)? = nil) {
+                            bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
         self.init(hold: { [startup] name in
             let ref = startup.hold(name)
             return { ref.release($0) }
-        }, phase: phase, bound: bound, shown: shown)
+        }, phase: phase, bound: bound)
+    }
+
+    /// Runs `work` once, just before the releases, when the restore ended and the last visible pane's ref ends because
+    /// that pane loaded: every pane on screen was handed its content (a terminal its first content, not yet drawn). It
+    /// never runs when the bound, the daemon or a launch with no pane on screen ended the refs. Set before the restore
+    /// ends; a later call replaces it.
+    public func whenShown(_ work: @escaping @MainActor () -> Void) {
+        guard isHolding else { return }
+        shown = work
     }
 
     /// True while the restore ref or a pane ref is held.

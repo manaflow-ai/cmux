@@ -70,11 +70,11 @@ public struct TerminalTimings {
 
     /// Called on the main actor each time a surface was handed terminal
     /// content (a replay or output) from its IO, for the launch's
-    /// "first live terminal frame" mark.
-    public static var onContentApplied: (() -> Void)?
+    /// "first live terminal frame" mark and `launch.visible_terminals_drawn`, which waits for that session's frame.
+    public static var onContentApplied: ((TerminalSession) -> Void)?
 
-    static func contentApplied() {
-        onContentApplied?()
+    static func contentApplied(_ session: TerminalSession) {
+        onContentApplied?(session)
     }
 
     /// Phases of the libghostty runtime's one-time start (`ghostty_init`,

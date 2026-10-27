@@ -372,7 +372,7 @@ public final class TerminalSession {
         #endif
         surfaceHasContent = true
         frameHold.contentQueued()
-        TerminalTimings.contentApplied()
+        TerminalTimings.contentApplied(self)
     }
 
     /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
