@@ -581,6 +581,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setEngineVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        followHostVisibility() // the new window's node bounds the host hide
         checkFirstShow()
         applyTheme()
         windowDidChangeChrome()

@@ -1311,12 +1311,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A cmux page in WebKit (agent chat, Settings, a viewer) is hidden to WebKit while its tab is hidden (parked tab, hidden workspace, minimized window): it reports hidden and WebKit throttles its timers; it shows in the same turn as its tab, with no reload. Pages with sound or a capture stay visible.
+    /// A cmux page in WebKit (agent chat, Settings, a viewer) is hidden to WebKit while its tab, pane or workspace is hidden (a minimized window stays WebKit's call): it reports hidden and its timers throttle; it shows with its tab, with no reload. Pages with sound, camera or microphone stay visible.
     public static let ownPagesHiddenToWebKit = Feature(
         index: 75,
         name: "ownPagesHiddenToWebKit",
         owner: "Performance Lead",
-        description: "A cmux page in WebKit (agent chat, Settings, a viewer) is hidden to WebKit while its tab is hidden (parked tab, hidden workspace, minimized window): it reports hidden and WebKit throttles its timers; it shows in the same turn as its tab, with no reload. Pages with sound or a capture stay visible.",
+        description: "A cmux page in WebKit (agent chat, Settings, a viewer) is hidden to WebKit while its tab, pane or workspace is hidden (a minimized window stays WebKit's call): it reports hidden and its timers throttle; it shows with its tab, with no reload. Pages with sound, camera or microphone stay visible.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

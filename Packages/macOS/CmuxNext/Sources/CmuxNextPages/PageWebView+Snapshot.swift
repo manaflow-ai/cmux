@@ -31,10 +31,12 @@ extension PageWebView {
     /// any freeze. Chromium copies its surface with no DevTools agent and encodes it on its thread pool;
     /// its answer is base64 text, which `encoder` decodes to the PNG at once off the main thread.
     /// WebKit hands over its last frame (`afterScreenUpdates` off: the page is leaving the screen), which
-    /// `encoder` encodes at once off the main thread. Makes no call into the page.
+    /// `encoder` encodes at once off the main thread. Makes no call into the page. A host hide that waited
+    /// for this picture hides the WebKit view after it, in this turn (``applyHostVisibility()``).
     ///
     /// - Parameter encoder: Encodes a WebKit frame and unpacks a Chromium copy.
     func keepHideSnapshot(encoder: PageSnapshotEncoder) {
+        defer { applyHostVisibility() }
         let size = snapshotPixelSize
         // A Chromium page on its way has no engine view and drew nothing.
         guard size.width >= 1, size.height >= 1, !awaitsFirstShow,

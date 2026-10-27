@@ -26,6 +26,8 @@ final class PageWebKitEngine {
     let bridge: WebKitPageHostBridge
     /// The file chooser and Web Inspector's open and close (the view holds its UI delegate weakly).
     let ui: PageUIDelegate
+    /// The view's sound and media capture as the page's keep reasons, from ``attach(to:shown:)`` on.
+    private(set) var media: PageWebKitMediaWatch?
 
     init(recipe: PageWebKitRecipe) {
         ui = PageUIDelegate(fileInputs: recipe.openPanel.map { PageOpenPanel(openPanel: $0) })
@@ -47,15 +49,17 @@ final class PageWebKitEngine {
         view.uiDelegate = ui
     }
 
-    /// Wires the view to `page`: its delegate, keyboard and input hooks, keep reasons, Web Inspector
-    /// hold, the host's hooks and the page bridge. Shown when WebKit shows the page and its host
-    /// shows (``PageWebView/revealWebKitView(_:)``), else hidden behind the Chromium page that does.
+    /// Wires the view to `page`: its delegate, keyboard and input hooks, keep reasons (its sound and
+    /// capture too, ``PageWebKitMediaWatch``), Web Inspector hold, the host's hooks and the page bridge.
+    /// Shown when WebKit shows the page and its host shows (``PageWebView/revealWebKitView(_:)``), else
+    /// hidden behind the Chromium page that does.
     func attach(to page: PageWebView, shown: Bool) {
         if shown { page.revealWebKitView(view) } else { view.isHidden = true }
         view.frame = page.bounds
         view.pageZoom = page.pageZoom
         view.navigationDelegate = page
         view.keepReasons = page.keepReasons
+        media = PageWebKitMediaWatch(view: view, keepReasons: page.keepReasons)
         // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
         // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).
         view.onBecameFirstResponder = { [weak page] in page?.send(command: PageNativeOp.focusContent) }

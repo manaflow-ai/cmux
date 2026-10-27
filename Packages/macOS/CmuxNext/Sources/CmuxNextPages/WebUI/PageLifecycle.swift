@@ -213,6 +213,11 @@ package final class PageLifecycle {
         arm(at: uptime())
     }
 
+    /// Whether `page` is held as shown, so its next ``hide(_:page:)`` pictures it first: a hide of its engine waits for that.
+    package func picturesNextHide(of page: AnyObject) -> Bool {
+        keys[ObjectIdentifier(page)].flatMap { entries[$0] }.map { $0.target.object === page && $0.state == .active } ?? false
+    }
+
     /// The reasons `key`'s owners say keep it (page JS can only add some). A freeze-blocking reason
     /// thaws a frozen page now, as Chrome unfreezes a page that starts to play audio; a dropped
     /// reason arms a pass.
