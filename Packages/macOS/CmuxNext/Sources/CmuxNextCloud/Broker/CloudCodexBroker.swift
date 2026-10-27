@@ -104,9 +104,9 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
                 writeFile: @escaping @Sendable (String, Data, Int) async throws -> Void,
                 commitFiles: @escaping @Sendable (String, String, String, String) async throws -> Void,
                 removeFile: @escaping @Sendable (String) async throws -> Void,
-                isLive: @escaping @Sendable () async throws -> Bool = { true }) {
+                isLive: (@Sendable () async throws -> Bool)? = nil) {
         self.machineID = machineID
-        self.isLive = isLive
+        self.isLive = isLive ?? { true }
         self.capability = capability
         self.makeDirectory = makeDirectory
         self.readFile = readFile
