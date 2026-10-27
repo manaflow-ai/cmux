@@ -526,7 +526,13 @@ impl OffLatch {
     /// Whether MDM's off holds for this start. Takes no lock of the start-mode state, so it may
     /// be read under the pool lock (review 76).
     pub(super) fn off(&self) -> bool {
-        self.was_off || *self.offs.borrow() != self.seen
+        self.was_off || self.began()
+    }
+
+    /// Whether an off began since this start read it, though an unset may have followed. Takes no
+    /// lock of the start-mode state either.
+    pub(super) fn began(&self) -> bool {
+        *self.offs.borrow() != self.seen
     }
 
     /// Resolves once the start's harness reported full access (`any`; `reported` is notified on
