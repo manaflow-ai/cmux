@@ -44,9 +44,14 @@ nonisolated final class SurfaceBridge: Sendable {
         self.input = input
         self.frameMarks = frameMarks
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
-        // An answer that changed shows at once: the pointer goes to Ghostty again.
+    }
+
+    /// A link answer that changed (on the filter's queue) shows in the next main turn: the pointer goes to
+    /// Ghostty again, as one `userBlocking` task on `mainWork`, the rest of the person's Command-hover.
+    @MainActor func followLinkAnswers(on mainWork: MainWorkScheduler) {
+        let owner = mainWork.board.owner("terminal.link-answer")
         linkFilter.onChange { [weak self] in
-            MainDelivery().run { self?.sendPointerAgain() }
+            mainWork.postFromAnyThread(.userBlocking, owner: owner) { self?.sendPointerAgain() }
         }
     }
 
