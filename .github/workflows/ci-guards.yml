@@ -98,6 +98,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate workflow files stay under GitHub's size limit
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_workflow_file_size.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
