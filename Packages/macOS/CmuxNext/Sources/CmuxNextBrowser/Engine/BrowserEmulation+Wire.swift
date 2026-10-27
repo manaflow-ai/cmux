@@ -8,7 +8,9 @@ extension BrowserEmulation {
     /// it belongs to (the fit bar's commands name it).
     public init?(record json: Data?, tabID: String? = nil) {
         guard let json, let fields = (try? JSONSerialization.blockingJSONObject(with: json)) as? [String: Any] else { return nil }
-        let calls = (fields["chromium_calls"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        // Only a list is a call list. `data(withJSONObject:)` raises an Objective-C exception, which no `try?`
+        // catches, for a top-level value that is not an array or object.
+        let calls = (fields["chromium_calls"] as? [Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         let callsJSON = calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         if fields["mode"] as? String == "fit" {
             guard let fit = fields["fit"] as? [String: Any],

@@ -22,7 +22,9 @@ public struct HandsAPIClient: Sendable {
 
     /// The hands in a `/v1/hands` reply's value; a value that is not a list of hands throws.
     static func summaries(_ value: Any) throws -> [HandSummary] {
-        try JSONDecoder().decode([HandSummary].self, from: JSONSerialization.data(withJSONObject: value))
+        // `.fragmentsAllowed`: a string, number or null value fails the decode as a typed error; without it
+        // `data(withJSONObject:)` raises an Objective-C exception for it, which no `catch` stops.
+        try JSONDecoder().decode([HandSummary].self, from: JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed))
     }
 
     /// `GET /v1/hands/<hand>/approvals`: the requests waiting for the owner.

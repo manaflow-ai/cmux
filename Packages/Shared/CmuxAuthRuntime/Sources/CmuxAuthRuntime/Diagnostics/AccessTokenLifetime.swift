@@ -18,13 +18,16 @@ struct AccessTokenLifetime: Sendable, Equatable {
         if remainder > 0 { base64 += String(repeating: "=", count: 4 - remainder) }
         guard let data = Data(base64Encoded: base64),
               let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let exp = (claims["exp"] as? NSNumber)?.doubleValue else { return nil }
-        expiresInSeconds = Int(exp - now.timeIntervalSince1970)
-        if let iat = (claims["iat"] as? NSNumber)?.doubleValue {
-            lifetimeSeconds = Int(exp - iat)
-        } else {
-            lifetimeSeconds = nil
-        }
+              let exp = (claims["exp"] as? NSNumber)?.doubleValue,
+              let expiresIn = Self.wholeSeconds(exp - now.timeIntervalSince1970) else { return nil }
+        expiresInSeconds = expiresIn
+        lifetimeSeconds = ((claims["iat"] as? NSNumber)?.doubleValue).flatMap { Self.wholeSeconds(exp - $0) }
+    }
+
+    /// `seconds` toward zero, nil when no `Int` holds it: the claims are unverified token text, and a
+    /// huge or non-finite `exp` must not trap the log line that reads it.
+    private static func wholeSeconds(_ seconds: Double) -> Int? {
+        Int(exactly: seconds.rounded(.towardZero))
     }
 
     /// `accessExpiresInSec=N accessLifetimeSec=M` for a debug log line.

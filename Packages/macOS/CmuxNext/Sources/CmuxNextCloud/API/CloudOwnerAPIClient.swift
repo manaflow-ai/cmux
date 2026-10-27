@@ -116,7 +116,9 @@ public struct CloudOwnerAPIClient: Sendable {
             throw CloudAPIError.http(status: status, code: error?["code"] as? String, message: error?["message"] as? String)
         }
         do {
-            return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: value))
+            // `.fragmentsAllowed`: a string, number or null value fails the decode as a typed error; without it
+            // `data(withJSONObject:)` raises an Objective-C exception for it, which no `catch` stops.
+            return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed))
         } catch {
             throw CloudAPIError.decoding("\(path): \(error)")
         }
