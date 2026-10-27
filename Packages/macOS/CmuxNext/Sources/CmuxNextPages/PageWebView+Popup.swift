@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
+import Foundation
 
 /// A small transient surface of the page with no room in it shows past the window's edge
 /// (cx-6k6cg, ``WebPopupHost``): `cmux.app.popup.show`, `update` and `hide` from the page; the
@@ -30,6 +31,11 @@ extension PageWebView {
         let picked: String? = await withCheckedContinuation { continuation in
             menu.present(in: focusView, zoom: CGFloat(pageZoom)) { continuation.resume(returning: $0) }
         }
+        return finishContextMenu(picked)
+    }
+
+    /// Completes the host's native menu, whose nonnil result comes only from an AppKit choice.
+    func finishContextMenu(_ picked: String?, at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> JSONValue {
         return .object(["picked": picked.map(JSONValue.string) ?? .null])
     }
 }
