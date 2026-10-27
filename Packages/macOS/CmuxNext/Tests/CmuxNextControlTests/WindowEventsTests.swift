@@ -78,6 +78,31 @@ import Testing
         _ = token
     }
 
+    /// p06-scheduler-161: a capture vote makes a hidden node render (a screenshot of a hidden tab draws
+    /// its views), so its whenVisible subscribers hear what they missed in the vote's turn and every
+    /// post while the vote holds, with page visibility still hidden; after the release they wait again.
+    @Test func aCapturedHiddenSubscriberHearsPostsWhileTheVoteHolds() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let window = VisibilityNode(root: "window", own: .visible)
+        let tab = VisibilityNode("tab", own: .hidden, parent: window)
+        var calls: [EventCall] = []
+        let token = events.subscribe(Self.name, node: tab, delivery: .whenVisible, owner: "tab") { calls.append($0) }
+        center.post(name: Self.name, object: nil)
+        #expect(calls.isEmpty)
+        let vote = tab.captureVote(reason: "agent.screenshot", stayHidden: true)
+        #expect(tab.effective == .hidden && tab.wantsFrames)
+        #expect(calls == [.missed], "the capture drew a view that missed a post")
+        center.post(name: Self.name, object: nil)
+        #expect(calls == [.missed, .posted], "a post to a captured view waited for a show")
+        vote.release()
+        center.post(name: Self.name, object: nil)
+        #expect(calls == [.missed, .posted], "a released node did view work")
+        tab.set(.visible)
+        #expect(calls == [.missed, .posted, .missed])
+        _ = token
+    }
+
     @Test func alwaysSubscribersHearEveryPostWhileHidden() {
         let center = NotificationCenter()
         let events = AppEvents(center: center)
