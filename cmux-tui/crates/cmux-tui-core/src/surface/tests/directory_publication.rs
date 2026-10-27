@@ -80,3 +80,38 @@ fn an_exit_the_reader_sees_last_is_published_in_panic_mode() {
     assert!(mux.terminal_registry_revision().is_ok(), "nothing poisoned the registry");
     mux.shutdown();
 }
+
+/// A program's desktop notification (OSC 9) is posted off the reader too:
+/// the post records it in the registry and reads the terminal's foreground
+/// process from the system, which the reader may not do. In panic mode the
+/// reader panicked at the post and the notification never arrived.
+#[cfg(unix)]
+#[test]
+fn a_terminal_notification_is_posted_and_the_reader_keeps_reading_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let script = "printf '\\033]9;nine\\007'; sleep 0.3; printf 'after-notification'; exec cat";
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new(format!("notification-off-reader-{}", std::process::id()), options);
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let deadline = Instant::now() + WAIT;
+    let note = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        assert!(!left.is_zero(), "the terminal's notification was never posted");
+        if let Ok(MuxEvent::Notification(note)) = events.recv_timeout(left) {
+            break note;
+        }
+    };
+    assert_eq!((note.title.as_str(), note.surface), ("nine", Some(surface.id)));
+    wait_until("the reader shows the output after the notification", || {
+        surface
+            .with_terminal(|terminal| terminal.plain_text())
+            .and_then(Result::ok)
+            .is_some_and(|text| text.contains("after-notification"))
+    });
+    mux.close_surface(surface.id).unwrap();
+    mux.shutdown();
+}
