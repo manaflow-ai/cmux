@@ -47,6 +47,30 @@ async fn private_input_is_cancellable_without_closing_the_writer() {
     assert!(request_line(&input, &mut buffer).await.is_err());
 }
 
+#[tokio::test]
+async fn private_output_is_cancellable_when_the_reader_stalls() {
+    let (_reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let size: libc::c_int = 2048;
+    // SAFETY: writer owns this live socket and size is a c_int of the stated size.
+    let changed = unsafe {
+        libc::setsockopt(
+            writer.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&size as *const libc::c_int).cast(),
+            std::mem::size_of_val(&size) as _,
+        )
+    };
+    assert_eq!(changed, 0);
+    let output = nonblocking_input(writer.into()).unwrap();
+    let reply = json!({"accessToken": "x".repeat(32 * 1024)});
+    assert!(
+        tokio::time::timeout(Duration::from_millis(10), write_reply(&output, &reply))
+            .await
+            .is_err()
+    );
+}
+
 #[test]
 fn broker_refuses_two_holders_and_preserves_refreshed_state() {
     let home = Home::new();

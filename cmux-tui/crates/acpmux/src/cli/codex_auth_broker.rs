@@ -49,9 +49,9 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
 async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
     // Tokio stdin uses an uncancellable blocking read. A private nonblocking
     // descriptor lets cancellation finish even if the app keeps its pipe open.
-    let input = private_input()?;
+    let input = private_pipe(libc::STDIN_FILENO)?;
     let mut buffered = Vec::new();
-    let mut output = FramedWrite::new(tokio::io::stdout(), LinesCodec::new_with_max_length(LIMIT));
+    let output = private_pipe(libc::STDOUT_FILENO)?;
     while let Some(line) = request_line(&input, &mut buffered).await? {
         let request: Value =
             serde_json::from_str(&line).map_err(|_| anyhow!("invalid broker request"))?;
@@ -66,24 +66,54 @@ async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
                 // A timed-out app-server request may still mutate the cache.
                 // End this owned child before releasing the exclusive lock.
                 owner.child.kill().await.ok();
-                output
-                    .send(json!({"id": id, "error": "codex_auth_timeout"}).to_string())
-                    .await
-                    .ok();
+                tokio::time::timeout(
+                    DEADLINE,
+                    write_reply(&output, &json!({"id": id, "error": "codex_auth_timeout"})),
+                )
+                .await
+                .ok();
                 return Err(anyhow!("Codex auth broker timed out"));
             }
         };
-        output.send(reply.to_string()).await.map_err(|_| anyhow!("broker output closed"))?;
+        tokio::time::timeout(DEADLINE, write_reply(&output, &reply))
+            .await
+            .map_err(|_| anyhow!("broker output timed out"))??;
     }
     Ok(())
 }
 
-fn private_input() -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
-    // SAFETY: duplicate stdin; OwnedFd owns only the successful new descriptor.
-    let fd = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_DUPFD_CLOEXEC, 3) };
-    ensure!(fd >= 0, "cannot open broker input");
+fn private_pipe(source: i32) -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
+    // SAFETY: duplicate a stdio descriptor; OwnedFd owns only the new descriptor.
+    let fd = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 3) };
+    ensure!(fd >= 0, "cannot open broker pipe");
     let fd = unsafe { OwnedFd::from_raw_fd(fd) };
     nonblocking_input(fd)
+}
+
+async fn write_reply(output: &tokio::io::unix::AsyncFd<OwnedFd>, reply: &Value) -> Result<()> {
+    let mut bytes = zeroize::Zeroizing::new(reply.to_string().into_bytes());
+    bytes.push(b'\n');
+    ensure!(bytes.len() <= LIMIT, "broker reply too large");
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let mut ready = output.writable().await?;
+        match ready.try_io(|source| {
+            // SAFETY: bytes stays alive and offset never exceeds its length.
+            let n = unsafe {
+                libc::write(
+                    source.get_ref().as_raw_fd(),
+                    bytes[offset..].as_ptr().cast(),
+                    bytes.len() - offset,
+                )
+            };
+            if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
+        }) {
+            Ok(Ok(0)) | Ok(Err(_)) => return Err(anyhow!("broker output closed")),
+            Ok(Ok(n)) => offset += n,
+            Err(_) => continue,
+        }
+    }
+    Ok(())
 }
 
 fn nonblocking_input(fd: OwnedFd) -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
