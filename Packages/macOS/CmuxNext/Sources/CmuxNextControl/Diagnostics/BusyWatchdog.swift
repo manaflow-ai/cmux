@@ -130,6 +130,8 @@ public final class BusyWatchdog: Sendable {
         self.offMain = offMain
         self.endsOnMain = wakeUps != nil
         self.helpers = Mutex(HelperSource(list: { [] }, tabs: nil))
+        // timer-class-allow: the window end has its class: `.flexibleNoSooner` with 10 s leeway on the main
+        // thread's MainWakeUpQueue (wakes only when alone), else off main on `clock` with no queue to join
         self.timer = DemandTimer(owner: Self.windowOwner, policy: .flexibleNoSooner, clock: clock, ledger: ledger,
                                  energy: wakeUps?.energy, wakeUps: wakeUps, queueLedgerReason: .deadlineWhenAlone)
     }

@@ -10,7 +10,7 @@
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;

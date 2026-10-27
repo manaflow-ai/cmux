@@ -9,10 +9,10 @@ import Testing
         func send(_ clip: PhoneFeedbackClip) async throws { clips.append(clip) }
     }
 
-    func service(_ runner: FakePhoneRunner) throws -> PhoneService {
+    func service(_ runner: FakePhoneRunner, hid: FakeSimulatorHID? = nil) throws -> PhoneService {
         runner.answer(["simctl", "list"], PhoneCommandResult(status: 0, stdout: try fixture("simctl-list")))
         runner.answer(["devicectl", "list"], PhoneCommandResult(status: 0, stdout: try fixture("devicectl-list")))
-        let backend = XcodePhoneBackend(runner: runner)
+        let backend = XcodePhoneBackend(runner: runner, hid: hid)
         return PhoneService(backend: backend, recorder: PhoneRecorder(backend: backend, root: temporaryFolder(), makeID: { "rec" }),
                             scratch: temporaryFolder())
     }
@@ -36,6 +36,28 @@ import Testing
         #expect(clip.recording.events.map(\.detail) == ["myapp://cart"])
         #expect(clip.recording.notes == "cart is empty")
         #expect(inbox.clips == [clip])
+    }
+
+    /// Socket and CLI arguments reach `send`: a point or swipe time no screen has is refused before the recording
+    /// logs it, so the feedback summary never sees it (p10-stability-093 fixer; before, `phone feedback` trapped
+    /// on a recorded `phone.tap x=1e300`).
+    @Test func aPointOrSwipeTimeNoScreenHasIsRefusedBeforeItIsRecorded() async throws {
+        let hid = FakeSimulatorHID()
+        let phones = try service(FakePhoneRunner(), hid: hid)
+        let phone = try await phones.defaultDevice()
+        try await phones.startRecording(phone.id)
+        await #expect(throws: PhoneError.outsideScreen) { try await phones.send(.tap(PhonePoint(x: 1e300, y: 0)), to: phone.id) }
+        await #expect(throws: PhoneError.outsideScreen) { try await phones.send(.tap(PhonePoint(x: .nan, y: 0)), to: phone.id) }
+        let start = PhonePoint(x: 10, y: 10), end = PhonePoint(x: 10, y: 100)
+        for seconds in [1e300, .infinity, -.infinity, .nan, -1, PhoneInput.longestSwipe + 1] {
+            await #expect(throws: PhoneError.outOfRange(what: "the swipe's seconds")) {
+                try await phones.send(.swipe(from: start, to: end, seconds: seconds), to: phone.id)
+            }
+        }
+        try await phones.send(.tap(PhonePoint(x: 100, y: 200)), to: phone.id)
+        let clip = try await phones.sendFeedback()
+        #expect(clip.recording.events.map(\.kind) == ["tap"])
+        #expect(hid.sent.count == 1)
     }
 
     @Test func inputTheDeviceCannotTakeFailsBeforeAnyCommandRuns() async throws {

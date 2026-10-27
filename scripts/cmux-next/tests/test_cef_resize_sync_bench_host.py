@@ -102,7 +102,8 @@ class HostModes(unittest.TestCase):
         self.assertTrue(summary["validity"]["hostfence"]["ok"])
         self.assertEqual(summary["modes"]["hostfence"]["light"]["rows"][0]["fence_resizes"], 9)
         self.assertEqual(self.failed("hostfence"), [[0], [0]])
-        self.assertTrue(all("cefHelperHost,chromiumHostResizeFence" in c for c in self.commands))
+        # chromiumHostTabs: the bench's Chromium tabs run in the host (p01-process-080).
+        self.assertTrue(all("cefHelperHost,chromiumHostResizeFence,chromiumHostTabs" in c for c in self.commands))
 
     def test_a_host_mode_starts_without_the_tunables_an_in_process_mode_left(self):
         tunables = os.path.join(self.out, "debug-tunables.json")

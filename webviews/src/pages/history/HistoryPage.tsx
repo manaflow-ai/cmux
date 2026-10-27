@@ -178,8 +178,15 @@ export function HistoryPage({
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div id="history-list" className="history-list" role="listbox" tabIndex={0} onKeyDown={listKeys}>
+        <div
+          id="history-list"
+          className="history-list"
+          data-page-scroll="list"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="listbox"
+          tabIndex={0}
+          onKeyDown={listKeys}
+        >
           {snap.groups.map((group) => (
             <section
               key={group.id}

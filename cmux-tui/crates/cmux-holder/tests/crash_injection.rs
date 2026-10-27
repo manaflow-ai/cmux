@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
 use cmux_holder::holder::error_code;
 use cmux_holder::wire::{self, ACK_EVERY, Kind};
-use cmux_holder::{ExitStatus, NOFILE_SOFT_ENV, SpawnRequest};
+use cmux_holder::{ExitStatus, NOFILE_SOFT_ENV, RING_MEMORY_ENV, SpawnRequest};
 
 const TERMINALS: u32 = 16;
 const TOKEN: [u8; 32] = [0x5a; 32];
@@ -639,6 +639,75 @@ fn a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder() {
         .unwrap();
     client.attach(1, received).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, got.len() as u64, "the new holder continues at the daemon");
+                got.extend(bytes);
+                client.ack(1, got.len() as u64).unwrap();
+            }
+            Event::Gap { requested, oldest, .. } => panic!("lost output {requested}..{oldest}"),
+            _ => {}
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// p07-memory-094 review: on an 8 GB Mac (the budget's ring is 512 KiB) a
+/// holder still keeps all it may hold that the daemon never received: one
+/// credit window sent into its link and the unsent limit read past it. Here
+/// the "daemon" reads nothing before the holder dies, so it received 0; the
+/// next holder must have every byte from 0. Before, the 512 KiB ring had
+/// dropped the first 256 KiB and the daemon got a GAP.
+#[test]
+fn an_8_gb_holder_killed_with_a_window_unreceived_loses_no_byte() {
+    const HELD: usize = wire::CREDIT_WINDOW as usize + cmux_holder::holder::UNSENT_HIGH_WATER;
+    const TOTAL: usize = HELD + 200;
+    let eight_gb = |command: &mut std::process::Command| {
+        command.env(RING_MEMORY_ENV, (8u64 << 30).to_string());
+    };
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let first = launch_with(holder_binary(), &socket, &TOKEN, eight_gb).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    wait_for_line(&written, "the program never wrote its output");
+    // Read nothing from the link: the holder's room stops it at the window
+    // plus the unsent limit.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while cmux_holder::ring::segment_end(&ring).unwrap() < HELD as u64 {
+        assert!(Instant::now() < deadline, "the holder never read up to its room");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    kill(first);
+    // The daemon dies with it, before it read a byte.
+    drop(client);
+
+    let second = launch_with(holder_binary(), &socket, &TOKEN, eight_gb).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client.adopt_with_ring(1, &id, (spawned.pid, 0, 0), &spawned.master, &ring, b"").unwrap();
+    let adopted = client.adopted(1).unwrap();
+    assert_eq!(adopted.end, HELD as u64, "the new holder continues the dead one's ring");
+    assert_eq!(adopted.oldest, 0, "the ring dropped output the daemon never received");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
     while got.len() < TOTAL {
         match client.next_event(deadline).unwrap() {
             Event::Data { offset, bytes, .. } => {

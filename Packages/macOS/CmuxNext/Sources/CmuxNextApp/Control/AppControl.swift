@@ -39,6 +39,8 @@ final class AppControl {
     /// the probes' methods are in AppControl+DebugProbes.swift).
     let frameProbe: DebugFrameProbe
     let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let mainCPUProbe = DebugMainCPUProbe()
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
@@ -73,6 +75,7 @@ final class AppControl {
         (self.mainWork, self.input, watchdog) = (mainWork, input, MainThreadWatchdog(wakeUps: mainWork.wakeUps))
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
@@ -114,7 +117,7 @@ final class AppControl {
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild, work: services.work)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -146,7 +149,8 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                    daemon: services.environment.daemonFeatureHello).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
@@ -171,6 +175,7 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
@@ -178,7 +183,11 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
-                                               }], recorders: [hops.start(input: input)]).method])
+                                               }],
+                                     recorders: [hops.start(input: input),
+                                                 InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
+                                                     await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
+                                                 }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
