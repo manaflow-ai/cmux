@@ -243,6 +243,8 @@ impl Hub {
         // counted before it is seen here (both change under the state lock).
         let mut offs = self.full_access_off_watch();
         let seen = *offs.borrow_and_update();
+        #[cfg(test)]
+        after_off_count(self);
         if self.full_access_managed_off() {
             anyhow::bail!("its profile pins full access, which MDM forces off");
         }
@@ -255,6 +257,8 @@ impl Hub {
         // counted before it is in the state (both change under the state lock).
         let offs = self.full_access_off_watch();
         let seen = *offs.borrow();
+        #[cfg(test)]
+        after_off_count(self);
         OffLatch { offs, seen, was_off: self.full_access_managed_off() }
     }
 
@@ -263,6 +267,19 @@ impl Hub {
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
         self.drain_pool();
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 75): runs right after a start read MDM's off count.
+    static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn after_off_count(hub: &Hub) {
+    if let Some(f) = AFTER_OFF_COUNT.take() {
+        f(hub);
     }
 }
 
@@ -425,6 +442,27 @@ mod tests {
         for blank in ["", "  "] {
             assert!(reports.of(Some(blank)), "a report did not count for the blank id {blank:?}");
         }
+    }
+
+    /// Review 75: an unset that lands while a start reads MDM's off does not erase an off that
+    /// held as the start began, for a probe or pooled start (`off_latch`) or a pinned probe
+    /// (`probe_bound`).
+    #[tokio::test]
+    async fn an_unset_racing_a_start_does_not_erase_the_off_it_began_under() {
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let unset: fn(&Hub) = |hub| {
+            hub.update_start_mode_state(None, |s| s.full_access_managed = None);
+        };
+        hub.apply_full_access_push(Some(false)).await;
+        AFTER_OFF_COUNT.set(Some(unset));
+        assert!(hub.off_latch().off(), "an unset during the latch's read erased the off");
+        hub.apply_full_access_push(Some(false)).await;
+        AFTER_OFF_COUNT.set(Some(unset));
+        let pinned = hub.probe_bound(&["agent".to_owned(), "--yolo".to_owned()]);
+        assert!(pinned.is_err(), "an unset during the read let a pinned probe start");
     }
 
     /// claude-sr2's bound: a forced off wins over the person's on; a forced on, or nothing
