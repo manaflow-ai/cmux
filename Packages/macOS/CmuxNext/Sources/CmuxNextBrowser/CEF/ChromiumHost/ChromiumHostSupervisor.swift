@@ -2,6 +2,7 @@
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import CmuxNextWakeups
 import Darwin
+import Foundation
 
 /// The one Chromium Host of host mode (``BrowserBackend/host``; task 080 of
 /// plans/cmux-next/chrome-parity/p01-process.md): every Chromium tab of every profile runs in it, as Chrome runs
@@ -19,6 +20,10 @@ import Darwin
 ///   ``attachment()`` starts a new host, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel after
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
 ///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
+/// - Crash records: each end that is not a clean exit, outside quit, leaves a ``ChromiumHostCrashRecord`` (task 085):
+///   its signal or exit code, what it ran (CEF version, fork API) and the last lines of its log, read off the main
+///   thread with URLs replaced, as Chrome hands each lost child's `ChildProcessTerminationInfo` (status, exit code) to
+///   `BrowserChildProcessObserver::BrowserChildProcessCrashed` (content/browser/browser_child_process_host_impl.cc).
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -32,15 +37,30 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public private(set) var exits: [String] = []
     /// Why no host can start in this process, once one could not.
     public private(set) var startFailure: String?
+    /// The latest hosts' ends that were not a clean exit, oldest first, at most ``crashCapacity`` (`debug.crashes`).
+    public private(set) var crashes: [ChromiumHostCrashRecord] = []
+    /// Every such end since launch (``crashes`` keeps only the latest).
+    public private(set) var crashesTotal = 0
+    /// Runs on the main thread with each crash record once its log lines were read (the App writes its report).
+    public var onHostCrash: (@MainActor (ChromiumHostCrashRecord) -> Void)?
+    /// The records ``crashes`` keeps.
+    static let crashCapacity = 16
 
     private struct Host {
         let pid: pid_t
         let generation: UInt64
         /// The attach that took its wire got its hello: its end is a crash of its pages.
         var saidHello = false
+        /// Its Chromium log and framework version (``ChromiumHostSpawn``).
+        let logFile: URL?
+        let cefVersion: String?
+        /// Its fork API, once cmux read it (``hostRuns(forkAPI:)``).
+        var forkAPI: Int32?
     }
 
     private let spawner: any ChromiumHostSpawning
+    /// Reads an ended host's log for its crash record; nil keeps no log lines.
+    private let logs: (any ChromiumHostLogReading)?
     private var host: Host?
     private var generation: UInt64 = 0
     private var starting = false
@@ -53,11 +73,12 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false) {
         self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
             ChromiumHostLaunchPlan.bundled()
-        })
+        }, logs: ChromiumHostLogTail(work: work, mainWork: mainWork))
     }
 
-    init(spawner: any ChromiumHostSpawning) {
+    init(spawner: any ChromiumHostSpawning, logs: (any ChromiumHostLogReading)? = nil) {
         self.spawner = spawner
+        self.logs = logs
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -71,7 +92,7 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         defer { starting = false }
         let spawned = try await spawner.spawn()
         generation &+= 1
-        let started = Host(pid: spawned.pid, generation: generation)
+        let started = Host(pid: spawned.pid, generation: generation, logFile: spawned.logFile, cefVersion: spawned.cefVersion)
         host = started
         hostsStarted += 1
         watch(started)
@@ -82,6 +103,12 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// Nothing when it already ended.
     public func hostSaidHello() {
         host?.saidHello = true
+    }
+
+    /// The running host's fork API, read from its remote shim after its hello (`CEFHostStart`): its crash record names
+    /// it. Nothing when it already ended.
+    public func hostRuns(forkAPI: Int32) {
+        host?.forkAPI = forkAPI
     }
 
     public func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
@@ -105,8 +132,31 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         host = nil
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
-        guard current.saidHello, !isQuitting(), let pageExit = exit.pageExit else { return }
+        guard !isQuitting(), let pageExit = exit.pageExit else { return }
+        record(current, exit, reason: pageExit.reason)
+        guard current.saidHello else { return }
         onHostEnded?(pageExit)
+    }
+
+    /// Keeps the crash record of `ended`, with the last lines of its log once they were read off the main thread.
+    private func record(_ ended: Host, _ exit: ChromiumHostExit, reason: BrowserProcessExit.Reason) {
+        let record = ChromiumHostCrashRecord(
+            date: Date(), pid: ended.pid, signal: exit.signal, exitCode: exit.signal == nil ? exit.status : nil, reason: reason,
+            startFailure: exit.startFailure, saidHello: ended.saidHello, cefVersion: ended.cefVersion, forkAPI: ended.forkAPI,
+            logTail: [])
+        guard let logs, let logFile = ended.logFile else { return keep(record) }
+        logs.readTail(of: logFile) { [weak self] lines in
+            var read = record
+            read.logTail = lines
+            self?.keep(read)
+        }
+    }
+
+    private func keep(_ record: ChromiumHostCrashRecord) {
+        crashes.append(record)
+        if crashes.count > Self.crashCapacity { crashes.removeFirst(crashes.count - Self.crashCapacity) }
+        crashesTotal += 1
+        onHostCrash?(record)
     }
 
     /// Ends `running`, whose wire nothing holds any more, before a new host starts.

@@ -15,4 +15,8 @@ public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     /// The host whose wire ``ChromiumHostSupervising/attachment()`` handed out said hello (`CEFHostStart`, on the main
     /// thread): from now on its end reaches ``onHostEnded``. A host that ends before this never does: it did not start.
     func hostSaidHello()
+
+    /// The host that said hello runs this Chromium fork API (its remote shim's mirror, read by `CEFHostStart` on the
+    /// main thread): its crash record names it (task 085 of plans/cmux-next/chrome-parity/p01-process.md).
+    func hostRuns(forkAPI: Int32)
 }

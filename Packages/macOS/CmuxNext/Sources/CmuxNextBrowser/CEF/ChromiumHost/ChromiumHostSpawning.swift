@@ -1,11 +1,16 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 import Darwin
+import Foundation
 
 /// A started host: its pid and the wire the supervisor hands out.
 nonisolated struct ChromiumHostSpawn: Sendable {
     var pid: pid_t
     var attachment: ChromiumHostAttachment
+    /// Its Chromium log (`--log-file`), whose end its crash record keeps; nil when it logs to none.
+    var logFile: URL? = nil
+    /// The version its Chromium framework's Info.plist names (``ChromiumHostLaunchPlan/cefVersion``).
+    var cefVersion: String? = nil
 }
 
 /// Starts and ends the supervisor's hosts; a seam so tests start a stand-in.

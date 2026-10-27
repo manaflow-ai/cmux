@@ -115,6 +115,7 @@ extension AppServices {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A host that ends while cmux quits reports nothing (quit ends it).
         (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
         #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).

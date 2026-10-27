@@ -73,13 +73,20 @@ final class CrashRecoveryService {
         marker?.armSurvivalWindow(on: deadlines)
     }
 
-    /// Writes a report for each Chromium failure from now on.
+    /// Writes a report for each Chromium failure from now on. The Chromium Host's ends have a fuller report of their
+    /// own, written from its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``).
     func observe(_ log: BrowserCrashLog) {
         guard crashLog == nil else { return }
         crashLog = log
         let writer = writer
-        crashObserver = log.addObserver { record in writer.writeInBackground(record) }
+        crashObserver = log.addObserver { record in
+            guard record.processType != CrashRecoveryService.hostProcessType else { return }
+            writer.writeInBackground(record)
+        }
     }
+
+    /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
+    nonisolated static let hostProcessType = "chromium-host"
 
     /// Shows "cmux restarted after a problem" once per launch, on the first
     /// window presented after a restart.

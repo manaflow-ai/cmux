@@ -39,6 +39,17 @@ import Testing
         #expect(HostWire.state.withLock { $0.detaches } == 1, "the remote shim kept the dead wire")
     }
 
+    /// p01-process-085: each attach tells the supervisor its host's fork API, which that host's crash record names.
+    @Test func theAttachTellsTheSupervisorItsHostsForkAPI() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: 2)
+        defer { wire.close() }
+        #expect(supervisor.forkAPIs == [2])
+        supervisor.onHostEnded?(Self.killed)
+        HostWire.state.withLock { $0.forkAPI = 3 }
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        #expect(supervisor.forkAPIs == [2, 3])
+    }
+
     @Test func theNextStartAttachesTheNextHost() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime()
         defer { wire.close() }
@@ -235,6 +246,13 @@ import Testing
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 
     func hostSaidHello() {}
+
+    /// The fork API each attach read from its host (p01-process-085).
+    private(set) var forkAPIs: [Int32] = []
+
+    func hostRuns(forkAPI: Int32) {
+        forkAPIs.append(forkAPI)
+    }
 
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor
