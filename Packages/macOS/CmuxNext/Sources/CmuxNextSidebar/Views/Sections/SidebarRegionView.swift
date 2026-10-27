@@ -347,7 +347,7 @@ final class SidebarRegionView: NSView {
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
-        view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
+        view.onDragged = { [weak self] start, point in self?.dragMoved(.item(id), from: start, to: point) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
@@ -360,7 +360,7 @@ final class SidebarRegionView: NSView {
     private func makeHeader(_ id: LayoutSectionID) -> SidebarSectionHeaderView {
         let view = SidebarSectionHeaderView()
         view.onPress = { [weak self] in self?.onToggleSection?(id) }
-        view.onDragged = { [weak self] start, event in self?.dragMoved(.section(id), from: start, event) ?? false }
+        view.onDragged = { [weak self] start, point in self?.dragMoved(.section(id), from: start, to: point) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
