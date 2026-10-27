@@ -451,6 +451,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-fleet": {
+      height: 760,
       note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
@@ -459,6 +460,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-fleet-search": {
+      height: 760,
       note: 'Preview: with 21 machines, typing "agent" leaves one pool, its connected ones first.',
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
@@ -469,6 +471,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "computer-menu-fleet": {
+      height: 760,
       note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
       props: fleetProps,
       play: async (ctx) => {
