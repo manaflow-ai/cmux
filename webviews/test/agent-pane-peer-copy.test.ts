@@ -1163,7 +1163,9 @@ test("a row recreated while the attach is out keeps none of the session before's
 test("a row recreated while the reads after the attach are out has the chat read again", async () => {
   const daemon = new Daemon();
   daemon.down = false;
-  daemon.log = turn(1, 3, "old");
+  // More than the page holds: the attach then reads back the turn's opener (a read after it), and
+  // the row changes while that read is out.
+  daemon.log = turn(1, 4, "old");
   daemon.afterAttach = () => {
     daemon.createdAt = 200;
     daemon.log = turn(1, 2, "fresh");
