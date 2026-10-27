@@ -1652,6 +1652,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Tab previews, page thumbnails, hover card thumbnails and hibernated pages' pictures keep their pixels in purgeable memory while nothing shows them, so macOS takes it back under memory pressure; a picture it took is pictured again, or a woken tab shows loading first.
+    public static let purgeableImageCaches = Feature(
+        index: 94,
+        name: "purgeableImageCaches",
+        owner: "PL-memory",
+        description: "Tab previews, page thumbnails, hover card thumbnails and hibernated pages' pictures keep their pixels in purgeable memory while nothing shows them, so macOS takes it back under memory pressure; a picture it took is pictured again, or a woken tab shows loading first.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
         index: 95,
@@ -2326,6 +2343,7 @@ nonisolated extension Feature {
         .pointerFrameDrags,
         .pointerFrameHover,
         .pointerFrameRemoteInput,
+        .purgeableImageCaches,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
@@ -2458,6 +2476,7 @@ nonisolated extension Feature {
         .pointerFrameDrags,
         .pointerFrameHover,
         .pointerFrameRemoteInput,
+        .purgeableImageCaches,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
