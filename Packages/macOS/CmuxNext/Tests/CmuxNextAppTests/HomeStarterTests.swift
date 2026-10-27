@@ -54,9 +54,12 @@ import Testing
         let store = HomeStore(source: source)
         store.start()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
-        defer { view.stop(); store.stop() }
-        await view.binding.opened()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 800), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 800)
+        window.contentView = view
+        await view.binding.opened()
         view.setFirstRunStarters(HomeStarterContext())
         view.layoutSubtreeIfNeeded()
         let button = try #require(view.firstRun.starters.buttons.first)
