@@ -6,6 +6,10 @@ nonisolated enum AgentActivityStrings {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
+    static var unsupportedOperation: String {
+        t("operation.unsupported", "This operation is not supported by Agent Activity.")
+    }
+
     static var title: String { t("pane.title", "Agent Activity") }
     static var filter: String { t("pane.filter", "Filter") }
     static var emptyTitle: String { t("pane.empty.title", "No computer use yet") }

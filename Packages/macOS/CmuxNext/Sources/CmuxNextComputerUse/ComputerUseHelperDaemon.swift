@@ -17,32 +17,6 @@ protocol ComputerUseHelperLaunching: AnyObject {
     func terminate(_ pid: pid_t)
 }
 
-/// LaunchServices launches: the helper is its own app, so macOS attributes
-/// its Accessibility and Screen Recording to its Developer ID identity, not
-/// to cmux.
-@MainActor
-final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
-    func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t? {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.createsNewApplicationInstance = true
-        configuration.promptsUserIfNeeded = false
-        configuration.addsToRecentItems = false
-        configuration.arguments = arguments
-        configuration.environment = environment
-        return await withCheckedContinuation { continuation in
-            NSWorkspace.shared.openApplication(at: app, configuration: configuration) { running, error in
-                if let error { helperLogger.error("cmux Computer Use helper did not start: \(error.localizedDescription, privacy: .public)") }
-                continuation.resume(returning: running?.processIdentifier)
-            }
-        }
-    }
-
-    func terminate(_ pid: pid_t) {
-        NSRunningApplication(processIdentifier: pid)?.terminate()
-    }
-}
-
 /// The cmux Computer Use helper this app runs while Computer Use is on.
 ///
 /// Only a Developer ID signed helper starts (`CuaHelperIdentity`): a dev
@@ -89,7 +63,9 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let launchAgentToken = ComputerUseHelperDaemon.makeToken()
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
-    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var requestedEnabled = false
+    @ObservationIgnored private var quitting = false
+    @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var observation: Task<Void, Never>?
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
@@ -164,25 +140,51 @@ public final class ComputerUseHelperDaemon {
     /// Applies one settings value: stops the helper that is off first, then
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
+        guard !quitting, !Task.isCancelled else { return }
         let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
         publish(!disabledByPolicy && settings.driver == .legacy)
         if route.legacy {
             await upstream.apply(enabled: false)
+            guard !quitting, !Task.isCancelled else { return }
             await apply(enabled: true)
         } else {
             await apply(enabled: false)
+            guard !quitting, !Task.isCancelled else { return }
             await upstream.apply(enabled: route.upstream)
         }
     }
 
     /// Computer Use on: starts the signed helper (once); off: stops it.
     func apply(enabled: Bool) async {
-        generation &+= 1
-        let current = generation
-        guard enabled else { return stop() }
+        await request(enabled: enabled).value
+    }
+
+    /// Settings changes join one transition, including a launch still in flight.
+    func request(enabled: Bool) -> Task<Void, Never> {
+        requestedEnabled = enabled && !quitting
+        if let transition { return transition }
+        let task = Task { [self] in
+            await settle()
+            transition = nil
+        }
+        transition = task
+        return task
+    }
+
+    /// Applies the wanted state once. A stop is synchronous, so the wanted
+    /// state cannot change during it; a start awaits, and a settings change
+    /// that arrived meanwhile gets one more pass. It ends when the setting
+    /// stops changing.
+    private func settle() async {
+        let wanted = requestedEnabled
+        if wanted { await start() } else { stop() }
+        if wanted != requestedEnabled { await settle() }
+    }
+
+    private func start() async {
         if case .running = state { return }
         let resolution = await Self.resolve(identity, candidates)
-        guard current == generation else { return }
+        guard requestedEnabled else { return }
         guard case .signed(let helper) = resolution else {
             helperLogger.notice("Computer Use is on, but no Developer ID signed cmux Computer Use helper is installed")
             state = .unavailable
@@ -192,17 +194,14 @@ public final class ComputerUseHelperDaemon {
         // crash of this app unless it watches this pid. Older helpers may
         // reject an unknown flag: pass it only when the manifest lists it.
         let capabilities = await manifestReader.capabilities(of: helper)
-        guard current == generation, !Task.isCancelled else { return }
+        guard requestedEnabled else { return }
         let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
-        guard prepareDirectories() else {
-            state = .unavailable
-            return
-        }
+        // The launcher holds the scope lock and prepares its directories (ComputerUseHelperScope).
         let agent = launchAgentToken
         let host = Self.makeToken()
         let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
-        guard current == generation else {
+        guard requestedEnabled else {
             if let pid { launcher.terminate(pid) }
             return
         }
@@ -235,7 +234,8 @@ public final class ComputerUseHelperDaemon {
     public func applicationWillTerminate() {
         observation?.cancel()
         observation = nil
-        generation &+= 1
+        quitting = true
+        requestedEnabled = false
         stop()
         publish(false)
         upstream.terminateForQuit()
@@ -311,22 +311,6 @@ public final class ComputerUseHelperDaemon {
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return bytes.map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// The socket directory and its parent (cmux-cua under the user's temp directory)
-    /// and the helper's state directory: each must be a real directory owned
-    /// by this user and is set to 0700. A symlink or another user's directory
-    /// there could hand the helper's socket to someone else, so nothing starts.
-    private func prepareDirectories() -> Bool {
-        let socketDirectory = URL(fileURLWithPath: socketPath).deletingLastPathComponent()
-        for directory in [socketDirectory.deletingLastPathComponent(), socketDirectory, stateDirectory] {
-            guard Self.makePrivateDirectory(directory.path) else {
-                helperLogger.error("cmux Computer Use helper: \(directory.path, privacy: .public) is not a private directory of this user")
-                return false
-            }
-        }
-        unlink(socketPath)
-        return true
     }
 
     /// Creates `path` (0700; missing parents get the default mode) or takes
