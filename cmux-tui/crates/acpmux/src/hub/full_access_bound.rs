@@ -767,6 +767,13 @@ impl Hub {
             if !self.counts_as_full_access(&session).await {
                 continue;
             }
+            // What waits on an agent this daemon no longer hears is answered first: a start
+            // waiting on its `initialize` holds the spawn lock below, and its link may have broken
+            // while MDM was unset, when nothing failed it (review 3 of #26059).
+            let child = session.child.lock().await.clone();
+            if let Some(child) = child.filter(|c| c.host_record().is_some()) {
+                child.fail_pending_if_unheard().await;
+            }
             let Ok(_spawning) = tokio::time::timeout(wait, session.spawn_lock.lock()).await else {
                 tracing::warn!(session = %session.id, "MDM forces full access off: its agent is busy starting or stopping; its end is tried again");
                 session.floor.full_access_end_pending.store(true, Ordering::SeqCst);

@@ -1534,15 +1534,16 @@ impl ChildAgent {
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
         {
-            // Under the link's lock, which `learn_replay_end` keeps an end under: an end learned
-            // through the old link never stands for this one.
+            // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not, and
+            // the old link's reader marks it unheard before this or not at all
+            // (`mark_link_unheard`, reviews 2 and 3 of #26059). And under the link's lock, which
+            // `learn_replay_end` keeps an end under: an end learned through the old link never
+            // stands for this one.
+            let _pending = self.pending.lock().await;
             let mut current = h.link.write_or_recover();
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
             *current = link.clone();
-        }
-        {
-            // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not.
-            let _pending = self.pending.lock().await;
+            drop(current);
             h.broken.store(false, Ordering::SeqCst);
             h.stopped.store(false, Ordering::SeqCst);
         }
@@ -1681,6 +1682,24 @@ impl ChildAgent {
         (agent, responses)
     }
 
+    /// Sets `flag` (`Hosted::broken` or `stopped`) while `link` is still this agent's link, under
+    /// the requests' lock a reattach replaces the link and clears those flags under (`reattach`):
+    /// a reader of a replaced link marks nothing on the one that replaced it (review 3 of #26059).
+    /// False once the link was replaced or the agent detached.
+    async fn mark_link_unheard(
+        &self,
+        hosted: &Hosted,
+        link: &Arc<crate::agent_host::link::Link>,
+        flag: &std::sync::atomic::AtomicBool,
+    ) -> bool {
+        let _pending = self.pending.lock().await;
+        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
+            return false;
+        }
+        flag.store(true, Ordering::SeqCst);
+        true
+    }
+
     /// Read `link`'s entries: log each, act on it, then acknowledge it.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
@@ -1697,7 +1716,9 @@ impl ChildAgent {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    hosted.broken.store(true, Ordering::SeqCst);
+                    if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                        return;
+                    }
                     // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
                     // broken link before it is sent, as a busy inbound loop does, so the daemon's
                     // integration tests can reattach the link first. Bounded; release builds have
@@ -1729,18 +1750,17 @@ impl ChildAgent {
                     break;
                 }
             }
-            // A detach hands the agent and its open requests to the next
-            // daemon; a replaced link hands them to its own reader.
-            if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
-                return;
-            }
             #[cfg(debug_assertions)]
             reader_stop_hold().await;
             // The host died or another owner took it, or an acknowledgement failed: the link is
-            // not heard from here, before anything is told.
-            hosted.stopped.store(true, Ordering::SeqCst);
+            // not heard from here, before anything is told. A detach hands the agent and its open
+            // requests to the next daemon; a replaced link hands them to its own reader.
             {
                 let mut p = reader.pending.lock().await;
+                if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
+                    return;
+                }
+                hosted.stopped.store(true, Ordering::SeqCst);
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
                 }
