@@ -120,7 +120,11 @@ SMOKING_SCRIPTS = re.compile(
     r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
-SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)", re.IGNORECASE)
+# secrets.NAME, secrets['NAME'] and secrets[format('NAME...', ...)], as RELEASE_SECRET_REFERENCE reads them.
+SIGNING_SECRET_REFERENCE = re.compile(
+    r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)",
+    re.IGNORECASE,
+)
 # Rule 7. These repository variables hold only ephemeral runner labels; the
 # live-value check in cmux-next-guards.yml keeps them so. Add a variable here
 # only together with that check.
