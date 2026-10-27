@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHangReports
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -46,19 +47,16 @@ struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// Nil outside the app process. With reports off it only marks reports done.
     let forwarder: SystemCrashForwarder?
-    /// The app's cmux-tui owner's panic log (cx-urd.59); nil outside the app process.
-    let ownerPanics: OwnerPanicForwarder?
-    /// The app's acpmux daemon's panic log (`$ACPMUX_HOME/panics.jsonl`); nil outside the app
-    /// process or with no acpmux.
-    let acpmuxPanics: OwnerPanicForwarder?
+    /// Every shipped Rust process's panic and hang logs (cx-urd.59, p09-observability-075:
+    /// ``RustDiagnosticsLog/all(_:)``); nil outside the app process.
+    let rustDiagnostics: RustDiagnosticsForwarder?
 
     /// - Parameter afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
     init(environment: AppEnvironment, afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         guard environment.marksRun else {
             forwarder = nil
-            ownerPanics = nil
-            acpmuxPanics = nil
+            rustDiagnostics = nil
             return
         }
         DebugTimings.markLaunch("crash.sentry_start")
@@ -71,28 +69,34 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
-        let ownerPanics = OwnerPanicForwarder(
-            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
-                                         session: environment.daemonSession),
-            stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
-                .appending(path: "owner-panic-forwarder.json"),
-            sends: sends)
-        ownerPanics.start()
-        self.ownerPanics = ownerPanics
-        // A panic in a daemon request task ends only that task: before this log, the
-        // 2026-10-14 sort panic reached only daemon.log.
-        if let home = Self.acpmuxHome(environment: environment) {
-            let acpmuxPanics = OwnerPanicForwarder(
-                log: RustPanicSource.acpmuxLog(acpmuxHome: home),
-                stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
-                    .appending(path: "acpmux-panic-forwarder.json"),
-                sends: sends, source: .acpmux)
-            acpmuxPanics.start()
-            self.acpmuxPanics = acpmuxPanics
-        } else {
-            acpmuxPanics = nil
-        }
+        // A panic in an acpmux request task ends only that task: before its log, the 2026-10-14 sort panic
+        // reached only daemon.log. The owner's and acpmux's offsets from before the log list carry over.
+        let stateRoot = Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory)
+        let acpmuxHome = Self.acpmuxHome(environment: environment)
+        let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
+        var legacy = [OwnerPanicForwarder.log(stateRoot: stateRoot, session: environment.daemonSession):
+                      stateDirectory.appending(path: "owner-panic-forwarder.json")]
+        if let acpmuxHome { legacy[RustPanicSource.acpmuxLog(acpmuxHome: acpmuxHome)] = stateDirectory.appending(path: "acpmux-panic-forwarder.json") }
+        let rustDiagnostics = RustDiagnosticsForwarder(
+            logs: RustDiagnosticsLog.all(.app(stateRoot: stateRoot, session: environment.daemonSession, acpmuxHome: acpmuxHome,
+                                              bundleID: environment.launch.bundleID)),
+            stateFile: stateDirectory.appending(path: "rust-diagnostics-forwarder.json"), legacyStates: legacy, sends: sends)
+        rustDiagnostics.start()
+        self.rustDiagnostics = rustDiagnostics
         Self.installLayoutPassGuard(reporter: reporter)
+    }
+
+    /// Each Rust hang line sent from now on is also a hang-report entry (the collector exists after crash
+    /// reporting starts; its own opt-in decides whether it keeps it).
+    func attachHangReports(_ collector: HangReportCollector) {
+        rustDiagnostics?.setHangEntries { record, _ in
+            let frames = record.frames.map { frame in
+                let image = record.image(of: frame)
+                return HangReportCollector.ForeignFrame(image: image?.name, uuid: image?.uuid, offset: image == nil ? nil : frame.offset)
+            }
+            collector.noteProcessHang(durationMs: Int(clamping: record.overdueMs), frames: frames,
+                                      thread: HangSample.WatchedThread(name: record.thread, kind: record.threadKind))
+        }
     }
 
     /// How Sentry starts and when the part it pauses resumes. Off (the standard start): nothing is paused,

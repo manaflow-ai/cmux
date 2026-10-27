@@ -29,6 +29,26 @@ public final class HangReportCollector: Sendable {
     public typealias ResolveBlocking = @Sendable ([BlockingFrame]) -> [HangReportFrame]
     /// Reads the merged black box (``HangReportFieldSources/captureBlackBox()``).
     public typealias CaptureBlackBox = @Sendable () async -> [TraceBlackBoxUpload.Record]
+    /// Turns another process's frames (image name, UUID and offset, as its hang line names them) into report frames
+    /// through the classifier, as a MetricKit frame is: the image is not loaded here. Called off the main thread.
+    public typealias ResolveForeign = @Sendable ([ForeignFrame]) -> [HangReportFrame]
+
+    /// One frame of another process's stack, innermost first: what a Rust hang line (`hangs-<pid>.jsonl`) gives.
+    public struct ForeignFrame: Sendable, Equatable {
+        /// The image's file name; nil when the address is in no loaded image.
+        public var image: String?
+        /// The image's `LC_UUID`; nil with no image.
+        public var uuid: String?
+        /// The address minus the image's load address; nil with no image.
+        public var offset: UInt64?
+
+        /// Makes the value from its parts.
+        public init(image: String?, uuid: String?, offset: UInt64?) {
+            self.image = image
+            self.uuid = uuid
+            self.offset = offset
+        }
+    }
 
     /// A hang this long (ms) takes the black box.
     public static let blackBoxHangMs = 1_000
@@ -61,6 +81,8 @@ public final class HangReportCollector: Sendable {
     private let captureBlackBox: CaptureBlackBox?
     /// False when the report's wire schema has no watched threads' hangs: then none is kept.
     private let keepsThreadHangs: Bool
+    /// Nil: no other process's hang is kept.
+    private let resolveForeign: ResolveForeign?
     /// Runs a black-box capture; the default is a utility task. Tests keep the job and await it.
     private let scheduleCapture: @Sendable (@escaping @Sendable () async -> Void) -> Void
 
@@ -73,10 +95,13 @@ public final class HangReportCollector: Sendable {
     ///   none (``HangReport/WireSchema/carriesFieldData``).
     /// - Parameter keepsThreadHangs: False (the default) keeps no watched thread's hang, for a report whose wire
     ///   schema has none (``HangReport/WireSchema/carriesThreadHangs``).
+    /// - Parameter resolveForeign: Nil (the default) keeps no other process's hang (``noteProcessHang(durationMs:frames:thread:)``);
+    ///   the app passes the builder's classifier over MetricKit-style frames.
     public init(resolve: @escaping Resolve,
                 resolveBlocking: ResolveBlocking? = nil,
                 captureBlackBox: CaptureBlackBox? = nil,
                 keepsThreadHangs: Bool = false,
+                resolveForeign: ResolveForeign? = nil,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
@@ -89,6 +114,7 @@ public final class HangReportCollector: Sendable {
         self.resolveBlocking = resolveBlocking
         self.captureBlackBox = captureBlackBox
         self.keepsThreadHangs = keepsThreadHangs
+        self.resolveForeign = resolveForeign
         self.schedule = schedule
         self.scheduleCapture = scheduleCapture
     }
@@ -161,6 +187,25 @@ public final class HangReportCollector: Sendable {
         let ms = Self.milliseconds(durationNanos)
         guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
         keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
+    }
+
+    /// One watched thread of another cmux process (a Rust process's `hangs-<pid>.jsonl` line, read by the app's
+    /// Rust diagnostics forwarder on its utility queue) whose scope ran `durationMs` past its deadline: kept with the
+    /// watched threads' hangs (``StallAggregate/threadHangs``) as a ``HangSample/Source/hangWatch`` sample that names
+    /// `thread`, its frames classified here. Nothing when the wire schema has no thread hangs, there is no foreign
+    /// resolver, or the line has no stack (Linux and Windows record none). It takes the black box as
+    /// ``noteThreadHang(durationNanos:addresses:thread:)`` does.
+    public func noteProcessHang(durationMs: Int, frames: [ForeignFrame], thread: HangSample.WatchedThread) {
+        guard isEnabled, keepsThreadHangs, let resolveForeign else { return }
+        startBlackBoxCapture()
+        let ms = min(max(durationMs, 0), HistogramBucket.maxMs)
+        guard !frames.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
+        let sample = HangSample.threadHang(thread, durationMs: ms, frames: Array(resolveForeign(frames).prefix(HangSample.maxFrames)))
+        state.withLock { state in
+            // Reports turned off while the frames were classified: not kept after the drop.
+            guard isEnabled else { return }
+            state.aggregate.keep(sample)
+        }
     }
 
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
