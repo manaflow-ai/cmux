@@ -83,6 +83,9 @@ def run_guard(script: str, helper_rc: int, helper_out: str, env: dict) -> subpro
             "import sys\n"
             f"if sys.argv[1].startswith('https://'):\n    print({helper_out!r}) if {helper_rc} == 0 else None\n    sys.exit({helper_rc})\n"
             "print(open(sys.argv[1]).read().strip())\n", encoding="utf-8")
+        # The lease's pre-write check answers LEASE_VERDICT (proceed unless set).
+        (work / "scripts" / "ci" / "classic_publish_lease.py").write_text(
+            "import os\nprint(os.environ.get('LEASE_VERDICT', 'proceed'))\n", encoding="utf-8")
         # The release writer: records that it ran, and with what.
         (work / "scripts" / "ci" / "publish-release-assets.py").write_text(
             "import sys\nprint('PUBLISHED', *sys.argv[1:])\n", encoding="utf-8")
@@ -97,7 +100,7 @@ def run_guard(script: str, helper_rc: int, helper_out: str, env: dict) -> subpro
         out.write_text("", encoding="utf-8")
         full_env = {"PATH": f"{work}:/usr/bin:/bin", "GITHUB_OUTPUT": str(out), "GITHUB_ENV": str(work / "env"),
                     "RUNNER_TEMP": str(work), "GH_LOG": str(work / "gh.log"), "RELEASE_TAG": "nightly", "GITHUB_REPOSITORY": "o/r",
-                    "SOURCE_HEAD_SHA": "a" * 40, **env}
+                    "SOURCE_HEAD_SHA": "a" * 40, "DELTAS_BUILD": env.get("OWN", "100"), **env}
         result = subprocess.run(["bash", "-c", script], cwd=work, env=full_env, capture_output=True, text=True, check=False)
         result.stdout += "\nOUTPUT:" + out.read_text(encoding="utf-8")
         result.stdout += "\nGH:" + ((work / "gh.log").read_text(encoding="utf-8") if (work / "gh.log").exists() else "")
@@ -113,6 +116,10 @@ def test_the_delta_republish_fails_closed_on_an_unread_feed() -> None:
     for rc, out in ((0, "101"), (1, ""), (3, "")):
         skipped = run_guard(script, rc, out, {"OWN": "100"})
         assert skipped.returncode == 0 and "publish=false" in skipped.stdout and "--replace-feeds" not in skipped.stdout, (rc, skipped)
+    # A newer build claimed the channel: the lease check yields before any read or write.
+    yielded = run_guard(script, 0, "100", {"OWN": "100", "LEASE_VERDICT": "yield"})
+    assert yielded.returncode == 0 and yielded.stdout.endswith("GH:"), yielded  # gh never called
+    assert "PUBLISHED" not in yielded.stdout, yielded
 
 
 def test_the_publish_guard_refuses_an_older_build_and_an_unread_feed() -> None:
