@@ -1,0 +1,273 @@
+name: PR checks
+
+# Three advisory feat-cmux-next pull request checks, folded into one workflow so
+# a push starts one run instead of three: the review link, the size advisory and
+# the split-plan advisory. Their jobs, names, permissions and steps are the ones
+# their own workflows had (gallery-link.yml, pr-size-advisory.yml,
+# cmux-next-split-guard.yml). None of them can fail a pull request, so a skipped
+# one hides no verdict; pr-capture-check, which can, keeps its own workflow.
+#
+# Base-only updates: a push that only merged feat-cmux-next into the branch
+# skips all three, and their answers stay the previous head's. On 2026-10-26,
+# 19:30-19:55Z, 33 such updates started 523 runs, 214 of them advisory, and every
+# run spends from the one GITHUB_TOKEN budget.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+# The base-only job reads the previous head's run by this title, which names the pull
+# request (two pull requests can share a head commit): an `edited` run
+# (the size advisory alone), a held one (CI_QUOTA_HOLD) or a draft's does not
+# answer for that head's other checks.
+run-name: "#${{ github.event.pull_request.number }} ${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
+
+permissions: {}
+
+# A push supersedes the previous push's run, which then reads as cancelled, so
+# a base-only push after it runs every check rather than keep answers that never
+# finished. A description edit (the size advisory alone) has its own group and
+# never cancels a push's run.
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}
+  cancel-in-progress: true
+
+jobs:
+  # Whether this push only merged the base, so the previous head's answers still
+  # hold. Any doubt (another event, a force push, a failed fetch or read, a
+  # conflict resolved by hand, a previous run that did not finish) answers false
+  # and every check runs.
+  base-only:
+    name: base-only update
+    if: github.event.action == 'synchronize'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 6
+    # contents: read only. The repository is public, so the one run read below needs
+    # no Actions scope; a refused read answers false.
+    permissions:
+      contents: read
+    outputs:
+      base_only: ${{ steps.decide.outputs.base_only }}
+    steps:
+      - name: Compare the new head with the previous one
+        id: decide
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR: ${{ github.event.pull_request.number }}
+          REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -uo pipefail
+          decide() {
+            echo "base_only=$1" >> "$GITHUB_OUTPUT"
+            echo "$2" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          [ "$ACTION" = synchronize ] || decide false "A $ACTION event, not a push: every check runs."
+          case "$BEFORE" in ""|0000000000000000000000000000000000000000) decide false "No previous head: every check runs.";; esac
+          repo="$RUNNER_TEMP/base-only"
+          git init -q "$repo"
+          git -C "$repo" remote add origin "$REMOTE"
+          # Commits and trees only, back far enough to find where the previous head
+          # last met the base; the merge and the diffs below fetch only the blobs they read.
+          timeout 150 git -C "$repo" fetch -q --no-tags --filter=blob:none --shallow-since="4 days ago" origin \
+            "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
+            || decide false "Could not fetch the head and $BASE_REF: every check runs."
+          [ "$(git -C "$repo" rev-parse refs/remotes/pr/head)" = "$AFTER" ] || decide false "The branch moved past $AFTER: every check runs."
+          # The new head's parents: the previous head, then a commit on the base.
+          read -r first second extra <<<"$(git -C "$repo" rev-list --parents -n 1 "$AFTER" | cut -d' ' -f2-)"
+          if [ "${first:-}" != "$BEFORE" ] || [ -z "${second:-}" ] || [ -n "${extra:-}" ]; then
+            decide false "The head is not a merge onto the previous head: every check runs."
+          fi
+          git -C "$repo" merge-base --is-ancestor "$second" refs/remotes/origin/base \
+            || decide false "The merged commit is not on $BASE_REF: every check runs."
+          bases="$(git -C "$repo" merge-base --all "$BEFORE" "$second" 2>/dev/null || true)"
+          if [ -z "$bases" ] || [ "$(wc -l <<<"$bases")" -ne 1 ]; then
+            decide false "No single point where the previous head met $BASE_REF: every check runs."
+          fi
+          # That merge base is the real one only if the fetched history is whole above it:
+          # a commit whose parents the shallow fetch cut, reachable from either side but
+          # not from the merge base, could hide a newer common ancestor.
+          # The whole list is written out first, so a failed rev-list answers false.
+          git -C "$repo" rev-list "$BEFORE" "$second" --not "$bases" > "$RUNNER_TEMP/base-only.above" \
+            || decide false "Could not list the history above where the previous head met $BASE_REF: every check runs."
+          if [ -f "$repo/.git/shallow" ] && grep -qFxf "$repo/.git/shallow" "$RUNNER_TEMP/base-only.above"; then
+            decide false "The fetched history is cut above where the previous head met $BASE_REF: every check runs."
+          fi
+          # The new head is exactly the clean merge of the base into the previous head:
+          # nothing resolved or edited by hand.
+          merged="$(timeout 120 git -C "$repo" merge-tree --write-tree --no-messages "$BEFORE" "$second")" \
+            || decide false "Merging $BASE_REF into the previous head does not merge cleanly: every check runs."
+          [ "$merged" = "$(git -C "$repo" rev-parse "$AFTER^{tree}")" ] \
+            || decide false "The head is not the clean merge of $BASE_REF into the previous head: every check runs."
+          # And the pull request's own change is the same: no context, line numbers or blob
+          # ids, so a base that moved under unchanged hunks keeps it equal.
+          change() {
+            timeout 120 git -C "$repo" -c diff.renames=false diff -U0 --binary --no-color --no-ext-diff "$1" "$2" \
+              > "$RUNNER_TEMP/base-only.diff" || return 1
+            grep -vE '^(index |@@)' "$RUNNER_TEMP/base-only.diff" | sha256sum | cut -d' ' -f1
+          }
+          old="$(change "$bases" "$BEFORE")" || decide false "Could not diff the previous head: every check runs."
+          new="$(change "$second" "$AFTER")" || decide false "Could not diff the new head: every check runs."
+          [ "$old" = "$new" ] || decide false "The merge changed the pull request's own diff: every check runs."
+          # The previous head's answers exist: this pull request's newest push run at that
+          # head (not a description edit, a held run or a draft's; another pull request at
+          # the same commit does not count) finished green. One read, only for a base-only head.
+          case "$PR" in ""|*[!0-9]*) decide false "No pull request number: every check runs.";; esac
+          # gh's --jq takes no --arg: the number (digits only, checked above) goes in by substitution.
+          filter='[.workflow_runs[] | select(.display_title | startswith("#@PR@ "))
+                  | select(.display_title | test("^#[0-9]+ (opened|synchronize|reopened|ready_for_review):"))]
+                  | sort_by(.run_number) | last | if . == null then "none" else "\(.status)/\(.conclusion)" end'
+          previous="$(gh api "repos/$REPOSITORY/actions/workflows/pr-checks.yml/runs?head_sha=$BEFORE&event=pull_request&per_page=30" \
+            --jq "${filter//@PR@/$PR}")" \
+            || decide false "Could not read the previous head's run: every check runs."
+          [ "$previous" = "completed/success" ] \
+            || decide false "The previous head's run did not finish green ($previous): every check runs."
+          echo "::notice title=Base-only update::$AFTER only merged $BASE_REF; the advisory checks keep the previous head's answers."
+          decide true "$AFTER is the clean merge of $BASE_REF ($second) into $BEFORE, whose checks finished: the advisory checks are skipped."
+
+  # Keep PRs navigable without publishing internal gallery payloads. The detailed
+  # visual evidence stays in the private HQ feed and Actions artifacts; the PR gets
+  # one stable link to those surfaces, as the `review` line of its status comment
+  # (scripts/ci/pr_status.py). It runs on every push (no paths filter) except a
+  # base-only one, so the line names the PR's newest head with its own change. The
+  # script comes from the base branch, never the pull request's code.
+  link:
+    # A draft gets its line when it is marked ready. CI_QUOTA_HOLD=1 pauses the
+    # line while the GITHUB_TOKEN budget is reserved for the nightly
+    # (tests/test_ci_quota_hold_gate.py); the next push writes it.
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the status script from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/pr_status.py
+          sparse-checkout-cone-mode: false
+
+      - name: Update the PR's review line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          FEED_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
+        run: |
+          set -euo pipefail
+          # The exact head, where its visual evidence is, its checks, and how to
+          # get an app of it. No link to this run: it only writes the line, and
+          # the HQ feed would read an Actions run link here as the PR's build.
+          repo_url="$SERVER/$REPOSITORY"
+          ref_query=$(jq -rn --arg q "branch:$HEAD_REF" '$q|@uri')
+          # The branch keeps reload-build's cache warm; a name that is not
+          # shell-safe to paste falls back to the exact SHA.
+          build_ref=$HEAD_SHA
+          if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then build_ref=$HEAD_REF; fi
+          cat > "$RUNNER_TEMP/review.md" <<EOF
+          Review [\`${HEAD_SHA:0:7}\`]($repo_url/commit/$HEAD_SHA): [HQ feed card](${FEED_URL}?pr=${PR}&view=all) · [gallery before/after runs]($repo_url/actions/workflows/gallery-advisory.yml?query=$ref_query) · [checks]($repo_url/pull/$PR/checks?sha=$HEAD_SHA)
+          <details><summary>App of this head (app.zip, kept 1 day)</summary>
+
+          \`gh workflow run reload-build.yml -R $REPOSITORY --ref feat-cmux-next -f tag=pr$PR -f ref=$build_ref -f platform=macos -f backend_mode=local\`
+          </details>
+          EOF
+          python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
+            --body-file "$RUNNER_TEMP/review.md" --legacy "<!-- cmux-gallery-link -->"
+
+  # Warns when a feat-cmux-next pull request changes more than about 800 lines
+  # (added + deleted), not counting the generated, lockfile, localization and
+  # fixture paths in scripts/ci/pr_size_exclusions.json. The warning carries a
+  # hint on how to split; a body line starting `Size:` with a reason overrides it
+  # and the check prints the reason. It never fails for a size and is not a
+  # required check: do not add it to branch protection or a ruleset.
+  #
+  # Cheap by design: one paginated pulls/N/files call with the read-only
+  # GITHUB_TOKEN, the body from the event payload, and the script from the base
+  # commit (sparse, no pull request code). Drafts skip until marked ready, and
+  # CI_QUOTA_HOLD=1 pauses it while the token budget is reserved for the nightly
+  # (tests/test_ci_quota_hold_gate.py).
+  size:
+    name: PR size (advisory)
+    # A body edit only matters when it can add or drop a `Size:` line.
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && (github.event.action != 'edited' || github.event.changes.body != null) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the size script from the base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_size.py
+            scripts/ci/pr_size_exclusions.json
+          sparse-checkout-cone-mode: false
+
+      - name: Count changed lines
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_size.py ]; then
+            echo "::notice title=PR size::the base predates the size check; skipped"
+            exit 0
+          fi
+          # Advisory: an API error (rate limit, outage) warns and passes, never fails.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
+            echo "::warning title=PR size::could not read the pull request's files; size not measured"
+            exit 0
+          fi
+          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$GITHUB_EVENT_PATH" || {
+            echo "::warning title=PR size::the size script failed; size not measured"
+            exit 0
+          }
+
+  # Every push-group event runs it (ready_for_review too, which the old workflow did not):
+  # that event can cancel a push run, and its own run must answer for all three checks.
+  split:
+    name: split-plan advisory
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch split refs without blobs
+        run: git fetch --no-tags --filter=blob:none --unshallow origin
+      # The classifier comes from the base: a head branched before the guard has no copy, and a
+      # pull request should not grade itself with its own edits to the guard.
+      - name: Report split metrics
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git show "$BASE_SHA:scripts/cmux-next/check-pr-split.py" > "$RUNNER_TEMP/check-pr-split.py"
+          python3 "$RUNNER_TEMP/check-pr-split.py" --base "$BASE_SHA" --head "$HEAD_SHA" --mode advisory

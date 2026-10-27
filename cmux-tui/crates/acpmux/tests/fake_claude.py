@@ -82,11 +82,16 @@ session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 import json
 import os
 import sys
+import threading
+
+
+SEND_LOCK = threading.Lock()
 
 
 def send(obj):
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    with SEND_LOCK:
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
 
 
 # Like Claude Code, init reports the mode `--permission-mode` pinned.
@@ -490,6 +495,10 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
+            import time
+            time.sleep(int(os.environ["FAKE_CLAUDE_INIT_DELAY_MS"]) / 1000)
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
@@ -599,6 +608,9 @@ while True:
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
+        if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         if STORE and LAYOUT:
             # Claude Code stamps each line with its UTC time to the millisecond.
             import datetime
@@ -853,6 +865,16 @@ while True:
                   "input": {"description": "Late writer", "prompt": "Write late.txt", "run_in_background": True}}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_lateag",
                   "content": "Async agent launched"}]}})
+        # "bg-agent-gate: FIFO": a background subagent still running when the turn ends; it ends
+        # with its task_notification once the test writes FIFO, while the chat is idle
+        # (manaflow-ai/cmux#25230: the chat works until it does). "bg-agent-fail": a background
+        # subagent whose launch fails, so it never runs.
+        if said.strip().startswith("bg-agent-gate:") or said.strip() == "bg-agent-fail":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_bgag", "name": "Agent",
+                  "input": {"description": "Long review", "prompt": "Review it", "run_in_background": True}}]}})
+            failed = said.strip() == "bg-agent-fail"
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_bgag",
+                  "is_error": failed, "content": "Agent type not found" if failed else "Async agent launched"}]}})
         # "fg-probe": a foreground Bash is a local_bash task too (not backgrounded), and a
         # notification can name a call acpmux never saw run in the background.
         if said.strip() == "fg-probe":
@@ -984,6 +1006,16 @@ while True:
         send(result)
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             agent_failed(said.strip())
+        if said.strip().startswith("bg-agent-gate:"):
+            gate = said.strip()[len("bg-agent-gate:"):].strip()
+
+            def end_background_agent():
+                with open(gate) as g:
+                    g.read()
+                send({"type": "system", "subtype": "task_notification", "task_id": "bgag1",
+                      "tool_use_id": "toolu_bgag", "status": "completed", "output_file": "", "summary": "Reviewed"})
+
+            threading.Thread(target=end_background_agent, daemon=True).start()
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})

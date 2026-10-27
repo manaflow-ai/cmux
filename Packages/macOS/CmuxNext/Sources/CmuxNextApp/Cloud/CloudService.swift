@@ -80,6 +80,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// When the loaded list landed (``hasCurrentList(within:)``).
+    @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
@@ -363,6 +365,7 @@ final class CloudService {
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
+            listLoadedAt = .now
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
@@ -383,6 +386,17 @@ final class CloudService {
     /// The user and team signed in now (observable: ``CloudAuth``). Start-session asks and runs
     /// belong to the one they were asked in.
     var account: [String?] { listAccount }
+
+    /// Whether the store holds a list the server answered, within `age`, for the user and team
+    /// signed in now: a failed or superseded refresh, or another team's list, is not one.
+    func hasCurrentList(within age: Duration) -> Bool {
+        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+    }
+
+    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+        guard let loadedAt, loadedFor == account else { return false }
+        return loadedAt.duration(to: now) < age
+    }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
@@ -444,6 +458,7 @@ final class CloudService {
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
         hasLoadedMachines = false
+        listLoadedAt = nil
     }
 
     // MARK: Mutations
@@ -455,8 +470,11 @@ final class CloudService {
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
     /// `/api/vm` create only; the app server's create refuses them for now). A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
+    /// `proceed` runs once the server answered, before anything else about the new machine (its
+    /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
+    /// longer signed in) leaves it out.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
-                       request: CloudMachineRequest = CloudMachineRequest()) async throws -> CloudMachineSession {
+                       request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         let name = name ?? request.name
@@ -482,6 +500,7 @@ final class CloudService {
                                                           return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
         logger.info("created machine \(machine.id, privacy: .public)")
+        try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
         if let idlePause, machine.idlePauseMinutes != idlePause {
@@ -495,6 +514,8 @@ final class CloudService {
             } catch {
                 logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
             }
+            // The write waited: the account is checked again before the machine joins the list.
+            try proceed()
         }
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }

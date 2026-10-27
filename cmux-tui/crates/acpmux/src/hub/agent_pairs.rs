@@ -8,7 +8,8 @@
 //! daemon's delivery pump); and a prompt one sub-session family member sends another
 //! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
 //! `start_session`'s first prompt; and a prompt a session sends another from inside itself
-//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`).
+//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`); and
+//! a lane's report of its turn to its parent (`lane_report`, `lane_reports.rs`).
 //! All count toward the same pair. Only a sender that is a
 //! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
 //! or any other address passes untouched.
@@ -173,6 +174,10 @@ struct PairsState {
     /// Pairs a restart found resumed with messages still to deliver: `resume_queues` delivers
     /// them (`Hub::resume_agent_pair_drains`).
     restored_drains: Vec<PairKey>,
+    /// By chat, the peers its log names in pair records (a pause is written to both chats'
+    /// logs): a restart that reads the logs lazily reads theirs before it resumes or drains a
+    /// pair of that chat (`log_load.rs`). Emptied once every log is read.
+    peers: HashMap<String, HashSet<String>>,
 }
 
 #[derive(Default)]
@@ -405,7 +410,12 @@ impl Hub {
         let kind = p.get("kind").and_then(Value::as_str);
         if !matches!(
             kind,
-            Some("agent_message" | "session_message" | super::subsessions::PROVENANCE_KIND)
+            Some(
+                "agent_message"
+                    | "session_message"
+                    | super::subsessions::PROVENANCE_KIND
+                    | super::lane_reports::KIND
+            )
         ) {
             return None;
         }
@@ -724,6 +734,15 @@ impl Hub {
         records: Vec<EventRecord>,
         recorded: &HashSet<String>,
     ) {
+        if !self.logs_loaded() {
+            let named = records.iter().filter_map(|r| {
+                r.msg.get("peer").or_else(|| r.msg.get("from")).and_then(Value::as_str)
+            });
+            let mut state = self.pairs_state();
+            let peers = state.peers.entry(session.to_owned()).or_default();
+            peers.extend(named.map(str::to_owned));
+            peers.remove(session);
+        }
         let Owed { held, resumed } = still_held(session, records, recorded);
         if let Some(last) = held.iter().map(|h| h.order).max() {
             self.agent_pairs.order.fetch_max(last, Ordering::SeqCst);
@@ -762,10 +781,44 @@ impl Hub {
         }
     }
 
+    /// After a restart, before the guard checks an agent's message: the sender's log too. A
+    /// pause the restart keeps may be only there (what the pair held for the sender), and the
+    /// receiver's log is read already (`turns.rs` `prompt_with`, `log_load.rs`).
+    pub(super) async fn pair_logs(self: &Arc<Self>, provenance: Option<&Value>) {
+        if self.logs_loaded() {
+            return;
+        }
+        if let Some(sender) = self.agent_message_sender(provenance) {
+            self.session_log(&sender).await;
+        }
+    }
+
+    /// After a restart, before a pair of `session` is resumed: its log and its peers' logs, so
+    /// every pause it is in is restored with what both sides held (immediate once every log is
+    /// read).
+    pub(crate) async fn pair_peer_logs(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log(session).await;
+        if self.logs_loaded() {
+            return;
+        }
+        let peers: Vec<String> =
+            self.pairs_state().peers.get(&session.id).into_iter().flatten().cloned().collect();
+        for peer in peers {
+            if let Ok(s) = self.resolve(&peer) {
+                self.session_log(&s).await;
+            }
+        }
+    }
+
     /// The person prompted `session`: every pair it is in starts over, and a paused one is
     /// resumed.
     pub fn agent_pair_person_prompt(self: &Arc<Self>, session: &Session) {
         self.agent_pair_resume_inner(&session.id, None, "person");
+    }
+
+    /// Every chat log is read: no pair needs a peer's log read first (`log_load.rs`).
+    pub(super) fn forget_pair_peers(&self) {
+        self.pairs_state().peers.clear();
     }
 
     /// `_acpmux/agent_pair_resume {sessionId, peerSessionId?}`: resumes the paused pairs of
@@ -835,6 +888,13 @@ impl Hub {
     /// fails before acceptance stays held and pauses the pair again; one that fails
     /// [`RELEASE_TRIES`] times is dropped, in both logs.
     async fn drain_pair(self: Arc<Self>, key: PairKey) {
+        // After a restart, both receivers' held messages, merged in the order they were held,
+        // before the first is chosen: `log_load.rs` reads each log on its own.
+        for id in [&key.0, &key.1] {
+            if let Ok(s) = self.resolve(id) {
+                self.session_log(&s).await;
+            }
+        }
         loop {
             let next = {
                 let mut state = self.pairs_state();

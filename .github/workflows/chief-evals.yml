@@ -18,7 +18,11 @@ on:
       repeat:
         description: "runs per model case"
         default: "1"
+      baseline_run:
+        description: "run id whose chief-evals artifact is the baseline (default: the last feat-cmux-next run that has one)"
+        default: ""
 permissions:
+  actions: read
   contents: read
   id-token: write
 # One run at a time, never cancelled: the branch moves every few minutes, and
@@ -68,17 +72,44 @@ jobs:
         env:
           OPTCHAT_ANTHROPIC_BASE_URL: ${{ vars.CHIEF_EVAL_BASE_URL || 'http://100.89.225.106:31415' }}
           REPEAT: ${{ inputs.repeat || '1' }}
+          BASELINE_RUN: ${{ inputs.baseline_run }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           out="$RUNNER_TEMP/chief-evals"
+          # The baseline: an earlier run's summary.json, diffed per group and
+          # case in the summary (report only, never a gate).
+          base="$RUNNER_TEMP/chief-evals-baseline"
+          if [ -z "$BASELINE_RUN" ]; then
+            BASELINE_RUN=$(gh run list -R "$GITHUB_REPOSITORY" -w chief-evals.yml -b feat-cmux-next \
+              --status completed --limit 20 --json databaseId \
+              --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID) | .databaseId] | .[]" 2>/dev/null |
+              while read -r id; do
+                gh run download "$id" -R "$GITHUB_REPOSITORY" -n chief-evals -D "$base" >/dev/null 2>&1 &&
+                  [ -f "$base/summary.json" ] && { echo "$id"; break; }
+                rm -rf "$base"
+              done || true)
+          elif ! gh run download "$BASELINE_RUN" -R "$GITHUB_REPOSITORY" -n chief-evals -D "$base"; then
+            echo "::warning::Chief evals: no chief-evals artifact in run $BASELINE_RUN; no baseline diff"
+          fi
+          baseline=()
+          if [ -f "$base/summary.json" ]; then
+            baseline=(--baseline "$base/summary.json")
+          elif [ -n "$BASELINE_RUN" ]; then
+            echo "::warning::Chief evals: run $BASELINE_RUN has no summary.json; no baseline diff"
+          fi
           if ! target/debug/examples/chief_eval preflight; then
             echo "::warning::Chief model evals skipped: the model route $OPTCHAT_ANTHROPIC_BASE_URL does not answer"
             echo "Model cases skipped: model route down." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           set +e
-          target/debug/examples/chief_eval --repeat "$REPEAT" --jobs 32 --min-pass "${{ vars.CHIEF_EVAL_MIN_PASS || '0.8' }}" --out "$out" | tee "$out.md"
+          target/debug/examples/chief_eval --repeat "$REPEAT" --jobs 32 --min-pass "${{ vars.CHIEF_EVAL_MIN_PASS || '0.8' }}" --out "$out" "${baseline[@]}" | tee "$out.md"
           status=${PIPESTATUS[0]}
-          { echo "## Chief fast evals"; echo; cat "$out.md"; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Chief fast evals"; echo
+            [ ${#baseline[@]} -gt 0 ] && echo "Baseline: run [$BASELINE_RUN]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BASELINE_RUN)" && echo
+            cat "$out.md"
+          } >> "$GITHUB_STEP_SUMMARY"
           exit $status
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

@@ -65,7 +65,6 @@ final class TerminalFloodBench {
             chunk: chunk > 0 ? chunk : 4096,
             topline: topline
         )
-        TerminalBenchProbe.shared = probe
         daemon.probe = probe
         let daemon = daemon
         let session = DaemonTerminalSession(
@@ -81,6 +80,11 @@ final class TerminalFloodBench {
     }
 
     func run() async {
+        // Claimed here, not in init: SwiftUI evaluates `@State`'s initial value
+        // on every rebuild of the root view and drops the extra instances, and
+        // each one's init took the shared probe away from the bench that runs
+        // (fleet runs, 2026-10-26: 0 bytes processed, 0 frames, no echo seen).
+        TerminalBenchProbe.shared = probe
         let clock = ContinuousClock()
         let seconds = UserDefaults.standard.integer(forKey: "CmuxMobileFloodBenchSeconds")
         let floodSeconds = seconds > 0 ? seconds : 10
@@ -133,15 +137,12 @@ final class TerminalFloodBench {
         daemon.startFlood()
         for index in 0..<floodSeconds { await second("flood", index) }
         daemon.stopFlood()
-        let stopAt = CACurrentMediaTime()
-        // Drain: until Ghostty processed every byte the daemon sent.
-        var drainMs: Double?
-        for index in 0..<6 {
-            await second("after", index)
-            if drainMs == nil, probe.take().processed >= daemon.emittedTotal + 2 {
-                drainMs = (CACurrentMediaTime() - stopAt) * 1000
-            }
-        }
+        // Drain: from the stop until Ghostty processed every byte the daemon
+        // had sent by then (+ the session's reset), timed by the probe as the
+        // bytes are parsed. Echoes typed after the stop do not move the target.
+        probe.timeDrain(until: daemon.emittedTotal + 2, since: CACurrentMediaTime())
+        for index in 0..<6 { await second("after", index) }
+        let drainMs = probe.take().drainMs.map { ($0 * 10).rounded() / 10 }
         keys.stop()
         sampler.stop()
         let flood = phases["flood"] ?? []

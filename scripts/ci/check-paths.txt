@@ -49,8 +49,8 @@ scripts/cmux-next/prepush-gate.py
 scripts/ci/crash_class_fast_gate.py
 scripts/ci/crash-class-gate.sh
 
-# the workflows that run what a dispatch reruns (the webviews checks, web lint, the guards behind the crash ratchet
-# and defaults stamp, the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
+# the workflows that run what a dispatch reruns (the webviews checks, web lint, the guards behind the crash ratchet,
+# the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
 # gates, so another workflow's change makes nothing stale that a dispatch could catch, and on 2026-10-21 144 of the
 # day's 1610 feat-cmux-next commits changed some workflow (with these five, 62 commits changed a check path).
 .github/workflows/ci-web.yml

@@ -22,7 +22,7 @@ SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # The fake gh: `api rate_limit` reports an exhausted core budget that reset a moment ago (so a
-# wait is the 60 s floor, capped below by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
+# wait is the secondary-limit backoff, capped by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
 # the rate limit while REFUSALS has calls left, then prints its arguments and stdin.
 FAKE_GH = r"""#!/bin/bash
 state="$FAKE_STATE"
@@ -124,6 +124,17 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("GitHub API budget: gh api x was refused", summary.read_text())
         self.assertIn("gh api x was refused", (h.runner_temp / "gh-budget-wait" / "waits.log").read_text())
 
+    def test_a_refusal_with_no_exhausted_budget_backs_off_exponentially(self) -> None:
+        # GitHub's secondary limit sends no reset: 60, 120, 240, then 300 s per wait (sleep is faked).
+        h = self.harness(refusals=5, GH_BUDGET_WAIT_MAX_SECONDS="3600")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
+        self.assertEqual(h.waited(), 1020)
+
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
         self.assertEqual(h.gh("api", "x").returncode, 0)
@@ -147,6 +158,35 @@ class WrapperTests(unittest.TestCase):
         (h.state / "refusals").write_text("1")
         self.assertEqual(h.gh("api", "y").returncode, 1)
         self.assertEqual(h.calls().count("call api y"), 1)
+
+    def test_a_wait_is_counted_before_it_sleeps(self) -> None:
+        # A caller's timeout can kill the wrapper mid-wait; the wait must already be in the ledger.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run([str(h.shim), "api", "repos/o/r"], env=h.env, capture_output=True,
+                           text=True, timeout=3)
+        self.assertEqual(h.waited(), 30)
+
+    def test_an_unwritable_ledger_stops_the_wait(self) -> None:
+        # A wait the ledger cannot record would be invisible to later steps: the refusal stands.
+        if os.geteuid() == 0:
+            self.skipTest("root writes through a read-only directory")
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        ledger_dir = h.runner_temp / "gh-budget-wait"
+        ledger_dir.mkdir(exist_ok=True)
+        ledger_dir.chmod(0o500)
+        self.addCleanup(ledger_dir.chmod, 0o700)
+        result = h.gh("api", "repos/o/r")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rate limit exceeded", result.stderr)
+        self.assertEqual(h.calls().count("call api repos/o/r"), 1)
+
+    def test_a_malformed_ledger_counts_as_spent(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="60")
+        (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)
+        (h.runner_temp / "gh-budget-wait" / "waited").write_text("garbage")
+        self.assertEqual(h.gh("api", "x").returncode, 1)
+        self.assertEqual(h.calls().count("call api x"), 1)
 
     def test_attempts_are_bounded(self) -> None:
         h = self.harness(refusals=9, GH_BUDGET_WAIT_MAX_SECONDS="60", GH_BUDGET_WAIT_ATTEMPTS="2")
@@ -175,6 +215,29 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("12 calls left, under 200", result.stderr)
         self.assertEqual(h.waited(), 1)
 
+    def test_backoff_waits_by_try_and_never_fails(self) -> None:
+        # An action's call (the attestation) is refused outside gh; --backoff TRY waits as a refused gh call's try would.
+        h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="900")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        for try_number in ("1", "2", "3"):
+            result = subprocess.run([str(h.shim), "--backoff", try_number, "the attestation"], env=h.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result)
+            self.assertIn(f"the attestation failed (try {try_number})", result.stderr)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240"])
+        self.assertEqual(h.waited(), 420)
+        # The job total bounds it, and a spent total still exits 0 (the next try decides).
+        result = subprocess.run([str(h.shim), "--backoff", "4"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "80"])
+        result = subprocess.run([str(h.shim), "--backoff", "5"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.waited(), 500)
+
     def test_install_without_gh_is_a_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PATH": "/nonexistent", "RUNNER_TEMP": tmp, "GITHUB_PATH": f"{tmp}/p"}
@@ -187,12 +250,17 @@ class WrapperTests(unittest.TestCase):
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
     "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
-    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "keep-published-dsyms",
+    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
+# A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+# Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
+# deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
+NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -210,16 +278,24 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
             later_gh = [i for i, s in enumerate(steps)
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
-            # Only prepare's reuse probe (before any checkout; a refusal prepares here) and the
+            # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
+            # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") == "reuse" or resume, (name, steps[i].get("name")))
+                # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
+                app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
-            timeout = self.jobs[name].get("timeout-minutes", 360)
+            timeout = str(self.jobs[name].get("timeout-minutes", 360))
+            by_track = NEXT_TIMEOUT.fullmatch(timeout)
+            if by_track:
+                # A shorter nightly-next bound only where that track makes no gh call.
+                self.assertIn(name, NO_GH_ON_NIGHTLY_NEXT, name)
+                timeout = by_track.group(2)
             self.assertGreaterEqual(int(timeout), 65, name)
             # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
             for step in self.jobs[name]["steps"]:

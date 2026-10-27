@@ -222,7 +222,10 @@ it ships.
   the tailnet (`tag:ci` may reach port 31415), gate at an 80% pass rate
   (`vars.CHIEF_EVAL_MIN_PASS`), and are skipped with a warning when
   `chief_eval preflight` finds the route down. The table goes to the job
-  summary, rows to the `chief-evals` artifact.
+  summary, rows to the `chief-evals` artifact. Each run diffs per group and
+  case against the last run's artifact (`--baseline`, evals/README.md
+  "Baseline diff"); workflow dispatch runs it on demand, with
+  `baseline_run` to pick the baseline.
 
 ### Groups and owners
 
@@ -237,6 +240,8 @@ it ships.
 | assistant | a672, a676 | Instinct/Muse quality: remembers, acts instead of asking, short, a bare thanks gets a tapback only |
 | memory | a672 | summary lag: the Chief answers about its own recent reply while 321 lines are unsummarized |
 | replies | a672 | reply ledger: a tapback answers, stop/sleep refused over an unanswered message |
+| tone | a25575 | plain answers: no filler intro or offer of help, no apology string to a frustrated person, results not narrated steps |
+| delegation | a25575 | build and test work goes to a subagent, one per independent ask; the Chief does not run it itself |
 
 ### Tracked numbers (summary.json)
 
