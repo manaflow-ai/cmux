@@ -355,3 +355,41 @@ fn a_connections_commit_then_push_pushes_the_new_commit() {
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A connection's git.status answers while that same connection's push
+/// waits in its pre-push hook: reads run in a sequence apart from writes,
+/// so the app sends both on its one control connection
+/// (`git-shared-connection-v1`). In one sequence the status waited for the
+/// push. The hook gives up after 10 s, so a regression fails, not hangs.
+#[test]
+fn a_connections_read_answers_while_its_push_waits_in_a_hook() {
+    let root = scratch("read-beside-push");
+    let (repo, _) = repository_with_remote(&root);
+    let (started, release) = (root.join("hook-started"), root.join("release"));
+    let wait_for_release = format!(
+        "touch '{}'\nn=0\nwhile [ ! -e '{}' ] && [ $n -lt 200 ]; do sleep 0.05; n=$((n+1)); done",
+        started.display(),
+        release.display()
+    );
+    hook(&repo, "pre-push", &wait_for_release);
+    let mux = Mux::new("request-path-work-read-beside-push", SurfaceOptions::default());
+    let (client, writer, outbound) = client(&mux);
+    let push = v2("push-1", "git.push", &repo, json!({}), Some("request-path-work-read-push-1"));
+    assert!(handle_resource_connection_message_now(&mux, client, push, &writer));
+    until("the push to reach its hook", || started.exists());
+
+    let asked = Instant::now();
+    let status = v2("status-2", "git.status", &repo, json!({}), None);
+    assert!(handle_resource_connection_message_now(&mux, client, status, &writer));
+    let first = next_reply(&outbound);
+    assert_eq!(first["id"], json!("status-2"), "the read answered first: {first}");
+    assert_eq!(first["ok"], json!(true), "{first}");
+    assert!(asked.elapsed() < Duration::from_secs(5), "status took {:?}", asked.elapsed());
+
+    std::fs::write(&release, "").unwrap();
+    let pushed = next_reply(&outbound);
+    assert_eq!(pushed["id"], json!("push-1"), "{pushed}");
+    until("both sequences to end", || mux.git_sequences.active() == 0);
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}

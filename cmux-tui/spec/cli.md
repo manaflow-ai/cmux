@@ -830,6 +830,13 @@ refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_
 `hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
 commit the remote has succeeds with `up_to_date`.
 
+Every `git.*` request runs off its connection's request thread. A
+connection's writes (`commit`, `push`, `worktree.*`, checkpoint changes) run
+one at a time in the order they arrive, and its reads do the same in a
+separate sequence, so a read never waits for a push held by a hook. A daemon
+that does this advertises `git-shared-connection-v1`; a client then sends its
+git requests on its control connection.
+
 `git worktree create` (`git.worktree.create`, capability `git-worktree-v1`)
 makes a chat's own worktree, in the user's environment like `commit`, and
 only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`

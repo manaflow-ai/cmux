@@ -39,7 +39,7 @@ use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::work_reply::Unanswered;
-pub(crate) use sequence::{Reply, Sequences};
+pub(crate) use sequence::{Reply, SHARED_CONNECTION_CAPABILITY, Sequences};
 
 const MAX_SMALL_OUTPUT_BYTES: usize = cmux_git::MAX_SMALL_OUTPUT_BYTES;
 const MAX_STATUS_BYTES: usize = 256 * 1024;
@@ -97,9 +97,10 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 /// Every git operation runs git to completion, so it runs on a work item of
 /// the System lane and `reply` is called there; the request thread returns
 /// at once (Chrome posts blocking work to a MayBlock task runner,
-/// base/task/task_traits.h). A client's git requests run in arrival order,
-/// one at a time (`sequence`). A refused, dropped or panicked item still
-/// answers, each with its own reason.
+/// base/task/task_traits.h). A client's git writes run in arrival order,
+/// one at a time, and so do its reads, apart from the writes (`sequence`).
+/// A refused, dropped or panicked item still answers, each with its own
+/// reason.
 pub(crate) fn answer(mux: &Arc<Mux>, client: u64, request: ParsedResourceRequest, reply: Reply) {
     let operation = request.envelope.operation;
     debug_assert!(handles(operation));

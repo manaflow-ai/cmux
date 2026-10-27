@@ -1,10 +1,12 @@
-//! One sequence of git work items per client: a connection's git requests
-//! run one at a time, in arrival order, as they did on its request thread
-//! (a commit then a push pushes the new commit), and a flood from one
-//! client holds at most one lane slot. Chrome posts a resource's work to a
-//! `SequencedTaskRunner` (base/task/sequenced_task_runner.h): each turn is
-//! its own task, so other sequences and higher priorities run between
-//! turns.
+//! Two sequences of git work items per client, one for its reads and one
+//! for its writes. A connection's writes run one at a time in arrival order
+//! (a commit then a push pushes the new commit), and so do its reads; a
+//! read never waits behind a write's hook or remote (up to 120 s), so a
+//! client sends both on one connection ([`SHARED_CONNECTION_CAPABILITY`]).
+//! A flood from one client holds at most two lane slots. Chrome posts a
+//! resource's work to a `SequencedTaskRunner`
+//! (base/task/sequenced_task_runner.h): each turn is its own task, so other
+//! sequences and higher priorities run between turns.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -18,8 +20,13 @@ use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 use crate::work_reply::WorkReply;
 
-/// Git requests one client may have queued behind its running one.
+/// Git requests one sequence may have queued behind its running one.
 pub(crate) const MAX_QUEUED: usize = 64;
+
+/// Advertised in identify: git requests run off the request thread, and a
+/// connection's reads run in a sequence apart from its writes, so a client
+/// sends its git reads and writes on its control connection.
+pub(crate) const SHARED_CONNECTION_CAPABILITY: &str = "git-shared-connection-v1";
 
 /// Sends a git request's answer to its client.
 pub(crate) type Reply = Box<dyn FnOnce(Result<Value, ResourceError>) + Send>;
@@ -30,49 +37,58 @@ pub(super) struct Turn {
     pub reply: Reply,
 }
 
-/// The git sequences of a daemon, keyed by client.
+/// One of a client's two git sequences: its reads or its writes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Key {
+    client: u64,
+    writes: bool,
+}
+
+/// The git sequences of a daemon, keyed by client and by reads or writes.
 #[derive(Default)]
 pub(crate) struct Sequences {
     // Lock carve-out: a short critical section over the per-client queues;
     // no git, no item body and no post runs under it.
-    queued: Mutex<HashMap<u64, VecDeque<Turn>>>,
+    queued: Mutex<HashMap<Key, VecDeque<Turn>>>,
 }
 
 impl Sequences {
-    /// Runs `turn` after the client's earlier turns, or posts it now when
-    /// the client has none. Gives its reply back, to answer the refusal,
-    /// when the client already has [`MAX_QUEUED`] turns waiting.
+    /// Runs `turn` after the earlier turns of the client's sequence for it
+    /// (reads or writes), or posts it now when that sequence has none.
+    /// Gives its reply back, to answer the refusal, when that sequence
+    /// already has [`MAX_QUEUED`] turns waiting.
     pub(super) fn submit(mux: &Arc<Mux>, client: u64, turn: Turn) -> Result<(), Reply> {
+        let key = Key { client, writes: super::writes(turn.request.envelope.operation) };
         let mut queued = mux.git_sequences.queued.lock().recover_poison();
-        match queued.get_mut(&client) {
+        match queued.get_mut(&key) {
             Some(waiting) if waiting.len() >= MAX_QUEUED => Err(turn.reply),
             Some(waiting) => {
                 waiting.push_back(turn);
                 Ok(())
             }
             None => {
-                queued.insert(client, VecDeque::new());
+                queued.insert(key, VecDeque::new());
                 drop(queued);
-                post(mux, client, turn);
+                post(mux, key, turn);
                 Ok(())
             }
         }
     }
 
-    /// Ends the client's running turn: posts its next, or ends its sequence.
-    fn advance(mux: &Arc<Mux>, client: u64) {
+    /// Ends the sequence's running turn: posts its next, or ends it.
+    fn advance(mux: &Arc<Mux>, key: Key) {
         let mut queued = mux.git_sequences.queued.lock().recover_poison();
-        let next = queued.get_mut(&client).and_then(VecDeque::pop_front);
+        let next = queued.get_mut(&key).and_then(VecDeque::pop_front);
         if next.is_none() {
-            queued.remove(&client);
+            queued.remove(&key);
         }
         drop(queued);
         if let Some(turn) = next {
-            post(mux, client, turn);
+            post(mux, key, turn);
         }
     }
 
-    /// Clients with a running sequence (tests).
+    /// Running sequences (tests).
     #[cfg(test)]
     pub(crate) fn active(&self) -> usize {
         self.queued.lock().recover_poison().len()
@@ -91,15 +107,14 @@ impl Sequences {
 /// `Running` advances the sequence when the body returns, panics, or is
 /// dropped unrun (shutdown refused or dropped the item), so a sequence
 /// never stalls, and `WorkReply` answers every case.
-fn post(mux: &Arc<Mux>, client: u64, turn: Turn) {
+fn post(mux: &Arc<Mux>, key: Key, turn: Turn) {
     let Turn { request, reply } = turn;
     let operation = request.envelope.operation;
-    let priority =
-        if super::writes(operation) { Priority::UserVisible } else { Priority::UserBlocking };
+    let priority = if key.writes { Priority::UserVisible } else { Priority::UserBlocking };
     let reply = WorkReply::new(move |answer| {
         reply(answer.unwrap_or_else(|why| Err(super::unanswered(operation, why))));
     });
-    let running = Running { mux: Arc::clone(mux), client };
+    let running = Running { mux: Arc::clone(mux), key };
     let item_mux = Arc::clone(mux);
     // A refused item is dropped here: `reply` answers and `running` advances.
     let _ = mux.work.post(priority, Lane::System, Shutdown::ContinueOnShutdown, move || {
@@ -110,11 +125,11 @@ fn post(mux: &Arc<Mux>, client: u64, turn: Turn) {
 
 struct Running {
     mux: Arc<Mux>,
-    client: u64,
+    key: Key,
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        Sequences::advance(&self.mux, self.client);
+        Sequences::advance(&self.mux, self.key);
     }
 }
