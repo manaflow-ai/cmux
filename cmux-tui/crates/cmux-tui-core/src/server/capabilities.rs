@@ -363,6 +363,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
     capabilities.push(energy_op::RULE_CAPABILITY);
+    capabilities.push(frontend_visibility::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]

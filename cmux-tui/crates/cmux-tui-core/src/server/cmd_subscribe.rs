@@ -59,6 +59,11 @@ pub(super) fn subscribe_command(
         (None, Some(kinds)) => mux.subscribe_kinds(kinds),
         (None, None) => mux.subscribe(),
     };
+    // The verified app's visible surfaces scope its own session streams (`frontend.visibility.set`);
+    // a stream of one surface is that surface's view, never scoped.
+    if surface.is_none() {
+        super::frontend_visibility::follow(mux, client, &events);
+    }
     #[cfg(test)]
     let probe = mux.control_clients.subscribe_probe(client);
     let event_mux = mux.clone();

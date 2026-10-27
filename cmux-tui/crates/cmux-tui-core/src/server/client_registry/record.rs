@@ -43,6 +43,9 @@ pub(in crate::server) struct ClientRecord {
     /// The connection's client class, which its reader and request threads
     /// rest at (connection_qos.rs); set by [`Self::classify`].
     pub(in crate::server) connection_class: Arc<ConnectionClassCell>,
+    /// The surfaces this frontend shows and its subscriptions they scope
+    /// (`frontend.visibility.set`, server/frontend_visibility.rs).
+    pub(in crate::server) frontend_visibility: crate::server::frontend_visibility::ClientVisibility,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
     /// What this connection's `subscribe` received and rendered (tests).

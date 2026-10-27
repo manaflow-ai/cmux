@@ -2,13 +2,17 @@
 
 use crate::panic_free::RecoverPoison;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use crate::event_cause::EventCause;
 use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
+
+mod hidden_surfaces;
+pub(crate) use hidden_surfaces::HiddenFlush;
+use hidden_surfaces::VisibilityScope;
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -91,6 +95,15 @@ pub struct MuxEventReceiver {
     mailbox: Arc<MuxEventMailbox>,
 }
 
+/// A [`MuxEventReceiver`] that does not keep its subscription alive.
+pub(crate) struct WeakMuxEventReceiver(Weak<MuxEventMailbox>);
+
+impl WeakMuxEventReceiver {
+    pub(crate) fn upgrade(&self) -> Option<MuxEventReceiver> {
+        self.0.upgrade().map(|mailbox| MuxEventReceiver { mailbox })
+    }
+}
+
 #[derive(Default)]
 struct MuxEventMailbox {
     state: Mutex<MuxEventMailboxState>,
@@ -103,8 +116,21 @@ struct MuxEventMailboxState {
     events: VecDeque<(u128, MuxEvent, EventCause)>,
     coalesced_sequences: HashMap<CoalescedEventKey, u128>,
     coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent, EventCause)>,
+    /// The frontend's visible surfaces and the held slots of its hidden
+    /// ones (`frontend.visibility.set`); `None`: every surface is visible.
+    visibility: Option<VisibilityScope>,
     closed: bool,
     overflowed: bool,
+}
+
+/// What [`MuxEventMailbox::push`] did with an event.
+enum Pushed {
+    /// Refused: the mailbox is closed or full.
+    Rejected,
+    /// Ready to pop, or the first held slot (its waiter needs the flush deadline).
+    Ready,
+    /// Folded into the held slots, whose flush deadline is already set: no waiter wakes.
+    Held,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -115,6 +141,31 @@ enum CoalescedEventKey {
     ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+}
+
+impl CoalescedEventKey {
+    /// Every slot of `surface`.
+    const fn of_surface(surface: SurfaceId) -> [Self; 5] {
+        [
+            Self::Agent(surface),
+            Self::Title(surface),
+            Self::ProgramStatus(surface),
+            Self::SurfaceOutput(surface),
+            Self::Scroll(surface),
+        ]
+    }
+
+    /// The surface whose field this slot holds; `None` for a session-wide one.
+    fn surface(self) -> Option<SurfaceId> {
+        match self {
+            Self::ConfigReload => None,
+            Self::Agent(surface)
+            | Self::Title(surface)
+            | Self::ProgramStatus(surface)
+            | Self::SurfaceOutput(surface)
+            | Self::Scroll(surface) => Some(surface),
+        }
+    }
 }
 
 impl MuxEventBroadcaster {
@@ -487,7 +538,24 @@ impl MuxEventMailbox {
         }
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
-        let accepted = match event {
+        // A structural change goes after the held fields of the surfaces it touches, as it did
+        // before they were held: a tab's change after its own, a close of a pane, screen or
+        // workspace (which names no surface) after all of them.
+        if let MuxEvent::TreeDelta(delta) = &event {
+            match (delta.surface, delta.kind) {
+                (Some(surface), _) => state.release_surface(surface),
+                (
+                    None,
+                    TreeDeltaKind::PaneClosed
+                    | TreeDeltaKind::ScreenClosed
+                    | TreeDeltaKind::WorkspaceClosed,
+                ) => {
+                    state.release_held(|_| true);
+                }
+                (None, _) => {}
+            }
+        }
+        let pushed = match event {
             event @ MuxEvent::AgentChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event, cause)
             }
@@ -517,12 +585,7 @@ impl MuxEventMailbox {
             ),
             event @ MuxEvent::SurfaceExited(surface, _) => {
                 state.discard_surface_state(surface);
-                if !state.reserve_pending_slot() {
-                    false
-                } else {
-                    state.events.push_back((sequence, event, cause));
-                    true
-                }
+                state.push_event(sequence, event, cause)
             }
             MuxEvent::Empty => {
                 let mut terminal_events = state
@@ -545,25 +608,37 @@ impl MuxEventMailbox {
                 state.events.clear();
                 state.coalesced_sequences.clear();
                 state.coalesced.clear();
+                state.clear_held();
                 state.events.extend(terminal_events);
                 state.events.push_back((sequence, MuxEvent::Empty, cause));
+                Pushed::Ready
+            }
+            event => state.push_event(sequence, event, cause),
+        };
+        match pushed {
+            Pushed::Rejected => {
+                self.changed.notify_all();
+                false
+            }
+            Pushed::Ready => {
+                self.changed.notify_one();
                 true
             }
-            event => {
-                if !state.reserve_pending_slot() {
-                    false
-                } else {
-                    state.events.push_back((sequence, event, cause));
-                    true
-                }
-            }
-        };
-        if !accepted {
-            self.changed.notify_all();
-            return false;
+            Pushed::Held => true,
         }
-        self.changed.notify_one();
-        true
+    }
+
+    /// Waits for a push or a close and, while a hidden surface's slot is
+    /// held, at most until its flush.
+    fn wait<'a>(
+        &self,
+        state: MutexGuard<'a, MuxEventMailboxState>,
+    ) -> MutexGuard<'a, MuxEventMailboxState> {
+        match state.flush_wait() {
+            // wakeup-allow: deadline the held slots' one aligned flush, set only while a hidden surface has a pending change
+            Some(wait) => self.changed.wait_timeout(state, wait).recover_poison().0,
+            None => self.changed.wait(state).recover_poison(),
+        }
     }
 
     fn close(&self) {
@@ -576,42 +651,61 @@ impl MuxEventMailboxState {
     /// Replaces the pending event of `key`, if any. The kept event takes
     /// the higher of the two causes: a person's change folded into a later
     /// program one is still the person's.
+    ///
+    /// The slot of a surface the frontend does not show is held until its
+    /// flush ([`VisibilityScope`]); the frontend's own change never is.
     fn push_coalesced(
         &mut self,
         sequence: u128,
         key: CoalescedEventKey,
         event: MuxEvent,
         cause: EventCause,
-    ) -> bool {
+    ) -> Pushed {
         let mut cause = cause;
-        if let Some(previous) = self.coalesced_sequences.get(&key).copied() {
-            if let Some((_, _, previous_cause)) = self.coalesced.remove(&previous) {
-                cause = cause.merge(previous_cause);
-            }
-        } else if !self.reserve_pending_slot() {
-            return false;
+        let ready = self.coalesced_sequences.remove(&key).and_then(|at| self.coalesced.remove(&at));
+        let held = self.take_held(key);
+        let replaced = ready.is_some() || held.is_some();
+        for (_, _, previous_cause) in ready.into_iter().chain(held) {
+            cause = cause.merge(previous_cause);
+        }
+        if !replaced && !self.reserve_pending_slot() {
+            return Pushed::Rejected;
+        }
+        if self.holds(key, cause) {
+            return if self.hold(sequence, key, event, cause) {
+                Pushed::Ready
+            } else {
+                Pushed::Held
+            };
         }
         self.coalesced_sequences.insert(key, sequence);
         self.coalesced.insert(sequence, (key, event, cause));
-        true
+        Pushed::Ready
+    }
+
+    fn push_event(&mut self, sequence: u128, event: MuxEvent, cause: EventCause) -> Pushed {
+        if !self.reserve_pending_slot() {
+            return Pushed::Rejected;
+        }
+        self.events.push_back((sequence, event, cause));
+        Pushed::Ready
     }
 
     fn discard_coalesced(&mut self, key: CoalescedEventKey) {
         if let Some(previous) = self.coalesced_sequences.remove(&key) {
             self.coalesced.remove(&previous);
         }
+        let _ = self.take_held(key);
     }
 
     fn discard_surface_state(&mut self, surface: SurfaceId) {
-        self.discard_coalesced(CoalescedEventKey::Agent(surface));
-        self.discard_coalesced(CoalescedEventKey::Title(surface));
-        self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
-        self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
-        self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        for key in CoalescedEventKey::of_surface(surface) {
+            self.discard_coalesced(key);
+        }
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
-        if self.events.len() + self.coalesced.len() < MAX_PENDING_EVENTS {
+        if self.events.len() + self.coalesced.len() + self.held_len() < MAX_PENDING_EVENTS {
             true
         } else {
             self.closed = true;
@@ -625,6 +719,7 @@ impl MuxEventMailboxState {
     }
 
     fn pop_caused(&mut self) -> Option<(MuxEvent, EventCause)> {
+        self.release_due();
         let event_sequence = self.events.front().map(|(sequence, ..)| *sequence);
         let coalesced_sequence = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
         let next_sequence = [event_sequence, coalesced_sequence].into_iter().flatten().min()?;
@@ -641,6 +736,28 @@ impl MuxEventMailboxState {
 impl MuxEventReceiver {
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Scopes this subscription by the frontend's visible surfaces
+    /// (`frontend.visibility.set`): the field events of every other surface
+    /// wait in held slots for `flush`'s aligned grid, and a surface that
+    /// shows has its held slots released at once. `None` shows every
+    /// surface. Returns how many held slots it released.
+    pub(crate) fn scope_visibility(
+        &self,
+        visible: Option<&HashSet<SurfaceId>>,
+        flush: &HiddenFlush,
+    ) -> usize {
+        let released = self.mailbox.state.lock().recover_poison().set_visible(visible, flush);
+        if released > 0 {
+            self.mailbox.changed.notify_all();
+        }
+        released
+    }
+
+    /// A handle that does not keep the subscription alive.
+    pub(crate) fn downgrade(&self) -> WeakMuxEventReceiver {
+        WeakMuxEventReceiver(Arc::downgrade(&self.mailbox))
     }
 
     /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
@@ -662,7 +779,7 @@ impl MuxEventReceiver {
             if state.closed {
                 return Err(RecvError);
             }
-            state = self.mailbox.changed.wait(state).recover_poison();
+            state = self.mailbox.wait(state);
         }
     }
 
@@ -702,7 +819,7 @@ impl MuxEventReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.mailbox.changed.wait(state).recover_poison();
+            state = self.mailbox.wait(state);
         }
     }
 
@@ -736,7 +853,6 @@ impl MuxEventReceiver {
         timeout: Duration,
     ) -> Result<(MuxEvent, EventCause), RecvTimeoutError> {
         let started = Instant::now();
-        let mut remaining = timeout;
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop_caused() {
@@ -745,19 +861,13 @@ impl MuxEventReceiver {
             if state.closed {
                 return Err(RecvTimeoutError::Disconnected);
             }
-            let (next, waited) =
-                self.mailbox.changed.wait_timeout(state, remaining).recover_poison();
-            state = next;
-            if waited.timed_out() {
-                if let Some(event) = state.pop_caused() {
-                    return Ok(event);
-                }
-                if state.closed {
-                    return Err(RecvTimeoutError::Disconnected);
-                }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            remaining = timeout.saturating_sub(started.elapsed());
+            let wait = state.flush_wait().map_or(remaining, |flush| flush.min(remaining));
+            // wakeup-allow: deadline the caller's one timeout, or the held slots' aligned flush when sooner
+            state = self.mailbox.changed.wait_timeout(state, wait).recover_poison().0;
         }
     }
 

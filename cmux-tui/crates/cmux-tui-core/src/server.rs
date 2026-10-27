@@ -304,6 +304,8 @@ mod chief_engine_mirror;
 pub(crate) mod energy_op;
 /// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
 pub(crate) mod energy_rule;
+/// `frontend.visibility.set`: the verified app's visible surfaces scope its subscriptions (p06-scheduler-227).
+pub(crate) mod frontend_visibility;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };

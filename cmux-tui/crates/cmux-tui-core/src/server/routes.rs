@@ -86,6 +86,7 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     super::oracle_state_command::ROUTES,
     super::loopback_forward::ROUTES,
     super::energy_op::ROUTES,
+    super::frontend_visibility::ROUTES,
     #[cfg(unix)]
     super::browser_runtime::ROUTES,
     #[cfg(unix)]

@@ -54,6 +54,8 @@ public final class DaemonService {
     @ObservationIgnored var terminalColorsPending = false
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
+    /// Tells the local daemon which tabs this app shows (FrontendVisibilityReporter); nil until `reportFrontendVisibility(on:)`.
+    @ObservationIgnored var frontendVisibility: FrontendVisibilityReporter?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?

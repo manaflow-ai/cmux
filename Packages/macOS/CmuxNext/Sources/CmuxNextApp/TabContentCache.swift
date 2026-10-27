@@ -490,7 +490,10 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
+        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[tab.id]?.node == nil { // the page's node goes with it
+            tabNodes[tab.id] = WeakTabNode(node: node)
+            daemon.trackVisibility(ofTab: tab.id, node: node)
+        }
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -564,6 +567,7 @@ final class TabContentCache {
         if let node = tabNodes[key]?.node { return node }
         let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
         tabNodes[key] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: key, node: node)  // the daemon holds a hidden tab's field events (frontend.visibility.set)
         if tabNodes.count >= tabNodesPruneAt {
             tabNodes = tabNodes.filter { $0.value.node != nil }
             tabNodesPruneAt = max(64, tabNodes.count * 2)
