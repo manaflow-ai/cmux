@@ -12,22 +12,21 @@ with that terminal focused, it types --samples keys in each phase:
           a workspace moves to the top, a task status changes, a workspace changes group, a status pill
           changes (round robin over random workspaces other than the typed one)
 
---input real (the number to quote): each key is a real key-down and key-up posted at the HID event tap
-(CGEventPost), so it takes a person's path: the window server, the app's event queue, AppKit dispatch, and
-the scheduler's pending-input check (SessionInputPending) that makes budgeted batches yield to it. The app
-runs frontmost for that (no CMUX_NEXT_NO_ACTIVATE), so the job must own the GUI session and have the input
-(Accessibility) grant: `nx-remote --needs input` or a whole mini. The probe's `contents_ms` is the event's
-HID time to the frame that shows the echo.
---input debug (default, for hosts without an input grant): each key is `debug.key` with the client's send
-time as the event's timestamp (CLOCK_UPTIME_RAW). It goes through the control socket's injected-input lane,
-not the event queue, so it does not measure what a person's key waits for: never quote it as key latency. Per phase it reports key-to-frame p50/p95/p99/max
-(scripts/perf-lab/perf_stats.py through typing_report.distribution), the main-thread
+--input real (the number to quote) posts each key at the HID event tap, through the app's event queue like a
+person's key; --input debug (default, for hosts without the input grant) sends `debug.key` over the socket and is
+never quoted as key latency (bench_input.py, shared with automation-typing-bench.py). Per phase it reports
+key-to-frame p50/p95/p99/max (scripts/perf-lab/perf_stats.py through typing_report.distribution), the scheduler's
+numbers from debug.main_budget (turn p99, unattributed share, input yields and input-response yields; None until the
+app reports them), the main-thread
 hangs over 8 ms (`debug.hangs`: count, max, frames over 8.3 ms), the frame intervals (`debug.frames`), the
 sidebar's own counters (`debug.sidebar_perf`) and, with --trace, a Time Profiler of the churn phase (main
 thread top frames).
 
   sidebar-churn-typing.py --app APP --tag TAG --out DIR [--json DIR/report.json] [--workspaces 150]
-      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8] [--session light|stress]
+      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8] [--session light|stress] [--input debug|real]
+
+The summary keeps the idle/churn p50/p95/p99/max keys and adds `modes`: {input mode: idle and storm (churn)
+p50/p95/p99/max, storm minus idle p99, the storm's turn p99, unattributed share and yield counts}.
 
 --session stress builds the STRESS session (perf-stress-session.py: 60 workspaces, the measured one 4 x 3 panes with
 nested splits, 6 tabs each, Chromium pages, 10 busy terminals) instead of the --workspaces empty ones; the typed
@@ -56,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_tagged  # noqa: E402
 import typing_report  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_input import INPUT_HELP, INPUT_MODES, KeySender, budget_summary, frame_samples, mode_summary, typed_key  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -73,8 +73,7 @@ parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-delta-ms", type=float, default=2.0)
 parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a churn phase's longest main-thread stall is over this many ms")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
-parser.add_argument("--input", choices=["debug", "real"], default="debug",
-                    help="real: HID-tap key events through the event queue (needs the input grant); debug: debug.key over the socket")
+parser.add_argument("--input", choices=INPUT_MODES, default="debug", help=INPUT_HELP)
 parser.add_argument("--session", choices=["light", "stress"], default="light",
                     help="light: --workspaces empty workspaces and a typing workspace; stress: the STRESS session "
                          "(perf-stress-session.py), the typed terminal in its measured workspace, the churn over its "
@@ -318,51 +317,17 @@ def sample_main(pid, label):
     note(f"stall sample: {os.path.basename(path)}")
 
 
-# ANSI virtual key codes (Carbon kVK_ANSI_*) for the typed keys.
-KEYCODES = {"a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
-            "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45,
-            "m": 46, "return": 36}
-_CG = None
-
-
-def post_real_key(key):
-    """One real key press at the HID event tap: the window server queues it for the frontmost app, which
-    dispatches it from its event queue like a person's key (SessionInputPending sees it until then)."""
-    global _CG
-    import ctypes, ctypes.util
-    if _CG is None:
-        _CG = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
-        _CG.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
-        _CG.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
-        _CG.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-        _CG.CFRelease.argtypes = [ctypes.c_void_p]
-    for down in (True, False):
-        event = _CG.CGEventCreateKeyboardEvent(None, KEYCODES[key], down)
-        _CG.CGEventPost(0, event)  # kCGHIDEventTap
-        _CG.CFRelease(event)
-
-
-def bring_front(pid):
-    """Makes the app frontmost (real keys go to the frontmost app's key window)."""
-    subprocess.run(["osascript", "-e",
-                    f'tell application "System Events" to set frontmost of (first process whose unix id is {pid}) to true'],
-                   capture_output=True, timeout=30)
+KEYS = KeySender(opts.input, lambda key, timestamp: rpc("debug.key", {"key": key, "timestamp": timestamp}, timeout=10))
 
 
 def type_keys(count, pid=None, label="warmup"):
     """Types `count` keys; returns the per-key round trips (ms). A key whose RPC takes over 2 s is a stall:
     the first three get a `sample` of the app, and the phase ends after 10 of them or 4x its planned time."""
-    keys = "abcdefghijklmnopqrstuvwxyz"
     trips, stalls = [], 0
     deadline = time.monotonic() + max(30.0, 4 * count * opts.interval)
     for index in range(count):
         t0 = time.perf_counter()
-        key = "return" if index % 50 == 49 else keys[index % len(keys)]
-        if opts.input == "real":
-            post_real_key(key)
-            reply = None
-        else:
-            reply = rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+        reply = KEYS.send(typed_key(index))
         trip = (time.perf_counter() - t0) * 1000
         trips.append(trip)
         if trip > 2000 or (isinstance(reply, dict) and reply.get("error")):
@@ -408,12 +373,13 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
-    metric = typing_report.churn_metric("churn" if churn_hz > 0 else "idle", opts.input == "real")
-    SAMPLES.setdefault(metric, []).extend(float(r["contents_ms"]) for r in complete)
+    samples = frame_samples(rows)
+    metric = typing_report.churn_metric("churn" if churn_hz > 0 else "idle", KEYS.real)
+    SAMPLES.setdefault(metric, []).extend(samples)
     entry = {
         "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1),
         "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": dist(trips), "probe_rows": len(rows), "complete": len(complete),
-        "key_to_frame_ms": dist([float(r["contents_ms"]) for r in complete]),
+        "key_to_frame_ms": dist(samples), "key_to_frame_samples_ms": samples,
         "key_to_dispatch_ms": dist([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
         "parsed_to_frame_ms": dist([float(r["contents_ms"]) - float(r["output_parsed_ms"]) for r in complete if r.get("output_parsed_ms")]),
         "hangs": {k: hangs.get(k) for k in ("count", "busy_count", "max_ms", "total_ms", "long_frames", "frames_over_8_3ms", "max_gap_ms")}
@@ -421,7 +387,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
         "over_budget_count": (hangs or {}).get("over_budget_count") if isinstance(hangs, dict) else None,
         "over_budget": (hangs or {}).get("over_budget") if isinstance(hangs, dict) else None,
-        "main_budget": budget,
+        "main_budget": budget, "budget": budget_summary(budget),
         "frames": frames, "sidebar_perf": perf,
     }
     if churn:
@@ -448,9 +414,7 @@ def main():
     global SOCKET, CONFIG
     # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
     # folder, and the reason when the app does not come up. The bench's own environment on top of its defaults.
-    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-    if opts.input != "debug":
-        env["CMUX_NEXT_NO_ACTIVATE"] = None  # a real key needs the app frontmost; injected keys need no focus
+    env = KEYS.launch_env({"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     if opts.task_diagnostics:
         env["CMUX_NEXT_MAIN_TASK_DIAGNOSTICS"] = "1"
     bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
@@ -505,13 +469,12 @@ def main():
             typed_id = by_name.get("typing") or typed
             cli("workspace", typed_id, "focus")
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
-        if opts.input == "real":
-            bring_front(app.pid)
+        KEYS.bring_front(app.pid)
         time.sleep(4)
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
         rows_before_warmup = len(probe_rows())
         type_keys(10)  # warm-up
-        if opts.input == "real" and len(probe_rows()) <= rows_before_warmup:
+        if KEYS.real and len(probe_rows()) <= rows_before_warmup:
             sys.exit("--input real: no key reached the app (not frontmost, or this session has no input grant)")
         for r in range(opts.rounds):
             phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
@@ -529,7 +492,8 @@ def main():
                        "churn_p50_ms": statistics.median(p["key_to_frame_ms"]["p50"] for p in churn),
                        "churn_max_ms": max(p["key_to_frame_ms"]["max"] for p in churn),
                        "churn_hangs": sum((p["hangs"] or {}).get("count") or 0 for p in churn if isinstance(p["hangs"], dict)),
-                       "churn_hang_max_ms": max(((p["hangs"] or {}).get("max_ms") or 0) for p in churn if isinstance(p["hangs"], dict))}
+                       "churn_hang_max_ms": max(((p["hangs"] or {}).get("max_ms") or 0) for p in churn if isinstance(p["hangs"], dict)),
+                       "modes": {opts.input: mode_summary(opts.input, idle, churn)}}
         results["summary"] = summary
         note(f"summary: {json.dumps(summary)}")
         if UNRECORDED:

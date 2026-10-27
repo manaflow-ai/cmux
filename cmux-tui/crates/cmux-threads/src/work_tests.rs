@@ -530,7 +530,8 @@ fn worker_and_class() -> (String, bool) {
     #[cfg(target_os = "linux")]
     let user_initiated = current_nice() == base_nice();
     #[cfg(target_vendor = "apple")]
-    let user_initiated = crate::qos::current() == LiveQos::Class(ThreadQos::UserInitiated);
+    let user_initiated =
+        crate::qos::current() == crate::qos::LiveQos::Class(ThreadQos::UserInitiated);
     #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
     let user_initiated = true;
     (name, user_initiated)

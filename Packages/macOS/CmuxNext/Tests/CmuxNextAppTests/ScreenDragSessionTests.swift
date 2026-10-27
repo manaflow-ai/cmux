@@ -9,7 +9,8 @@ import Testing
 /// A screen tab dragged out of the screen bar hears its events through one input tap intercept that
 /// lives for the drag only (p04-input-015): Escape, the press after a lost release and the app going
 /// inactive return it to its slot, each end runs once, and no end (nor a session the bar drops
-/// mid-drag) leaves an intercept.
+/// mid-drag) leaves an intercept. With feature `pointerFrameDrags` its moves light the sidebar on a
+/// frame interval's first move and once at the frame (p04-input-032).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ScreenDragSessionTests {
     /// How often the session told the bar it ended.
@@ -27,12 +28,13 @@ struct ScreenDragSessionTests {
         appEvents = AppEvents(center: center)
     }
 
-    /// A session for the one screen of a one-screen workspace, from a strip with no tabs.
-    func makeSession(_ ends: Ends) -> ScreenDragSession {
+    /// A session for the one screen of a one-screen workspace, from `strip` (nil: one with no tabs; the session
+    /// holds it weakly, so a test that needs its window keeps it).
+    func makeSession(_ ends: Ends, strip: TabStripView? = nil) -> ScreenDragSession {
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_1", title: "~")])
         let snapshot = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         let workspace = WorkspaceModel(WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [snapshot]))
-        let strip = TabStripView(model: TabStripModel(tabs: []), input: tap)
+        let strip = strip ?? TabStripView(model: TabStripModel(tabs: []), input: tap)
         let session = ScreenDragSession(services: services, screen: ScreenModel(snapshot), daemon: services.daemon,
                                         source: workspace, strip: strip, tabID: CmuxNextTabs.TabID("screen-1"),
                                         appEvents: appEvents)
@@ -75,6 +77,35 @@ struct ScreenDragSessionTests {
         center.post(name: NSApplication.didResignActiveNotification, object: nil)
         #expect(ends.count == 1, "an ended drag ended again")
         withExtendedLifetime(session) {}
+    }
+
+    /// Eight moves in a frame interval light the row under them twice (the first at once, the rest at
+    /// the frame); a drag that ended leaves no move waiting.
+    @Test func aFrameOfMovesHitTestsTheSidebarTwiceAtMost() throws {
+        let frames = PointerFrameTestRig()
+        defer { frames.close() }
+        services.dragFrameInput = frames.coalescers
+        let strip = TabStripView(model: TabStripModel(tabs: []), input: tap)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = strip
+        let session = makeSession(Ends(), strip: strip)
+        session.begin()
+        for step in 1...8 {
+            tap.send(try DragEvents.mouse(.leftMouseDragged, at: CGPoint(x: DragEvents.offScreen.x + CGFloat(step), y: DragEvents.offScreen.y)))
+        }
+        #expect(session.hitTests == 1, "the moves before their frame made \(session.hitTests) hit tests, not 1")
+        frames.frame()
+        #expect(session.hitTests == 2, "the frame interval made \(session.hitTests) hit tests, not 2")
+        for _ in 1...3 { tap.send(try DragEvents.mouse(.leftMouseDragged)) }
+        #expect(session.hitTests == 3, "the next interval's first move did not hit-test at once")
+        #expect(frames.coalescer.hasPending)
+        #expect(tap.send(try DragEvents.key()) == .consume, "Escape went on to a responder")
+        #expect(!frames.coalescer.hasPending, "the ended drag left moves waiting")
+        frames.frame()
+        #expect(session.hitTests == 3, "a waiting move hit-tested after the drag ended")
+        withExtendedLifetime((session, strip, window)) {}
     }
 
     @Test func aSessionDroppedMidDragLeavesNoIntercept() {

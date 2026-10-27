@@ -72,7 +72,7 @@ import Testing
         #expect(queue.waitingHidden == ["covered"])
         #expect(WindowInvariants.problems(launch.windows).isEmpty, "a waiting window is not an open window without a controller")
 
-        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let stand = refs.windows(of: launch.windows).first { $0.id == "visible" }
         #expect(stand?.panes == [VisiblePaneRefs.Pane(key: "window:visible", state: .loading)],
                 "the waiting window that shows holds startup as one loading window until it is built")
