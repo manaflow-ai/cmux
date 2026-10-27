@@ -79,12 +79,21 @@ pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 /// under it is a `server.blocking` site (recorded by default; panics under
 /// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
 /// `cmux_threads::work`.
+///
+/// The thread is registered with the release hang watch for its life; each
+/// request it runs is one scope at its class deadline
+/// (server/request_hang_watch.rs).
 pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
     cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+        let thread = std::thread::current();
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Control,
+            thread.name().unwrap_or("mux-request"),
+        );
         cmux_threads::disallow_blocking();
         f()
     })
