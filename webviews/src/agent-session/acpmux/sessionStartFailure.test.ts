@@ -57,27 +57,31 @@ async function startFixture(previous: boolean) {
 }
 
 for (const previous of [false, true]) {
-  for (const failure of ["rejected", "empty"] as const) {
-    test(`a ${failure} selected harness start never sends to ${previous ? "the previous chat" : "a default harness"}`, async () => {
-      const fixture = await startFixture(previous);
-      const { client, requests } = fixture;
-      try {
-        const start = client.create("claude", undefined, undefined, true);
-        await fixture.requested;
-        const send = client.send("use the selected harness");
-        const settled = Promise.allSettled([start, send]);
-        if (failure === "rejected") fixture.rejectStart(new Error("selected harness failed to start"));
-        else fixture.resolveStart({});
-        const [created, sent] = await settled;
-        expect(created.status).toBe(failure === "rejected" ? "rejected" : "fulfilled");
-        expect(sent.status).toBe("rejected");
-        expect(requests.filter((request) => request.method === "session/new")).toHaveLength(1);
-        expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
-        expect(client.shownSession()?.sessionId).toBe(previous ? fixture.previousSession : undefined);
-      } finally {
-        client.close();
-      }
-    });
+  for (const preflight of [false, true]) {
+    for (const failure of ["rejected", "empty"] as const) {
+      test(`a ${failure} selected harness start never sends to ${previous ? "the previous chat" : "a default harness"}${preflight ? " after the app's start preflight" : ""}`, async () => {
+        const fixture = await startFixture(previous);
+        const { client, requests } = fixture;
+        try {
+          const start = client.create("claude", undefined, undefined, true);
+          await fixture.requested;
+          const send = preflight
+            ? client.ensureSession().then(() => client.send("use the selected harness"))
+            : client.send("use the selected harness");
+          const settled = Promise.allSettled([start, send]);
+          if (failure === "rejected") fixture.rejectStart(new Error("selected harness failed to start"));
+          else fixture.resolveStart({});
+          const [created, sent] = await settled;
+          expect(created.status).toBe(failure === "rejected" ? "rejected" : "fulfilled");
+          expect(sent.status).toBe("rejected");
+          expect(requests.filter((request) => request.method === "session/new")).toHaveLength(1);
+          expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
+          expect(client.shownSession()?.sessionId).toBe(previous ? fixture.previousSession : undefined);
+        } finally {
+          client.close();
+        }
+      });
+    }
   }
 }
 
