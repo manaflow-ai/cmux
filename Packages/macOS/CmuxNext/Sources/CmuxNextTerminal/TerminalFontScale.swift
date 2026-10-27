@@ -93,6 +93,7 @@ nonisolated func ghosttyFontSizeAction(_ userdata: UnsafeMutableRawPointer?, _ a
                                        _ previous: Float, _ current: Float, _ previousAdjusted: Bool, _ currentAdjusted: Bool) {
     // SAFETY: the view's bridge, registered as this callback's userdata (installCallback).
     guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
+    // main-hop-allow: Ghostty calls it on the main thread inside the key's binding action, so the scale applies in the person's turn; only an off-main call hops
     MainDelivery().run {
         let scale = TerminalFontScale.scale(points: Double(current), adjusted: currentAdjusted,
                                             base: GhosttyRuntime.shared.configuredFontSize)

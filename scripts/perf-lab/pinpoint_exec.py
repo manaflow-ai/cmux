@@ -12,7 +12,8 @@ picks a host and never sends a request to the controller: the scheduler alone pl
 T0 > bisect > verify > T1 order, borrowing a waterfall host only far from its next T0) and orders builds (batch tips,
 then tiers, then Pinpoint). One tick:
 
-1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet), pinned to the
+1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet; a field crash
+   signature's group, stability.py's, has no commit range and is never bisected), pinned to the
    group's largest regression (alerts.group_alerts): its story, metric, build config and host class, over the
    commits between the range ends that the group's issue links (alerts.waterfall_sha). Magnitude = the alert's
    delta (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6). A
@@ -354,12 +355,14 @@ class Executor:
     # --- starting bisects ---
 
     def start_bisects(self, report: TickReport | None = None) -> list[int]:
-        """One bisect per new monitored alert group that has none; groups that cannot start yet are reported."""
+        """One bisect per new monitored alert group that has none; groups that cannot start yet are reported. A field
+        crash signature's group is not a lab regression: there is nothing to bisect."""
         report = report or TickReport()
         marks = ",".join("?" * len(START_STATES))
         groups = self._db.execute(
             f"""SELECT g.* FROM alert_groups g WHERE g.state IN ({marks}) AND NOT EXISTS
-                (SELECT 1 FROM jobs j WHERE j.kind = ? AND j.alert_group_id = g.id) ORDER BY g.id""",
+                (SELECT 1 FROM jobs j WHERE j.kind = ? AND j.alert_group_id = g.id) AND NOT EXISTS
+                (SELECT 1 FROM field_signatures f WHERE f.group_id = g.id) ORDER BY g.id""",
             (*START_STATES, JOB_KIND)).fetchall()
         for group in groups:
             try:
