@@ -650,8 +650,9 @@ export function Composer({
       quoteReply(markdown) {
         notTyped();
         if (!field.current?.quoteReply(markdown)) {
-          const typed = field.current?.value() ?? textRef.current;
-          const next = typed.trim() ? typed.trimEnd() + "\n\n" + markdown : markdown;
+          const typed = textRef.current;
+          const next = typed ? typed + "\n\n" + markdown : markdown;
+          textRef.current = next;
           pendingCaret.current = next.length;
           setText(next);
           setCaret(next.length);

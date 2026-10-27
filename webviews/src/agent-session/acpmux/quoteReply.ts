@@ -6,7 +6,12 @@ import { closeHistory } from "@milkdown/kit/prose/history";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
-export function insertReplyQuote(made: Editor, current: EditorView, markdown: string) {
+export function insertReplyQuote(
+  made: Editor,
+  current: EditorView,
+  markdown: string,
+  atCaret = current.hasFocus() && current.state.selection.empty,
+) {
   made.action((ctx) => {
     const quoted = ctx.get(parserCtx)(markdown);
     if (!quoted) return;
@@ -15,11 +20,11 @@ export function insertReplyQuote(made: Editor, current: EditorView, markdown: st
     if (/\n[ \t]*\n$/.test(markdown) && quoted.lastChild?.type !== schema.nodes.paragraph)
       content = content.append(Fragment.from(schema.nodes.paragraph.create()));
     const tr = closeHistory(current.state.tr);
-    if (current.hasFocus() && current.state.selection.empty) {
+    if (atCaret) {
       tr.replaceSelection(new Slice(content, 0, 0));
       // A block insertion splits the paragraph's old tail off after the new reply line.
       const end = tr.selection.$from;
-      if (end.depth === 1 && end.parentOffset === 0 && end.parent.content.size) {
+      if (end.depth > 0 && end.parentOffset === 0 && end.parent.content.size) {
         const before = end.before();
         const reply = tr.doc.resolve(before).nodeBefore;
         if (reply?.type === schema.nodes.paragraph && !reply.content.size)

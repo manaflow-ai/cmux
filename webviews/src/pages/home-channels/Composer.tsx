@@ -244,7 +244,7 @@ export function Composer({
       if (!text || disabledRef.current) return;
       const markdown = quoteMarkdown(text);
       if (!editor.current?.quoteReply(markdown)) {
-        setValue((current) => (current.trim() ? current.trimEnd() + "\n\n" + markdown : markdown));
+        setValue((current) => (current ? current + "\n\n" + markdown : markdown));
         editor.current?.focus();
       }
     };

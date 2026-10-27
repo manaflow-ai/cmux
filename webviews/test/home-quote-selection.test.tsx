@@ -235,3 +235,57 @@ test("a selected draft is retained instead of replaced by the quote", async () =
   expect(content(main).firstElementChild?.textContent).toBe("Keep the whole draft");
   expect(content(main).querySelector("blockquote")?.textContent).toBe("New quote");
 });
+
+for (const draft of ["- before after", "> before after"])
+  test("a quote at a nested caret leaves typing on its own reply line: " + draft, async () => {
+    const doc = installDom();
+    const main = await composer(doc, "lg-main-compose", draft);
+    const editor = editorHandle(main);
+    await act(async () => {
+      editor.focus();
+      editor.writeText("before after", 7, 7);
+    });
+    await quoteAtComposer(main, "Selected message");
+    await act(async () => editor.insertTyped("My reply "));
+    const paragraphs = [...content(main).querySelectorAll("p")].map((node) => node.textContent);
+    expect(paragraphs).toEqual(["before ", "Selected message", "My reply ", "after"]);
+  });
+
+test("two quotes received before Milkdown is ready retain the draft and both quotes", async () => {
+  const doc = installDom();
+  const host = doc.createElement("div");
+  host.className = "lg-main-compose";
+  doc.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
+  act(() =>
+    root.render(
+      <Composer
+        strings={strings}
+        placeholder="Message"
+        label="Message"
+        onSend={async () => true}
+        initialValue={"Draft with spaces  "}
+      />,
+    ),
+  );
+  const editor = editorHandle(host);
+  // The imperative handle exists, while Milkdown's async editor has not mounted.
+  expect(content(host)).toBeNull();
+  act(() => {
+    host
+      .querySelector(".hc-composer")!
+      .dispatchEvent(new dom!.window.CustomEvent(QUOTE_EVENT, { detail: "First quote" }));
+    host
+      .querySelector(".hc-composer")!
+      .dispatchEvent(new dom!.window.CustomEvent(QUOTE_EVENT, { detail: "Second quote" }));
+  });
+  await act(async () => {});
+  expect(content(host).firstElementChild?.textContent).toBe("Draft with spaces  ");
+  expect([...content(host).querySelectorAll("blockquote")].map((node) => node.textContent)).toEqual([
+    "First quote",
+    "Second quote",
+  ]);
+  await act(async () => editor.insertTyped("Reply"));
+  expect(content(host).lastElementChild?.textContent).toBe("Reply");
+});

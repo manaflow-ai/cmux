@@ -33,22 +33,22 @@ export default agentPaneEntry({
   widths: { narrow: 400, normal: 760, wide: 1040 },
   covers: ["agent-session/acpmux/quoteReply.ts", "agent-session/acpmux/Composer.tsx"],
   variants: {
-    draft: { ready: { draft }, snapshot: chat([]) },
+    draft: { ready: { transport: "mock", draft }, snapshot: chat([]) },
     append: {
       note: "A transcript quote follows the draft; the empty reply line takes the caret.",
-      ready: { draft },
+      ready: { transport: "mock", draft },
       snapshot: chat([]),
       play: (ctx) => quote(ctx),
     },
     caret: {
       note: "A focused caret inserts the quote in the draft and preserves both text parts.",
-      ready: { draft },
+      ready: { transport: "mock", draft },
       snapshot: chat([]),
       play: (ctx) => quote(ctx, true),
     },
     multiple: {
       note: "Two transcript quotes stay in the order they were picked, after the draft.",
-      ready: { draft },
+      ready: { transport: "mock", draft },
       snapshot: chat([]),
       play: (ctx) => quote(ctx, false, true),
     },

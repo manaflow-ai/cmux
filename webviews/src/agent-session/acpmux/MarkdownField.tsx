@@ -365,6 +365,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
   const remark = useRef<RemarkParser | undefined>(undefined);
@@ -778,6 +779,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
+        for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote, false);
         if (pendingFocus.current) view.current.focus();
         window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
@@ -877,8 +879,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         quoteReply: (markdown) => {
           const made = editor.current,
             current = view.current;
-          if (!made || !current) return false;
           refocus.current = null;
+          if (!made || !current) {
+            pendingQuotes.current.push(markdown);
+            pendingFocus.current = true;
+            return true;
+          }
           insertReplyQuote(made, current, markdown);
           return true;
         },
