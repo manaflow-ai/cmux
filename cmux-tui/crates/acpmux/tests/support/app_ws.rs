@@ -86,6 +86,12 @@ impl AppWs {
 
     /// The response to request `id`; anything else in between is skipped.
     pub async fn answer(&mut self, id: i64) -> Value {
+        self.answers_until(id).await.pop().unwrap_or_default()
+    }
+
+    /// Every response up to and including the one to request `id`, in the order they came.
+    pub async fn answers_until(&mut self, id: i64) -> Vec<Value> {
+        let mut answers = Vec::new();
         loop {
             let frame = tokio::time::timeout(Duration::from_secs(20), self.ws.next())
                 .await
@@ -94,8 +100,12 @@ impl AppWs {
                 .unwrap();
             if let Message::Text(t) = frame {
                 let v: Value = serde_json::from_str(&t).unwrap();
-                if v.get("id") == Some(&json!(id)) {
-                    return v;
+                let done = v.get("id") == Some(&json!(id));
+                if v.get("id").is_some() && v.get("method").is_none() {
+                    answers.push(v);
+                }
+                if done {
+                    return answers;
                 }
             }
         }

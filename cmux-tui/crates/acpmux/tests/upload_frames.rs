@@ -227,13 +227,15 @@ async fn a_finish_right_behind_its_frames_sees_every_byte() {
         let finish = json!({"sessionId": session, "uploadId": upload, "fileName": name,
             "size": file.len(), "sha256": sha(&file)});
         let done = c.post(method::MUX_FILE_PUT_FINISH, finish).await;
-        let done = c.answer(done).await;
+        // Every frame is answered before the finish, which then has all the bytes.
+        let answers = c.answers_until(done).await;
+        let order: Vec<_> = answers.iter().map(|a| a["id"].clone()).collect();
+        let mut want: Vec<_> = ids.iter().map(|id| json!(id)).collect();
+        want.push(json!(done));
+        assert_eq!(order, want, "{answers:?}");
+        let done = answers.last().unwrap();
         let path = done["result"]["path"].as_str().unwrap_or_else(|| panic!("{round}: {done}"));
         assert_eq!(sha(&std::fs::read(path).unwrap()), sha(&file));
-        for id in ids {
-            let a = c.answer(id).await;
-            assert!(a.get("error").is_none(), "{a}");
-        }
     }
 }
 
