@@ -162,10 +162,19 @@ pub(super) struct Pooled {
 }
 
 impl Pooled {
+    /// MDM's off as it has seen it: the earlier of its start's read and its claim's (`started`,
+    /// `claimed_under`). A chat that takes it judges it under this too (`reach_or_start`).
+    pub(in crate::hub) fn lived_off(&self) -> crate::hub::full_access_bound::OffLatch {
+        match &self.claimed_under {
+            Some(claim) => self.started.merge(claim),
+            None => self.started.clone(),
+        }
+    }
+
     /// Whether MDM's off held or began since its start or its claim began, though an unset
-    /// followed (`started`, `claimed_under`).
+    /// followed (`lived_off`).
     fn lived_through_off(&self) -> bool {
-        self.started.off() || self.claimed_under.as_ref().is_some_and(|c| c.off())
+        self.lived_off().off()
     }
 
     /// Whether its harness reported full access while MDM forced it off (`reported_off`), kept
@@ -638,7 +647,11 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Option<String> {
-        // MDM's off comes and goes as the claim begins (reviews 120 and 122 of #23322).
+        // MDM's off as this claim begins: its one read, first, before any await or pool lock
+        // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
+        // of #23322).
+        let off = self.off_latch();
+        // MDM's off comes and goes as the claim begins (reviews 120 and 122).
         #[cfg(debug_assertions)]
         self.off_blip_seam();
         // REMOTE-FLOOR v3: a remote-origin chain is never served.
@@ -656,9 +669,6 @@ impl Hub {
         {
             return None;
         }
-        // MDM's off as this claim begins: its one read, before any pool lock (review 76), kept with
-        // the entry it claims (`Pooled::claimed_under`, review 121 of #23322).
-        let off = self.off_latch();
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);

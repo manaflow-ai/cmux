@@ -418,6 +418,15 @@ impl OffLatch {
         self.was_off || *self.offs.borrow() != self.seen
     }
 
+    /// The earlier of two reads (`self` and `other`, of one daemon): on whenever either is. The
+    /// off count only grows, so the read with the lower count saw every off the later one saw. A
+    /// pooled entry's start and claim reads join the chat's that takes it (review 122 of #23322).
+    pub(super) fn merge(&self, other: &OffLatch) -> OffLatch {
+        let seen = self.seen.min(other.seen);
+        let was_off = (self.seen == seen && self.was_off) || (other.seen == seen && other.was_off);
+        OffLatch { offs: self.offs.clone(), seen, was_off }
+    }
+
     /// Whether a full-access mode may run for this operation: the settings file under MDM's off
     /// as the operation saw it (`Hub::full_access_allowed`).
     pub(super) fn allows_full_access(&self) -> bool {

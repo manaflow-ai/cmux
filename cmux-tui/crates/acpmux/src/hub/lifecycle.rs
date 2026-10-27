@@ -589,6 +589,10 @@ impl Hub {
                 return Err(e);
             }
             let reported_off = pooled.reported_off();
+            // The chat judges the entry under MDM's off as the entry saw it too, from its start
+            // and its claim on (review 122 of #23322): an off it lived through holds for the take,
+            // the report check and the cap, though an unset followed.
+            let off = off.merge(&pooled.lived_off());
             match self.adopt_pooled(session, pooled).await {
                 // MDM forces full access off (#23322, reviews 71 and 77): a report of full access
                 // held past the take's check may not have reached the chat when its start is

@@ -105,3 +105,17 @@ async fn a_pooled_report_holds_an_off_that_came_and_went_after_its_first_read() 
         "a report of full access was not kept though MDM's off came and went as it was read"
     );
 }
+
+/// Review 122: two reads merged hold an off either one saw, whichever was taken first.
+#[tokio::test]
+async fn merged_reads_hold_an_off_either_one_saw() {
+    let hub = hub_on(&[], &[]);
+    let first = hub.off_latch();
+    came_and_went(&hub);
+    let second = hub.off_latch();
+    assert!(!second.off(), "a read after the unset sees no off");
+    assert!(second.merge(&first).off(), "the merge lost the off the earlier read saw");
+    assert!(first.merge(&second).off(), "the merge lost the off the earlier read saw");
+    let quiet = (hub.off_latch(), hub.off_latch());
+    assert!(!quiet.0.merge(&quiet.1).off(), "two reads with no off between them merged to an off");
+}
