@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 import CmuxNextDaemonService
 import Foundation
@@ -11,11 +12,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffRemoteWiringTests {
-    /// The app's services with no key window: a test runs with no `NSApp` to ask.
+    /// The app's services, with the shared application they read (`NSApp`) made first.
     private static func services() -> AppServices {
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        services.keyWindowSource = { nil }
-        return services
+        _ = NSApplication.shared
+        return AppServices(environment: AppEnvironment.current([:]))
     }
 
     /// The selected chat's session link, set by each step of a test.
