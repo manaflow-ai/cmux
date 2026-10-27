@@ -17,6 +17,7 @@ import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
+import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -95,7 +96,7 @@ import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
+import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -382,7 +383,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
-import { AcpmuxRestartGate, offersAcpmuxRestart } from "./hostRetry";
+import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
@@ -473,6 +474,8 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
+import { SandboxRunView } from "./SandboxRunView";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -714,7 +717,7 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -1859,12 +1862,9 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const WARM_VIEWPORTS = 1;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
-/// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
-/// transcript this long before it) and that stays within about a line of it is not a scroll up.
-/// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
-/// the latest line, which stopped the chat following for good (cx-02st5).
+/// How long a scroll event can be attributed to the reader's most recent input. Expiring this
+/// window never changes the reader's follow choice; it only distinguishes subsequent events.
 const READER_SCROLL_MS = 1000;
-const STRAY_SCROLL_PX = 24;
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
 /// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
@@ -2138,6 +2138,8 @@ export function VirtualTranscript({
     onFollowingChange?.(next);
     setFollowing(next);
   };
+  const followRef = useRef(follow);
+  followRef.current = follow;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
@@ -2659,11 +2661,11 @@ export function VirtualTranscript({
   /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
   /// the view stops following, and the commit that follows (from an event or a layout effect,
   /// before the frame paints) drops the lift without moving the offset by it.
-  const unlift = () => {
+  const unlift = useCallback(() => {
     if (!appliedLift.current) return;
     appliedLift.current = 0;
-    follow(false);
-  };
+    followRef.current(false);
+  }, []);
   const [, roomTaken] = useReducer((count: number) => count + 1, 0);
   /// Gives the room under the last row the stack's height again, at once, before Jump to latest
   /// follows again (`room` below).
@@ -2689,9 +2691,6 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
-  /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
-  const strayFrom = (top: number, latest: number) =>
-    latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -2980,7 +2979,7 @@ export function VirtualTranscript({
       scrollPacer.current?.cancel();
       setScrollAt(nextTop, delta || nextTop - scrollRef.current.top);
     },
-    [layout, rows],
+    [layout, rows, unlift],
   );
   useLayoutEffect(() => {
     const id = pendingFocus.current;
@@ -3149,18 +3148,13 @@ export function VirtualTranscript({
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
       const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
-      // An offset that has not moved since it was recorded was at the latest row if it was
-      // then; a shorter viewport alone would otherwise read as scrolled up.
-      const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
-      // The reader scrolled up and its scroll event has not come yet: WebKit moves the offset with
-      // the wheel and reports it a frame later, and a snapshot that lands between them put the view
-      // back at the latest row. A move up past a stray's (or past the deadband, right after the
-      // reader's own input) is theirs, so the view stops following now.
+      // A reader's move can reach the live offset before its scroll event. Layout changes alone
+      // never release or reacquire follow; the input window only identifies this event race.
       const readerLeft =
         followingRef.current &&
         !clamped &&
-        scrolledTo.current.top - live >
-          (performance.now() - readerAt.current <= READER_SCROLL_MS ? FOLLOW_BOTTOM_DEADBAND_PX : STRAY_SCROLL_PX);
+        performance.now() - readerAt.current <= READER_SCROLL_MS &&
+        scrolledTo.current.top - live > FOLLOW_BOTTOM_DEADBAND_PX;
       if (readerLeft) follow(false);
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
       // movement for this pass and mark the view away from the latest row; otherwise the stored
@@ -3168,14 +3162,9 @@ export function VirtualTranscript({
       // layout-only corrections use the stored offset because WebKit may already include a resize
       // adjustment in `live`.
       const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);
-      const atLatest = readerLeft
-        ? false
-        : followingRef.current
-          ? true
-          : clamped || unmoved
-            ? scrolledTo.current.atLatest
-            : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
-              (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
+      // Following is reader intent, not proximity. A token must not recapture a parked reader
+      // just because the last recorded offset remains inside the bottom deadband.
+      const atLatest = followingRef.current;
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
@@ -3207,7 +3196,13 @@ export function VirtualTranscript({
           liveTop: top,
           anchorTop: top,
         });
-        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) node.scrollTop = nextTop;
+        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
+          node.scrollTop = nextTop;
+          // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
+          // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+          scrollPacer.current?.cancel();
+          setScrollAt(node.scrollTop);
+        }
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -3273,7 +3268,7 @@ export function VirtualTranscript({
     floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
-      scrolledTo.current = scrollPosition(node, layout.totalHeight);
+      scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
@@ -3658,17 +3653,14 @@ export function VirtualTranscript({
     const measured = scrollPosition(node, layout.totalHeight);
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
-    const recentUp = performance.now() - readerAt.current <= READER_SCROLL_MS && next < was.top - 0.5;
-    scrolledTo.current = recentUp ? { ...measured, atLatest: false } : measured;
+    const movedUp = next < was.top - 0.5;
+    const recentUp = !programmatic && movedUp;
+    const readerReachedBottom = !programmatic && next > was.top + 0.5 && measured.atLatest;
+    scrolledTo.current = {
+      top: next,
+      atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
+    };
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-    if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
-      // Not the reader's scroll: the view keeps following the reply.
-      scrolledTo.current = { top: latest, atLatest: true };
-      seenAnchor.current = null;
-      node.scrollTop = latest;
-      followTrace.set(latest);
-      return;
-    }
     if (was.atLatest && !scrolledTo.current.atLatest)
       followTrace.stopped({
         top: next,
@@ -3744,24 +3736,53 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
+    const followIntent = (next: boolean) => followRef.current(next);
+    let dragging = false;
+    let pointerY: number | undefined;
+    let touchY: number | undefined;
     const reader = (event?: Event) => {
-      readerAt.current = performance.now();
-      followTrace.input();
-      // Release the follow intent synchronously when a reader starts moving up. The browser can
-      // deliver the wheel before its scroll event; a streamed snapshot in that gap must not pin
-      // the view back to the bottom. Capture the event so nested rows cannot commit first.
+      const pointer = event?.type === "pointermove" ? (event as PointerEvent) : undefined;
+      const touch = event?.type === "touchmove" ? (event as TouchEvent).touches[0] : undefined;
       const movingUp =
         event !== undefined &&
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
-          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
-      if (movingUp) follow(false);
+          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)) ||
+          (pointer !== undefined &&
+            pointerY !== undefined &&
+            (pointer.pointerType === "touch" ? pointer.clientY > pointerY : pointer.clientY < pointerY)) ||
+          (touch !== undefined && touchY !== undefined && touch.clientY > touchY));
+      if (event?.type === "pointerdown") {
+        dragging = true;
+        pointerY = (event as PointerEvent).clientY;
+      } else if (pointer) pointerY = pointer.clientY;
+      if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
+      else if (touch) touchY = touch.clientY;
+      readerAt.current = performance.now();
+      followTrace.input();
+      // Release the follow intent synchronously when a reader starts moving up. The browser can
+      // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
+      // the view back to the bottom. Capture the event so nested rows cannot commit first.
+      if (movingUp) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
-        follow(false);
+        followIntent(false);
       }
     };
-    const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
+    // A long scrollbar drag/touch gesture remains reader input after its initial press expires.
+    // Track a drag outside the scroller too, without treating unrelated pointer motion as input.
+    const readerMove = (event: PointerEvent) => {
+      if (!event.buttons) dragging = false;
+      if (dragging) reader(event);
+    };
+    const readerReleased = () => {
+      dragging = false;
+    };
+    const ownerDocument = node?.ownerDocument;
+    ownerDocument?.addEventListener("pointermove", readerMove, { capture: true, passive: true });
+    ownerDocument?.addEventListener("pointerup", readerReleased, { capture: true });
+    ownerDocument?.addEventListener("pointercancel", readerReleased, { capture: true });
+    const inputs = ["wheel", "pointerdown", "touchstart", "touchmove", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
@@ -3833,6 +3854,9 @@ export function VirtualTranscript({
       wheelGlide.current = undefined;
       stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
+      ownerDocument?.removeEventListener("pointermove", readerMove, { capture: true });
+      ownerDocument?.removeEventListener("pointerup", readerReleased, { capture: true });
+      ownerDocument?.removeEventListener("pointercancel", readerReleased, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
@@ -4328,6 +4352,23 @@ function AcpmuxPane() {
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// Labs preview features are off until the host explicitly enables them.
   const [preview, setPreview] = useState(false);
+  /// A new chat's Run as (preview, hq#3367): Persistent is the chat as before; Sandboxed runs the
+  /// first message once on a throwaway Cloud VM and shows its receipt instead. The host holds this
+  /// tab's one Sandboxed send and the page renders what it says (sandboxRun.ts SandboxTab). A refused
+  /// send's prompt goes back to the composer, or waits for it (`heldBack`).
+  /// A Sandboxed refusal moved a draft into the chat composer: the chat view stays (with that
+  /// composer, not the New Tab page that would remount without it) until a chat starts here or the
+  /// host hands the page another new chat.
+  const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
+  const [sandbox] = useState(
+    () =>
+      new SandboxTab(callNative, (text) => {
+        setSandboxDraftMoved(true);
+        if (composerHandle.current) composerHandle.current.restore(text, []);
+        else heldBack.current = [...(heldBack.current ?? []), { text, attachments: [] }];
+      }),
+  );
+  useSyncExternalStore(sandbox.subscribe, sandbox.snapshot);
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
@@ -5816,6 +5857,72 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  /// Run as is a new chat's choice, behind Labs, in a pane with tabs (not the floating chat).
+  /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
+  /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
+  /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
+  /// chat view, so a send picked before that could only be refused, its prompt with it.
+  const sandboxOffered =
+    preview &&
+    sandbox.checked &&
+    freshChat &&
+    !snapshot.sessionId &&
+    !snapshot.summary?.sessionId &&
+    snapshot.switching === undefined &&
+    sessionSelection?.state !== "pending" &&
+    surface !== "quick";
+  /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
+  /// that may hide a live Run) or a refusal before any Run.
+  const sandboxView = sandbox.view();
+  /// The tab's run is its result while no chat started here: the chat view shows it, with no
+  /// composer, so nothing here can start a chat over it or send a second.
+  const sandboxHoldsChat = !snapshot.sessionId && sandboxView !== undefined && !sandboxRetryable(sandboxView);
+  const sandboxing = sandboxOffered && !sandbox.spent() && sandbox.mode === "sandboxed";
+  /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened, the
+  /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
+  const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
+  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : preview ? "unavailable_now" : "labs_off";
+  const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
+  /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
+  /// code (the prompt stays where it was typed); false: nothing was sent.
+  const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
+    sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
+  /// place of the chat until Back. Whatever Labs says now: a paid run's receipt stays reachable.
+  const sandboxElsewhere =
+    snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
+  const [sandboxViewing, setSandboxViewing] = useState(false);
+  /// What only the composer held (shell mode, its line, attachments) while the receipt took its
+  /// place: Back puts it back. It belongs to that chat, so another chat or a new one drops it.
+  const sandboxWake = useRef<ComposerWake | undefined>(undefined);
+  /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
+  const newTabSandboxSent = useRef(false);
+  useEffect(() => {
+    setSandboxDraftMoved(false);
+    setSandboxViewing(false);
+    sandboxWake.current = undefined;
+  }, [snapshot.sessionId, newTabGeneration]);
+  /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
+  /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
+  useEffect(() => {
+    if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
+  }, [preview, sandbox]);
+  const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
+  /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
+  const sandboxCard =
+    viewedSandbox !== undefined ||
+    (sandboxView !== undefined && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed"));
+  /// The newest read didn't answer and no card says so: a notice does (the chat's, or the New Tab
+  /// page's, where Sandboxed waits for a read that answers).
+  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard && (preview || sandboxView !== undefined);
+  const sandboxUnchecked = (
+    <output className="acpmux-switch-notice acpmux-folder-choice">
+      <span>{t("sandbox.unchecked")}</span>{" "}
+      <button type="button" className="acpmux-folder-choice-button" onClick={() => void sandbox.read()}>
+        {t("sandbox.checkAgain")}
+      </button>
+    </output>
+  );
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
@@ -5950,8 +6057,11 @@ function AcpmuxPane() {
     inspectorSummary !== undefined &&
     !inspectorSummary.peer &&
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
-  // Save in its Environment keeps the machine and folder as a New Tab environment.
-  const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
+  // Save in its Environment keeps the machine and folder as a New Tab environment, only for a chat
+  // in a project (a scratch folder has none).
+  const environmentDraft = quick
+    ? undefined
+    : environmentToSave(inspectorSummary, snapshot.peerKinds, githubRepository);
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
@@ -6001,8 +6111,8 @@ function AcpmuxPane() {
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
-    // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
-    // this Mac.
+    // The project opens in the Files tree as a tab right of the chat (AgentBesidePlacement); a remote
+    // or cloud chat's folders are not on this Mac.
     onOpenFolder:
       quick || !inspectorLocal
         ? undefined
@@ -6397,9 +6507,13 @@ function AcpmuxPane() {
       holdWebSwap(
         () =>
           directClient.current?.swapHold() ||
-          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null),
+          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length
+            ? "composer.send-untaken"
+            : null) ||
+          // A Sandboxed send runs: the reload waits for it (sandboxRun.ts SandboxTab.busy, bounded).
+          (sandbox.busy() ? "sandbox.running" : null),
       ),
-    [startingSends],
+    [startingSends, sandbox],
   );
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
@@ -6450,6 +6564,9 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  /// A daemon/socket is recovering. While true the old error is retained for diagnostics but never
+  /// painted as an alert; a successful client clears it, and a non-retryable refusal remains red.
+  const [hostRetrying, setHostRetrying] = useState(false);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
@@ -6929,6 +7046,7 @@ function AcpmuxPane() {
           machineName?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
+          sandboxState?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -6950,6 +7068,11 @@ function AcpmuxPane() {
                 (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
           );
         setHandshaken(true);
+        // After a reload (a web update that went anyway, a crash) the host still holds this tab's
+        // Sandboxed send (the host holds it): read at each handshake (a reconnect too) and shown
+        // whatever Labs says now, so a paid run's receipt stays reachable (sandboxRun.ts SandboxTab.read).
+        // An app that doesn't answer `sandbox.state` says nothing of it: nothing is read.
+        if (host.sandboxState === true) void sandbox.read();
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
         for (const run of pendingSubmits.current.splice(0)) run();
@@ -7029,6 +7152,7 @@ function AcpmuxPane() {
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
+          setHostRetrying(false);
           return;
         }
         // A new chat in mock mode starts without a session too, as against a real daemon.
@@ -7078,6 +7202,7 @@ function AcpmuxPane() {
             setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
+            setHostRetrying(true);
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
@@ -7106,6 +7231,7 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
+        setHostRetrying(false);
         setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
@@ -7582,14 +7708,36 @@ function AcpmuxPane() {
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": async ({ review }) => {
-            const receipt = await client.startHandoff(review as HandoffReviewInput);
-            const source = client.handoff.state.record?.source.sessionId;
-            const target = receipt?.targetSessionId;
-            if (!target || !source || client.selectedSession !== target) return receipt;
-            if (await openOwnTab(target)) {
-              if (client.selectedSession === target) await persistSession(await client.select(source));
-            } else await persistSession(target);
-            return receipt;
+            // Capture the source before starting: a failed target start must return to the
+            // conversation that the person forked, rather than leaving the unprompted target
+            // selected in this pane. The source remains a live daemon session throughout.
+            const handoff = client.handoff.state.record;
+            const source = handoff?.source.sessionId;
+            const target = handoff?.target.sessionId;
+            const handoffId = handoff?.handoffId;
+            const selectionToken = client.selectionToken;
+            try {
+              const receipt = await client.startHandoff(review as HandoffReviewInput);
+              const startedTarget = receipt?.targetSessionId;
+              if (!startedTarget || !source || client.selectedSession !== startedTarget) return receipt;
+              if (await openOwnTab(startedTarget)) {
+                if (client.selectedSession === startedTarget) await persistSession(await client.select(source));
+              } else await persistSession(startedTarget);
+              return receipt;
+            } catch (error) {
+              await restoreForkSource({
+                source,
+                target,
+                handoffId,
+                selectionToken,
+                currentSelectionToken: () => client.selectionToken,
+                currentHandoffId: () => client.handoff.state.record?.handoffId,
+                selectedSession: () => client.selectedSession,
+                select: (id) => client.select(id),
+                persist: (id) => persistSession(id),
+              }).catch(() => undefined);
+              throw error;
+            }
           },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
@@ -7624,7 +7772,10 @@ function AcpmuxPane() {
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
           // (never in view, or a subagent's view open) so the chat's kept anchor stands.
+          // A quit asks this (an update's relaunch too): the typed draft reaches the host first, waited
+          // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async () => {
+            await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -7740,6 +7891,7 @@ function AcpmuxPane() {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           setHostError(errorMessage(error) || String(error));
+          setHostRetrying(hostIsReconnecting(error));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
           // Another binary's daemon on this app's socket: the card offers Restart acpmux.
@@ -7768,6 +7920,7 @@ function AcpmuxPane() {
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
+      setHostRetrying(true);
       void connectHost();
     };
     cancelRetry.current = () => {
@@ -7792,6 +7945,7 @@ function AcpmuxPane() {
       setStartModeSource(undefined);
       retryHost.current = undefined;
       cancelRetry.current = undefined;
+      setHostRetrying(false);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -7801,7 +7955,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate]);
+  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -8200,6 +8354,12 @@ function AcpmuxPane() {
   // chat view's error card with Retry shows, as before.
   const showNewTab =
     newTab !== undefined &&
+    // The tab's Sandboxed result shows in the chat view (SandboxRunView). So does a draft a
+    // Sandboxed refusal moved from the New Tab page into the chat composer: going back would remount
+    // the page without it. A host that couldn't be read leaves the page as it is (its draft with it):
+    // Sandboxed isn't offered until a read answers, and the chat view offers Check again.
+    sandboxView === undefined &&
+    !sandboxDraftMoved &&
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
@@ -8352,11 +8512,12 @@ function AcpmuxPane() {
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
     (text: string) => {
-      postUnsentDraft(text);
+      const sent = postUnsentDraft(text);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
       newChatPrewarm.typed(text, target);
+      return sent;
     },
     [newChatPrewarm],
   );
@@ -8955,6 +9116,33 @@ function AcpmuxPane() {
             </button>
           </output>
         </Notice>
+        {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
+            offered here. */}
+        {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
+            run the tab last knew stays in view. With nothing known, Labs only (without it there is no
+            Sandboxed send to lose); a card in the chat view has its own Check again. */}
+        <Notice id="sandbox-unchecked" tier="status" when={sandboxUncheckedNotice}>
+          {sandboxUnchecked}
+        </Notice>
+        <Notice id="sandbox-elsewhere" tier="status" when={sandboxElsewhere && !sandboxHoldsChat}>
+          <output className="acpmux-switch-notice acpmux-folder-choice">
+            <span>
+              {t(sandboxElsewhere?.state === "running" ? "sandbox.elsewhereRunning" : "sandbox.elsewhereDone")}
+            </span>{" "}
+            <button
+              type="button"
+              className="acpmux-folder-choice-button"
+              onClick={() => {
+                // The receipt takes the composer's place: what only the composer holds (shell
+                // mode, its line, attachments) comes back with it on Back.
+                sandboxWake.current = composerHandle.current?.wakeState();
+                setSandboxViewing(true);
+              }}
+            >
+              {t("sandbox.show")}
+            </button>
+          </output>
+        </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
         {trayPlacement === "tray" && trayNode}
@@ -9030,6 +9218,22 @@ function AcpmuxPane() {
               return true;
             }}
             onSend={(text, chips, steer) => {
+              // A Sandboxed new chat (preview): the message runs once on a throwaway VM, through the
+              // host, and the chat shows its receipt; no acpmux chat starts.
+              // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
+              // the prompt); a composer kept for a refused draft sends as Persistent once picked.
+              if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              if (sandboxPickedNotOffered) {
+                sandbox.refuse(text, sandboxNotNow);
+                return false;
+              }
+              if (sandboxing) {
+                const started = startSandbox(text, chips?.length ?? 0, composerSnapshot.summary?.harness);
+                if (typeof started !== "string") return started;
+                // Refused here: the chat view says why and the composer keeps the prompt.
+                sandbox.refuse(text, started);
+                return false;
+              }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
               // Shell mode's chips carry their commands' output as it is now.
@@ -9228,6 +9432,7 @@ function AcpmuxPane() {
             }
             localName={machineName}
             environments={preview}
+            {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
               canMove
                 ? () =>
@@ -9277,9 +9482,14 @@ function AcpmuxPane() {
     )
   );
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostError}>
+    <Notice
+      id="host-error"
+      tier={hostRetrying || restartingAcpmux ? "status" : "error"}
+      when={hostError || hostRetrying}
+    >
       <HostError
         message={hostError ?? ""}
+        reconnecting={hostRetrying || restartingAcpmux}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         restarting={restartingAcpmux}
@@ -9443,14 +9653,22 @@ function AcpmuxPane() {
   const pane = !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
-      <section ref={setShell} className="acpmux-shell" aria-busy="true" />
+      <section
+        ref={setShell}
+        className="acpmux-shell"
+        data-tab-row={inTabRow ? "" : undefined}
+        aria-busy="true"
+        style={inTabRow ? tabRowStyle(tabRow) : undefined}
+      />
     </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>
       <section
         ref={setShell}
         className="acpmux-shell"
+        data-tab-row={inTabRow ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+        style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
         <div
           className="acpmux-main"
@@ -9513,6 +9731,34 @@ function AcpmuxPane() {
               }}
               key={newTabGeneration}
               environments={preview}
+              // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+              onLeaveDraft={(text, attachments) => {
+                // A Sandboxed send from the page already took its prompt (or held it back).
+                const handed = newTabSandboxSent.current;
+                newTabSandboxSent.current = false;
+                const view = sandbox.view();
+                if (handed || !view || sandboxRetryable(view)) return;
+                heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
+                setSandboxDraftMoved(true);
+              }}
+              {...(sandboxOffered || sandboxPickedNotOffered
+                ? {
+                    runMode: sandboxModeRows,
+                    // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
+                    // the prompt and attachments put back in its composer.
+                    onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
+                      const started = sandboxPickedNotOffered
+                        ? sandboxNotNow
+                        : startSandbox(text, attachments.length, harness);
+                      if (started !== false) newTabSandboxSent.current = true;
+                      if (typeof started !== "string") return started;
+                      heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+                      setSandboxDraftMoved(true);
+                      sandbox.refuse(text, started);
+                      return true;
+                    },
+                  }
+                : {})}
               onConnect={connectMachine}
               onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
@@ -9525,7 +9771,12 @@ function AcpmuxPane() {
               upload={uploadFiles}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={<DictationNotice dictation={dictation} />}
+              notice={
+                <>
+                  <DictationNotice dictation={dictation} />
+                  {sandboxUncheckedNotice && sandboxUnchecked}
+                </>
+              }
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
@@ -9768,7 +10019,20 @@ function AcpmuxPane() {
                     {snapshot.handoff.error}
                   </p>
                 )}
-                {reviewing && handoff && snapshot.handoff ? (
+                {viewedSandbox ? (
+                  // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
+                  // (its composer is hidden while it does).
+                  <SandboxRunView
+                    run={viewedSandbox}
+                    onCheckAgain={() => void sandbox.read()}
+                    unread={sandbox.unread}
+                    onBack={() => {
+                      pendingWake.current = sandboxWake.current ?? pendingWake.current;
+                      sandboxWake.current = undefined;
+                      setSandboxViewing(false);
+                    }}
+                  />
+                ) : reviewing && handoff && snapshot.handoff ? (
                   <HandoffReviewMessage
                     key={`${handoff.handoffId}:${reviewReload}`}
                     record={handoff}
@@ -9795,6 +10059,14 @@ function AcpmuxPane() {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
+                ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
+                  <SandboxRunView
+                    run={sandboxView}
+                    onCheckAgain={() => void sandbox.read()}
+                    unread={sandbox.unread}
+                    // Sandboxed can't run here now: the person says how the message goes instead.
+                    {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
+                  />
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
@@ -9853,7 +10125,8 @@ function AcpmuxPane() {
               <div ref={setDock} className="acpmux-dock">
                 {asks}
                 {/* Between the hero and the docked composer. */}
-                {freshView && (
+                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out. */}
+                {freshView && !sandboxHoldsChat && !viewedSandbox && (
                   <div className="acpmux-home-area">
                     <HomeLists
                       sessions={snapshot.sessions}
@@ -9870,7 +10143,8 @@ function AcpmuxPane() {
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
                 />
-                {composer}
+                {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
+                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
             </>
           )}

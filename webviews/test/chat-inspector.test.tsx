@@ -204,13 +204,12 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
 
-  // Environment: this Mac by its name, never "This computer"; the folder with its parent
-  // home-abbreviated and its full path on hover; the branch.
+  // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
+  // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toContain("atlas-web");
-  expect(rows[1]!.textContent).toContain("~/src");
+  expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
@@ -390,10 +389,10 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   expect(inspectorChatShift(1600, 320)).toBe(0);
   // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
   expect(inspectorChatShift(1200, 320)).toBe(111);
-  // The left gutter keeps the thread rail's room (threadMinimap/model.ts MIN_GUTTER): in a 1100px
-  // pane the column would have to move 146px out of a 190px gutter, onto the rail, so nothing moves.
-  expect(inspectorChatShift(1100, 320)).toBe(0);
-  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
+  // The rail's 36px box may overlap the text by 8px, so the usable gutter is 28px. In a 1100px
+  // pane the column moves by all 146px it lacks and leaves 44px for the rail.
+  expect(inspectorChatShift(1100, 320)).toBe(146);
+  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 28px.
   expect(inspectorChatShift(1140, 320)).toBe(126);
   // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
   // lacks 146px, and the form moves left by all of it, keeping 44px.
