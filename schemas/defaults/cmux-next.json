@@ -642,6 +642,7 @@
     "setting.sidebar.hoverCards.sections.waiting": true,
     "setting.sidebar.minimal": false,
     "setting.sidebar.minimalMode": "off",
+    "setting.sidebar.noFade": false,
     "setting.sidebar.nowPlaying.enabled": false,
     "setting.sidebar.nowPlaying.otherApps": false,
     "setting.sidebar.numbering": "allItems",
