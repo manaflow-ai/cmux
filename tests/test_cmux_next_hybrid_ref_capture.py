@@ -339,6 +339,19 @@ class Have(unittest.TestCase):
         self.assertIsInstance(result, cap.LookupFailed)
         self.assertEqual(sleeps, [15.0, 30.0], "15 + 30, then 60 would pass 100")
         self.assertLessEqual(sum(sleeps), 100)
+def shortest_minutes(timeout: int | str) -> int:
+    """The shortest limit a job's timeout-minutes can resolve to.
+
+    A plain number is itself. An expression (`${{ cond && 90 || 60 }}`, the
+    hosted-runner branch of cmux-scheme-compile) is bounded by its smallest
+    numeric branch, so a check against it holds on every runner.
+    """
+    if isinstance(timeout, int):
+        return timeout
+    branches = [int(n) for n in re.findall(r"(?:&&|\|\|)\s*(\d+)\b", timeout)]
+    if not branches:
+        raise AssertionError(f"timeout-minutes {timeout!r} has no numeric branch")
+    return min(branches)
 
 
 class Workflow(unittest.TestCase):
@@ -365,10 +378,7 @@ class Workflow(unittest.TestCase):
         self.assertLessEqual(decide["timeout-minutes"], 12, "the lookup waits out a rate limit for 10 minutes at most")
         self.assertIn("--budget 600", decide["run"])
         self.assertTrue(upload["continue-on-error"])
-        # The job's limit is an expression (90 on a hosted runner, else 60); a capture runs on a mini only.
-        limits = [int(n) for n in re.findall(r"\b\d+\b", str(self.job["timeout-minutes"]))]
-        self.assertEqual(min(limits), 60)
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], min(limits) - 10,
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], shortest_minutes(self.job["timeout-minutes"]) - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
