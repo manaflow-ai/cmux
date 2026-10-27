@@ -123,8 +123,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # A failed read fails this run: a successful run with no publication
+          # would read as handled to the dispatcher, which would not retry it.
           jobs="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
-            --jq '.jobs[] | select(.conclusion == "success") | .name' || true)"
+            --jq '.jobs[] | select(.conclusion == "success") | .name')"
           eligible=false
           while IFS= read -r job_name; do
             while IFS= read -r producer_name; do
