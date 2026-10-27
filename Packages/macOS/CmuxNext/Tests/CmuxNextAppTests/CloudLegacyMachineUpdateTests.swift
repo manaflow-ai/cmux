@@ -103,6 +103,39 @@ struct CloudLegacyMachineUpdateTests {
         #expect(noRoot.calls.count == 1)
     }
 
+    /// A start the provider ended (exit 124, no output) may have started the run: the waits read
+    /// its outcome. A start that ended on its own without `started` started nothing: one wait
+    /// reads the empty run, and it is a failure with what the start said.
+    @Test func aStartTheProviderEndedIsWaitedOnAndARefusedOneFails() async {
+        let ended = ExecRecorder(answers: [
+            CloudExecResult(exitCode: 124, stdout: "", stderr: "the command did not exit within 60s; it may still be running"),
+            CloudExecResult(exitCode: 0, stdout: "ROLLBACK lost-hosts=[12] old-daemon=7\n", stderr: ""),
+        ])
+        #expect(await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "", exec: ended.exec).errorCode == "machine_update_rolled_back")
+
+        let refused = ExecRecorder(answers: [
+            CloudExecResult(exitCode: 1, stdout: "", stderr: "base64: invalid input"),
+            CloudExecResult(exitCode: 0, stdout: "\n", stderr: ""),
+        ])
+        let answer = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "", exec: refused.exec)
+        #expect(answer.errorCode == "machine_update_failed")
+        #expect(answer.error == "base64: invalid input")
+        #expect(refused.calls.count == 2, "one wait for a run that never began")
+    }
+
+    /// The exec path runs only for the build this app pins: another build's manifest is not this
+    /// app's to install.
+    @Test func theExecPathRunsOnlyForThePinnedBuild() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-build-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("cmux-tui-ssh"), withIntermediateDirectories: true)
+        let manifest = #"{"commit":"\#(Self.pin.commit)","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(Self.pin.sha256)"}}"#
+        try Data(manifest.utf8).write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
+        let cli = folder.appendingPathComponent("cmux")
+        #expect(CloudLegacyMachineUpdate.pin(for: String(Self.pin.commit.prefix(12)), besideCLI: cli) == Self.pin)
+        #expect(CloudLegacyMachineUpdate.pin(for: String(repeating: "c", count: 12), besideCLI: cli) == nil)
+    }
+
     /// The start and wait commands run for real under /bin/sh, with stand-ins for sudo, systemd
     /// and the guest script: through a systemd unit, and under setsid when the unit does not start.
     /// The run gets the pin's digest, commit and directory, its outcome is the answer, and the run
@@ -134,14 +167,15 @@ struct CloudLegacyMachineUpdateTests {
             let answer = CloudLegacyMachineUpdate.answer(CloudExecResult(exitCode: exit, stdout: stdout, stderr: "sudo: a password is required"), pin: Self.pin)
             return answer.ok ? (answer.updated ? "updated:\(answer.build ?? "")" : "current") : answer.errorCode
         }
-        #expect(code("OK already-current daemon=9\n") == "updated:\(Self.pin.commit)")
+        #expect(code("OK already-current daemon=9\n") == "current", "nothing restarted")
+        #expect(code("OK canary daemon=9 hosts-before=1\n") == "updated:\(Self.pin.commit)")
         #expect(code("UNVERIFIED terminal count unavailable terminals=?->2 daemon=9\n") == "updated:\(Self.pin.commit)")
         #expect(code("ROLLBACK lost-hosts=[12] old-daemon=7\n") == "machine_update_rolled_back")
         #expect(code("FAIL rollback-daemon-unhealthy reason=x\n") == "machine_update_failed")
         #expect(code("SKIP busy another upgrade run holds the lock\n") == "machine_update_busy")
         #expect(code("SKIP no-daemon\n") == "machine_unreachable")
         #expect(code("SKIP unsupported-cloud-auth\n") == "machine_update_unsupported")
-        #expect(code("SKIP disk-free=120MB\n") == "machine_update_failed")
+        #expect(code("SKIP disk-free=120MB\n") == "machine_update_busy", "nothing changed: asked again, not a failure kept for the build")
         #expect(code("NOROOT\n") == "machine_update_unsupported", "an account that cannot become root")
         #expect(code("running\n") == "machine_update_unresolved")
         #expect(code("") == "machine_update_unresolved")

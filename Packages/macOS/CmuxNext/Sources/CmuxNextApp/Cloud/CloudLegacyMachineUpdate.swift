@@ -77,30 +77,27 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// again and the machine then reports its build.
     static func run(pin: Pin, script: String, nonce: String = newNonce(), directory: String = directory,
                     waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
-        let started: CloudExecResult
-        do {
-            started = try await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory), 60_000)
-        } catch {
-            return unresolved("the machine's update did not answer its start: \(error)")
-        }
-        switch lastLine(started) {
-        case "started": break
-        case "NOROOT": return answer(started, pin: pin)
-        default: return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_failed", error: detail(started))
-        }
+        // A start that did not answer, or that the provider ended (exit 124), may have started the
+        // run: the waits read what it left. Only a start that ended on its own and said otherwise
+        // started nothing, so one wait is enough to read the run that never began.
+        let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory), 60_000)
+        if let started, lastLine(started) == "NOROOT" { return answer(started, pin: pin) }
+        let refused = started.map { lastLine($0) != "started" && $0.exitCode != 124 } ?? false
         let wait = waitCommand(nonce: nonce, directory: directory, seconds: waitSeconds)
-        for _ in 0..<waits {
+        for _ in 0..<(refused ? 1 : waits) {
             guard let ran = try? await exec(wait, (waitSeconds + 20) * 1000) else { continue }
             let reply = answer(ran, pin: pin)
             if reply.errorCode != "machine_update_unresolved" { return reply }
         }
+        if refused, let started { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_failed", error: detail(started)) }
         return unresolved("the machine's update did not end within \(waits * waitSeconds / 60) minutes")
     }
 
     /// The start exec: the run's files go to a fresh directory (runs older than a week go), and the
     /// guest script starts as root in a transient systemd unit (without systemd, under `setsid` in
-    /// its own session), detached from the exec. Its pid goes to `pid` for the waits. Says
-    /// `started`, or `NOROOT` from an account that cannot become root (nothing changed).
+    /// its own session), detached from the exec. `unit` (the unit's name) or `pid` (the setsid
+    /// run's) tells the waits what to wait on. Says `started`, or `NOROOT` from an account that
+    /// cannot become root (nothing changed).
     static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory) -> String {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
         return [
@@ -112,26 +109,30 @@ nonisolated enum CloudLegacyMachineUpdate {
             #"root find "$d" -maxdepth 1 -name 'app-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true"#,
             writeFile(installCommand(pin), to: "$r/install.cmd"),
             writeFile(script, to: "$r/upgrade.sh"),
-            "if command -v systemd-run >/dev/null 2>&1 && root systemd-run --quiet --collect --unit=cmux-app-tui-update-\(nonce) /bin/sh \"$r/upgrade.sh\" \(args) >/dev/null 2>&1; then",
-            "  pid=$(root systemctl show -p MainPID --value cmux-app-tui-update-\(nonce) 2>/dev/null || echo 0)",
+            "if command -v systemd-run >/dev/null 2>&1 && root systemd-run --quiet --collect --unit=\(unit(nonce)) /bin/sh \"$r/upgrade.sh\" \(args) >/dev/null 2>&1; then",
+            #"  echo \#(unit(nonce)) | root tee "$r/unit" >/dev/null"#,
             "else",
             // sudo's command is the shell, which ends at once: the run is its child's, not sudo's.
+            // In a shell with no job control the background job leads no group, so setsid and
+            // nohup exec in place and `$!` is the run's own pid.
             "  pid=$(root sh -c 'setsid nohup /bin/sh \"$1\" \"$2\" \"$3\" \"$4\" </dev/null >/dev/null 2>&1 & echo $!' sh \"$r/upgrade.sh\" \(args))",
+            #"  printf '%s\n' "$pid" | root tee "$r/pid" >/dev/null"#,
             "fi",
-            #"printf '%s\n' "${pid:-0}" | root tee "$r/pid" >/dev/null"#,
             "echo started",
         ].joined(separator: "\n")
     }
 
     /// A wait exec: until the run's process ends, at most `seconds`, then its result line on stdout
-    /// and the log's tail on stderr. A run that ended takes its files and, unless its rollback
-    /// failed, the backup of the old binary with it.
+    /// and the log's tail on stderr. The unit's main pid is read here, at each wait: `systemd-run`
+    /// returned once the unit's process was forked, and a unit that ended (and was collected) has
+    /// none, so its result is read at once. A run that ended takes its files and, unless its
+    /// rollback failed, the backup of the old binary with it.
     static func waitCommand(nonce: String, directory: String = directory, seconds: Int = waitSeconds) -> String {
         [
             "set -eu",
             rootHelper,
             "r=\(directory)/app-\(nonce)",
-            #"pid=$(root cat "$r/pid" 2>/dev/null || echo 0)"#,
+            #"if [ -s "$r/unit" ]; then pid=$(root systemctl show -p MainPID --value "$(root cat "$r/unit")" 2>/dev/null || echo 0); else pid=$(root cat "$r/pid" 2>/dev/null || echo 0); fi"#,
             "if [ \"${pid:-0}\" -gt 0 ] 2>/dev/null && root kill -0 \"$pid\" 2>/dev/null; then root timeout \(seconds) tail --pid=\"$pid\" -f /dev/null >/dev/null 2>&1 || true; fi",
             #"line=$(root cat "$r/result" 2>/dev/null || true); root tail -n 15 "$r/log" >&2 2>/dev/null || true"#,
             #"case "$line" in ""|running|PENDING*) ;; "FAIL rollback"*) root rm -f "$r/install.cmd" "$r/upgrade.sh" ;; *) root rm -f "$r/install.cmd" "$r/upgrade.sh" "$r/cmux-tui.prev" ;; esac"#,
@@ -166,8 +167,9 @@ nonisolated enum CloudLegacyMachineUpdate {
         func failed(_ code: String) -> CloudMoveCLI.Answer { CloudMoveCLI.Answer(ok: false, errorCode: code, error: detail(ran)) }
         switch line.split(separator: " ").first.map(String.init) ?? "" {
         // UNVERIFIED: the new daemon serves and kept every host; only the terminal count was unreadable.
+        // `OK already-current`: the daemon already ran the pinned build; nothing restarted.
         case "OK", "UNVERIFIED":
-            return CloudMoveCLI.Answer(ok: true, updated: true, build: pin.commit)
+            return CloudMoveCLI.Answer(ok: true, updated: !line.hasPrefix("OK already-current"), build: pin.commit)
         case "ROLLBACK":
             return failed("machine_update_rolled_back")
         case "FAIL":
@@ -175,15 +177,28 @@ nonisolated enum CloudLegacyMachineUpdate {
         case "NOROOT":
             return failed("machine_update_unsupported")
         case "SKIP":
-            if line.hasPrefix("SKIP busy") { return failed("machine_update_busy") }
-            // Between restarts of a crash-looping daemon: ask again later.
-            if line.hasPrefix("SKIP no-daemon") { return failed("machine_unreachable") }
             // A daemon the fleet upgrade does not replace (no trusted carrier): not this way.
             if line.hasPrefix("SKIP unsupported-cloud-auth") { return failed("machine_update_unsupported") }
-            return failed("machine_update_failed")
+            // Between restarts of a crash-looping daemon: ask again later.
+            if line.hasPrefix("SKIP no-daemon") { return failed("machine_unreachable") }
+            // Another run holds the lock, too little disk, any other skip: nothing changed; ask
+            // again later, never a failure kept for the build.
+            return failed("machine_update_busy")
         default:
             if line.isEmpty || line == "running" || line.hasPrefix("PENDING") || ran.exitCode == 124 { return failed("machine_update_unresolved") }
             return failed("machine_update_failed")
+        }
+    }
+
+    /// The transient unit of run `nonce`.
+    static func unit(_ nonce: String) -> String { "cmux-app-tui-update-\(nonce)" }
+
+    /// The pin of the legacy update to `build`: this app's own (`besideCLI`), and only when it is
+    /// that build; nil otherwise (a dev build with no pin, or a manifest of another build).
+    static func pin(for build: String, besideCLI cli: URL) -> Pin? {
+        pin(besideCLI: cli).flatMap { pin in
+            let build = build.lowercased()
+            return build.count >= 7 && (pin.commit.hasPrefix(build) || build.hasPrefix(pin.commit)) ? pin : nil
         }
     }
 
