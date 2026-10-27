@@ -38,7 +38,7 @@
     {
       "path": "scripts/install-cmux-tui-client.sh",
       "match": "while :; do",
-      "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, at most 4 retries with doubling backoff; any other answer is final. Runs on user machines and nightly legs without glaeda-gh."
+      "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, with doubling backoff (4 retries from 1 minute by default, CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES and CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS change them); any other answer is final. Runs on user machines and nightly legs without glaeda-gh."
     },
     {
       "path": "workers/presence/scripts/local-proof.sh",
