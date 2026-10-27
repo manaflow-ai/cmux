@@ -201,7 +201,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -439,13 +439,22 @@ final class AppServices {
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
-    /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool: PageHostPool = {
-        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                deadlines: mainDeadlines, hoverFrameInput: hoverFrameInput, processGroups: webUI.processGroups)
-        pool.scriptFrames = pageScriptFrame
-        return pool
+    /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
+    /// `pagePreloads` both take it, so it has one park state (rendered-parked until spike 090 records its choice).
+    private(set) lazy var preloadSlot: PagePreloadSlot = {
+        let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: self.mainDeadlines)
+        self.webUI.preload = slot
+        return slot
     }()
+    /// Settings, History and Cloud through the one preload slot (feature `pagePreload`), parked in the active window
+    /// at its focused pane's tab size; no Settings preload while `settingsWindow` keeps a page its next open shows.
+    private(set) lazy var pagePreloads = PagePreloads(
+        webUI: webUI, slot: preloadSlot, deadlines: mainDeadlines, input: inputTap, isEnabled: { [weak self] in self?.features.isEnabled(.pagePreload) == true },
+        target: { [weak self] in
+            guard let controller = self?.windows.active, let content = controller.window?.contentView else { return nil }
+            return (content, controller.focusedPane.map(NewTabPreload.newTabContentSize(in:)) ?? content.bounds.size)
+        },
+        keepsView: { [weak self] page in page == .settings && self?.settingsWindow.keepsPage == true })
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
@@ -609,6 +618,11 @@ final class AppServices {
                                                   isEnabled: environment.daemonFeatureHello == nil ? features.isEnabled(.energySaver) : nil)
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// What the Settings page and the settings palette leave out now: Energy Saver's row while its
+    /// feature is off, its "On Battery" on a Mac with no battery. An observing reader follows the inputs.
+    var settingsAvailability: SettingsAvailability {
+        EnergySaverSetting().availability(featureEnabled: energy.driver.isEnabled, hasBattery: energyMonitor.inputs.hasBattery)
+    }
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
     private(set) var idleWakeups: IdleWakeupSampler?
     /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
@@ -748,13 +762,15 @@ final class AppServices {
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
         let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
         chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
-        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: runTiming,
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            turnObserver: oracleTurns, mainWork: mainWork)
         #else
-        registry = ActionRegistry.standard(runTiming: runTiming,
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -864,6 +880,9 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        #if DEBUG || CMUX_BENCH_HOOKS
+        cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
+        #endif
         (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
@@ -925,6 +944,9 @@ final class AppServices {
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+        if let access = environment.actionCatalog.mainAccess {  // the registry's catalog read above (p08-startup-092)
+            launchValues.recordActionCatalogMainAccess(waitMicroseconds: access.waitMicroseconds, readMicroseconds: access.microseconds)
+        }
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
     /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).
