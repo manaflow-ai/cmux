@@ -274,7 +274,9 @@ pub(in crate::git_ops) fn mint(prefix: &str) -> String {
         // Unique enough for a scratch name or an id when the random source
         // fails: the clock and the process.
         let seed = format!("{:?}{}", std::time::SystemTime::now(), std::process::id());
-        bytes.copy_from_slice(&Sha256::digest(seed.as_bytes())[..16]);
+        for (byte, source) in bytes.iter_mut().zip(Sha256::digest(seed.as_bytes())) {
+            *byte = source;
+        }
     }
     format!("{prefix}_{}", hex(&bytes))
 }

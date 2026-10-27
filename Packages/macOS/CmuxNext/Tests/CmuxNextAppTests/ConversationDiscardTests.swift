@@ -61,7 +61,7 @@ import Testing
             ], lastSeq: UInt64(count), createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
             let items = (1...count).map { Self.item($0, base: base, salt: salt) }
             let view = HomeNativeTranscriptView(store: HomeStore(source: MockHomeSource(options: .immediate)), conversation: ConversationDiscardTests.id,
-                                                me: ConversationDiscardTests.me, mainWork: linklessMainWork())
+                                                me: ConversationDiscardTests.me, deadlines: linklessDeadlines())
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             let pane = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 700))
