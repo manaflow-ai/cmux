@@ -128,7 +128,9 @@ class Wiring(unittest.TestCase):
     def test_the_live_check_gets_every_runs_on_variable_by_name(self) -> None:
         step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
         block = step["env"][check.RUNS_ON_VARIABLES_ENV]
-        passed = re.findall(r"^([A-Za-z0-9_]+)=\$\{\{ vars\.\1 \}\}$", block, re.M)
+        # The background lane's read carries its Blacksmith default (test_ci_self_hosted_guard.sh requires it on
+        # every read); an unset value is that pool, never one machine.
+        passed = re.findall(r"^([A-Za-z0-9_]+)=\$\{\{ vars\.\1(?: \|\| '[a-z0-9-]+')? \}\}$", block, re.M)
         self.assertEqual(len(passed), len(block.strip().splitlines()), "one NAME=${{ vars.NAME }} per line")
         missing = (check.read_variables([("here", WORKFLOWS)]) | set(check.RUNNER_NAME_VARIABLES)) - set(passed)
         self.assertEqual(missing, set())
