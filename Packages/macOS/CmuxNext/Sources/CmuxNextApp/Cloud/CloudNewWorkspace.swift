@@ -18,21 +18,33 @@ struct CloudNewWorkspace {
     /// The plan for a New Workspace `invocation` whose person works in `cwd`; nil keeps it on this
     /// Mac: the toggle is off, a script or agent asked (only a person's gesture follows it), or it
     /// names a machine.
-    static func plan(_ invocation: ActionInvocation, cwd: String?, settings root: CmuxNextSettings.JSONValue?) -> CloudNewWorkspacePlan? {
-        guard invocation.origin == .user, let root else { return nil }
+    /// `canCopy`: this app can copy a folder to a new machine (it has the bundled CLI and links
+    /// machines directly); without it a Current Folder workspace starts empty rather than make a
+    /// machine and then fail.
+    static func plan(_ invocation: ActionInvocation, cwd: String?, settings root: CmuxNextSettings.JSONValue?, canCopy: Bool = true) -> CloudNewWorkspacePlan? {
+        // A run with a command keeps it on this Mac: the Cloud workspace opens a plain terminal.
+        guard invocation.origin == .user, invocation["command"] == nil, let root else { return nil }
         let setting = CloudNewWorkspaceSetting()
-        return CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: setting.folder(in: root) == .inherit,
+        return CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit,
                                      cwd: cwd, namesMachine: invocation["machine"] != nil)
+    }
+
+    /// The plan for `invocation` in this app, nil while Cloud can't create a machine (signed out,
+    /// or unavailable): Cmd-N then opens on this Mac as it would with the toggle off.
+    static func plan(_ invocation: ActionInvocation, cwd: String?, services: AppServices) -> CloudNewWorkspacePlan? {
+        let cloud = services.cloud
+        guard cloud.isSignedIn, cloud.unavailableReason == nil else { return nil }
+        return plan(invocation, cwd: cwd, settings: services.settings?.snapshot.root,
+                    canCopy: cloud.move.cli != nil && cloud.configuration.linkSource == .legacy)
     }
 
     /// Starts the new machine and shows its progress in `window` in this turn.
     func start(_ plan: CloudNewWorkspacePlan, in window: WindowState?) {
         let services = context.services
-        let flow = CloudHandlers.creationFlow(context, startedByPerson: true) { session in
+        CloudHandlers.creationFlow(context, startedByPerson: true).start(in: window, existing: nil) { session in
             defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) } // one group per Cloud machine
             return try await Self.open(plan, on: session, services: services)
         }
-        flow.start(in: window, existing: nil)
     }
 
     /// The machine's workspace for `plan`: the folder copied first, then a workspace whose terminal

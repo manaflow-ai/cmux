@@ -31,6 +31,9 @@ final class CloudMachineCreation: Identifiable {
     private(set) var bootstrap: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
+    /// What opens the ready machine's workspace instead of the flow's own (the Cloud toggle's,
+    /// in a copied folder); kept here so a Retry from any surface opens the same one.
+    @ObservationIgnored var open: (@MainActor (CloudMachineSession) async throws -> String)?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
@@ -157,9 +160,12 @@ struct CloudCreationFlow {
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
+    /// `open`, when given, opens the machine's workspace instead of ``open`` (on every Retry too).
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest(),
+               open: (@MainActor (CloudMachineSession) async throws -> String)? = nil) -> CloudMachineCreation {
         let creation = creations.begin(window: window?.id, session: existing, request: request)
+        creation.open = open
         if let window {
             window.page = nil
             window.cloudCreation = creation.id
@@ -183,7 +189,7 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations
+        let create = create, open = creation.open ?? open, show = show, creations = creations
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {

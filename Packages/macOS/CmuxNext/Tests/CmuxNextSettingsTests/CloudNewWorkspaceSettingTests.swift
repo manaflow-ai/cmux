@@ -27,5 +27,8 @@ struct CloudNewWorkspaceSettingTests {
         #expect(toggle.isPaletteExposed)
         let folder = try #require(SettingsSchema.all.first { $0.id == "cloud.newWorkspaceFolder" })
         #expect(folder.defaultValue == .string("inherit"))
+        // An agent can't turn on copying the person's folders to a paid machine.
+        #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspacesInCloud"] != nil)
+        #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspaceFolder"] != nil)
     }
 }

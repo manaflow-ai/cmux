@@ -66,6 +66,18 @@ struct CloudNewWorkspaceTests {
         #expect(CloudNewWorkspace.plan(named, cwd: nested, settings: on) == nil)
     }
 
+    /// A person's run that carries a command keeps it on this Mac; an app that can't copy a folder
+    /// (no bundled CLI, or the app server link) starts the machine empty instead of failing after it exists.
+    @Test func aCommandStaysLocalAndAnAppThatCannotCopyStartsEmpty() throws {
+        let (_, nested) = try Self.project()
+        let on = Self.settings(inCloud: true)
+        var command = ActionInvocation(origin: .user)
+        command.arguments["command"] = .string("make")
+        #expect(CloudNewWorkspace.plan(command, cwd: nested, settings: on) == nil)
+        let plan = try #require(CloudNewWorkspace.plan(ActionInvocation(origin: .user), cwd: nested, settings: on, canCopy: false))
+        #expect(plan.folder == nil)
+    }
+
     /// The copy goes to the image's work user's `~/work`; an older image without that user refuses
     /// it and the copy goes to root's.
     @Test func theFolderIsCopiedUnderTheFirstWorkRootTheMachineAllows() async throws {

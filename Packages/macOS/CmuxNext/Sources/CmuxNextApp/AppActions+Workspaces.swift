@@ -135,7 +135,7 @@ extension AppActions {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
         // The Cloud toggle (#26062): a person's new workspace gets its own new Cloud machine.
-        if let plan = CloudNewWorkspace.plan(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, settings: services.settings?.snapshot.root) {
+        if let plan = CloudNewWorkspace.plan(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, services: services) {
             let window = focus.shows ? services.windows.active?.state : nil
             return CloudNewWorkspace(context: AppActionContext(services: services)).start(plan, in: window)
         }
