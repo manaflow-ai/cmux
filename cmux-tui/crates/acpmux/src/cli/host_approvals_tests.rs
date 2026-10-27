@@ -160,3 +160,54 @@ fn a_change_rewrites_the_file_whole_and_keeps_each_mac_once() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `rm` (and `add`) hold the file's lock until the daemon's reload returns, so
+/// another change cannot land between the write and the reload and put back a
+/// key `rm` took out.
+#[test]
+fn a_change_holds_its_lock_until_the_reload_returns() {
+    use std::time::Duration;
+    let dir = std::env::temp_dir().join(format!("hap-lock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join(mac_approvers::FILE);
+    let held = change(&path, |_| Ok(())).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let other = path.clone();
+    std::thread::spawn(move || {
+        let added = change(&other, |m| {
+            m.extend(
+                crate::hub::approvers::parse_approvers(&[json!({"id": "mac-2", "publicKey": KEY})])
+                    .unwrap(),
+            );
+            Ok(())
+        });
+        let _ = tx.send(added.map(drop).map_err(|e| e.to_string()));
+    });
+    // Another change waits while the first one's reload has not returned.
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "another change landed before the reload"
+    );
+    drop(held);
+    assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(Ok(())));
+    let ids: Vec<String> = mac_approvers::read(&path).unwrap().into_iter().map(|m| m.id).collect();
+    assert_eq!(ids, ["mac-2"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+struct FakeDaemon(bool);
+
+impl Reload for FakeDaemon {
+    async fn reload(&self) -> Result<Value> {
+        if self.0 { Ok(json!({"macs": []})) } else { Err(anyhow!("method not found")) }
+    }
+}
+
+/// A running daemon that does not reload fails the command (and so a remote
+/// `enroll`/`unenroll`), instead of reporting success with `reloaded: false`.
+#[test]
+fn a_daemon_that_does_not_reload_fails_the_change() {
+    assert!(block(reload_with(&FakeDaemon(true))).unwrap());
+    let e = block(reload_with(&FakeDaemon(false))).unwrap_err().to_string();
+    assert!(e.contains("did not reload") && e.contains("method not found"), "{e}");
+}

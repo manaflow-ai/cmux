@@ -7,8 +7,11 @@
 //! The Macs live in `ACPMUX_HOME/mac-approvers.json`; a change is one locked
 //! read-modify-write (`mac-approvers.lock`) and one rename, then the running
 //! daemon reloads it (`_acpmux/mac_approvers {reload: true}`), which returns
-//! only after an answer being committed: once `rm` returns, the Mac's
-//! signatures count nothing. Only this command writes the file; no RPC does.
+//! only after an answer being committed. The lock is held until that reload
+//! returns, so no other change lands between the write and the reload: once
+//! `rm` returns, the Mac's signatures count nothing. A running daemon that
+//! does not reload fails the command. Only this command writes the file; no
+//! RPC does.
 
 use crate::cli::host_peering::{Io, PeerTarget, remote_cli};
 use crate::cli::host_steps::{Step, StepResult, StepState};
@@ -48,23 +51,27 @@ pub(crate) async fn run(
             let entry = json!({"id": id, "publicKey": key, "name": name.unwrap_or_default()});
             let added = crate::hub::approvers::parse_approvers(std::slice::from_ref(&entry))
                 .map_err(|e| anyhow!("{}", e.message))?;
-            change(&path, |macs| {
+            let lock = change(&path, |macs| {
                 macs.retain(|m| m.id != id);
                 macs.extend(added);
                 Ok(())
             })?;
-            json!({"added": id, "reloaded": reload().await})
+            let reloaded = reload().await;
+            drop(lock);
+            json!({"added": id, "reloaded": reloaded?})
         }
         Some(ApprovalsCmd::Enroll { peer }) => return on_peer(&peer, true, json_out).await,
         Some(ApprovalsCmd::Unenroll { peer }) => return on_peer(&peer, false, json_out).await,
         Some(ApprovalsCmd::Rm { id }) => {
             let mut known = false;
-            change(&path, |macs| {
+            let lock = change(&path, |macs| {
                 known = macs.iter().any(|m| m.id == id);
                 macs.retain(|m| m.id != id);
                 Ok(())
             })?;
-            json!({"removed": id, "enrolled": known, "reloaded": reload().await})
+            let reloaded = reload().await;
+            drop(lock);
+            json!({"removed": id, "enrolled": known, "reloaded": reloaded?})
         }
     };
     if json_out {
@@ -163,8 +170,12 @@ fn listed(macs: &[Approver]) -> Vec<Value> {
         .collect()
 }
 
-/// One locked read-modify-write of the Macs in `path`.
-fn change(path: &Path, edit: impl FnOnce(&mut Vec<Approver>) -> Result<()>) -> Result<()> {
+/// One locked read-modify-write of the Macs in `path`. Returns the lock, held
+/// until the caller drops it (after the daemon's reload).
+fn change(
+    path: &Path,
+    edit: impl FnOnce(&mut Vec<Approver>) -> Result<()>,
+) -> Result<std::fs::File> {
     let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
     crate::config::private_state_dir(dir)?;
     let lock = path.with_extension("lock");
@@ -186,17 +197,36 @@ fn change(path: &Path, edit: impl FnOnce(&mut Vec<Approver>) -> Result<()>) -> R
         .collect();
     let mut text = serde_json::to_string_pretty(&json!({"macs": list}))?;
     text.push('\n');
-    crate::config::write_atomic(path, text.as_bytes())
+    crate::config::write_atomic(path, text.as_bytes())?;
+    Ok(lock)
 }
 
-/// Has the running daemon read the file again; false when none runs (it
-/// reads the file when it starts).
-async fn reload() -> bool {
-    match crate::daemon::connect(false).await {
-        Ok(client) => {
-            client.request("_acpmux/mac_approvers", json!({"reload": true})).await.is_ok()
-        }
-        Err(_) => false,
+/// Has the running daemon read the file again: false when none runs (it
+/// reads the file when it starts), an error when one runs and did not.
+async fn reload() -> Result<bool> {
+    let Ok(client) = crate::daemon::connect(false).await else { return Ok(false) };
+    reload_with(&*client).await
+}
+
+async fn reload_with(client: &impl Reload) -> Result<bool> {
+    client.reload().await.map_err(|e| {
+        anyhow!(
+            "{} changed, but the running acpmux daemon did not reload it ({e}); \
+             restart it (`acpmux daemon stop`, then `acpmux daemon`)",
+            mac_approvers::FILE
+        )
+    })?;
+    Ok(true)
+}
+
+/// The daemon's reload of the file, faked in the tests.
+trait Reload {
+    async fn reload(&self) -> Result<Value>;
+}
+
+impl Reload for crate::client::Client {
+    async fn reload(&self) -> Result<Value> {
+        self.request("_acpmux/mac_approvers", json!({"reload": true})).await
     }
 }
 
