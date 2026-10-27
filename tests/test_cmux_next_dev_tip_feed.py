@@ -189,7 +189,7 @@ check(runner_job["outputs"]["dmg_label"] == "${{ steps.pool.outputs.dmg_label }}
       "dmg_label is an owned pool with two machines free, or waited on when Blacksmith has no two free, moving slots")
 # The picker counts Blacksmith room only on the label these jobs fall back to (their runs-on).
 fallbacks = {job["runs-on"].rsplit("'", 2)[-2] for job in (build_job, jobs["verify"])}
-check(fallbacks == {pick["env"]["BLACKSMITH_LABELS"]}
+check(fallbacks == {pick["env"]["BLACKSMITH_LABELS"].rsplit("'", 2)[-2]}
       and '--blacksmith-labels "$BLACKSMITH_LABELS"' in pick["run"],
       "the pick counts Blacksmith room only on verify's and tip-dmg-build's own fallback label")
 build_steps = [step for step in build_job["steps"] if isinstance(step, dict)]

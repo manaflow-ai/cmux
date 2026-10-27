@@ -363,7 +363,7 @@ jobs:
           # The only Blacksmith label verify and tip-dmg-build fall back to (their
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
-          BLACKSMITH_LABELS: blacksmith-6vcpu-macos-26
+          BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
         run: |
           set -uo pipefail
           pick() {
