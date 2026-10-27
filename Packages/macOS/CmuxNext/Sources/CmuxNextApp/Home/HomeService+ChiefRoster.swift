@@ -74,8 +74,14 @@ extension HomeService {
     /// (``HomeCloudChiefs/chiefTab(local:localHasHistory:choice:prefersLocal:)``).
     var defaultChiefConversation: String? {
         let local = HomeChiefName.select(from: conversations)
-        return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
+        return tabChiefs.chiefTab(local: local?.id, localHasHistory: localChiefHasHistory(local), choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)
+    }
+
+    /// Whether the local Chief conversation has history: a message besides the Chief's welcome (ChiefWelcome).
+    func localChiefHasHistory(_ local: CmuxNextDaemon.ConversationSummary?) -> Bool {
+        guard let local, local.lastSeq > 0 else { return false }
+        return chiefWelcome?.isOnlyMessage(of: local.id, lastSeq: local.lastSeq) != true
     }
 
     /// A change of the Engine row re-runs the Chief tab check. The stream emits only the engine id

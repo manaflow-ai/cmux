@@ -79,8 +79,20 @@ import Testing
             == ChiefWelcome.Record(conversation: "conv_chief", seq: 1))
     }
 
-    @Test func anImportTheOwnerAlreadyHeldIsRecordedAsTheFirstMessage() async throws {
-        // An earlier run imported it and stopped before writing the record: the owner skips it.
+    @Test func aWelcomeAnEarlierLaunchPostedWithoutItsRecordIsStillTheWelcome() async throws {
+        // The import landed but its reply or the record's write did not: the next launch lists the
+        // welcome as the only message and records it, never as history and never posting again.
+        var summary = Self.summary("conv_chief", lastSeq: 1)
+        summary.lastMessage = ConversationMessage(id: "msg_1", conversation: "conv_chief", seq: 1, clientMsgID: ChiefWelcome.clientMsgID,
+                                                  author: "agent_mux", parts: [], createdAt: "2026-10-27T00:00:00.000Z")
+        let owner = FakeOwner(listed: [summary])
+        let record = await ChiefWelcome(root: try home(), chief: "agent_mux").run(owner: owner.owner, text: Self.text)
+        #expect(record == ChiefWelcome.Record(conversation: "conv_chief", seq: 1))
+        #expect(await owner.imports.isEmpty)
+    }
+
+    @Test func aRaceTheOwnerSkippedIsRecordedAsTheFirstMessage() async throws {
+        // Two launches raced on an empty conversation: the owner skips the second import.
         let owner = FakeOwner(listed: [Self.summary("conv_chief", lastSeq: 0)], imported: [])
         let record = await ChiefWelcome(root: try home(), chief: "agent_mux").run(owner: owner.owner, text: Self.text)
         #expect(record == ChiefWelcome.Record(conversation: "conv_chief", seq: 1))
@@ -150,7 +162,7 @@ private actor FakeOwner {
     }
 
     nonisolated var owner: ChiefWelcome.Owner {
-        ChiefWelcome.Owner(list: { await self.listed }, create: { await self.create() }, importMessages: { try await self.receive($0) })
+        ChiefWelcome.Owner(list: { self.listed }, create: { await self.create() }, importMessages: { try await self.receive($0) })
     }
 
     func create() -> String {
