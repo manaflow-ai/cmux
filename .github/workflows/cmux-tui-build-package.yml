@@ -464,6 +464,10 @@ jobs:
           CLOUD_SERVER_CROSS: ${{ matrix.cross }}
           CLOUD_SERVER_TARGET: ${{ matrix.build_target }}
           RUNNER_OS: ${{ runner.os }}
+          # Its .dSYM lands in the common release folder, so cmux-tui-dsyms-<target>
+          # carries it to Sentry with the daemon's (macOS step only).
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
         working-directory: first-party-apps/cloud/server
         shell: bash
         run: |
@@ -484,6 +488,9 @@ jobs:
         if: runner.os == 'macOS'
         env:
           BROWSER_HOST_TARGET: ${{ matrix.build_target }}
+          # A .dSYM beside the binary for cmux-tui-dsyms-<target> and Sentry, as cmux-cloud.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
         working-directory: cmux-tui
         shell: bash
         run: |

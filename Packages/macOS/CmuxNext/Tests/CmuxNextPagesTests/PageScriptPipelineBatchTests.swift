@@ -343,7 +343,7 @@ struct PageScriptPipelineBatchTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
         let frames = Frames()
         host.scriptFrames = frames.frame
         let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
@@ -375,7 +375,7 @@ struct PageScriptPipelineBatchTests {
         let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
         defer { view.close() }
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         let frames = Frames()
@@ -399,7 +399,7 @@ struct PageScriptPipelineBatchTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
         let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
