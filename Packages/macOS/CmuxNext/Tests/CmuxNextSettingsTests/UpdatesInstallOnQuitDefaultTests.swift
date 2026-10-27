@@ -13,10 +13,10 @@ struct UpdatesInstallOnQuitDefaultTests {
         #expect(UpdatesSettings.installOnQuitDefault == false)
     }
 
-    @Test func checksAndDownloadsStayOnWhenUnset() {
-        let snapshot = Self.parse([:])
-        #expect(snapshot.updates.checkAutomatically)
-        #expect(snapshot.updates.downloadAutomatically)
+    /// Automatic checks stay on. `downloadAutomatically` is not asserted here: its default is per
+    /// channel (stable off, the nightly and dev apps seed it on; cbb4aa7ba1a).
+    @Test func checksStayOnWhenUnset() {
+        #expect(Self.parse([:]).updates.checkAutomatically)
     }
 
     /// An explicit `true` in cmux.json is the person's own choice and still wins.
