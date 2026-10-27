@@ -23,6 +23,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var embedderColorChooser = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// `CMUX_NEXT_BENCH_REAL_KEYCHAIN=1` turns it off in Debug and bench builds of a development
+    /// bundle: chromium-host-bench.py `--modes tcc` measures the real OSCrypt key read (p01-process-089).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -406,21 +408,24 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
-        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
         #if DEBUG
+        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
         #else
         let extra: [String] = []
         #endif
         #if DEBUG || CMUX_BENCH_HOOKS
         let bench = developmentBundle ? Self.benchSwitches(environment["CMUX_NEXT_BENCH_CEF_SWITCHES"]) : []
+        let benchRealKeychain = developmentBundle && environment["CMUX_NEXT_BENCH_REAL_KEYCHAIN"] == "1"
         #else
         let bench: [String] = []
+        let benchRealKeychain = false
         #endif
+        let mockKeychain = environment["CMUX_MOCK_KEYCHAIN"] == "1" || (developmentBundle && !benchRealKeychain)
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
@@ -428,7 +433,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
             embedderColorChooser: embedderColorChooser,
-            useMockKeychain: dev,
+            useMockKeychain: mockKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             builtInExtensionsAtFirstTab: builtInExtensionsAtFirstTab && !builtInExtensions.isEmpty,

@@ -1236,8 +1236,13 @@ impl Hub {
             .map(|m| m.id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stored = |id: &str| {
+            known.contains(id)
+                || self
+                    .store
+                    .session_dir(id)
+                    .is_some_and(|d| cmux_blocking::fs::metadata(d).is_ok())
+        };
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;

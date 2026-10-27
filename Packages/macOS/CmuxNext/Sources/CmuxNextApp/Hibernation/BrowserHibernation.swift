@@ -148,6 +148,8 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { updateFollowers() }
     }
+    /// The discard planner's last inputs for browser and agent pages (`debug.discards`).
+    private(set) var discards = ContentDiscardReport(tracking: .browser, .agentPage)
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private(set) var neighbors = NeighborTabs()
@@ -212,7 +214,7 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
     /// Hidden pages' title and icon changes (`DiscardRule.backgroundActivity`); the App turns it on.
-    let activity = PageActivityWatch()
+    let activity: PageActivityWatch
     /// When each page last played sound (`DiscardRule.recentlyAudible`); the end of a hidden page's
     /// sound replans. Nil while the `recentlyAudibleProtection` feature is off: no page is watched,
     /// no candidate carries a sound fact, and the plans are those from before the rule.
@@ -235,6 +237,7 @@ final class BrowserHibernation {
         hoverDwell = MainDeadline(owner: "BrowserNeighborHover", workClass: .background, scheduler: deadlines)
         mainWork = deadlines.work
         mainDeadlines = deadlines
+        activity = PageActivityWatch(mainWork: deadlines.work)
         snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes, allocator: cache.imageCaches.pictureAllocator)
         self.energy = energy
         energySaver = energy.policy.pageSaver
@@ -368,6 +371,7 @@ final class BrowserHibernation {
         guard let tab = cache?.browsers[key]?.tab else { return }
         _ = markOffScreen(key, false)
         hiddenAt[key] = now()
+        noteDiscard(.hidden(key, .browser))
         watchActivity(key, tab)
         replan()
         discardCrashedSubframe(key)
@@ -388,6 +392,16 @@ final class BrowserHibernation {
         discardAttempts.clear(key)
         activity.forget(key)
         focusHistory.note(key, at: now())
+        if cache?.browsers[key] != nil { noteDiscard(.shown(key, .browser)) }
+    }
+
+    /// Records an owner's report for `debug.discards` now (this and its `AgentPageHibernation`).
+    func noteDiscard(_ event: ContentDiscardReport.Event) { discards.note(event, at: now()) }
+
+    /// Keeps hidden page `key` for `reason` (`debug.surfaces`) and reports that verdict (`debug.discards`).
+    private func keepPage(_ key: String, _ reason: HibernationPlanner.Exemption) {
+        exemptions[key] = reason
+        if let at = hiddenAt[key] { noteDiscard(.planned(key, .browser, hiddenFor: (now() - at).seconds, DiscardEligibility(keptFor: reason))) }
     }
 
     /// Chromium hears tab `key`'s node from its mount on (``tabVisibility``), its hide before the freeze. A capture thaws
@@ -437,6 +451,7 @@ final class BrowserHibernation {
         focusHistory.forget(key)
         leased.remove(key)
         offScreenShown.remove(key)
+        noteDiscard(.removed(key))
         memoryReadings.forget(key)
         savedBytes[key] = nil
         probeKeptAt[key] = nil
@@ -567,6 +582,7 @@ final class BrowserHibernation {
             exemptions[key] = nil
         }
         exemptions.merge(plan.exemptions) { $1 }
+        discards.notePass(plan, candidates: candidates, probeKept: exemptions, at: now)
         let held = holdLeft != nil && !plan.due.isEmpty
         if !held, !plan.due.isEmpty {
             refreshMemoryIfNeeded()
@@ -725,6 +741,7 @@ final class BrowserHibernation {
         }
         frozen.insert(key)
         noteFrozen(key)
+        noteDiscard(.frozen(key, true))
         trackGrowth(key)
     }
 
@@ -732,6 +749,7 @@ final class BrowserHibernation {
     func thaw(_ key: String, prewarm: Bool = false) {
         guard frozen.remove(key) != nil else { return }
         untrackGrowth(key)
+        noteDiscard(.frozen(key, false))
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }
         if prewarm { prewarmedCount += 1 }
         cache?.trace(key, prewarm ? "prewarmed (thaw)" : "thawed")
@@ -748,7 +766,7 @@ final class BrowserHibernation {
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
         if let refusal = HibernationPlanner.hibernateTabRefusal(candidate(key, entry: entry, hiddenFor: 0), setting: setting) {
-            exemptions[key] = refusal
+            keepPage(key, refusal)
             return refusal
         }
         prepare(key, for: .external)
@@ -802,14 +820,14 @@ final class BrowserHibernation {
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
             case .keep(let reason) where exemption == nil && !askedOnUnload:
-                self.exemptions[key] = reason
+                self.keepPage(key, reason)
                 return
             case .keep, .go:
                 break
             }
             // A probe answer keeps the page and asks again after `keptBackoff`; it is no failed discard.
             if let exemption {
-                self.exemptions[key] = exemption
+                self.keepPage(key, exemption)
                 self.probeKeptAt[key] = self.now()
                 return
             }
@@ -818,6 +836,7 @@ final class BrowserHibernation {
                 return self.discardFailed(key, .unsupported)
             }
             self.prepared[key] = (state, snapshot)
+            self.noteDiscard(.discarding(key, .browser, reason))
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
     }
@@ -857,6 +876,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         hibernatedCount += 1
         onHibernate()
+        noteDiscard(.discarded(key))
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
 
