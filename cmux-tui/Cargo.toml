@@ -190,7 +190,8 @@ unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
 # `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
 # The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(tokio_unstable)"] }
+# verify/loom-ring builds cmux-holder's ring protocol with cfg(loom).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(tokio_unstable)", "cfg(loom)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"

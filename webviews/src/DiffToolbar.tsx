@@ -49,8 +49,9 @@ function useAnchoredPopover(open: boolean, anchorRef: React.RefObject<HTMLElemen
       setStyle({ top, left, width: fitted, maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN) });
     };
     reposition();
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
+    // Passive: the popover follows its anchor, it never cancels a scroll.
+    window.addEventListener("resize", reposition, { passive: true });
+    window.addEventListener("scroll", reposition, { capture: true, passive: true });
     return () => {
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);
@@ -71,7 +72,7 @@ function useDismissOnOutsidePress(open: boolean, refs: React.RefObject<HTMLEleme
       if (latest.current.refs.some((ref) => ref.current?.contains(target))) return;
       latest.current.onDismiss();
     };
-    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("mousedown", onPointerDown, { passive: true });
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 }
