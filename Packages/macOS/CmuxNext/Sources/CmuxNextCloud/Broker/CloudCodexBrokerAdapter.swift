@@ -82,7 +82,20 @@ import Observation
             try check(scope)
         } catch {
             // A cancelled prompt must not leave the pre-login target registered.
-            do { try await broker.revoke(target: vm) }
+            // This task must not inherit the cancelled wizard/auth caller.
+            let cleanup = Task {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask { try await broker.revoke(target: vm) }
+                    group.addTask {
+                        // wakeup-allow: bound one cleanup attempt; failed cleanup remains visible.
+                        try await Task.sleep(for: .seconds(30))
+                        throw CloudCodexBrokerError.remoteDeliveryFailed
+                    }
+                    defer { group.cancelAll() }
+                    _ = try await group.next()
+                }
+            }
+            do { try await cleanup.value }
             catch { pendingCleanup.insert(machineID) }
             throw error
         }
