@@ -1888,6 +1888,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
+        // What CmuxNextActionsTests and CmuxNextActionsAppKitTests share (WhenFuzz, the shipped binding
+        // table); test targets only (p15-oracle task 143).
+        .target(
+            name: "CmuxNextActionsTestSupport",
+            dependencies: ["CmuxNextActions"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextDaemon",
             // CmuxNextIPC: the generated `cmux.protocol/2` requests ResourceOperationClient sends (p05-ipc-045).
@@ -2337,7 +2344,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextActionsAppKit", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextActionsTestSupport", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Actions tests that import AppKit, QuartzCore, Carbon or CmuxNextActionsAppKit: macOS only, so
+        // CmuxNextActionsTests stays in the Linux tier (p15-oracle.md, MQ-linux-test-imports, task 143).
+        .testTarget(
+            name: "CmuxNextActionsAppKitTests",
+            dependencies: ["CmuxNextActions", "CmuxNextActionsAppKit", "CmuxNextActionsTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]
@@ -2551,6 +2565,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextProcessEnvironment",
                 "CCmuxAppFFILinux",
                 "CmuxNextActions",
+                "CmuxNextActionsTestSupport",
                 "CmuxNextDaemon",
                 "CmuxNextFocus",
                 "CmuxNextTerminalGeometry",

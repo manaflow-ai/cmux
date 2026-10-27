@@ -27,7 +27,7 @@ area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # The action exports (regenerated on a Mac: regenerate-action-exports.sh) read
 # CmuxNextActions, which depends on no other target, the tests that write them,
 # and for links.json the URL schemes of CmuxNextCloud's CloudConfiguration.
-area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
+area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActions(AppKit)?Tests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
 # CmuxNextSettings and the two export tests; their stamp and the exports themselves
 # are checked by defaults_guard.py check-stamp.

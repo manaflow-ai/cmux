@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextActionsTestSupport
 import Testing
 
 /// `resolveWinner` (the key-down path, p04-input-055) picks the entry `resolve` names as winner,
@@ -10,7 +11,7 @@ import Testing
     nonisolated static let terminal = KeyContext(["terminalFocused": .bool(true)])
 
     @Test func resolveWinnerMatchesResolveOnTheCatalog() {
-        let table = CompiledWhenTests.catalogTable()
+        let table = KeyBindingTable.shippedCatalog()
         let keys = Array(Set(table.entries.map(\.keys)))
         #expect(keys.count > 50)
         var fuzz = WhenFuzz(seed: 0x7AB1_E055, clauses: table.entries.compactMap(\.when))

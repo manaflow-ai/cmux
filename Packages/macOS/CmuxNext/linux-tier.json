@@ -14,6 +14,7 @@
     ],
     [
       "CmuxNextActions",
+      "CmuxNextActionsTestSupport",
       "CmuxNextDaemon",
       "CmuxNextFocus",
       "CmuxNextTerminalGeometry",
@@ -92,6 +93,7 @@
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux",
       "CmuxNextActions",
+      "CmuxNextActionsTestSupport",
       "CmuxNextDaemon",
       "CmuxNextFocus",
       "CmuxNextTerminalGeometry",

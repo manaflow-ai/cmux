@@ -16,7 +16,7 @@ Findings (one per line, exit 1):
 
 The pre-push gate (scripts/cmux-next/prepush-gate.py) runs it on every push and on CI; only a
 `Ghostty-defaults-OK: <the user's words>` commit trailer lets a finding through.
-GhosttyReservedKeysTests (CmuxNextActionsTests) checks the same list against the live binding table.
+GhosttyReservedKeysTests (CmuxNextActionsAppKitTests) checks the same list against the live binding table.
 """
 from __future__ import annotations
 
