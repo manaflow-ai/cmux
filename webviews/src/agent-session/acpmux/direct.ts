@@ -5415,6 +5415,23 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// The folder a new chat's bare start goes to (`startSession` with no folder: the pane's
+  /// inherited one); undefined when acpmux picks it or the chat starts on another machine.
+  newChatCwd(): string | undefined {
+    return this.startsOnSend ? undefined : this.host.cwd;
+  }
+  /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
+  /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
+  /// while the person types; the chat's own start asks at Enter.
+  typingPrewarm(harness: string | undefined, cwd: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, harness ? { harness, cwd } : { cwd }).catch(() => undefined);
+  }
+  /// Takes a typing prewarm back (the prompt cleared, the chat left unsent): its warm agent ends.
+  releasePrewarm(harness: string | undefined, cwd: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, { ...(harness ? { harness } : {}), cwd, release: true }).catch(() => undefined);
+  }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
   /// Rejects when it could not be asked (no socket, the request failed): that is no answer.

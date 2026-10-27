@@ -358,6 +358,34 @@ class Place(unittest.TestCase):
                                            CASCADE_RUNS=" cmux-scheme-compile "), (), None, None).jobs,
                          none_placed())
 
+    def test_queued_freshness_work_keeps_a_blacksmith_label_for_feed_compiles(self):
+        """2026-10-26: nightly-next's build-sign-notarize-nightly queued on blacksmith-6vcpu-macos-26 from 19:38Z
+        behind 68 PR compiles. While the snapshot shows release or nightly work queued for a label
+        (`reserved_queued`), a PR's jobs take no slot there, nor its overflow, and a feed's compile still does."""
+        snap = snapshot(large=1, small=1)
+        snap["pools"][LARGE]["reserved_queued"] = snap["pools"][SMALL]["reserved_queued"] = 1
+        found = cascade.seen(snap, NOW)
+        self.assertEqual(found.reserved, {LARGE: 1, SMALL: 1})
+        free, waiting = {LARGE: 0, SMALL: 0}, {LARGE: 1, SMALL: 1}
+        pr = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile release-compile "), (), free, waiting, found)
+        self.assertEqual(pr.jobs, none_placed())
+        self.assertEqual(pr.retry_runner, "")
+        self.assertIn("freshness work is queued", pr.why)
+        dev = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile"), (), free,
+                            waiting, found)
+        self.assertEqual(sum(len(jobs) for jobs in dev.jobs.values()), 1)
+        self.assertIn("cmux-scheme-compile", dev.jobs[LARGE] + dev.jobs[SMALL])
+        # A label with no freshness work queued is open to PR jobs as before.
+        clear = cascade.seen(snapshot(large=1, small=1), NOW)
+        self.assertEqual(clear.reserved, {})
+        self.assertNotEqual(cascade.place(env(CASCADE_RUNS=" release-compile "), (), free, waiting, clear).jobs,
+                            none_placed())
+
+    def test_a_feeds_compile_leads_the_runs_other_jobs(self):
+        dev = env(CASCADE_RUNS=" fast-tier swift-canary cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        result = cascade.place(dev, (), {LARGE: 4, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs, none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+
     def test_the_placement_names_the_fresh_jobs_on_attempt_1_of_a_feed_run_only(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
@@ -1108,6 +1136,29 @@ class Wiring(unittest.TestCase):
                                     and "nightly" not in name for name in labels)
 
     CONFIGS = ("owned", "another owner", "pool not owned", "no side route", "placement skipped")
+
+    def test_a_feeds_compile_takes_the_freshness_slot_first(self):
+        """The DEV compile slot (glaeda-dev-std-xcode-<v>), then the owned side label, then Blacksmith: the slot
+        is taken only on attempt 1 and only when placement named the job and the label."""
+        fresh = "glaeda-dev-std-xcode-26.6"
+        feat = "refs/heads/" + "feat-cmux-next"
+        # The slot's hook admits only cmux-scheme-compile, so the push's Release compile never reads it.
+        self.assertNotIn("fresh_runner", self.jobs["release-compile"]["runs-on"])
+        for name, event in (("cmux-scheme-compile", "workflow_dispatch"),):
+            job = self.jobs[name]
+            for attempt, outputs, expected in (
+                    ("1", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, fresh),
+                    ("1", {"fresh_runner": fresh, "fresh_jobs": " other "}, SIDE),
+                    ("1", {"fresh_runner": "", "fresh_jobs": f" {name} "}, SIDE),
+                    ("2", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, SIDE)):
+                with self.subTest(job=name, attempt=attempt, outputs=outputs):
+                    context = self.context(attempt)
+                    context["github"].update(event_name=event, ref=feat, event={})
+                    context["needs"]["macos-placement"]["outputs"].update(outputs)
+                    context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
+                    context["inputs"] = {"dev_daily": event == "workflow_dispatch"}
+                    self.assertEqual(evaluate(job["runs-on"], context), expected)
+                    self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), expected)
 
     def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
         """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,

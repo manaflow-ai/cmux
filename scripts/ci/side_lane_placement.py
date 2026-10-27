@@ -59,6 +59,10 @@ contains(' <key> ') matches whole keys only:
   now, else empty (fast_route()). Only then does the fast tier leave JOBS and
   CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
   fast pool never holds it in a queue no overflow reaches.
+- `fresh_runner` and `fresh_jobs`: FRESH_LABEL (the DEV compile slot,
+  glaeda-dev-std-xcode-<v>) and the FRESH_JOBS in FRESH_SLOT_JOBS its idle online runners take
+  now, else empty (fresh_route()). Those jobs leave JOBS, CASCADE_RUNS and
+  FIRST_JOBS; the rest of FRESH_JOBS are placed like any other job.
 - `gateway_runner` and `gateway_attempt`: GATEWAY_LABEL (vars.CI_COMPILE_CHECK_GATEWAY,
   the tailnet runner label the build-fleet compile jobs hand their commit from)
   or the same label on a wider class, while it has an idle online runner for
@@ -322,6 +326,40 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
 
 
+def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
+    """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
+
+    The DEV compile slot: one side instance on each opted-in mini carries only
+    FRESH_LABEL (glaeda-dev-std-xcode-<v>, glaeda#1628), and its hook admits
+    only the jobs in FRESH_SLOT_JOBS (cmux-scheme-compile, a DEV daily's Release
+    compile). Only those of FRESH_JOBS take it. On 2026-10-26 the DEV feed did
+    not publish from 21:01Z: every DEV Release compile from 22:18Z queued on
+    glaeda-side-std-xcode-26.6 behind PR compiles, with all 22 online side
+    runners busy and Blacksmith macOS 68 deep. So the slot comes first, then
+    the owned side label, then Blacksmith, like fast_route() a preference
+    taken only while free: a busy, unregistered or unread label sends the
+    jobs on through the side route and the cascade as before.
+    """
+    label = (env.get("FRESH_LABEL") or "").strip()
+    admitted = set((env.get("FRESH_SLOT_JOBS") or "").split())
+    jobs = [job for job in (env.get("FRESH_JOBS") or "").split()
+            if job in admitted and job in (env.get("JOBS") or "").split()]
+    if not label or not jobs or runners is None:
+        return "", ()
+    free = pool.live_owned_free(runners, [label])[label]
+    return (label, tuple(jobs[:free])) if free > 0 else ("", ())
+
+
+def without_jobs(env: Mapping[str, str], jobs: Sequence[str]) -> dict[str, str]:
+    """`env` with `jobs` dropped from JOBS, CASCADE_RUNS, FIRST_JOBS and FRESH_JOBS: they run on their own slot."""
+    trimmed = dict(env)
+    for key in ("JOBS", "CASCADE_RUNS", "FIRST_JOBS", "FRESH_JOBS"):
+        if key in trimmed:
+            kept = [job for job in (trimmed[key] or "").split() if job not in jobs]
+            trimmed[key] = f" {' '.join(kept)} " if key == "CASCADE_RUNS" and kept else " ".join(kept)
+    return trimmed
+
+
 def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
                   taken: Mapping[str, int] | None = None) -> str:
     """GATEWAY_LABEL or a wider class's same label with idle runners left for GATEWAY_JOBS, else "".
@@ -470,6 +508,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     fast = fast_route(env, runners)
     if fast:
         env = without_fast(env)
+    fresh, fresh_jobs = fresh_route(env, runners)
+    if fresh_jobs:
+        env = without_jobs(env, fresh_jobs)
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
@@ -481,6 +522,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if (env.get("FAST_LABEL") or "").strip():
         why += (f"; the fast tier takes idle `{fast}`" if fast
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
+    if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
+        why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs
+                else f"; no idle `{env['FRESH_LABEL'].strip()}` runner, so the feed's compile is placed like the "
+                     "other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
@@ -508,6 +553,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"fast_runner={fast}\n"
+                         f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
                          f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
