@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping` and
 /// `sidebar.steppingWraps` in cmux.json (SIDEBAR-NUMBERING-AND-STEPPING):
