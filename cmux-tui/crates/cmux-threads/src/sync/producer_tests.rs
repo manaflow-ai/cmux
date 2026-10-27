@@ -16,25 +16,30 @@ fn on<R: Send + 'static>(qos: ThreadQos, f: impl FnOnce() -> R + Send + 'static)
     crate::spawn("producer-boost-test", qos, f).expect("spawn").join().expect("test thread")
 }
 
-/// A producer at `qos` that sends 0 once, then stays registered and holds
-/// `sender` until the returned sender fires. Returns once `send` returned, so
-/// the message is queued before any consumer starts: a consumer's first
-/// receive takes it without a wait.
-fn live_producer<S: Send + 'static>(
+/// A producer at `qos` that runs `send` once, then stays registered and
+/// holds `sender` until the returned sender fires. Returns what `send`
+/// returned once it returned, so the message is queued before any consumer
+/// starts: a consumer's first receive takes it without a wait. A panic in
+/// `send` fails the caller with the producer's own message.
+fn live_producer<S: Send + 'static, T: Send + 'static>(
     qos: ThreadQos,
     sender: S,
-    send: fn(&S),
-) -> (std_mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+    send: fn(&S) -> T,
+) -> (T, std_mpsc::Sender<()>, std::thread::JoinHandle<()>) {
     let (done, finished) = std_mpsc::channel();
     let (sent_tx, sent_rx) = std_mpsc::channel();
     let thread = crate::spawn("producer-boost-producer", qos, move || {
-        send(&sender);
-        sent_tx.send(()).expect("the test waits for the send");
+        sent_tx.send(send(&sender)).expect("the test waits for the send");
         finished.recv().expect("the test ends the producer");
     })
     .expect("spawn producer");
-    sent_rx.recv().expect("the producer sends");
-    (done, thread)
+    match sent_rx.recv() {
+        Ok(sent) => (sent, done, thread),
+        Err(_) => match thread.join() {
+            Err(panic) => std::panic::resume_unwind(panic),
+            Ok(()) => unreachable!("the producer reports its send before it returns"),
+        },
+    }
 }
 
 fn send_zero(sender: &mpsc::Sender<u32>) {
@@ -54,17 +59,18 @@ fn one_boosted_wait() -> ProducerBoosts {
 /// The consumer at `qos` takes the producer's message, waits once for one
 /// that never comes, and returns the channel's counts.
 fn wait_once(qos: ThreadQos, producer: ThreadQos) -> ProducerBoosts {
-    wait_once_after(qos, producer, send_zero)
+    wait_once_after(qos, producer, send_zero).1
 }
 
-/// [`wait_once`] on a producer whose first message is sent by `send`.
-fn wait_once_after(
+/// [`wait_once`] on a producer whose first message is sent by `send`; also
+/// returns what `send` returned.
+fn wait_once_after<T: Send + 'static>(
     qos: ThreadQos,
     producer: ThreadQos,
-    send: fn(&mpsc::Sender<u32>),
-) -> ProducerBoosts {
+    send: fn(&mpsc::Sender<u32>) -> T,
+) -> (T, ProducerBoosts) {
     let (sender, receiver) = mpsc::channel();
-    let (done, thread) = live_producer(producer, sender, send);
+    let (sent, done, thread) = live_producer(producer, sender, send);
     let counts = on(qos, move || {
         assert_eq!(receiver.recv(), Ok(0));
         assert_eq!(receiver.recv_timeout(SHORT_WAIT), Err(mpsc::RecvTimeoutError::Timeout));
@@ -72,7 +78,7 @@ fn wait_once_after(
     });
     done.send(()).expect("producer alive");
     thread.join().expect("producer");
-    counts
+    (sent, counts)
 }
 
 #[test]
@@ -84,15 +90,23 @@ fn a_user_interactive_wait_on_a_utility_producer_starts_and_ends_one_override() 
 
 /// The producer sends at the waiter's class and is demoted before the wait:
 /// the wait reads the producer's class when it starts, not the one it sent
-/// at, so it boosts the producer.
+/// at, so it boosts the producer. Utility to Background raises the nice
+/// value, which needs no privilege unless the runner is above nice 10; then
+/// the demotion is refused and the producer stays at the waiter's class.
 #[test]
 fn a_wait_on_a_producer_demoted_after_its_send_boosts_it() {
-    fn send_then_demote(sender: &mpsc::Sender<u32>) {
+    fn send_then_demote(sender: &mpsc::Sender<u32>) -> crate::QosChange {
         send_zero(sender);
-        assert_eq!(crate::set_current(ThreadQos::Utility), crate::QosChange::Applied);
+        crate::set_current(ThreadQos::Background)
     }
-    let counts = wait_once_after(ThreadQos::Default, ThreadQos::Default, send_then_demote);
-    assert_eq!(counts, one_boosted_wait());
+    let (demoted, counts) =
+        wait_once_after(ThreadQos::Utility, ThreadQos::Utility, send_then_demote);
+    let expected = if demoted == crate::QosChange::Applied {
+        one_boosted_wait()
+    } else {
+        ProducerBoosts::default()
+    };
+    assert_eq!(counts, expected, "demotion {demoted:?}");
     assert_eq!(counts.open(), 0);
 }
 
@@ -114,7 +128,7 @@ fn an_equal_or_lower_waiter_boosts_nothing() {
 #[test]
 fn an_unregistered_waiter_boosts_nothing() {
     let (sender, receiver) = mpsc::channel();
-    let (done, thread) = live_producer(ThreadQos::Utility, sender, send_zero);
+    let ((), done, thread) = live_producer(ThreadQos::Utility, sender, send_zero);
     assert_eq!(receiver.recv(), Ok(0));
     assert_eq!(receiver.recv_timeout(SHORT_WAIT), Err(mpsc::RecvTimeoutError::Timeout));
     done.send(()).expect("producer alive");
@@ -151,7 +165,7 @@ fn a_wait_on_a_producer_that_exited_starts_no_override() {
 #[test]
 fn a_disconnected_channel_ends_its_wait_with_no_override_open() {
     let (sender, receiver) = mpsc::channel::<u32>();
-    let (done, thread) = live_producer(ThreadQos::Utility, sender, send_zero);
+    let ((), done, thread) = live_producer(ThreadQos::Utility, sender, send_zero);
     let waiter = crate::spawn("producer-boost-waiter", ThreadQos::UserInteractive, move || {
         assert_eq!(receiver.recv(), Ok(0));
         // The producer drops the last sender while this waits.
@@ -210,7 +224,7 @@ fn crossbeam_a_user_interactive_wait_on_a_utility_producer_starts_and_ends_one_o
     use crate::sync::crossbeam;
 
     let (sender, receiver) = crossbeam::unbounded::<u32>();
-    let (done, thread) = live_producer(ThreadQos::Utility, sender, |sender| {
+    let ((), done, thread) = live_producer(ThreadQos::Utility, sender, |sender| {
         sender.send(0).expect("send");
     });
     let counts = on(ThreadQos::UserInteractive, move || {
