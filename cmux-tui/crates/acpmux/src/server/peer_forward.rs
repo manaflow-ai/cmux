@@ -156,6 +156,14 @@ async fn forward_inner(
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
+        // An upload for a prompt (`attach::blocks_for`) to a peer that would refuse the prompt
+        // naming it: refused before its bytes are sent, so none is left behind.
+        if m == method::MUX_FILE_PUT_BEGIN
+            && params.get("forPrompt") == Some(&Value::Bool(true))
+            && !peer.supports_prompt_uploads()
+        {
+            return Err(crate::prompt_uploads::peer_unsupported(&peer));
+        }
         // An older peer would answer status as unknown and finish without checking `sha256`.
         let checked =
             m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
