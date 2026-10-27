@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
+import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
@@ -55,9 +56,11 @@ import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
   hasPendingDraftWrite,
+  lastQueuedDraftText,
   readDurableDraft,
   readPersistedDraft,
   seededText,
+  settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
@@ -67,7 +70,7 @@ import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { useComposerSettings } from "./composerSettings";
+import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -162,6 +165,7 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
+  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -185,6 +189,9 @@ export type ComposerHandle = {
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
+  /// Sends the typed text now and resolves once the host holds it: acpmux's draft for a chat with
+  /// a session, `chat.unsentDraft` (its 300 ms throttle flushed) for a new chat. Asked before a quit.
+  settleDraft(): Promise<void>;
   /// Puts back what a released page's composer held (the handshake's `wake`).
   wake(state: ComposerWake): void;
 };
@@ -249,7 +256,7 @@ type Props = {
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
-  onUnsentDraft?(text: string): void;
+  onUnsentDraft?(text: string): void | Promise<unknown>;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -272,6 +279,8 @@ type Props = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
+  /// A new chat's machine was picked where no folder of it is known: the chat starts there.
+  onComputer?(computer: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
@@ -287,6 +296,8 @@ type Props = {
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
   folderNote?: string;
+  /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -352,6 +363,7 @@ export function Composer({
   upload,
   localPaths,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -361,6 +373,7 @@ export function Composer({
   offloads,
   onRefreshMachines,
   folderNote,
+  runMode,
   localName,
   environments,
   onNewChat,
@@ -468,6 +481,9 @@ export function Composer({
   const notTyped = () => {
     typedAt.current = Number.NEGATIVE_INFINITY;
   };
+  /// The person edited this chat's prompt before its durable draft read answered (a clear too):
+  /// that read keeps their text, empty or not, and a quit before it answers saves it.
+  const editedBeforeHydration = useRef(false);
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -491,7 +507,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -646,6 +662,22 @@ export function Composer({
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
+      async settleDraft() {
+        // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
+        const typed = field.current?.value() ?? textRef.current;
+        const session = persistedSession.current;
+        // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
+        // shows what it had before, so writing it would clear the draft being restored.
+        // Before the durable read answers, only what the person typed goes (the read keeps a typed
+        // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
+        const ready = hydratedSession.current === session || editedBeforeHydration.current;
+        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
+          writePersistedDraft(session, typed);
+        }
+        const unsent = unsentDraft.current;
+        if (unsent) unsent.push(typed);
+        await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+      },
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)
@@ -684,6 +716,7 @@ export function Composer({
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
+    editedBeforeHydration.current = false;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
@@ -729,13 +762,15 @@ export function Composer({
       if (!current) return;
       const hasPendingWrite = hasPendingDraftWrite(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
-      if (!hasPendingWrite && restored && !currentText) {
+      const edited = editedBeforeHydration.current;
+      editedBeforeHydration.current = false;
+      if (!hasPendingWrite && restored && !currentText && !edited) {
         restoringSession.current = true;
         notTyped();
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && currentText.trim()) {
+      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
         // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
         writePersistedDraft(sessionId, currentText);
       }
@@ -1325,6 +1360,7 @@ export function Composer({
   promptChange.current = (value, at) => {
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
@@ -1529,6 +1565,13 @@ export function Composer({
       disabled: shell,
       onSelect: () => mention(),
     },
+    {
+      id: "scrollToBottomOnSend",
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
+      separatorBefore: true,
+      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
+    },
   ];
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
@@ -1567,9 +1610,12 @@ export function Composer({
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
+      {...(runMode ? { runMode } : {})}
       environments={environments}
+      {...(onComputer ? { onComputer } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {

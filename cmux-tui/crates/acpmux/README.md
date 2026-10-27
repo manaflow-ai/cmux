@@ -158,7 +158,7 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it; at most 8 MiB a file and 10 MiB and 16 files a message (the message is one frame on every hop). |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
@@ -880,6 +880,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
+acpmux host vm-host [HOST] [on|off]    # a dedicated agent VM (no sandbox; on by default on a VM cmux created)
 acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
@@ -1046,6 +1047,24 @@ here or on any peer, and it acks within a second whatever the target is doing:
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
    Delivered, held and failed deliveries are kept for a day.
 
+**A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
+target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
+e.g. one that hands the message to a broker the driving machine keeps a connection to, still
+delivers it:
+
+```json
+{"sendRelay": {"argv": ["my-relay", "send"]}}
+```
+
+When a send (with or without `--no-wait`) is refused because its target names no session here and
+no peer lists it, the CLI runs `my-relay send SESSION -` with the message on stdin and
+`ACPMUX_FROM` set to the sender it would have named (`--from`, `ACPMUX_FROM`, or the session it
+runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
+refusal there is this send's failure. `--json` prints
+`{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
+peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
+`--attach` to such a target is refused. Unset (the default), nothing changes.
+
 Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
 `_acpmux/prompt_accepted` was dropped on the way back.
@@ -1169,9 +1188,11 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
   and everything else stays with its sequence number: the prompts, the agent's messages, the turn
   and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
-  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
-  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
-  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  a running agent, an attached client, a turn, queue or watch is never touched. The daemon runs a
+  pass by itself once it has read every chat's log after its start, and again when a chat closes,
+  at most every 6 hours. `acpmux daemon retention` runs one now; `--dry-run` only reports what it
+  would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
+  `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.

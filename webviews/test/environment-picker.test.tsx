@@ -215,14 +215,16 @@ test("each remote machine shows whether it is connected, read again as the list 
   expect(refreshes).toBe(1);
   const states = machineRows().map((row) => {
     const mark = row.querySelector(".acpmux-env-status");
-    return mark ? [mark.getAttribute("data-connected"), mark.textContent] : null;
+    const state = row.querySelector(".acpmux-env-state");
+    return mark ? [mark.getAttribute("data-connected"), mark.textContent] : state ? ["state", state.textContent] : null;
   });
   expect(states).toEqual([
     null,
     ["true", t("composer.envConnected")],
-    ["false", t("composer.envNotConnected")],
     // A Cloud chat's host acpmux does not list: nothing is known, so nothing is claimed.
     null,
+    // Not connected: greyed, last in its section, saying so, and not a pick.
+    ["state", t("composer.envNotConnected")],
   ]);
 });
 
@@ -233,7 +235,7 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
-test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1–9, defaulting to this computer", async () => {
+test("previews on: one list in This Mac, My machines and Cloud and VMs sections, numbered ⌥⌘1–9, defaulting to this computer", async () => {
   await mount(true);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: cosmic-gray`);
   await openPicker();
@@ -241,16 +243,22 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
   expect(shown.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     "cosmic-gray",
     "gpu-box",
-    "cloud-1",
     "build-cloud",
+    "cloud-1",
   ]);
   expect(shown.map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
-    t("composer.envLocal"),
-    t("composer.envSSH"),
-    t("composer.cloud"),
+    t("composer.thisMac"),
+    t("composer.envMine"),
+    t("composer.envFleet"),
     null,
   ]);
-  expect(shown.map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual(["⌥⌘1", "⌥⌘2", "⌥⌘3", "⌥⌘4"]);
+  // The machine that is not connected takes no shortcut.
+  expect(shown.map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual([
+    "⌥⌘1",
+    "⌥⌘2",
+    "⌥⌘3",
+    undefined,
+  ]);
   expect(shown.map((row) => row.querySelector(".acpmux-env-row")!.hasAttribute("data-current"))).toEqual([
     true,
     false,
@@ -258,18 +266,23 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
     false,
   ]);
   // New Cloud Machine and Open Cloud… close the Cloud section, the first with what one
-  // gives; New environment, last, holds SSH….
-  expect(rows().slice(-3)).toEqual(newRows());
+  // gives; New environment, last, holds SSH…, Connect Phone… and Add Machine… (Add Device),
+  // the list's last row.
+  expect(rows().slice(-5)).toEqual(newRows());
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.newCloudMachine"),
     t("composer.openCloud"),
     t("composer.connectSSH"),
+    t("composer.connectPhone"),
+    t("composer.addMachine"),
   ]);
   expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
   expect(newRows().map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
     null,
     null,
     t("composer.newEnvironment"),
+    null,
+    null,
   ]);
 });
 
@@ -282,7 +295,7 @@ test("with no cloud machine yet, New Cloud Machine heads its own Cloud section a
   await openPicker();
   expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
   const cloud = newRows()[0]!;
-  expect(cloud.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.cloud"));
+  expect(cloud.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envFleet"));
   // Open Cloud… stays in that one Cloud section.
   expect(newRows()[1]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBeNull();
   await act(async () => cloud.click());
@@ -294,8 +307,9 @@ test("the search field filters by name and section, keeping each machine's short
   await openPicker();
   await type("cloud");
   const shown = machineRows();
-  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
-  expect(newRows()).toHaveLength(3);
+  expect(shown.map((row) => rowText(row))).toEqual(["build-cloud⌥⌘3", `cloud-1${t("composer.envNotConnected")}`]);
+  // The search narrows the machines; every action row stays.
+  expect(newRows()).toHaveLength(5);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
@@ -314,9 +328,9 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
   expect(calls).toEqual([]);
 });
 
-test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, the Cloud page and the connect flow", async () => {
+test("New Cloud Machine, Open Cloud…, SSH…, Connect Phone… and Add Machine… open the host's create flow, the Cloud page, the connect flow, the pairing page and Add Device", async () => {
   const calls = await mount(true);
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1, 2, 3, 4]) {
     await openPicker();
     await act(async () => newRows()[index]!.click());
     expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
@@ -325,6 +339,8 @@ test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, t
     ["connect", "cloud"],
     ["connect", "cloudPage"],
     ["connect", "ssh"],
+    ["connect", "phone"],
+    ["connect", "addMachine"],
   ]);
 });
 
@@ -335,8 +351,10 @@ test("each connect choice runs its own host action", async () => {
     ssh: "remote.connect",
     cloud: "newCloudMachine",
     cloudPage: "palette.openCloudPane",
+    addMachine: "device.add",
     move: "cloudMove",
     bringBack: "cloudBringBack",
+    phone: "palette.mobileConnect",
   });
 });
 
@@ -505,7 +523,7 @@ test("previews off: New Worktree stays in the folder menu only", async () => {
   expect(worktreeButton()).toBeUndefined();
 });
 
-async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | undefined>) {
+async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | undefined>, snapshot = noChat()) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const noop = () => {};
@@ -513,7 +531,7 @@ async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | unde
   await act(async () =>
     root!.render(
       <NewTabScreen
-        snapshot={noChat()}
+        snapshot={snapshot}
         lastAgent="claude"
         cwd="/Users/you/src/app"
         startCwd="/Users/you/src/app"
@@ -565,4 +583,263 @@ test("New Tab, previews on: a slower worktree reply doesn't replace a newer choi
   await act(async () => replies[1]!("/Users/you/wt/app-blue-fox"));
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(folderName()).toContain("fox");
+});
+
+test("New Tab, previews on: a worktree reply after a machine pick doesn't take the chat back here", async () => {
+  const replies: ((folder: string) => void)[] = [];
+  const snapshot = noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" }, peerConnected: { devbox: true } });
+  await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)), snapshot);
+  await act(async () => worktreeButton()!.click());
+  await openPicker();
+  const devbox = machineRows().find((row) => row.textContent?.includes("devbox"))!;
+  await act(async () => devbox.click());
+  await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  expect(folderName()).not.toContain("owl");
+});
+
+// The daemon's host list (`_acpmux/status` peers as the relay keeps them, sorted by name): four
+// machines of the person's own, two numbered VM pools (some still reconnecting) and a Cloud machine.
+const pools = [
+  ...Array.from({ length: 6 }, (_, index) => ({
+    name: `agent-vm-${index + 1}`,
+    state: index >= 2 ? (index === 5 ? "degraded" : "reconnecting") : "connected",
+  })),
+  ...Array.from({ length: 10 }, (_, index) => ({
+    name: `ci-vm-${String(index + 1).padStart(2, "0")}`,
+    state: "connected",
+  })),
+];
+const daemonHosts = {
+  peers: [
+    ...[
+      ...pools,
+      { name: "build-mini-2", state: "connected" },
+      { name: "desk-mac", state: "connected" },
+      { name: "gpu-box", state: "offline" },
+      { name: "home-linux", state: "connected" },
+    ].map(({ name, state }) => ({
+      name,
+      transport: "ssh",
+      connected: state !== "reconnecting" && state !== "offline",
+      state,
+    })),
+    { name: "cloud-1", transport: "wss", connected: true, state: "connected" },
+  ].sort((a, b) => (a.name < b.name ? -1 : 1)),
+};
+
+async function daemonMachines() {
+  const environments = await import("../src/agent-session/acpmux/environments");
+  const machines = environments.knownMachines(
+    daemonHosts.peers.map((peer) => peer.name),
+    [],
+    environments.peerKindsFromStatus(daemonHosts),
+    [],
+    environments.peerConnectedFromStatus(daemonHosts),
+    environments.peerStatesFromStatus(daemonHosts),
+  );
+  return { ...environments, machines };
+}
+
+test("the daemon's host list maps to sections, connected first, in number order, each with its state", async () => {
+  const { machines, orderEnvironments, environmentSections, environmentReady, numberedEnvironments } =
+    await daemonMachines();
+  expect(machines).toHaveLength(21);
+  const sections = environmentSections(machines);
+  const ordered = orderEnvironments(machines);
+  expect(ordered.map((machine) => [machine.label, sections.get(machine.id), machine.state])).toEqual([
+    // The person's own: SSH machines that are no numbered pool (one numbered name alone is not).
+    ["build-mini-2", "mine", "connected"],
+    ["desk-mac", "mine", "connected"],
+    ["home-linux", "mine", "connected"],
+    ["gpu-box", "mine", "offline"],
+    // Cloud and VMs: the pools by number (2 before 10) and the Cloud machine, then the rest.
+    ["agent-vm-1", "fleet", "connected"],
+    ["agent-vm-2", "fleet", "connected"],
+    ...Array.from({ length: 10 }, (_, index) => [`ci-vm-${String(index + 1).padStart(2, "0")}`, "fleet", "connected"]),
+    ["cloud-1", "fleet", "connected"],
+    ["agent-vm-3", "fleet", "reconnecting"],
+    ["agent-vm-4", "fleet", "reconnecting"],
+    ["agent-vm-5", "fleet", "reconnecting"],
+    // Connected but still in its handshake: not a place a chat starts yet.
+    ["agent-vm-6", "fleet", "degraded"],
+  ]);
+  expect(ordered.filter((machine) => !environmentReady(machine))).toHaveLength(5);
+  const numbered = numberedEnvironments(machines).map((machine) => machine.label);
+  expect(numbered.join(" ")).toBe(
+    "build-mini-2 desk-mac home-linux agent-vm-1 agent-vm-2 ci-vm-01 ci-vm-02 ci-vm-03 ci-vm-04",
+  );
+});
+
+test("a peer's link state reads the same from the relayed reply and the daemon's own; an older daemon's none", async () => {
+  const { peerStatesFromStatus, environmentReady } = await import("../src/agent-session/acpmux/environments");
+  expect(peerStatesFromStatus({ peers: [{ name: "a", url: "ssh://a", state: "reconnecting" }] })).toEqual({
+    a: "reconnecting",
+  });
+  expect(peerStatesFromStatus({ peers: [{ name: "a", transport: "ssh", state: "connected" }, { name: "b" }] })).toEqual(
+    { a: "connected" },
+  );
+  // No state: the connected flag decides; nothing known counts as a place to start.
+  expect(environmentReady({ id: "a", label: "a", kind: "ssh", connected: false })).toBe(false);
+  expect(environmentReady({ id: "a", label: "a", kind: "ssh" })).toBe(true);
+});
+
+const daemonProps = async (extra: Record<string, unknown> = {}) => {
+  const { peerKindsFromStatus, peerConnectedFromStatus, peerStatesFromStatus } =
+    await import("../src/agent-session/acpmux/environments");
+  const computers: string[] = [];
+  return {
+    computers,
+    props: {
+      sessions: [],
+      peers: daemonHosts.peers.map((peer) => peer.name),
+      peerKinds: peerKindsFromStatus(daemonHosts),
+      peerConnected: peerConnectedFromStatus(daemonHosts),
+      peerStates: peerStatesFromStatus(daemonHosts),
+      onComputer: (computer: string) => computers.push(computer),
+      ...extra,
+    },
+  };
+};
+
+test("previews on: every machine the daemon lists, grouped; the ones not connected greyed with their state", async () => {
+  const { computers, props } = await daemonProps();
+  await mount(true, props);
+  await openPicker();
+  const shown = machineRows();
+  expect(shown).toHaveLength(22);
+  const sectionHeads = shown
+    .map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))
+    .filter(Boolean);
+  expect(sectionHeads).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
+  const greyed = shown.filter((row) => row.querySelector('.acpmux-env-row[data-ready="false"]'));
+  expect(
+    greyed.map((row) => [
+      row.querySelector(".acpmux-menu-label")?.textContent,
+      row.querySelector(".acpmux-env-state")?.textContent,
+    ]),
+  ).toEqual([
+    ["gpu-box", t("composer.envNotConnected")],
+    ["agent-vm-3", t("header.reconnecting")],
+    ["agent-vm-4", t("header.reconnecting")],
+    ["agent-vm-5", t("header.reconnecting")],
+    ["agent-vm-6", t("rail.connectorPending")],
+  ]);
+  // A greyed machine stays in its place, in its section, and is no pick: the list stays open.
+  const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent;
+  expect(shown.slice(1, 5).map(label).join(" ")).toBe("build-mini-2 desk-mac home-linux gpu-box");
+  expect(greyed.every((row) => row.querySelector('[aria-disabled="true"]'))).toBe(true);
+  await act(async () => greyed[1]!.click());
+  expect(computers).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
+  // A connected one is: the new chat moves there.
+  const target = shown.find((row) => label(row) === "ci-vm-10")!;
+  await act(async () => target.click());
+  expect(computers).toEqual(["ci-vm-10"]);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ci-vm-10`);
+});
+
+test("previews on: 20+ machines stay searchable by name and section", async () => {
+  const { props } = await daemonProps();
+  await mount(true, props);
+  await openPicker();
+  await type("agent 1");
+  expect(machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["agent-vm-1"]);
+  await type("my machines");
+  const mine = machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(mine.join(" ")).toBe("build-mini-2 desk-mac home-linux gpu-box");
+});
+
+test("previews off: the plain Computer menu lists the same machines, in the same sections, greyed the same way", async () => {
+  const { computers, props } = await daemonProps();
+  await mount(false, props);
+  await openPicker();
+  // The machine rows (SSH… and New Cloud Machine follow them as buttons).
+  const items = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+    item.querySelector(".acpmux-location-name"),
+  );
+  const names = items.map((item) => item.querySelector(".acpmux-menu-label")?.textContent);
+  expect(names.slice(0, 5)).toEqual(["cosmic-gray", "build-mini-2", "desk-mac", "home-linux", "gpu-box"]);
+  expect(names).toHaveLength(22);
+  expect(
+    items.map((item) => item.querySelector(".acpmux-location-name")!.getAttribute("data-section")).filter(Boolean),
+  ).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
+  const offline = items[4]!;
+  expect(offline.querySelector(".acpmux-location-name")!.getAttribute("data-ready")).toBe("false");
+  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+  await act(async () => offline.click());
+  expect(computers).toEqual([]);
+  expect(doc().querySelector(".acpmux-location-menu")).not.toBeNull();
+  await act(async () => items[2]!.click());
+  expect(computers).toEqual(["desk-mac"]);
+});
+
+test("an open machine list reads the machines again until it closes", async () => {
+  const { MACHINES_REFRESH_MS } = await import("../src/agent-session/acpmux/EnvironmentPicker");
+  expect(MACHINES_REFRESH_MS).toBeLessThanOrEqual(5_000);
+  const { props } = await daemonProps();
+  const realSetInterval = globalThis.setInterval;
+  const realClearInterval = globalThis.clearInterval;
+  // Only the machine list's own timer (its period) is counted; anything else runs as it would.
+  const timers = new Map<unknown, () => void>();
+  globalThis.setInterval = ((callback: () => void, ms?: number, ...rest: unknown[]) => {
+    const id = realSetInterval(callback, ms, ...rest);
+    if (ms === MACHINES_REFRESH_MS) timers.set(id, callback);
+    return id;
+  }) as unknown as typeof setInterval;
+  globalThis.clearInterval = ((id: Parameters<typeof clearInterval>[0]) => {
+    timers.delete(id);
+    realClearInterval(id);
+  }) as unknown as typeof clearInterval;
+  try {
+    await mount(true, props);
+    await openPicker();
+    expect(refreshes).toBe(1);
+    expect(timers.size).toBe(1);
+    await act(async () => {
+      for (const tick of timers.values()) tick();
+    });
+    expect(refreshes).toBe(2);
+    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+    expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+    expect(timers.size).toBe(0);
+  } finally {
+    globalThis.setInterval = realSetInterval;
+    globalThis.clearInterval = realClearInterval;
+  }
+});
+
+test("a numbered pair is the person's own; three or more of one stem are a pool", async () => {
+  const { environmentSections } = await import("../src/agent-session/acpmux/environments");
+  const ssh = (name: string) => ({ id: name, label: name, kind: "ssh" as const, connected: true, state: "connected" });
+  const sections = environmentSections(
+    ["build-mini-1", "build-mini-2", "cmux16", "lane-1", "lane-2", "lane-3"].map(ssh),
+  );
+  expect(Object.fromEntries(sections)).toEqual({
+    "build-mini-1": "mine",
+    "build-mini-2": "mine",
+    cmux16: "mine",
+    "lane-1": "fleet",
+    "lane-2": "fleet",
+    "lane-3": "fleet",
+  });
+});
+
+test("a chat's machine the daemon no longer lists is shown not connected, and is no pick", async () => {
+  const { knownMachines, environmentReady } = await import("../src/agent-session/acpmux/environments");
+  const machines = knownMachines(
+    ["listed"],
+    [
+      { peer: "removed", host: "removed" },
+      { peer: "listed", host: "listed" },
+    ],
+    { listed: "ssh" },
+    [],
+    { listed: true },
+    { listed: "connected" },
+  );
+  expect(machines.map((machine) => [machine.id, machine.connected, environmentReady(machine)])).toEqual([
+    ["listed", true, true],
+    ["removed", false, false],
+  ]);
 });

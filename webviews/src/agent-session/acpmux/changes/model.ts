@@ -20,6 +20,7 @@ export type ChangedFile = {
   binary?: boolean;
   /// The patch stopped short of the whole diff.
   patchTruncated?: boolean;
+  blobFingerprint?: string;
 };
 
 export type ChangeSet = {
@@ -133,6 +134,7 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
         additions: count(file.additions),
         deletions: count(file.deletions),
         patch: text(file.patch),
+        blobFingerprint: text(file.blob_fingerprint),
         binary: file.binary === true,
         patchTruncated: file.patch_truncated === true,
       },
@@ -204,5 +206,7 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     deleted: file.status === "deleted",
     binary: file.binary,
     patchTruncated: file.patchTruncated,
+    patch: file.patch,
+    blobFingerprint: file.blobFingerprint,
   }));
 }
