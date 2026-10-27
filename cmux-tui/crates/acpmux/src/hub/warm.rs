@@ -82,9 +82,17 @@ impl Hub {
                 Ok(_) => warmed.push(json!({"sessionId": session.id, "cwd": cwd})),
                 // Invalid params includes an explicit stop during startup. It must not be
                 // retried with a new stop generation, which would reopen the stopped session.
-                Err(error) => failed.push(json!({
-                    "sessionId": session.id, "retryable": error.code != -32602, "stops": stops, "error": error
-                })),
+                Err(error) => {
+                    // Startup can outlive the socket and an explicit Stop can race it. Re-read
+                    // the generation after the await so a timeout cannot be retried past Stop.
+                    let current_stops = session.stops.load(Ordering::SeqCst);
+                    failed.push(json!({
+                        "sessionId": session.id,
+                        "retryable": error.code != -32602 && current_stops == stops,
+                        "stops": current_stops,
+                        "error": error
+                    }));
+                },
             }
         }
         (warmed, failed)
