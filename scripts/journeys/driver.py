@@ -373,7 +373,17 @@ def last_line(text):
 
 # Letters text recognition confuses in a monospace terminal font, folded to one form.
 OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
-                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
+                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-",
+                          # Cyrillic and Greek letters drawn like Latin ones: Vision reads a short Latin
+                          # word at a line's start as one (nested-splits on v2.2.1 read pane a's
+                          # "a-N-42" as U+0430 "-N-42" in 3 of 3 runs, the frame showing Latin "a").
+                          **{chr(c): latin for c, latin in (
+                              (0x0430, "a"), (0x0435, "e"), (0x043E, "0"), (0x0440, "p"), (0x0441, "c"), (0x0445, "x"),
+                              (0x0443, "y"), (0x0455, "5"), (0x0456, "1"), (0x0458, "j"), (0x0410, "a"), (0x0412, "8"),
+                              (0x0415, "e"), (0x041A, "k"), (0x041C, "m"), (0x041D, "h"), (0x041E, "0"), (0x0420, "p"),
+                              (0x0421, "c"), (0x0422, "t"), (0x0425, "x"), (0x03B1, "a"), (0x03BF, "0"), (0x0391, "a"),
+                              (0x0392, "8"), (0x0395, "e"), (0x0396, "2"), (0x0397, "h"), (0x0399, "1"), (0x039A, "k"),
+                              (0x039C, "m"), (0x039D, "n"), (0x039F, "0"), (0x03A1, "p"), (0x03A4, "t"), (0x03A7, "x"))}})
 
 
 def ocr_contains(lines, wanted):
