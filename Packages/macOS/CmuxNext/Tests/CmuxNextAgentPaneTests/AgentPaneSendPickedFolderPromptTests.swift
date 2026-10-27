@@ -76,6 +76,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         pane.model.transport.gestures.record()
         #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
         #expect(pane.model.transport.addedRoots == [pane.folder])
+        #expect(await pane.server.wait { peers in peers.first?.frames.contains { $0.contains("acp.trust.set") && $0.contains(pane.folder) } == true })
         #expect(await start(pane, id: 1) == nil)
         #expect(await prompt(pane, id: 2) == nil, "the pick spent the Send's gesture: the first prompt is Not sent")
 
@@ -108,6 +109,19 @@ struct AgentPaneSendPickedFolderPromptTests {
         // that start nothing to carry, so its first prompt still needs the person.
         #expect(await start(pane, id: 1, in: pane.root) == nil)
         #expect(await prompt(pane, id: 2) == .gestureRequired)
+        #expect(pane.server.peers.first?.frames.contains { $0.contains("acp.trust.set") } != true)
+    }
+
+    @Test func aNativeFolderOpenRecordsTrustWithoutGrantingHomeOrAncestorPaths() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        #expect(await pane.model.transport.pick(pane.folder) == pane.folder)
+        #expect(await pane.server.wait { peers in peers.first?.frames.contains { $0.contains("acp.trust.set") && $0.contains(pane.folder) } == true })
+
+        let home = pane.model.transport.homeFolder!
+        #expect(await pane.model.transport.pick(home) == home)
+        #expect(pane.server.peers.first?.frames.filter { $0.contains("acp.trust.set") }.count == 1)
     }
 
     /// A pick passes its gesture only to a chat that starts: with no start after it, a prompt into
