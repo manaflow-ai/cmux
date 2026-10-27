@@ -117,7 +117,7 @@ def build_env(body, outputs):
 
 
 def compile_commands(outputs):
-    """Run the actual four build steps with recorder executables, never compilers."""
+    """Run the actual helper and app build steps with recorder executables, never compilers."""
     with tempfile.TemporaryDirectory(prefix="nightly-compile-archs-") as directory:
         root = Path(directory)
         stubs = {
@@ -133,6 +133,7 @@ def compile_commands(outputs):
             "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
             "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
             "scripts/cmux-next/build-optchat-chief.sh": 'printf "%s" "$CMUX_NEXT_OPTCHAT_CHIEF_ARCHS" > "$CAPTURE/chief"',
+            "scripts/cmux-next/build-mobile-host.sh": 'printf "%s" "$CMUX_NEXT_MOBILE_HOST_ARCHS" > "$CAPTURE/mobile"',
             "scripts/build-ghostty-cli-helper.sh": 'printf "%s\\n" "$@" > "$CAPTURE/ghostty"',
         }
         for path, body in stubs.items():
@@ -152,6 +153,7 @@ def compile_commands(outputs):
             ("build-nightly-ghostty-cli-helper", "Build Ghostty CLI helper"),
             ("build-nightly-app", "Build in-tree acpmux for the compilation cache"),
             ("build-nightly-app", "Build the OptChat Chief (cmux-next)"),
+            ("build-nightly-app", "Build the cmux-next iPhone host (cmux-mobile-host)"),
             ("build-nightly-app", "Build nightly app (Release)"),
         )
         for owner, name in steps:
@@ -170,7 +172,8 @@ def compile_commands(outputs):
                            capture_output=True, text=True, check=True)
             if "background_build.py start" in script:
                 subprocess.run(["/usr/bin/python3", "scripts/ci/background_build.py", "join", "--state",
-                                str(root / "nightly-helper-builds"), "optchat-chief"],
+                                str(root / "nightly-helper-builds"),
+                                "mobile-host" if "build-mobile-host.sh" in script else "optchat-chief"],
                                cwd=root, env=env, capture_output=True, text=True, check=True)
         return {path.name: path.read_text() for path in capture.iterdir()}
 
@@ -187,7 +190,7 @@ for ref, fast in (("nightly-next", False), ("main", False), ("rc/v1.2.3", False)
     expected = "arm64" if arm64_only else "arm64 x86_64"
     if f"ARCHS={expected}" not in commands["app"].splitlines():
         failures.append(f"{ref} fast={fast}: Xcode compiled an architecture the publish matrix does not need")
-    for helper in ("acpmux", "chief"):
+    for helper in ("acpmux", "chief", "mobile"):
         if commands[helper].replace(",", " ").split() != expected.split():
             failures.append(f"{ref} fast={fast}: {helper} built {commands[helper]!r}, expected {expected!r}")
     helper_args = commands["ghostty"].splitlines()

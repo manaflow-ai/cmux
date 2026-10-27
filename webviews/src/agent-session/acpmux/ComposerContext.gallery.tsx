@@ -49,6 +49,12 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+/// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
+const accountMachines = [
+  { id: "vm-build", name: "build box", stage: "paused" },
+  { id: "vm-eval", name: "eval box", stage: "ready" },
+  { id: "vm-fresh", name: "fresh box", stage: "booting" },
+];
 
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
@@ -416,6 +422,27 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
+    },
+    "environment-picker-cloud-machines": {
+      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+        cloudMachines: accountMachines,
+        onCloudMachine: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "computer-menu-cloud-machines": {
+      note: "Previews off: the plain Computer menu lists the account's Cloud machines acpmux does not list the same way, with their stage on the second line.",
+      props: { ...baseProps, cloudMachines: accountMachines, onCloudMachine: () => undefined },
+      play: openComputer,
     },
     "environment-picker-fleet": {
       height: 760,
