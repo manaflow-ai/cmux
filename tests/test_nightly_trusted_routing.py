@@ -51,6 +51,8 @@ def select(field='runs-on', **changes):
     context = {
         'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
         'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+        # The picker ran on this attempt; a re-run of failed jobs keeps an older value.
+        'needs.pick-nightly-build-runner.outputs.attempt': '1',
         'vars.CI_PR_POOL_OWNED': '1',
         'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
         'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
@@ -81,12 +83,17 @@ class NightlyTrustedRouting(unittest.TestCase):
         # Row 3 of the 2026-10-27 nightly path audit: the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
         # alone for every attempt, so two runs died at "Set up runner" and a rescue re-run went back
         # to the label that had refused it. The variable now only feeds the picker (OWNED_LABELS), and a
-        # re-run (attempt 2, the rescue's) takes the picked Blacksmith label.
+        # re-run of failed jobs (attempt 2, the rescue's), which keeps attempt 1's pick, takes the picked
+        # Blacksmith label. A re-run that picks again reads its own pick.
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26',
                   'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6'}
         self.assertEqual(select(**{**picked, 'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(select(**{**picked, 'github.run_attempt': 3}), 'blacksmith-6vcpu-macos-26')
+        self.assertEqual(select(**{**picked, 'github.run_attempt': 2,
+                                   'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
+                         'glaeda-side-std-xcode-26.6')
+        self.assertEqual(select(**{**picked, 'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
         # A failed pick (empty outputs) takes Blacksmith 6 vCPU, never an unvalidated variable.
         for variable in ('macos-26', 'macos-15', 'glaeda-side-std-xcode-26.6', 'blacksmith-12vcpu-macos-26', ''):
             for attempt in (1, 2):
