@@ -34,7 +34,7 @@ struct AcpmuxUploadFrameTests {
             "params": ["sessionId": "s", "fileName": "x", "size": 42, "data": "AA=="],
         ], modeFields: nil))
     }
-}
+
     @Test func promptUploadRefsSurviveWhileOtherBlockMetadataIsStripped() throws {
         let object: [String: Any] = [
             "method": "session/prompt",
@@ -53,7 +53,8 @@ struct AcpmuxUploadFrameTests {
             ],
         ]
         let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
-        let block = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]]).first
+        let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
+        let block = try #require(blocks.first)
         let meta = try #require(block["_meta"] as? [String: Any])
         let acpmux = try #require(meta["acpmux"] as? [String: Any])
         let upload = try #require(acpmux["upload"] as? [String: Any])
@@ -76,8 +77,10 @@ struct AcpmuxUploadFrameTests {
             ],
         ]
         let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
-        let block = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]]).first
+        let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
+        let block = try #require(blocks.first)
         #expect((block["uri"] as? String) == "acpmux-upload:u")
         let upload = try #require(((block["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["upload"] as? [String: Any])
         #expect(upload["uploadId"] as? String == "u")
     }
+}
