@@ -17,6 +17,15 @@ extension DaemonConnection {
         guard let transport = ready?.transport else { throw DaemonError.notConnected }
         let id = SessionEventsWire.newStreamID()
         let (items, continuation) = AsyncStream<T>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        let timeout = configuration.requestTimeout
+        // Install cleanup before opening: timeout/cancellation can leave an accepted stream whose
+        // opening reply never arrived. It still belongs to this transport and must be cancelled.
+        continuation.onTermination = { _ in
+            transport.unrouteStream(id)
+            guard !transport.isClosed else { return }
+            // task-owner: one best-effort cancel on the transport that opened the stream
+            Task { try? await Self.send("stream.cancel", params: ["stream_id": .string(id)], on: transport, timeout: timeout) }
+        }
         guard transport.routeStream(id, { line in
             guard let line, let parsed = ResourceStreamLine.parse(line) else { return continuation.finish() }
             guard let item = parsed else { return continuation.finish() }
@@ -27,16 +36,8 @@ extension DaemonConnection {
         do {
             try await Self.send(operation, params: opening, on: transport, timeout: configuration.requestTimeout)
         } catch {
-            transport.unrouteStream(id)
             continuation.finish()
             throw error
-        }
-        let timeout = configuration.requestTimeout
-        continuation.onTermination = { _ in
-            transport.unrouteStream(id)
-            guard !transport.isClosed else { return }
-            // task-owner: one best-effort cancel on the transport that opened the stream
-            Task { try? await Self.send("stream.cancel", params: ["stream_id": .string(id)], on: transport, timeout: timeout) }
         }
         return items
     }

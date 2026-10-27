@@ -64,7 +64,10 @@ public final class TailnetNodeService {
 
     /// Labs turned off: the `tailnet.state` read ends (its stream is cancelled on the daemon), and
     /// the next enable reads again.
-    public func stopFollowing() { follower.stop() }
+    public func stopFollowing() {
+        follower.stop()
+        model.markUnavailable()
+    }
 
     private func startFollowing() {
         guard let connection = daemon.connection else {

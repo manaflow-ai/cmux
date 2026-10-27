@@ -24,7 +24,10 @@ public final class TailnetStateFollower {
         // task-owner: one tailnet.state read per daemon connection; ended by stop(), the next key, or the stream
         task = Task { [weak self, model] in
             do {
-                for await state in try await open() { model.apply(state) }
+                for await state in try await open() {
+                    guard !Task.isCancelled, self?.key == key else { return }
+                    model.apply(state)
+                }
             } catch {}
             guard !Task.isCancelled else { return }
             model.markUnavailable()

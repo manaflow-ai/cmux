@@ -34,6 +34,8 @@ public final class TailnetNodeModel {
     /// The person pressed Sign In and the node has not signed in since: only then is a sign-in
     /// link shown (a link the node offers by itself is not opened for them).
     @ObservationIgnored private var signInRequested = false
+    /// Stream snapshots and local cancellation invalidate replies from an older state.
+    @ObservationIgnored private var revision: UInt64 = 0
 
     @ObservationIgnored private let services: TailnetNodeServices
 
@@ -44,13 +46,15 @@ public final class TailnetNodeModel {
 
     /// The node's state changed (a `tailnet.state` item or a button's answer).
     public func apply(_ state: TailnetNodeState) {
+        revision &+= 1
         set(Self.phase(of: state, signInRequested: signInRequested))
-        if case .signedIn = phase { signInRequested = false } else if pairCode != nil { pairCode = nil }
+        if case .signedIn = phase { signInRequested = false }
     }
 
     /// The daemon has no node, or the connection to it ended. Changes nothing when already so, so
     /// a page that reads the card while the daemon is away does not wake itself again.
     public func markUnavailable() {
+        revision &+= 1
         signInRequested = false
         set(.unavailable)
         if pairCode != nil { pairCode = nil }
@@ -58,48 +62,61 @@ public final class TailnetNodeModel {
 
     /// Writes `phase` only when it changes (Observation wakes readers on every write).
     private func set(_ next: Phase) {
-        if phase != next { phase = next }
+        if phase != next {
+            phase = next
+            if pairCode != nil { pairCode = nil }
+        }
     }
 
     /// Sign In (and Reopen): start the node's login and open its link in the browser.
     public func signIn() async {
+        guard !busy else { return }
         if case .waitingForBrowser(let url) = phase { return services.openURL(url) }
         signInRequested = true
-        guard let state = await run(services.loginStart) else { return }
-        apply(state)
+        let expected = revision
+        if let state = await run(services.loginStart, isCurrent: { self.revision == expected }) { apply(state) }
         if case .waitingForBrowser(let url) = phase { services.openURL(url) }
     }
 
     /// Cancel on the waiting state: the link stays unused; the node keeps waiting until Sign In.
     public func cancelSignIn() {
+        revision &+= 1
         signInRequested = false
         if case .waitingForBrowser = phase { set(.signedOut) }
     }
 
     public func signOut() async {
+        guard !busy else { return }
         signInRequested = false
-        guard let state = await run(services.logout) else { return }
+        let expected = revision
+        guard let state = await run(services.logout, isCurrent: { self.revision == expected }) else { return }
         apply(state)
     }
 
     /// Pair: a single-use client ticket for this Mac's address, shown as a QR code and a link.
     public func pair() async {
-        guard case .signedIn(let address, _) = phase else { return }
-        guard let ticket = await run({ try await self.services.mintTicket(address) }) else { return }
+        guard !busy, case .signedIn(let address, _) = phase else { return }
+        let expected = revision
+        guard let ticket = await run({ try await self.services.mintTicket(address) },
+                                    isCurrent: { self.revision == expected }) else { return }
         pairCode = TailnetPairCode(address: address, ticket: ticket)
         if pairCode == nil { actionError = TailnetNodeStrings.pairFailed }
     }
 
-    public func closePair() { pairCode = nil }
+    public func closePair() {
+        revision &+= 1
+        if pairCode != nil { pairCode = nil }
+    }
 
-    private func run<T>(_ body: () async throws -> T) async -> T? {
+    private func run<T>(_ body: () async throws -> T, isCurrent: () -> Bool) async -> T? {
         busy = true
         actionError = nil
         defer { busy = false }
         do {
-            return try await body()
+            let result = try await body()
+            return isCurrent() ? result : nil
         } catch {
-            actionError = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+            if isCurrent() { actionError = (error as? any LocalizedError)?.errorDescription ?? String(describing: error) }
             return nil
         }
     }
