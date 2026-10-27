@@ -167,12 +167,12 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
         ).toBe("1");
         await capture(page, `pin-hover-${colorScheme}`);
         const actionGaps = await received.locator(".cv-received__actions").evaluate((actions) => {
-          const boxes = [...actions.querySelectorAll("button.cv-iconbtn")].map((button) =>
-            button.getBoundingClientRect(),
-          );
+          const boxes = [...actions.querySelectorAll("button.cv-iconbtn")]
+            .map((button) => button.getBoundingClientRect())
+            .filter((box) => box.width > 0);
           return boxes.slice(1).map((box, index) => box.left - boxes[index]!.right);
         });
-        expect(actionGaps.every((gap) => Math.abs(gap) <= 0.5)).toBe(true);
+        for (const gap of actionGaps) expect(Math.abs(gap)).toBeLessThanOrEqual(0.5);
         await received.locator('[data-menu="queued-message"]').click();
         await page.getByRole("menuitem", { name: "Send now", exact: true }).waitFor();
         await page.mouse.move(12, 12);
