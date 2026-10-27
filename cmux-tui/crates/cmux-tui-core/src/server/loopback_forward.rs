@@ -1016,10 +1016,13 @@ fn connect_and_start(
     ] {
         let worker = stream.clone();
         let worker_mux = mux.clone();
-        let spawned = std::thread::Builder::new()
-            .name(name.into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || run(worker, worker_mux));
+        // Bulk page bytes: below every request and keystroke.
+        let spawned = crate::thread_qos::spawn_raisable(
+            name,
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(THREAD_STACK_BYTES),
+            move || run(worker, worker_mux),
+        );
         if spawned.is_err() {
             stream.fail(forwarder, "internal", true);
             return;
