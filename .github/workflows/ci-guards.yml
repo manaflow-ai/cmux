@@ -1662,6 +1662,10 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
 
+      - name: Validate the release app signer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_signer_sign_app.py
+
       - name: Validate release asset guard
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js
