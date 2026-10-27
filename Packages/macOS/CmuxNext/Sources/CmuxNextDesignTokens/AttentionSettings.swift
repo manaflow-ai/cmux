@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// How a pane that needs attention (an unread notification) is marked
 /// (`notifications.attention.style`).

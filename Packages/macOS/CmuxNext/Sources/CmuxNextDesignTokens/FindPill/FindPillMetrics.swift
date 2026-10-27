@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The find pill's geometry, shared by the native ``FindPillView`` and its web twin
 /// (`webviews/src/ui/findPill.css`, whose custom properties carry the same numbers), so a find

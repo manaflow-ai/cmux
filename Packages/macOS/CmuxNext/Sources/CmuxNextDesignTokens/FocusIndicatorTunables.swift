@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The Debug Settings switches for the focus cue.
 public nonisolated enum FocusIndicatorTunables {

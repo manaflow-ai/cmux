@@ -1,5 +1,4 @@
 package import CCmuxMotionFFI
-public import CoreGraphics
 public import Foundation
 
 /// Spring tuning in SwiftUI terms, with the equivalent Core Animation

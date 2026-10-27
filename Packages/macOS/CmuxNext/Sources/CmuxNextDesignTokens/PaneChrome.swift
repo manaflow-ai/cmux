@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Border drawn around every pane (`layout.paneBorder` in cmux.json).
 public nonisolated enum PaneBorderStyle: String, Sendable, CaseIterable, Codable {

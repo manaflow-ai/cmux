@@ -1,4 +1,5 @@
 import QuartzCore
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The agent working mark (WORKING-AND-LOADING-INDICATORS): three dots in a
@@ -31,7 +32,7 @@ extension StatusIndicatorLayer {
         guard let dot = replicator.sublayers?.first as? CAShapeLayer else { return }
         dot.contentsScale = contentsScale
         dot.frame = element.frame
-        dot.path = StatusGlyphGeometry.repeatedElementPath(element.frame, bars: bars)
+        dot.path = StatusGlyphGeometry.repeatedElementPath(element.frame, bars: bars).cgPath
     }
 
     func removeDots() {

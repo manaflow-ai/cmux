@@ -1,5 +1,5 @@
 public import CmuxTheme
-public import CoreGraphics
+public import Foundation
 
 /// How unfocused panes dim, from the Ghostty config's
 /// `unfocused-split-opacity` and `unfocused-split-fill` (R93): a veil of

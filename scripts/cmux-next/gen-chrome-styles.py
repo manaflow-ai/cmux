@@ -101,7 +101,7 @@ def design(doc):
             f"isDark ? {num(imp['chrome.mainPane.shadeDark'])} : {num(imp['chrome.mainPane.shadeLight'])}"
         shade_lines.append(f"        case .{case_name(s)}: {value}")
     shade_lines += ["        }", "    }"]
-    return (HEADER + "public import CoreGraphics\n\n"
+    return (HEADER + "public import Foundation\n\n"
             "/// `appearance.chromeStyle` in cmux.json: one easy string for the window's\n"
             "/// look. Each style supplies DEFAULTS for finer knobs; a key set in\n"
             "/// cmux.json wins, and a Debug Settings tunable wins over both.\n"

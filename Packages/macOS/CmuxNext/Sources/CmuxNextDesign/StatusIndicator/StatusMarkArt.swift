@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// Draws a `StatusMark` as an alpha mask (opaque where the mark is), the one
@@ -152,7 +153,7 @@ enum StatusMarkArt {
             context.addLine(to: point(box, 0.93, 0.34))
             context.strokePath()
         case .check:
-            context.addPath(StatusGlyphGeometry.checkPath(in: box.insetBy(dx: w * 0.08, dy: w * 0.14)))
+            context.addPath(StatusGlyphGeometry.checkPath(in: box.insetBy(dx: w * 0.08, dy: w * 0.14)).cgPath)
             context.strokePath()
         case .cross:
             context.move(to: point(box, 0.18, 0.18))
