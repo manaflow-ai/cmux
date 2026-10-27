@@ -145,6 +145,29 @@ fn offered(
     out
 }
 
+/// Preserve the harness's own picker order independently of the catalog's metadata order.
+/// An alias maps to the release row in `models`; repeated ids never add a second menu row.
+fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String> {
+    let mut top = Vec::new();
+    for (id, _) in reported {
+        if id == "default" {
+            continue;
+        }
+        let model = models.iter().find(|model| {
+            model["id"] == id.as_str()
+                || model["aliases"].as_array().is_some_and(|aliases| {
+                    aliases.iter().any(|alias| alias == id.as_str())
+                })
+        });
+        if let Some(id) = model.and_then(|model| model["id"].as_str())
+            && !top.iter().any(|known| known == id)
+        {
+            top.push(id.to_owned());
+        }
+    }
+    top
+}
+
 /// The harness-level catalog fields a picker shows.
 fn harness_catalog_json(curated: &CatalogHarness) -> Value {
     let mut v = json!({"id": curated.id, "name": curated.name, "brand": curated.brand, "families": curated.families, "modelSource": curated.model_source});
@@ -193,7 +216,15 @@ impl Hub {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
+            let top = if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
+                Some(picker_models(&reported, &models))
+            } else {
+                None
+            };
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
+            if let Some(top) = top {
+                entry["topModels"] = json!(top);
+            }
             if let Some(reason) = probe_errors.get(name) {
                 entry["probeError"] = json!(reason);
             }
@@ -228,5 +259,30 @@ impl Hub {
         let mut summary = self.catalog.summary();
         summary["harnesses"] = json!(list);
         summary
+    }
+}
+
+#[cfg(test)]
+mod picker_models_tests {
+    use super::*;
+
+    #[test]
+    fn harness_picker_order_survives_catalog_order_and_aliases() {
+        let models = vec![
+            json!({"id": "release-b", "aliases": ["b"]}),
+            json!({"id": "release-a", "aliases": ["a"]}),
+            json!({"id": "older"}),
+        ];
+        let reported = [("default", "Default"), ("a", "A"), ("b", "B"), ("a", "A")]
+            .map(|(id, name)| (id.to_owned(), name.to_owned()));
+        assert_eq!(picker_models(&reported, &models), vec!["release-a", "release-b"]);
+    }
+
+    #[test]
+    fn a_new_harness_model_needs_no_cmux_top_list_update() {
+        let models = vec![json!({"id": "new-family"}), json!({"id": "existing"})];
+        let reported = [("existing", "Existing"), ("new-family", "New")]
+            .map(|(id, name)| (id.to_owned(), name.to_owned()));
+        assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
     }
 }

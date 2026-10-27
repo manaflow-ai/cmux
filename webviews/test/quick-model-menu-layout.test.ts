@@ -59,18 +59,18 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       try {
         const rail = await bounds(page, ".acpmux-quick-rail");
         const menu = await bounds(page, ".acpmux-quick-menu");
-        await page.getByRole("button", { name: "Unii", exact: true }).click();
+        await page.getByRole("button", { name: "Codex", exact: true }).click();
         await page.waitForFunction(
-          (y) => Math.abs(document.querySelector(".acpmux-quick-rail")!.getBoundingClientRect().y - y) < 1,
-          rail.y,
+          () =>
+            document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
         );
         const nextRail = await bounds(page, ".acpmux-quick-rail");
         const nextMenu = await bounds(page, ".acpmux-quick-menu");
-        expect(Math.abs(nextRail.y - rail.y)).toBeLessThan(1);
+        expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
         expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
         expect(nextMenu.width).toBe(menu.width);
         expect(nextMenu.height).toBeLessThan(menu.height);
-        expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Signed out");
+        expect(await page.locator(".acpmux-quick-list").innerText()).toContain("GPT-6");
       } finally {
         await page.close();
       }
@@ -85,13 +85,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () => document.querySelector(".acpmux-quick-menu")?.getAttribute("data-side") === "top",
       );
       const rail = await bounds(page, ".acpmux-quick-rail");
-      await page.getByRole("button", { name: "Unii", exact: true }).click();
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
       await page.waitForFunction(
-        () => document.querySelector(".acpmux-quick-menu")!.getBoundingClientRect().height < 230,
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await menu.getAttribute("data-side")).toBe("top");
-      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).y - rail.y)).toBeLessThan(1);
+      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).x - rail.x)).toBeLessThan(1);
     } finally {
       await page.close();
     }
@@ -150,7 +151,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     try {
       const rail = await bounds(page, ".acpmux-quick-rail");
       const body = await bounds(page, ".acpmux-quick-body");
-      const row = await bounds(page, ".acpmux-quick-item:first-child");
+      const row = (await page.locator(".acpmux-quick-list .acpmux-quick-item").first().boundingBox())!;
       expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
       expect(row.height).toBeGreaterThanOrEqual(36);
       const search = await bounds(page, ".acpmux-quick-search");

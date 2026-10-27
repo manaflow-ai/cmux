@@ -1,3 +1,4 @@
+import { isDefaultChoice } from "./defaultChoice";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
@@ -105,6 +106,8 @@ export type PickerModel = {
 type Own = { efforts?: true; fast?: true };
 
 export type PickerHarness = {
+  /** The installed harness's own model-menu order, separate from the full catalog. */
+  topModels?: string[];
   id: string;
   name: string;
   /** AgentMark brand id; null = no brand (use `iconUrl`, else the generic glyph). */
@@ -411,6 +414,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     ...(harness.docsUrl ? { docsUrl: harness.docsUrl } : {}),
+    topModels: menuModels(chosen?.topModels, live, offered, reported),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
@@ -456,8 +460,31 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),
     ...(kin ? { kin: kin.id } : {}),
+    topModels: menuModels(entry.topModels, live, offered, reported),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
+}
+
+/** Keep the harness menu's order after aliases fold into their catalog releases. */
+function menuModels(
+  top: readonly string[] | undefined,
+  options: ConfigOptions | undefined,
+  models: PickerModel[],
+  reported: Map<string, string>,
+): string[] | undefined {
+  const option = options?.find((choice) => choice.category === "model" || choice.id === "model");
+  const ids = top ?? option?.options?.map((choice) => choice.value);
+  if (!ids) return undefined;
+  return [
+    ...new Set(
+      ids.flatMap((id) => {
+        const model =
+          models.find((choice) => choice.id === id || choice.release === id) ??
+          models.find((choice) => reported.get(id) && nameKey(reported.get(id)) === nameKey(choice.name));
+        return model && !isDefaultChoice(model) ? [model.id] : [];
+      }),
+    ),
+  ];
 }
 
 /**

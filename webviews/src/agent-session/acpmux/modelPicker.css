@@ -104,9 +104,11 @@
    column (Base UI's --available-width, MenuPopup `boundary`), its floor giving way in a narrow one;
    submenus are the same surface and keep to theirs. */
 .acpmux-quick-menu {
+  --ui-row-height: 36px;
+  font-size: var(--text-body);
   width: max-content;
-  min-width: min(220px, var(--available-width, calc(100vw - 24px)));
-  max-width: min(300px, var(--available-width, calc(100vw - 24px)));
+  min-width: min(340px, var(--available-width, calc(100vw - 24px)));
+  max-width: min(480px, var(--available-width, calc(100vw - 24px)));
   padding: 6px;
   border: 0;
   border-radius: 12px;
@@ -138,8 +140,8 @@
   padding-block: 0;
   border-radius: 8px;
   color: var(--agent-text);
-  font-size: var(--text-control);
-  letter-spacing: var(--text-control--letter-spacing);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) {
   display: grid;
@@ -260,8 +262,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: var(--ui-row-height);
-  margin: 0 0 4px;
+  height: 44px;
+  margin: 0;
   padding-inline: var(--ui-row-padding-inline);
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
@@ -276,69 +278,85 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-control);
+  font-size: var(--text-body);
   outline: none;
   appearance: none;
-  letter-spacing: var(--text-control--letter-spacing);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-quick-search input::placeholder { color: var(--agent-muted); }
 .acpmux-quick-search input::-webkit-search-cancel-button { appearance: none; }
 
-/* The chip stays quiet; its combined menu sizes to visible content and the window. Harnesses
-   appear once in a horizontal strip at the chip-facing edge. That edge stays under the pointer
-   while a tab, search or account changes the list height; no tallest-tab placeholder is needed. */
+/* Names make launch configurations distinguishable. The left rail keeps the model list
+   separate; Debug Settings also offers a wrapping top strip and a narrow icon rail. */
 .acpmux-quick-railed {
   display: flex;
   flex-direction: column;
-  max-width: min(320px, var(--available-width, calc(100vw - 24px)));
+  width: min(480px, var(--available-width, calc(100vw - 24px)));
+  max-width: min(480px, var(--available-width, calc(100vw - 24px)));
   padding: 0;
   overflow: hidden;
 }
 .acpmux-quick-layout {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 0 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.acpmux-quick-newtab { max-height: min(360px, var(--available-height, 100vh)); }
+.acpmux-quick-newtab { max-height: min(480px, var(--available-height, 100vh)); }
 .acpmux-quick-rail {
-  flex: none;
+  flex: 0 0 38%;
+  contain: size;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
   min-inline-size: 0;
+  min-block-size: 0;
   margin: 0;
   border: 0;
-  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   padding: 6px;
-  overflow-x: auto;
-}
-.acpmux-quick-menu[data-side="top"] .acpmux-quick-rail {
-  order: 1;
-  border-block-end: 0;
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  overflow: auto;
 }
 .acpmux-quick-rail-tab {
   flex: none;
-  display: grid;
-  place-items: center;
-  width: var(--ui-row-height);
-  height: var(--ui-row-height);
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ui-row-height);
+  min-width: 0;
+  padding: 6px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
+  font: inherit;
+  text-align: start;
 }
+.acpmux-quick-harness-name { overflow-wrap: anywhere; }
 .acpmux-quick-rail-tab:hover,
 .acpmux-quick-rail-tab[aria-pressed="true"] {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
+.acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
+.acpmux-quick-placement-top .acpmux-quick-rail {
+  flex: none;
+  contain: none;
+  flex-direction: row;
+  flex-wrap: wrap;
+  border-inline-end: 0;
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  max-height: min(132px, calc(var(--available-height, 100vh) / 2));
+}
+.acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
+.acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 76px; }
+.acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 4px; text-align: center; }
+.acpmux-quick-placement-compact .acpmux-quick-harness-name { font-size: var(--text-caption); }
 .acpmux-quick-body {
   display: grid;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   padding: 6px;

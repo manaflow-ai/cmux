@@ -2,8 +2,8 @@
 // showing more models" and "this should just show the effort too right? and then the effort tells
 // you what you're already currently on?". His started Claude chat's model menu listed nine numbered
 // rows, Opus 5.5 twice: Claude Code's `opus` alias (which it names "Opus 5.5") and the pinned
-// release the chat runs, `claude-opus-5-5`. The menu now shows the running model and the top picks
-// (at most four rows, numbered 1 to 4), each model once, and everything else under More models,
+// release the chat runs, `claude-opus-5-5`. The menu follows the harness's own list,
+// else its newest models per family, each once, and keeps everything else under More models,
 // which in a started chat opens the full picker.
 // The Effort row names the level the chat is on and its submenu checks it; the Fast mode row says
 // whether it is on. The real composer, catalog and menu, in JSDOM.
@@ -244,11 +244,12 @@ for (const [title, harness, family] of [
   ["a Claude profile the catalog does not map", "claude-sr2", "claude-sr2"],
 ] as const)
   describe(`Leo's started chat on ${title}`, () => {
-    test("shows at most four models, the running one among them, each once; the rest are under More models", async () => {
+    test("shows the harness menu, each model once; the rest are under More models", async () => {
       await mount({ harness, family });
       await open();
       const shown = modelRows().map(label);
-      expect(shown.length, shown.join(", ")).toBeLessThanOrEqual(4);
+      expect(shown).toContain("Opus 5.5");
+      expect(new Set(shown).size).toBe(shown.length);
       expect(shown, "the running model is shown").toContain("Opus 5.5");
       const checked = menu()!.querySelector('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
       expect(checked && label(checked)).toBe("Opus 5.5");
@@ -280,9 +281,46 @@ for (const [title, harness, family] of [
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
-      expect(keysShown.every((key) => key === "✓" || Number(key) <= 4)).toBe(true);
+      expect(keysShown.every((key) => key === "✓" || Number(key) <= rows.length)).toBe(true);
     });
   });
+
+for (const harnessFixed of [false, true]) {
+  test(`relevant models are not truncated in a ${harnessFixed ? "started chat" : "harness rail"}`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const choices = Array.from({ length: 8 }, (_, index) => ({ id: `choice-${index}`, name: `Choice ${index}` }));
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[
+            {
+              id: "test-harness",
+              name: "Test harness",
+              models: choices,
+              top: ["choice-0", "choice-1", "choice-2", "choice-3", "choice-4", "choice-5"],
+            },
+          ]}
+          harness="test-harness"
+          harnessFixed={harnessFixed}
+          model="choice-7"
+          label="Choice 7"
+          efforts={[]}
+          recents={[{ harness: "test-harness", model: "choice-6" }]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+          quick={{}}
+        />,
+      ),
+    );
+    await open();
+    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
+    expect(menu()!.textContent).toContain("More models");
+    expect(menu()!.textContent).not.toContain("Choice 6");
+    expect(menu()!.textContent).not.toContain("Choice 7");
+  });
+}
 
 test("the Effort row names the level the chat is on, and its submenu checks it", async () => {
   await mount({ harness: "claude", family: "claude", effort: "high" });

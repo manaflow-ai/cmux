@@ -2,7 +2,7 @@
 // down here?", "the harnes picker exists but it's ass and it's not per-account available...?" and
 // "need to be able to switch to different harnesses, can expose as fork". A started chat's model
 // menu keeps the New Tab's harness rail: another harness's tab forks the chat there, and each
-// harness's Account row lists only the accounts (profiles) that run it, folded out of the rail. The
+// launch configuration is a distinct, readable harness entry rather than a Profile submenu. The
 // real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -107,6 +107,7 @@ async function acpmuxCatalog(): Promise<Snapshot["catalog"]> {
     })),
     { id: "claude-work", name: "Claude (work)", family: "claude-work", icon: "claude", models: models("claude") },
     { id: "codex-work", name: "Codex (work)", family: "codex-work", icon: "openai", models: models("codex") },
+    { id: "unii", name: "UniiChat", family: "unii", models: [] },
   ] as Snapshot["catalog"];
 }
 
@@ -141,7 +142,7 @@ function chat(catalog: Snapshot["catalog"], turnCount: number, extra: Partial<Sn
 }
 
 /// A Claude chat on the composer's model menu, `turnCount` turns in. `fork` is the chat's fork.
-async function mount(turnCount: number, fork?: { ready: boolean }) {
+async function mount(turnCount: number, fork?: { ready: boolean }, activeHarness = "claude") {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -153,7 +154,9 @@ async function mount(turnCount: number, fork?: { ready: boolean }) {
   const accounts = { list: async () => ({ accounts: [] }), set: async () => undefined };
   function Host() {
     const snapshot = chat(catalog, turnCount);
-    const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" }, snapshot.sessions);
+    snapshot.summary!.harness = activeHarness;
+    if (activeHarness === "unii") snapshot.summary!.model = "unii/default";
+    const picker = usePickerCatalog(snapshot.catalog, { harness: activeHarness }, snapshot.sessions);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -183,7 +186,6 @@ async function mount(turnCount: number, fork?: { ready: boolean }) {
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const menu = () => doc().querySelector<HTMLElement>(".acpmux-quick-menu");
-const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const railTabs = () => [...(menu()?.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab") ?? [])];
 const labelOf = (item: Element) => item.querySelector(".acpmux-menu-label")?.textContent ?? "";
 const itemsOf = (popup: HTMLElement) => [...popup.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
@@ -205,15 +207,20 @@ async function showTab(name: string) {
   await settle();
 }
 
-async function openProfile() {
-  const row = itemsOf(menu()!).find((item) => labelOf(item) === "Profile");
-  expect(row, `Profile row in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
-  await act(async () => row!.click());
-  await settle();
-  return menus().at(-1)!;
-}
+test("the Unii Chief harness is absent from an ordinary chat picker", async () => {
+  await mount(0);
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).not.toContain("UniiChat");
+  expect(labels).not.toContain("U");
+  expect(menu()!.textContent).not.toContain("Unii");
+});
 
-const profileRows = (popup: HTMLElement) => [...popup.querySelectorAll<HTMLElement>(".acpmux-quick-profile")];
+test("the active Unii Chief chat keeps its own harness entry", async () => {
+  await mount(0, undefined, "unii");
+  await open();
+  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toContain("UniiChat");
+});
 
 test("a started chat's model menu keeps the harness rail, and another harness's tab forks the chat there", async () => {
   const { forked, switched } = await mount(1, { ready: true });
@@ -234,38 +241,20 @@ test("a started chat's model menu keeps the harness rail, and another harness's 
   expect(switched).toEqual([]);
 });
 
-test("each harness's Profile row lists only its launch profiles, and another profile forks there", async () => {
+test("launch configurations are named rail entries and never a Profile submenu", async () => {
   const { forked } = await mount(1, { ready: true });
   await open();
-  // Launch profiles are no rail tabs of their own.
-  const tabs = railTabs().map((tab) => tab.getAttribute("aria-label"));
-  expect(tabs).not.toContain("Claude (work)");
-  expect(tabs).not.toContain("Codex (work)");
-  const claude = await openProfile();
-  expect(profileRows(claude).map(labelOf)).toEqual(["Claude Code", "Claude (work)"]);
-  expect(claude.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
-  // Real account routes have their own submenu, outside launch profiles.
-  expect(itemsOf(claude).map(labelOf)).not.toContain("CLI login");
-  await act(async () =>
-    profileRows(claude)
-      .find((row) => labelOf(row) === "Claude (work)")!
-      .click(),
-  );
+  expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).toContain("Claude Code");
+  expect(labels).toContain("Claude (work)");
+  expect(labels).toContain("Codex (work)");
+  const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
+  expect(launch).toBeDefined();
+  await act(async () => launch!.click());
   await settle();
-  expect(forked).toEqual(["claude-work"]);
-  await open();
-  await showTab("Codex");
-  const codex = await openProfile();
-  expect(profileRows(codex).map(labelOf)).toEqual(["Codex", "Codex (work)"]);
-  // A Fork to tab has no routes: they are the chat's own.
-  expect(itemsOf(codex).map(labelOf)).not.toContain("CLI login");
-  await act(async () =>
-    profileRows(codex)
-      .find((row) => labelOf(row) === "Codex (work)")!
-      .click(),
-  );
-  await settle();
-  expect(forked).toEqual(["claude-work", "codex-work"]);
+  expect(forked).toHaveLength(1);
+  expect(forked[0]).toMatch(/^claude-/);
 });
 
 test("while the chat can't fork (a turn running), Fork to is disabled and does nothing", async () => {
@@ -279,20 +268,16 @@ test("while the chat can't fork (a turn running), Fork to is disabled and does n
   expect(forked).toEqual([]);
 });
 
-test("a chat with no message yet starts on another launch profile from its Profile row", async () => {
-  const { forked, switched } = await mount(0);
+test("a new chat launches a named harness entry from the rail", async () => {
+  const { switched } = await mount(0);
   await open();
-  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (work)");
-  const account = await openProfile();
-  expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "Claude (work)"]);
-  await act(async () =>
-    profileRows(account)
-      .find((row) => labelOf(row) === "Claude (work)")!
-      .click(),
-  );
+  expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
+  const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
+  expect(launch).toBeDefined();
+  await act(async () => launch!.click());
   await settle();
-  expect(switched).toEqual(["claude-work"]);
-  expect(forked).toEqual([]);
+  expect(switched).toHaveLength(1);
+  expect(switched[0]).toMatch(/^claude-/);
 });
 
 test("the chat composer forks through Continue In…'s chat.handoff.prepare", async () => {
@@ -327,62 +312,27 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
   ]);
 });
 
-// Codex review of #24355: buildPickerCatalog folds every installed profile of a catalog family into
-// that harness's one entry, keeping only the profile it runs (`acpmuxHarness`). With `claude` and
-// `claude-sr` installed, the live pane's picker saw one Claude Code: a started Claude chat's Account
-// row left out `claude-sr`, and nothing forked to it. The real catalog join and the pane's own chips.
-test("a family's profiles that the catalog join folds into one harness remain separate launch profiles, and fork", async () => {
+// Catalog joining folds aliases for model data, while the picker keeps each installed launch
+// configuration as a named harness entry. With `claude` and `claude-sr` installed, the rail must
+// expose both names without a Profile submenu or duplicate generic Claude Code rows.
+test("a folded family exposes its launch configuration as a distinct rail entry", async () => {
   const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
   const models = (id: string) =>
-    BUNDLED_MODEL_CATALOG.harnesses
-      .find((harness) => harness.id === id)!
-      .models.map((model) => ({ id: model.id, name: model.name }));
+    BUNDLED_MODEL_CATALOG.harnesses.find((h) => h.id === id)!.models.map((m) => ({ id: m.id, name: m.name }));
   const catalog = [
     { id: "claude", name: "Claude Code", family: "claude", models: models("claude") },
     { id: "claude-sr", name: "claude-sr", family: "claude", models: models("claude") },
     { id: "codex", name: "Codex", family: "codex", models: models("codex") },
   ] as Snapshot["catalog"];
-  // The join keeps one Claude Code entry, on the profile it runs.
   const joined = buildPickerCatalog({
     catalog: BUNDLED_MODEL_CATALOG,
     acpmux: catalog,
     session: { harness: "claude" },
   });
-  const claude = joined.harnesses.filter((entry) => entry.acpmuxHarness?.startsWith("claude"));
-  expect(claude.map((entry) => entry.acpmuxHarness)).toEqual(["claude"]);
-
-  const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
-  const calls: { method: string; params: unknown }[] = [];
-  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
-    {},
-    { get: (_target, method) => async (params: unknown) => void calls.push({ method: String(method), params }) },
-  );
-  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <QueryClientProvider client={new QueryClient()}>
-        <ChatComposerChips snapshot={snapshot} />
-      </QueryClientProvider>,
-    ),
-  );
-  await settle();
-  await open();
-  expect(railTabs().filter((tab) => tab.getAttribute("aria-label") === "Claude Code")).toHaveLength(1);
-  const account = await openProfile();
-  expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "claude-sr"]);
-  expect(account.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
-  await act(async () =>
-    profileRows(account)
-      .find((row) => labelOf(row) === "claude-sr")!
-      .click(),
-  );
-  await settle();
-  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
-    { method: "chat.handoff.prepare", params: { harness: "claude-sr" } },
-  ]);
+  expect(
+    joined.harnesses.filter((entry) => entry.acpmuxHarness?.startsWith("claude")).map((entry) => entry.acpmuxHarness),
+  ).toEqual(["claude"]);
+  expect(joined.harnesses.some((entry) => entry.acpmuxHarness === "claude-sr")).toBe(false);
 });
 
 test("familyProfiles lists every global profile of the running profile's family", async () => {

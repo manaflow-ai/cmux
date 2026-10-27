@@ -89,6 +89,21 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// Alternative harness placements for the model picker (DEV/NIGHTLY).
+public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case left
+    case top
+    case compact
+
+    public var tunableTitle: String {
+        switch self {
+        case .left: "Left rail with names"
+        case .top: "Top strip with names"
+        case .compact: "Compact left rail"
+        }
+    }
+}
+
 /// What a click on the composer's model chip opens. `compact` is the short Claude Code style menu
 /// (numbered models, Effort, Account, More models); `full` opens the harness rail and search at once.
 public nonisolated enum AgentPaneModelMenuStyle: String, Sendable, CaseIterable, TunableChoice {
@@ -282,6 +297,11 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
         default: true, code: "AgentPaneTunables.composerPlainFooter")
 
+    public static let harnessPlacement = Tunable<AgentPaneHarnessPlacement>.choice(
+        "agent.harnessPlacement", PageTunables.section, "Model picker harness placement",
+        help: "Compare a named left rail, a wrapping top strip and a compact left rail.",
+        default: .left, code: "AgentPaneTunables.harnessPlacement")
+
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
     /// ("Read files, ran commands", "Ran 3 commands") that opens on a click, in a running turn and
@@ -436,6 +456,7 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             lostPromptReplay.descriptor,
             modelMenu.descriptor,
+            harnessPlacement.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
             newTabPicksFollowLinks.descriptor,

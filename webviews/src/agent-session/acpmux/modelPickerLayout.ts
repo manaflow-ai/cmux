@@ -8,7 +8,7 @@ import type { SpeedTiers } from "./FastToggle";
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
+  /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
   catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
   harness?: string;
   model?: string;
