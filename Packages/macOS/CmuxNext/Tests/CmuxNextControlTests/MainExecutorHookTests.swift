@@ -155,7 +155,7 @@ import Testing
     }
 
     /// With the hook installed (the gate's run): a runtime task's main-actor jobs go through it, in its class, in
-    /// order, on the main queue's thread with the main actor's isolation (`assumeIsolated`, `dispatchPrecondition`).
+    /// order, on the main queue's thread with the main actor's isolation (`preconditionIsolated`, `dispatchPrecondition`).
     /// The test waits through a continuation, not the task's value, so the task is not escalated to the test's
     /// priority.
     @Test func runtimeJobsRunInOrderThroughTheInstalledHook() async throws {
@@ -168,7 +168,8 @@ import Testing
             // main-hop-allow: the test makes runtime main-actor jobs on purpose, to see the hook run them
             Task(priority: .low) { @MainActor in
                 for index in 0 ..< 5 {
-                    MainActor.assumeIsolated { ran.names.append("step \(index)") }
+                    MainActor.preconditionIsolated("a runtime main-actor job ran off the main actor's executor")
+                    ran.names.append("step \(index)")
                     dispatchPrecondition(condition: .onQueue(.main))
                     await Task.yield()
                 }
