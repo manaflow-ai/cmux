@@ -2181,9 +2181,9 @@ export function VirtualTranscript({
   const stopJump = useCallback(() => {
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();
-    const active = jumpTarget.current !== undefined;
     jumpTarget.current = undefined;
-    if (active && ref.current) stopScroll(ref.current);
+    // A footnote also owns the shared runner and must end on session/send/Find transitions.
+    if (ref.current) stopScroll(ref.current);
   }, []);
   // The shared animation owns one RAF and its input listeners. Leaving this chat or unmounting
   // cancels that ride before the next session can reuse this scroller.

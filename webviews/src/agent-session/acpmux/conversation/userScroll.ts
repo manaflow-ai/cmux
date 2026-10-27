@@ -15,7 +15,7 @@ const SCROLL_KEYS = new Set([
 type Listener = (event?: Event) => void;
 const states = new WeakMap<HTMLElement, ReturnType<typeof createIntent>>();
 
-function createIntent(node: HTMLElement) {
+function createIntent() {
   let at = -Infinity;
   let generation = 0;
   let pressed = false;
@@ -46,9 +46,6 @@ function createIntent(node: HTMLElement) {
       return () => generation === started;
     },
     mark(event?: Event) {
-      // Footnote links use native smooth scrolling. Freeze that browser-owned ride too; the
-      // wheel installer's JS runner keeps its own pending notch distance and clock.
-      node.scrollTo?.({ top: node.scrollTop, behavior: "instant" });
       at = performance.now();
       generation += 1;
       scheduleQuiet();
@@ -89,7 +86,7 @@ function createIntent(node: HTMLElement) {
 export function userScrollIntent(node: HTMLElement) {
   let state = states.get(node);
   if (!state) {
-    state = createIntent(node);
+    state = createIntent();
     states.set(node, state);
   }
   return state;

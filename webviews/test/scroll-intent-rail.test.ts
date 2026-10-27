@@ -162,19 +162,29 @@ await requireBrowserLane("scroll-intent-rail.test.ts", async () => {
     expect(anchor.correction).toBeGreaterThan(20);
     expect(anchor.frames.every((delta) => Math.abs(delta) <= 1)).toBe(true);
   });
-  test("manual input cancels a native smooth footnote ride before another painted frame", async () => {
+  test("manual input cancels a footnote ride before another painted frame", async () => {
     const page = await browser!.newPage();
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
-    const result = await page.evaluate(async (modulePath) => {
-      const { attachUserScrollIntent } = await import(modulePath);
-      const node = document.createElement("div");
-      node.style.cssText = "height:100px;overflow:auto";
-      node.innerHTML = '<div style="height:2000px">Footnote target</div>';
-      document.body.append(node);
-      const detach = attachUserScrollIntent(node);
-      node.scrollTo({ top: 1500, behavior: "smooth" });
+    await page.waitForFunction(() => "__showRowsSync" in window);
+    const result = await page.evaluate(async () => {
+      (window as any).__showRowsSync([
+        {
+          id: "note",
+          kind: "assistant",
+          version: 1,
+          at: 1,
+          text:
+            "A reference[^n].\n\n" + "A long paragraph between reference and note.\n\n".repeat(60) + "[^n]: The note.",
+        },
+      ]);
+      for (let frame = 0; frame < 8; frame++) await window.cmuxPaintFrame();
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+      node.scrollTop = 0;
+      for (let frame = 0; frame < 3; frame++) await window.cmuxPaintFrame();
+      node.querySelector<HTMLButtonElement>(".cv-fnref button")!.click();
       do {
         await window.cmuxPaintFrame();
       } while (node.scrollTop === 0);
@@ -185,13 +195,12 @@ await requireBrowserLane("scroll-intent-rail.test.ts", async () => {
         await window.cmuxPaintFrame();
         frames.push(node.scrollTop);
       }
-      detach();
-      node.remove();
-      return { stopped, frames };
-    }, "/src/agent-session/acpmux/conversation/userScroll.ts");
+      return { stopped, end: node.scrollHeight - node.clientHeight, frames };
+    });
     await page.close();
-    expect(result.stopped).toBeLessThan(1500);
-    expect(result.frames.every((top) => top === result.stopped)).toBe(true);
+    console.log("scroll-intent-footnote", JSON.stringify(result));
+    expect(result.stopped).toBeLessThan(result.end);
+    expect(result.frames).toEqual(result.frames.map(() => result.stopped));
   });
   test("manual inputs invalidate explicit requests and hold until one second after release", async () => {
     const page = await browser!.newPage();
