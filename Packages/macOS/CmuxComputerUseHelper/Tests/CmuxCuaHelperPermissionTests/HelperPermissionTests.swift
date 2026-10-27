@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CmuxCuaHelperCore
+import Darwin
 import Foundation
 import Testing
 
@@ -24,8 +25,15 @@ struct HelperPermissionTests {
             controller.start()
         }
         #expect(requested == permission)
-        let bytes = try output.fileHandleForReading.read(upToCount: 4096)
-        let reply = try #require(bytes)
+        // A pipe stays open for the helper's lifetime. Foundation's
+        // read(upToCount:) may wait to fill the buffer; read the available
+        // acknowledgement off the cooperative executor instead.
+        let descriptor = output.fileHandleForReading.fileDescriptor
+        let reply = await Task.detached {
+            var bytes = [UInt8](repeating: 0, count: 4096)
+            let count = Darwin.read(descriptor, &bytes, bytes.count)
+            return count > 0 ? Data(bytes.prefix(count)) : Data()
+        }.value
         let object = try JSONSerialization.jsonObject(with: reply)
         let fields = try #require(object as? [String: Any])
         #expect(fields["of"] as? String == "request_permission")
