@@ -6199,3 +6199,28 @@ mod ledger_retention;
 mod terminal_journal_append;
 mod terminal_keep_tests;
 mod terminal_resume_tests;
+
+#[test]
+fn identity_and_reset_id_checks_reject_short_and_long_input_without_trapping() {
+    assert!(validate_terminal_identity("terminal id", TERMINAL_ONE).is_ok());
+    for bad in [
+        "",
+        "0000",
+        &TERMINAL_ONE[..31],
+        &format!("{TERMINAL_ONE}0"),
+        "00000000000050008000000000000001",
+    ] {
+        assert!(validate_terminal_identity("terminal id", bad).is_err(), "{bad:?}");
+    }
+    assert!(is_canonical_reset_uuid_v4("0123abcd-0000-4000-8000-0123456789ab"));
+    for bad in [
+        "",
+        "0123abcd",
+        "0123abcd-0000-4000-8000-0123456789a",
+        "0123abcd-0000-4000-c000-0123456789ab",
+    ] {
+        assert!(!is_canonical_reset_uuid_v4(bad), "{bad:?}");
+    }
+    assert_eq!(hex_bytes(&[0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
+    assert_eq!(hex_sha256([0xab; 32]), "ab".repeat(32));
+}
