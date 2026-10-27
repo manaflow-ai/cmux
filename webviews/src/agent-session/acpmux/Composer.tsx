@@ -1529,9 +1529,9 @@ export function Composer({
     },
     {
       id: "scrollToBottomOnSend",
-      label: `${scrollToBottomOnSend ? "✓ " : ""}${t(COMPOSER_LABELS.scrollToBottomOnSend)}`,
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
       separatorBefore: true,
-      ariaLabel: t(COMPOSER_LABELS.scrollToBottomOnSend),
       onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
     },
   ];

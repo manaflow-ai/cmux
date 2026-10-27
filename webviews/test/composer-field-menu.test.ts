@@ -55,12 +55,14 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
       );
     });
     await page.waitForSelector(".ui-context-menu [role=menuitem]");
-    return page.$$eval(".ui-context-menu [role=menuitem]", (rows) =>
+    return page.$$eval(".ui-context-menu [role=menuitem], .ui-context-menu [role=menuitemcheckbox]", (rows) =>
       rows.map((row) => `${row.textContent?.trim()}${row.hasAttribute("disabled") ? " (off)" : ""}`),
     );
   };
   const pick = async (page: Page, label: string) => {
-    await page.locator(".ui-context-menu [role=menuitem]", { hasText: label }).click();
+    await page
+      .locator(".ui-context-menu [role=menuitem], .ui-context-menu [role=menuitemcheckbox]", { hasText: label })
+      .click();
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
   };
   const prompt = (page: Page) => page.locator(".acpmux-md[contenteditable='true']").innerText();
@@ -107,7 +109,7 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
         "Select All",
         "Attach Files…",
         "Insert Mention",
-        "✓ Scroll to bottom when I send",
+        "✓Scroll to bottom when I send",
       ],
       selected: "Rename the retry helper",
       undone: true,
@@ -119,13 +121,14 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
 
   test("the composer menu toggles send-to-bottom and keeps its checked state", async () => {
     const page = await stage();
-    expect(await openMenu(page)).toContain("✓ Scroll to bottom when I send");
+    expect(await openMenu(page)).toContain("✓Scroll to bottom when I send");
     await pick(page, "Scroll to bottom when I send");
     expect(await openMenu(page)).toContain("Scroll to bottom when I send");
-    const toggle = page.locator(".ui-context-menu [role=menuitem]", { hasText: "Scroll to bottom when I send" });
-    expect(await toggle.textContent()).not.toContain("✓");
+    const toggle = page.getByRole("menuitemcheckbox", { name: "Scroll to bottom when I send" });
+    expect(await toggle.getAttribute("aria-checked")).toBe("false");
     await pick(page, "Scroll to bottom when I send");
-    expect(await openMenu(page)).toContain("✓ Scroll to bottom when I send");
+    expect(await openMenu(page)).toContain("✓Scroll to bottom when I send");
+    expect(await toggle.getAttribute("aria-checked")).toBe("true");
     await page.close();
   });
 });
