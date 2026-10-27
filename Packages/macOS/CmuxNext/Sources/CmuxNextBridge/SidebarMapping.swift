@@ -178,6 +178,7 @@ public struct SidebarMapping {
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
+        row.focusedTab = front.map { TabID($0.id) }
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })

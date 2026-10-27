@@ -110,6 +110,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var progress: SidebarProgress?
     /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
     public var tabs: [SidebarTab]
+    /// The selected tab of the most recently focused pane (the tab the row stands for): the
+    /// second crumb of a `SidebarRowTitleMode.breadcrumb` name. Nil for a workspace with no tabs.
+    public var focusedTab: TabID?
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState

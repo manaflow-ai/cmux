@@ -53,7 +53,9 @@ extension WorkspaceRowView {
     /// themed tracker added while the pointer is already inside gets no mouseEntered, so it has
     /// to exist before the pointer arrives.
     func updateCalmTitleTip() {
-        let tip = DesignSettings.shared.calmMode != .off && title.isTruncated ? title.stringValue : nil
+        let calm = DesignSettings.shared.calmMode != .off
+        let tip = !calm ? nil : hiddenWorkspaceName.map { $0 + SidebarRowTitleMode.crumb + title.stringValue }
+            ?? (title.isTruncated ? title.stringValue : nil)
         if themedToolTip != tip { themedToolTip = tip }
     }
 
