@@ -112,9 +112,12 @@ public final class CPUTimeBudgetPool {
     ///
     /// - Parameters:
     ///   - limits: The refill rate and bounds (default: 10 ms/s, 100 ms cap, 60 s longest wait).
-    ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds, as ``MainFrameBudget``); tests
-    ///     inject one they move.
-    public init(limits: Limits = Limits(), uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds, as ``MainFrameBudget``); `nil` reads
+    ///     the system uptime clock. Tests inject one they move.
+    public init(limits: Limits = Limits(), uptimeNanos: (() -> UInt64)? = nil) {
+        // The default clock is resolved here, not in a default argument: a public default argument
+        // may only reference public symbols, and the Darwin clock is imported internally.
+        let uptimeNanos = uptimeNanos ?? { LaneStats.uptimeNanos() }
         self.limits = limits
         self.uptimeNanos = uptimeNanos
         let rate = min(max(MainFrameBudget.nanos(limits.refillPerSecond), 1), Self.second)
