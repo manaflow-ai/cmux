@@ -129,7 +129,9 @@ pub fn resume(hub: &Arc<Hub>, pending: Vec<Delivery>) {
 }
 
 fn spawn(hub: Arc<Hub>, id: String) {
-    tokio::spawn(async move { deliver(&hub, &id).await });
+    hub.clone().supervise("server.outbox", Fatal, ShutdownBehavior::Skip, async move {
+        deliver(&hub, &id).await
+    });
 }
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
@@ -190,7 +192,12 @@ async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    crate::supervised::spawn_scoped(serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        Origin::Local,
+    ));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},

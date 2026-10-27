@@ -82,7 +82,7 @@ pub(super) fn holding_inbound(
     };
     crate::supervised::task(
         supervisor,
-        "acpmux.hub.pool-held-inbound",
+        "hub.pool-held-inbound",
         Fatal,
         ShutdownBehavior::Skip,
         relay,

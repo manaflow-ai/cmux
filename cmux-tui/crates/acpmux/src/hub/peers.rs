@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::session_identity::SessionReceipt;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
@@ -83,7 +82,7 @@ impl Hub {
             self.load_peer_cache(&peer);
         }
         let generation = peer.generation;
-        self.supervise("acpmux.hub.peer", Fatal, ShutdownBehavior::Skip, peer.run());
+        self.supervise("hub.peer", Fatal, ShutdownBehavior::Skip, peer.run());
         (generation, settled)
     }
 

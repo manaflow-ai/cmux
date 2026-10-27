@@ -25,12 +25,9 @@ impl Hub {
         // adopted agent is reached once startup is done (`child_for` waits for it).
         if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
             let hub = self.clone();
-            self.supervise(
-                "acpmux.hub.default-policy",
-                Fatal,
-                ShutdownBehavior::Skip,
-                async move { hub.follow_default_policy().await },
-            );
+            self.supervise("hub.default-policy", Fatal, ShutdownBehavior::Skip, async move {
+                hub.follow_default_policy().await
+            });
         }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
@@ -57,16 +54,11 @@ impl Hub {
                 }
             } else if plan.run_shell {
                 let hub = self.clone();
-                self.supervise(
-                    "acpmux.hub.login-env-import",
-                    Fatal,
-                    ShutdownBehavior::Skip,
-                    async move {
-                        if crate::login_env::import().await {
-                            hub.after_login_env().await;
-                        }
-                    },
-                );
+                self.supervise("hub.login-env-import", Fatal, ShutdownBehavior::Skip, async move {
+                    if crate::login_env::import().await {
+                        hub.after_login_env().await;
+                    }
+                });
             }
         }
         self.catalog_ready.send_replace(true);

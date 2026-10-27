@@ -1,7 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 use super::adoption::{Adoption, adopted_in, start_folder};
 use super::new_request::{claude_resume_refusal, unique_name_among};
@@ -661,11 +660,7 @@ impl Hub {
 
         // Start the inbound loop for this session once.
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            self.supervise("acpmux.hub.inbound", Fatal, ShutdownBehavior::Skip, async move {
-                hub.inbound_loop(s, rx).await
-            });
+            self.start_inbound_loop(session, rx);
         }
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {

@@ -55,7 +55,7 @@ impl Hub {
         }
         let (hub, child) = (self.clone(), child.clone());
         // Off the turn's path: the logs are read from disk, and the parent's turn runs.
-        self.supervise("acpmux.hub.offer-result", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.offer-result", Fatal, ShutdownBehavior::Skip, async move {
             if !hub.offer_result(&child, &parent_id).await {
                 hub.offers.results.lock().unwrap_or_else(|e| e.into_inner()).remove(&child.id);
             }

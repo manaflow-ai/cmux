@@ -6,6 +6,7 @@
 //! (`crate::local_stream::bridge`).
 
 use crate::hub::Hub;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::Arc;
@@ -48,9 +49,9 @@ pub async fn bind_unix(path: &Path) -> Result<UnixListener> {
 /// user, a sandboxed process) is logged and dropped.
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<cmux::local_socket::Stream>(16);
-    std::thread::Builder::new()
-        .name("acpmux-accept".into())
-        .spawn(move || {
+    // The daemon's only way in: a panic in it is fatal.
+    hub.supervisor()
+        .supervise_thread("acpmux-accept", Fatal, ShutdownBehavior::Continue, move |_stop| {
             loop {
                 match listener.0.accept_with_peer() {
                     Ok((stream, _peer)) => {
@@ -73,7 +74,11 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     while let Some(socket) = rx.recv().await {
         match crate::local_stream::bridge(socket) {
             Ok(stream) => {
-                tokio::spawn(super::stream::serve_stream(hub.clone(), stream, None));
+                crate::supervised::spawn_scoped(super::stream::serve_stream(
+                    hub.clone(),
+                    stream,
+                    None,
+                ));
             }
             Err(e) => tracing::warn!("accept failed: {e}"),
         }
@@ -115,9 +120,10 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
         }
     };
     let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
-    std::thread::Builder::new()
-        .name("router-admin-accept".into())
-        .spawn(move || {
+    // The router's admin way in: a panic in it is fatal to the router process.
+    let supervisor = crate::supervised::embedded();
+    supervisor
+        .supervise_thread("router-admin-accept", Fatal, ShutdownBehavior::Continue, move |_stop| {
             loop {
                 match listener.accept_with_peer() {
                     Ok((stream, _peer)) => {
@@ -137,22 +143,28 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
         })
         .context("start the router admin accept thread")?;
     let (tx, rx) = mpsc::channel(16);
-    tokio::spawn(async move {
-        while let Some(socket) = sockets.recv().await {
-            let connection = crate::local_stream::bridge(socket).map(|stream| {
-                let (read, write) = crate::local_stream::split(stream);
-                // No attestation provider on Windows (free_tier::ProviderPeer).
-                let peer = cmux_coderouter::free_tier::ProviderPeer::refused();
-                (Box::new(read) as _, Box::new(write) as _, peer)
-            });
-            if let Err(e) = &connection {
-                tracing::warn!("router admin connection: {e}");
-                continue;
+    crate::supervised::task(
+        &supervisor,
+        "router-admin-bridge",
+        Fatal,
+        ShutdownBehavior::Skip,
+        async move {
+            while let Some(socket) = sockets.recv().await {
+                let connection = crate::local_stream::bridge(socket).map(|stream| {
+                    let (read, write) = crate::local_stream::split(stream);
+                    // No attestation provider on Windows (free_tier::ProviderPeer).
+                    let peer = cmux_coderouter::free_tier::ProviderPeer::refused();
+                    (Box::new(read) as _, Box::new(write) as _, peer)
+                });
+                if let Err(e) = &connection {
+                    tracing::warn!("router admin connection: {e}");
+                    continue;
+                }
+                if tx.send(connection).await.is_err() {
+                    break;
+                }
             }
-            if tx.send(connection).await.is_err() {
-                break;
-            }
-        }
-    });
+        },
+    );
     Ok(rx)
 }

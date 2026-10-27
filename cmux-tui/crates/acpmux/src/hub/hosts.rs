@@ -7,7 +7,6 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -328,11 +327,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            self.supervise("acpmux.hub.inbound", Fatal, ShutdownBehavior::Skip, async move {
-                hub.inbound_loop(s, rx).await
-            });
+            self.start_inbound_loop(session, rx);
         }
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
@@ -694,36 +689,31 @@ impl Hub {
                     let hub = self.clone();
                     let s = session.clone();
                     let c = child.clone();
-                    self.supervise(
-                        "acpmux.hub.recovered-turn",
-                        Fatal,
-                        ShutdownBehavior::Skip,
-                        async move {
-                            // New prompts queue behind the recovered turn.
-                            let guard = s.turn_lock.lock().await;
-                            let result = match (answer, rx) {
-                                (Some(msg), _) => response_result(&msg),
-                                (None, Some(rx)) => {
-                                    turn_answer(rx, steer_answers, ended, &turn_id).await
-                                }
-                                (None, None) => Err(RpcError::internal("agent answer lost")),
-                            };
-                            let _ = hub
-                                .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
-                                .await;
-                            // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
-                            hub.schedule_auto_resume(&s, &turn_id, None);
-                            // A route switch or an update asked for a restart
-                            // during the turn (route_switch.rs): the process ends
-                            // now and the next prompt starts it again, resuming
-                            // the chat. Not started here: this task runs inside
-                            // the adoption a start itself may run.
-                            if s.route_switch.swap(false, Ordering::SeqCst) {
-                                hub.detach_child(&s).await;
+                    self.supervise("hub.recover", Fatal, ShutdownBehavior::Skip, async move {
+                        // New prompts queue behind the recovered turn.
+                        let guard = s.turn_lock.lock().await;
+                        let result = match (answer, rx) {
+                            (Some(msg), _) => response_result(&msg),
+                            (None, Some(rx)) => {
+                                turn_answer(rx, steer_answers, ended, &turn_id).await
                             }
-                            drop(guard);
-                        },
-                    );
+                            (None, None) => Err(RpcError::internal("agent answer lost")),
+                        };
+                        let _ = hub
+                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                            .await;
+                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
+                        hub.schedule_auto_resume(&s, &turn_id, None);
+                        // A route switch or an update asked for a restart
+                        // during the turn (route_switch.rs): the process ends
+                        // now and the next prompt starts it again, resuming
+                        // the chat. Not started here: this task runs inside
+                        // the adoption a start itself may run.
+                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                            hub.detach_child(&s).await;
+                        }
+                        drop(guard);
+                    });
                 }
             }
         }
@@ -768,7 +758,7 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            self.supervise("acpmux.hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
+            self.supervise("hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                 hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
             });
         }
@@ -815,7 +805,7 @@ impl Hub {
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
-        self.supervise("acpmux.hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
             hub.append(
                 &s,

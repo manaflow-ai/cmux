@@ -13,7 +13,6 @@
 //! quietly (a long command) is not silent.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 impl Hub {
     /// Watches `session`'s turn `turn_id`, whose prompt goes out now (module docs).
@@ -23,7 +22,7 @@ impl Hub {
         let hub = self.clone();
         let session = session.clone();
         let turn_id = turn_id.to_owned();
-        self.supervise("acpmux.hub.silent-turn", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.silent-turn", Fatal, ShutdownBehavior::Skip, async move {
             tokio::time::sleep(after).await;
             // Held while it logs, so a sign the tap counts meanwhile finds the silence to end.
             let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());

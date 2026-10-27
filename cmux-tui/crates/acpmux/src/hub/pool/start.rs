@@ -1,7 +1,6 @@
 //! Owns pooled host startup, initialization, and discard lifecycle.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
@@ -171,7 +170,7 @@ impl Hub {
             return;
         }
         for p in entries {
-            self.supervise("acpmux.hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
+            self.supervise("hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
         }
     }
 }

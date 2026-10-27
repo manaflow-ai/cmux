@@ -597,7 +597,7 @@ impl Hub {
         }
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
-            hub.supervise("acpmux.hub.peer-notices", Fatal, ShutdownBehavior::Skip, async move {
+            hub.supervise("hub.peer-notices", Fatal, ShutdownBehavior::Skip, async move {
                 h.peer_notice_loop().await
             });
             hub.watch_transfers();

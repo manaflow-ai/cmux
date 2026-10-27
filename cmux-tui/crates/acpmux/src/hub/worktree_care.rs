@@ -21,7 +21,6 @@
 //! work, before the harness starts in the folder.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 pub(super) mod revive;
 
@@ -126,7 +125,7 @@ impl Hub {
         let hub = Arc::downgrade(self);
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
         CARE.wake.notify_one();
-        self.supervise("acpmux.hub.worktree-care", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.worktree-care", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 CARE.wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };

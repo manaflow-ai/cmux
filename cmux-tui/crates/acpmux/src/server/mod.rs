@@ -8,9 +8,9 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
-use cmux_panic_log::crash_keys::{self, Key};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -389,7 +389,7 @@ fn enqueue_outbound(
             let out = out.clone();
             pending_controls.fetch_add(1, Ordering::AcqRel);
             let pending_controls = Arc::clone(pending_controls);
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 let _ = out.send(line).await;
                 pending_controls.fetch_sub(1, Ordering::AcqRel);
             });
@@ -424,7 +424,7 @@ fn report_outbound_loss_locked(
         let dropped = Arc::clone(dropped);
         let gap_pending = Arc::clone(gap_pending);
         let outbound_lock = Arc::clone(outbound_lock);
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let permit = out.reserve().await;
             let Ok(permit) = permit else {
                 gap_pending.store(false, Ordering::Release);
@@ -490,7 +490,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             }
         };
         let hub = hub.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             // Named by its audit token, read once here, never by pid.
             let peer = {
                 use std::os::fd::AsRawFd;
@@ -665,7 +665,7 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
@@ -816,7 +816,7 @@ pub async fn serve_ws_with(
             // Ends the writer when the server ends the connection itself:
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 loop {
                     let line = tokio::select! {
                         line = out_rx.recv() => line,
@@ -1147,26 +1147,7 @@ async fn serve_connection_from(
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
-                // From the dispatch to the reply queued, on every path out of the task.
-                let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
-                // A panic in the request names its method (cmux-panic-log crash keys):
-                // set on whichever worker polls it, for each poll.
-                let method_key = crash_keys::stable_key(&m);
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(slice.wrap(crash_keys::keyed(
-                    Key::ActionId,
-                    method_key,
-                    async move {
-                        let _slot = slot;
-                        let result =
-                            chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                        conn.send(&match result {
-                            Ok(v) => Message::ok(id, v),
-                            Err(e) => Message::err(id, e),
-                        });
-                    },
-                )));
+                request_task::spawn(&hub, &conn, id, m, params, slot);
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
@@ -1459,6 +1440,7 @@ pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
+mod request_task;
 mod requests;
 mod routes;
 mod secrets;

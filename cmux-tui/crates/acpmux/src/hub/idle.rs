@@ -17,7 +17,6 @@
 //! per idle period per live child.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 impl Hub {
     /// The hub clock's time, as stored in `Session::last_active`.
@@ -59,7 +58,7 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            self.supervise("acpmux.hub.idle-reaper", Fatal, ShutdownBehavior::Skip, async move {
+            self.supervise("hub.idle-reaper", Fatal, ShutdownBehavior::Skip, async move {
                 Self::idle_reaper_loop(weak, wake).await
             });
         }

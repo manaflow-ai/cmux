@@ -29,9 +29,8 @@
 //!
 //! A task for a peer's session is not here yet.
 
-use super::{Hub, PromptOptions};
+use super::{Fatal, Hub, PromptOptions, ShutdownBehavior};
 use crate::rpc::RpcError;
-use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -212,7 +211,7 @@ impl Hub {
         let blocks = vec![json!({"type": "text", "text": card_text(row, result, &lane_name)})];
         let hub = self.clone();
         // Off the report's path: the call returns, and the giver's turn runs.
-        self.supervise("acpmux.hub.task-result", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.task-result", Fatal, ShutdownBehavior::Skip, async move {
             if let Err(e) = hub.prompt_with(&giver, blocks, "acpmux", true, opts).await {
                 tracing::warn!(session = %giver.id, "task result: {}", e.message);
                 hub.result_undelivered(&id, &at, &e.message);
@@ -283,7 +282,7 @@ impl Hub {
         // The start's pass runs before the hub is handed out: a card a crash left owed.
         self.send_owed_cards(true);
         let hub = Arc::downgrade(self);
-        self.supervise("acpmux.hub.orphan-watch", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.orphan-watch", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 match events.recv().await {
                     Ok(ev) => {

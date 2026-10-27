@@ -7,7 +7,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use super::Hub;
+use super::{Hub, Session};
+use crate::agent::Inbound;
 use crate::config::Config;
 use crate::mailbox::Mailbox;
 use crate::store::Store;
@@ -34,6 +35,18 @@ impl Hub {
         work: impl Future<Output = ()> + Send + 'static,
     ) {
         crate::supervised::task(&self.supervisor, name, policy, shutdown, work);
+    }
+
+    /// Starts `session`'s inbound loop: its agent's requests and notifications, in order.
+    pub(super) fn start_inbound_loop(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        rx: tokio::sync::mpsc::Receiver<Inbound>,
+    ) {
+        let (hub, session) = (self.clone(), session.clone());
+        self.supervise("hub.inbound", Fatal, ShutdownBehavior::Skip, async move {
+            hub.inbound_loop(session, rx).await
+        });
     }
 
     /// The process's supervisor.

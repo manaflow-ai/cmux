@@ -49,7 +49,7 @@ impl Hub {
     pub(super) fn remove_session_tmp(&self, id: String) {
         crate::supervised::blocking(
             &self.supervisor,
-            "acpmux.hub.session-tmp-remove",
+            "hub.session-tmp-remove",
             Fatal,
             ShutdownBehavior::Continue,
             move || crate::agent::session_tmp::remove_session(&id),

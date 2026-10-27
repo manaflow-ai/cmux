@@ -389,7 +389,7 @@ async fn dispatch_brief(
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
     let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
-    tokio::spawn(async move {
+    hub.supervise("server.brief", Fatal, ShutdownBehavior::Skip, async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
         let web = super::trust_gate::for_web(task_conn.origin, &prompt);

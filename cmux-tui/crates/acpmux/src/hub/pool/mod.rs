@@ -38,7 +38,6 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
-use crate::supervised::{Fatal, ShutdownBehavior};
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -426,7 +425,7 @@ impl Hub {
         self.start_pool_reaper();
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
-        self.supervise("acpmux.hub.pool-start", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.pool-start", Fatal, ShutdownBehavior::Skip, async move {
             match hub.spawn_pooled(&spec).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -518,7 +517,7 @@ impl Hub {
                 let hub = self.clone();
                 if tokio::runtime::Handle::try_current().is_ok() {
                     self.supervise(
-                        "acpmux.hub.pool-after-ready",
+                        "hub.pool-after-ready",
                         Fatal,
                         ShutdownBehavior::Skip,
                         async move { hub.pool_after_ready().await },
@@ -635,7 +634,7 @@ impl Hub {
         mut p: Pooled,
     ) -> anyhow::Result<Arc<ChildAgent>> {
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            self.supervise("acpmux.hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
+            self.supervise("hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
@@ -666,11 +665,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            self.supervise("acpmux.hub.inbound", Fatal, ShutdownBehavior::Skip, async move {
-                hub.inbound_loop(s, rx).await
-            });
+            self.start_inbound_loop(session, rx);
         }
         let init = &p.init;
         let steering =
@@ -727,7 +722,7 @@ impl Hub {
         let Some((harness, preset)) = previous else { return };
         let hub = self.clone();
         let cwd = m.cwd;
-        self.supervise("acpmux.hub.pool-last-used", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.pool-last-used", Fatal, ShutdownBehavior::Skip, async move {
             match hub.pool_spec(Some(harness), preset, cwd).await {
                 Ok(spec) => hub.pool_want(Role::LastUsed, spec).await,
                 Err(e) => tracing::debug!("last-used harness not poolable: {}", e.message),
@@ -807,7 +802,7 @@ impl Hub {
             return;
         }
         let hub = self.clone();
-        self.supervise("acpmux.hub.pool-reaper", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.pool-reaper", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -830,7 +825,7 @@ impl Hub {
                         tracing::info!(count = expired.len(), "idle pooled sessions exit");
                         for p in expired {
                             hub.supervise(
-                                "acpmux.hub.pool-end",
+                                "hub.pool-end",
                                 Fatal,
                                 ShutdownBehavior::Skip,
                                 end_pooled(p),
@@ -843,7 +838,7 @@ impl Hub {
                         // again and keep the pool under its cap.
                         let measured = hub.clone();
                         hub.supervise(
-                            "acpmux.hub.pool-after-ready",
+                            "hub.pool-after-ready",
                             Fatal,
                             ShutdownBehavior::Skip,
                             async move { measured.pool_after_ready().await },

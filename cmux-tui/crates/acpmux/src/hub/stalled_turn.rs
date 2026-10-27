@@ -28,7 +28,6 @@
 //! its turn. A turn held at its deadline is looked at again `RECHECK` later, never sooner.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 /// How soon a turn held at its deadline (a client shows it, its owner is busy) is looked at again.
 const RECHECK: std::time::Duration = std::time::Duration::from_secs(15 * 60);
@@ -188,32 +187,25 @@ impl Hub {
             // other turn.
             let session = session.clone();
             let turn_id = turn.turn_id;
-            self.supervise(
-                "acpmux.hub.stalled-turn-cancel",
-                Fatal,
-                ShutdownBehavior::Skip,
-                async move {
-                    let ours = |s: &Session| {
-                        s.stalled_gen.load(Ordering::SeqCst) == generation
-                            && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)
-                    };
-                    let _ = tokio::time::timeout(CANCEL_SEND, async {
-                        let child = session.child.lock().await.clone();
-                        if ours(&session)
-                            && let (Some(child), Some(sid)) =
-                                (child, session.meta().agent_session_id)
-                        {
-                            let _ = child
-                                .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
-                                .await;
-                        }
-                    })
-                    .await;
-                    if ours(&session) {
-                        session.steer_end.send_replace(Some((turn_id, answer)));
+            self.supervise("hub.stalled-turn-cancel", Fatal, ShutdownBehavior::Skip, async move {
+                let ours = |s: &Session| {
+                    s.stalled_gen.load(Ordering::SeqCst) == generation
+                        && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)
+                };
+                let _ = tokio::time::timeout(CANCEL_SEND, async {
+                    let child = session.child.lock().await.clone();
+                    if ours(&session)
+                        && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
+                    {
+                        let _ =
+                            child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
                     }
-                },
-            );
+                })
+                .await;
+                if ours(&session) {
+                    session.steer_end.send_replace(Some((turn_id, answer)));
+                }
+            });
         }
     }
 

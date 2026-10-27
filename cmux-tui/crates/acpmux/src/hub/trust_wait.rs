@@ -21,7 +21,6 @@
 //! a card withdrawn that way is logged as a cancelled decision and the session's status is
 //! settled, as for any answered prompt, so the chat drops the card and stops asking for input.
 
-use crate::supervised::{Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex as StdMutex;
@@ -162,15 +161,10 @@ impl Drop for Wait {
         // The task may raise the card after the cancel above: once it has ended, the card goes.
         if tokio::runtime::Handle::try_current().is_ok() {
             let (hub, session, call) = (self.hub.clone(), self.session.clone(), self.call.clone());
-            self.hub.supervise(
-                "acpmux.hub.trust-card-end",
-                Fatal,
-                ShutdownBehavior::Skip,
-                async move {
-                    let _ = task.await;
-                    hub.cancel_trust_card(&session, &call);
-                },
-            );
+            self.hub.supervise("hub.trust-card-end", Fatal, ShutdownBehavior::Skip, async move {
+                let _ = task.await;
+                hub.cancel_trust_card(&session, &call);
+            });
         }
     }
 }

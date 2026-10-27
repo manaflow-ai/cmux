@@ -17,7 +17,7 @@ async fn the_hubs_long_lived_tasks_run_under_its_supervisor() {
     let (supervisor, sink) = Recorded::supervisor();
     let hub = hub(supervisor);
     let live = hub.supervisor().live_workers();
-    for worker in ["acpmux.hub.peer-notices", "acpmux.hub.title-watch", "acpmux.hub.orphan-watch"] {
+    for worker in ["hub.peer-notices", "hub.title-watch", "hub.orphan-watch"] {
         assert!(live.iter().any(|w| w == worker), "{worker} not supervised: {live:?}");
     }
     assert!(sink.reports().is_empty());
@@ -27,11 +27,11 @@ async fn the_hubs_long_lived_tasks_run_under_its_supervisor() {
 async fn a_hub_task_that_panics_is_fatal_under_its_name() {
     let (supervisor, sink) = Recorded::supervisor();
     let hub = hub(supervisor);
-    hub.supervise("acpmux.hub.test-panic", Fatal, ShutdownBehavior::Skip, async {
+    hub.supervise("hub.test-panic", Fatal, ShutdownBehavior::Skip, async {
         panic!("injected");
     });
     let report = sink.first().await;
-    assert_eq!(report.worker, "acpmux.hub.test-panic");
+    assert_eq!(report.worker, "hub.test-panic");
 }
 
 #[tokio::test]
@@ -42,7 +42,7 @@ async fn shutdown_stops_the_hubs_skip_tasks() {
     assert!(report.late.is_empty(), "{report:?}");
     // Aborted at their next await, they leave the registry.
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    while hub.supervisor().live_workers().iter().any(|w| w.starts_with("acpmux.hub.")) {
+    while hub.supervisor().live_workers().iter().any(|w| w.starts_with("hub.")) {
         assert!(tokio::time::Instant::now() < deadline, "{:?}", hub.supervisor().live_workers());
         tokio::task::yield_now().await;
     }

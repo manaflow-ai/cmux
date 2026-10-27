@@ -12,7 +12,6 @@
 //! after Stop on its own.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
 const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -43,7 +42,7 @@ impl Hub {
         // marked forced. The prompt's answer, if it ever comes, finds no turn.
         if let Some(turn) = session.turn() {
             let session = session.clone();
-            self.supervise("acpmux.hub.cancel-grace", Fatal, ShutdownBehavior::Skip, async move {
+            self.supervise("hub.cancel-grace", Fatal, ShutdownBehavior::Skip, async move {
                 tokio::time::sleep(CANCEL_GRACE).await;
                 if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
                     tracing::warn!(session = %session.id, "the agent did not answer the cancel: ending its turn");

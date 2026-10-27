@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result, anyhow};
+use futures::FutureExt;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,7 +40,7 @@ impl Client {
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
                     break;
@@ -50,31 +51,39 @@ impl Client {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let Ok(msg) = Message::parse(&line) else { continue };
-                    match msg {
-                        Message::Response { id, result, error } => {
-                            if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
-                                let _ = tx.send(match error {
-                                    Some(e) => Err(e),
-                                    None => Ok(result.unwrap_or(Value::Null)),
-                                });
+            crate::supervised::spawn_scoped(async move {
+                let read = async {
+                    let mut lines = BufReader::new(rd).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let Ok(msg) = Message::parse(&line) else { continue };
+                        match msg {
+                            Message::Response { id, result, error } => {
+                                if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
+                                    let _ = tx.send(match error {
+                                        Some(e) => Err(e),
+                                        None => Ok(result.unwrap_or(Value::Null)),
+                                    });
+                                }
                             }
-                        }
-                        other => {
-                            // Whoever holds the current receiver gets it; a
-                            // dropped receiver just loses notifications and
-                            // never kills the connection. A full queue drops
-                            // the notification rather than stall responses.
-                            let tx = notif_tx.lock().await.clone();
-                            if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other) {
-                                tracing::debug!("notification queue full; dropping a notification");
+                            other => {
+                                // Whoever holds the current receiver gets it; a
+                                // dropped receiver just loses notifications and
+                                // never kills the connection. A full queue drops
+                                // the notification rather than stall responses.
+                                let tx = notif_tx.lock().await.clone();
+                                if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other)
+                                {
+                                    tracing::debug!(
+                                        "notification queue full; dropping a notification"
+                                    );
+                                }
                             }
                         }
                     }
-                }
+                };
+                // A panic in the read loop closes the connection as its end of file does:
+                // the pending calls get their error instead of waiting forever.
+                let _ = std::panic::AssertUnwindSafe(read).catch_unwind().await;
                 closed.store(true, Ordering::SeqCst);
                 let mut p = pending.lock().await;
                 for (_, tx) in p.drain() {

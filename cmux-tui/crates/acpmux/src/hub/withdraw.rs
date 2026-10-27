@@ -373,7 +373,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, chat) = (self.clone(), session.clone());
-        self.supervise("acpmux.hub.withdraw-notice", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.withdraw-notice", Fatal, ShutdownBehavior::Skip, async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             if let Err(e) = hub.prompt_with(&chat, blocks, "acpmux", steer, opts).await {
                 tracing::warn!(session = %chat.id, "withdraw notice: {}", e.message);

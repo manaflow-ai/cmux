@@ -120,16 +120,39 @@ pub fn blocking<F>(
     });
 }
 
-/// Starts `work`, a task scoped to one request or one connection. A panic in
-/// it ends only that scope: `ended` then runs, answering the request with an
-/// internal error or closing the connection. The panic hook has already
-/// logged the panic with its stack.
-pub fn spawn_scoped<F, E>(work: F, ended: E)
+/// Starts `body` on a thread named `name`, scoped to one call, child process or
+/// connection: it owns only its pipe or socket ends, and a panic in it drops them,
+/// which ends that scope for whoever reads the other end (or joins the handle).
+pub fn scoped_thread<T, F>(name: &str, body: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    // supervise-allow: scoped: the thread owns only its scope's ends; a panic drops them and ends that scope.
+    std::thread::Builder::new().name(name.to_owned()).spawn(body)
+}
+
+/// Starts `work`, a task scoped to one connection, child process or call that
+/// owns only its scope's state (channel ends, a socket half, a pipe). A panic
+/// in it ends only that scope: its captures drop, which closes its channels for
+/// the other side. Shutdown: Skip (the runtime drops it when the process ends).
+pub fn spawn_scoped<F>(work: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    // supervise-allow: scoped: the task owns only its scope's state; a panic drops it and ends that scope.
+    tokio::spawn(work);
+}
+
+/// Starts `work`, a task scoped to one request. A panic in it ends only that
+/// request: `ended` then runs and answers it with an internal error (the panic
+/// hook has already logged the panic with its stack). Shutdown: Skip.
+pub fn spawn_request<F, E>(work: F, ended: E)
 where
     F: Future<Output = ()> + Send + 'static,
     E: Future<Output = ()> + Send + 'static,
 {
-    // supervise-allow: scoped: the task catches its own panic and ends its request or connection with `ended`, so its handle carries nothing.
+    // supervise-allow: scoped: the task catches its own panic and answers its request with `ended`, so its handle carries nothing.
     tokio::spawn(async move {
         // AssertUnwindSafe: the scope's own state is dropped with it, and `ended` reads only
         // what it captured.

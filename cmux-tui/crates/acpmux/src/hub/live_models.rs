@@ -65,7 +65,7 @@ impl Hub {
             list.extend(names.iter().cloned());
         }
         let hub = self.clone();
-        self.supervise("acpmux.hub.model-probes", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.model-probes", Fatal, ShutdownBehavior::Skip, async move {
             hub.probe_models_with(false, false, Some(names)).await
         });
     }

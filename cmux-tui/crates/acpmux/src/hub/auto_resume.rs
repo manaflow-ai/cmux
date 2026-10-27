@@ -32,10 +32,11 @@
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
-use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
+use super::{
+    Control, Fatal, Hub, PromptOptions, Session, SessionStatus, ShutdownBehavior, TurnInfo,
+};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
-use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -259,7 +260,7 @@ impl Hub {
         let (control, trust_gate) = (cut.control, cut.trust_gate);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
-        self.supervise("acpmux.hub.auto-resume", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.auto-resume", Fatal, ShutdownBehavior::Skip, async move {
             let delays = {
                 let cfg = hub.config.read().await;
                 cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())

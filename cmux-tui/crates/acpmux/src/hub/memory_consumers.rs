@@ -223,7 +223,7 @@ impl Hub {
                             let _on_runtime = runtime.enter();
                             let announced = hub.clone();
                             hub.supervise(
-                                "acpmux.hub.memory-announce",
+                                "hub.memory-announce",
                                 Fatal,
                                 ShutdownBehavior::Skip,
                                 async move { announced.announce_harnesses().await },
@@ -234,7 +234,7 @@ impl Hub {
                         let _on_runtime = runtime.enter();
                         let refilled = hub.clone();
                         hub.supervise(
-                            "acpmux.hub.memory-refill",
+                            "hub.memory-refill",
                             Fatal,
                             ShutdownBehavior::Skip,
                             async move {

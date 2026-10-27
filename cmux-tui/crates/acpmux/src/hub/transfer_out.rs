@@ -28,7 +28,6 @@
 //! entry, not this one.
 
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
@@ -342,7 +341,7 @@ impl Hub {
     fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
-        self.supervise("acpmux.hub.move-end", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.move-end", Fatal, ShutdownBehavior::Skip, async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });

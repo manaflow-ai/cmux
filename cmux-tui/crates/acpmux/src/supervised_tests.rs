@@ -54,11 +54,11 @@ impl Recorded {
 #[tokio::test]
 async fn a_fatal_task_that_panics_reaches_the_sink_under_its_name() {
     let (supervisor, sink) = Recorded::supervisor();
-    task(&supervisor, "acpmux.test.fatal", Fatal, ShutdownBehavior::Skip, async {
+    task(&supervisor, "test.fatal", Fatal, ShutdownBehavior::Skip, async {
         panic!("injected");
     });
     let report = sink.first().await;
-    assert_eq!(report.worker, "acpmux.test.fatal");
+    assert_eq!(report.worker, "test.fatal");
     assert!(
         matches!(&report.reason, FatalReason::Failed(failure) if failure.to_string().contains("injected")),
         "{report}"
@@ -69,7 +69,7 @@ async fn a_fatal_task_that_panics_reaches_the_sink_under_its_name() {
 async fn a_fatal_task_that_ends_normally_reports_nothing() {
     let (supervisor, sink) = Recorded::supervisor();
     let (done_tx, done) = tokio::sync::oneshot::channel();
-    task(&supervisor, "acpmux.test.quiet", Fatal, ShutdownBehavior::Skip, async move {
+    task(&supervisor, "test.quiet", Fatal, ShutdownBehavior::Skip, async move {
         let _ = done_tx.send(());
     });
     done.await.expect("the task ran");
@@ -83,7 +83,7 @@ async fn a_task_started_after_shutdown_does_not_run() {
     let report = supervisor.shutdown();
     assert!(report.late.is_empty());
     let (ran_tx, ran) = tokio::sync::oneshot::channel::<()>();
-    task(&supervisor, "acpmux.test.late", Fatal, ShutdownBehavior::Skip, async move {
+    task(&supervisor, "test.late", Fatal, ShutdownBehavior::Skip, async move {
         let _ = ran_tx.send(());
     });
     // The refused work was dropped unrun, and with it the sender.
@@ -127,18 +127,18 @@ async fn an_owned_thread_joins_once_its_body_returns() {
 #[tokio::test]
 async fn a_blocking_task_that_panics_is_fatal_under_its_name() {
     let (supervisor, sink) = Recorded::supervisor();
-    blocking(&supervisor, "acpmux.test.blocking", Fatal, ShutdownBehavior::Continue, || {
+    blocking(&supervisor, "test.blocking", Fatal, ShutdownBehavior::Continue, || {
         panic!("injected");
     });
     let report = sink.first().await;
-    assert_eq!(report.worker, "acpmux.test.blocking");
+    assert_eq!(report.worker, "test.blocking");
     assert!(report.to_string().contains("injected"), "{report}");
 }
 
 #[tokio::test]
-async fn a_scoped_task_that_panics_runs_its_end_and_the_process_goes_on() {
+async fn a_request_task_that_panics_answers_with_its_end() {
     let (ended_tx, ended) = tokio::sync::oneshot::channel();
-    spawn_scoped(
+    spawn_request(
         async {
             panic!("injected");
         },
@@ -151,10 +151,10 @@ async fn a_scoped_task_that_panics_runs_its_end_and_the_process_goes_on() {
 }
 
 #[tokio::test]
-async fn a_scoped_task_that_ends_normally_skips_its_end() {
+async fn a_request_task_that_ends_normally_skips_its_end() {
     let (done_tx, done) = tokio::sync::oneshot::channel();
     let (ended_tx, ended) = tokio::sync::oneshot::channel::<()>();
-    spawn_scoped(
+    spawn_request(
         async move {
             let _ = done_tx.send(());
         },

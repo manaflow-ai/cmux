@@ -16,7 +16,6 @@
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
-use crate::supervised::{Fatal, ShutdownBehavior};
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
@@ -104,7 +103,7 @@ impl Hub {
             return;
         }
         let (hub, session, transfer_id) = (self.clone(), session.clone(), transfer_id.to_owned());
-        self.supervise("acpmux.hub.transfer-watch", Fatal, ShutdownBehavior::Skip, async move {
+        self.supervise("hub.transfer-watch", Fatal, ShutdownBehavior::Skip, async move {
             hub.transfer_watch(&session, &transfer_id).await
         });
     }
