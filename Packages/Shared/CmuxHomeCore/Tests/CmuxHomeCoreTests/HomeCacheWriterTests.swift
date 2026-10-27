@@ -1,5 +1,4 @@
 import Foundation
-import os
 import Testing
 @testable import CmuxHomeCore
 
@@ -13,7 +12,7 @@ import Testing
     /// Counts the writer's calls and fails the first `failures` of them.
     final class Writer: Sendable {
         // Lock carve-out: the writer is a synchronous callback on the cache's queue; the test reads it after.
-        private let state = OSAllocatedUnfairLock<(calls: Int, labels: [String])>(initialState: (0, []))
+        private let state = Locked<(calls: Int, labels: [String])>((0, []))
         private let failures: Int
 
         init(failures: Int) { self.failures = failures }
@@ -22,7 +21,11 @@ import Testing
         var labels: [String] { state.withLock { $0.labels } }
 
         func write(_ data: Data, _ url: URL) throws {
+            #if canImport(Darwin)
             let label = String(cString: __dispatch_queue_get_label(nil))
+            #else
+            let label = "" // corelibs Dispatch has no current queue's label
+            #endif
             let call = state.withLock { state -> Int in
                 state.calls += 1
                 state.labels.append(label)
@@ -38,6 +41,7 @@ import Testing
                   writeFile: { try writer.write($0, $1) })
     }
 
+    #if canImport(Darwin)
     @Test func writesRunOnTheCachesOwnQueue() async throws {
         let writer = Writer(failures: 0)
         let cache = Self.cache(writer)
@@ -47,6 +51,7 @@ import Testing
         #expect(!writer.labels.isEmpty)
         #expect(writer.labels.allSatisfy { $0 == "com.cmuxterm.home.cache" }, "\(writer.labels)")
     }
+    #endif
 
     @Test func aFailedWriteIsTriedOnceMoreByTheFlush() async throws {
         let writer = Writer(failures: 1)

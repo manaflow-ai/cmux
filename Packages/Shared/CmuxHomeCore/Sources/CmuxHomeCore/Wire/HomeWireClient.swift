@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The HTTP half of `cmux.wire/1` for ``WireHomeSource``: `POST /v1/ops`,
 /// `POST /v1/read`, `GET /v1/selfhost/info`, the attachment routes and the

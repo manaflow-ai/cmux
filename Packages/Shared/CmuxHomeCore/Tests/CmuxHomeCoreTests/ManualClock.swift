@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// A clock that moves only when a test calls `advance(by:)`. Sleepers wait
 /// until the clock passes their deadline; a cancelled sleeper throws at once.
@@ -24,21 +23,21 @@ final class ManualClock: Clock, Sendable {
         var sleepers: [Sleeper] = []
     }
 
-    private let state = OSAllocatedUnfairLock(uncheckedState: State())
+    private let state = Locked(State())
 
-    var now: Instant { state.withLockUnchecked { $0.now } }
+    var now: Instant { state.withLock { $0.now } }
     var minimumResolution: Duration { .zero }
     /// Sleeps waiting for a later `advance`.
-    var pendingSleepers: Int { state.withLockUnchecked { $0.sleepers.count } }
+    var pendingSleepers: Int { state.withLock { $0.sleepers.count } }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-        let id = state.withLockUnchecked { state -> Int in
+        let id = state.withLock { state -> Int in
             state.nextID += 1
             return state.nextID
         }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let waits = state.withLockUnchecked { state -> Bool in
+                let waits = state.withLock { state -> Bool in
                     if deadline <= state.now || Task.isCancelled { return false }
                     state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
                     return true
@@ -47,7 +46,7 @@ final class ManualClock: Clock, Sendable {
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()) } else { continuation.resume() }
             }
         } onCancel: {
-            let cancelled = state.withLockUnchecked { state -> Sleeper? in
+            let cancelled = state.withLock { state -> Sleeper? in
                 guard let index = state.sleepers.firstIndex(where: { $0.id == id }) else { return nil }
                 return state.sleepers.remove(at: index)
             }
@@ -57,7 +56,7 @@ final class ManualClock: Clock, Sendable {
 
     /// Moves time forward and wakes every sleeper whose deadline passed.
     func advance(by duration: Duration) {
-        let due = state.withLockUnchecked { state -> [Sleeper] in
+        let due = state.withLock { state -> [Sleeper] in
             state.now = state.now.advanced(by: duration)
             let now = state.now
             let due = state.sleepers.filter { $0.deadline <= now }

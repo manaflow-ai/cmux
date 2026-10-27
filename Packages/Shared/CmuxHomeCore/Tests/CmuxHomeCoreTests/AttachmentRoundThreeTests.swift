@@ -1,14 +1,19 @@
-import AVFoundation
-import CoreGraphics
 import Foundation
-import ImageIO
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
+#if canImport(ImageIO)
+import AVFoundation
+import CoreGraphics
+import ImageIO
+#endif
 @testable import CmuxHomeCore
 
 // Regression tests for the third attachment review (minor findings 1-6).
 
+#if canImport(ImageIO)
 /// A `width` x `height` PNG with an alpha channel and every pixel opaque.
 func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -22,8 +27,10 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
     #expect(CGImageDestinationFinalize(destination))
     return data as Data
 }
+#endif
 
 @Suite(.timeLimit(.minutes(3))) struct AttachmentRoundThreePreparationTests {
+    #if canImport(ImageIO)
     /// Minor 1: a timed metadata track whose format names no location (an
     /// iPhone's orientation or still-image-time track) is not location, so
     /// the file is sent as it is, with no export.
@@ -112,6 +119,7 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         #expect(try minimumAlpha(thumb) == 0)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
+    #endif
 }
 
 @MainActor

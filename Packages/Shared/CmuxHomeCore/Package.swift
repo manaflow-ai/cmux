@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 // Platform-neutral Home client core: the conversation model (same shapes as the
@@ -46,6 +47,19 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// CryptoKit is Apple-only: a build for Linux takes the same API from swift-crypto (`import Crypto`). Only
+// the Linux package runners (scripts/cmux-next/linux/swift-shared.sh) set CMUX_SWIFTPM_TARGET_LINUX; a build
+// for an Apple platform keeps CryptoKit and resolves no remote package, so this package has no
+// Package.resolved (scripts/check-package-resolved-policy.py skips this block).
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
+    for target in package.targets where ["CmuxHomeCore", "CmuxHomeCoreTests"].contains(target.name) {
+        target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
+}
+#endif
 
 // BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
 // p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to

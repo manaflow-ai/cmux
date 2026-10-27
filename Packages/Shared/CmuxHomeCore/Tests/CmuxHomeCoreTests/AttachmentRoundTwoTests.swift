@@ -1,17 +1,21 @@
-import AVFoundation
-import CoreGraphics
 import Foundation
-import ImageIO
-import os
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
+#if canImport(ImageIO)
+import AVFoundation
+import CoreGraphics
+import ImageIO
+#endif
 @testable import CmuxHomeCore
 
 // Regression tests for the second attachment review.
 
 // MARK: Fixtures
 
+#if canImport(ImageIO)
 /// Location found anywhere in a movie: asset or track metadata items, or a
 /// timed metadata track.
 struct MovieLocation: Equatable {
@@ -72,7 +76,9 @@ var iptcLocationKeys: [CFString] { [
     kCGImagePropertyIPTCCountryPrimaryLocationName, kCGImagePropertyIPTCCountryPrimaryLocationCode,
     kCGImagePropertyIPTCContentLocationName, kCGImagePropertyIPTCContentLocationCode,
 ] }
+#endif
 
+#if canImport(ImageIO)
 /// True when the image holds a position or a place name anywhere: the GPS
 /// dictionary, IPTC location text, or an XMP location tag.
 func imageHasLocation(_ data: Data) throws -> Bool {
@@ -200,10 +206,12 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
     }
     return stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }.min() ?? 255
 }
+#endif
 
 // MARK: Preparation
 
 @Suite(.timeLimit(.minutes(3))) struct AttachmentRoundTwoPreparationTests {
+    #if canImport(ImageIO)
     /// Finding 2 (Lawrence's decision): an image with transparency gets no
     /// preview (a JPEG would turn the transparent areas black, and the
     /// owner keeps the first preview for good); readers load the original.
@@ -342,6 +350,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(kept.ref.mimeType == "image/webp")
         #expect(kept.ref.hash == sha256Hex(webp))
     }
+    #endif
 
     /// Finding 10: the owner trims names with JS `trim()`, which also
     /// removes U+FEFF; a name of only that character is blank.
@@ -372,8 +381,8 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         let relaunched = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
         try fm.setAttributes([.modificationDate: now.addingTimeInterval(-8 * 86_400)], ofItemAtPath: reused.path)
 
-        let attached = OSAllocatedUnfairLock<LocalAttachment?>(initialState: nil)
-        let started = OSAllocatedUnfairLock(initialState: false)
+        let attached = Locked<LocalAttachment?>(nil)
+        let started = Locked(false)
         relaunched.pruneWillDelete = { name in
             guard name == reused.lastPathComponent, !started.withLock({ $0 }) else { return }
             started.withLock { $0 = true }
@@ -526,6 +535,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(photoSeq < textSeq)
     }
 
+    #if canImport(ImageIO)
     /// Finding 7: the owner kept another device's poster, so the pending
     /// row's part names a poster hash this client does not have; the row
     /// is not committed, so the source cannot fetch it either. The local
@@ -558,6 +568,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         send.cancel()
         store.stop()
     }
+    #endif
 
     /// Finding 8: `stop()` (sign-out) cancels uploads in flight.
     @Test func stopCancelsUploadsInFlight() async throws {

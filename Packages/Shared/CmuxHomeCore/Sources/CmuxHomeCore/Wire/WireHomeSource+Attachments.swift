@@ -1,5 +1,10 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 // WireHomeSource's attachments over the owner's attachment routes
 // (backend/apps/api/src/home-attachments.ts): intent, PUT (through the Worker

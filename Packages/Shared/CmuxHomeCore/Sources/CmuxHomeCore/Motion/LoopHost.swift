@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)
 import QuartzCore
 
 /// Where a view's infinite Core Animation loops live: each runs only while a person can see it,
@@ -16,3 +17,4 @@ import QuartzCore
     /// Takes every attached loop off.
     func detachAll()
 }
+#endif

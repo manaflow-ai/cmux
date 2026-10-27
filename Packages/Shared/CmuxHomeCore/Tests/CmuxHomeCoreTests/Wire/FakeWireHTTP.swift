@@ -1,5 +1,7 @@
 import Foundation
-import os
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import CmuxHomeCore
 
 /// A scripted `cmux.wire/1` server for `WireHomeSource` tests: records every
@@ -15,18 +17,18 @@ final class FakeWireHTTP: HomeWireHTTP {
     }
 
     // A test fake: the lock guards the recorded requests that the test reads synchronously.
-    private let state = OSAllocatedUnfairLock(uncheckedState: State())
+    private let state = Locked(State())
 
     init(_ handler: Handler? = nil) {
-        state.withLockUnchecked { $0.handler = handler }
+        state.withLock { $0.handler = handler }
     }
 
     /// Replaces the script (nil: default routes only).
     func script(_ handler: Handler?) {
-        state.withLockUnchecked { $0.handler = handler }
+        state.withLock { $0.handler = handler }
     }
 
-    var requests: [URLRequest] { state.withLockUnchecked { $0.requests } }
+    var requests: [URLRequest] { state.withLock { $0.requests } }
 
     /// The JSON bodies of the requests to `path`, in order.
     func bodies(_ path: String) -> [HomeWireJSON] {
@@ -41,7 +43,7 @@ final class FakeWireHTTP: HomeWireHTTP {
     func send(_ request: URLRequest) async throws -> HomeWireHTTPReply {
         let body = HomeWireJSON.parse(request.httpBody ?? Data()) ?? .null
         let path = request.url?.path ?? ""
-        let handler = state.withLockUnchecked { state -> Handler? in
+        let handler = state.withLock { state -> Handler? in
             state.requests.append(request)
             return state.handler
         }
@@ -61,7 +63,7 @@ final class FakeWireHTTP: HomeWireHTTP {
         case ("/v1/read", _):
             return HomeWireHTTPReply(json: ["ok": true, "value": [:]])
         case ("/v1/ops", _):
-            let rev = state.withLockUnchecked { state -> UInt64 in
+            let rev = state.withLock { state -> UInt64 in
                 state.opRev += 1
                 return state.opRev
             }

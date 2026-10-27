@@ -1,5 +1,8 @@
 import Foundation
-import os
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import struct CmuxSafeConcurrency.Mutex
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -43,17 +46,25 @@ final class URLSessionHomeWireSocket: HomeWireSocket {
     func ping() async -> Bool {
         // A synchronous one-shot resume guard: URLSession may call the pong
         // handler more than once while the socket tears down (lock carve-out).
-        let claimed = OSAllocatedUnfairLock(initialState: false)
+        let claim = PongClaim()
         // A pong handler URLSession drops uncalled (abandoned) is a failed ping.
         let answered = try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             task.sendPing { error in
-                let first = claimed.withLock { done -> Bool in
-                    defer { done = true }
-                    return !done
-                }
-                if first { continuation.resume(returning: error == nil) }
+                if claim.isFirst() { continuation.resume(returning: error == nil) }
             }
         }
         return answered ?? false
+    }
+}
+
+/// True for the first pong handler call of one ping only.
+private final class PongClaim: Sendable {
+    private let claimed = Mutex(false)
+
+    func isFirst() -> Bool {
+        claimed.withLock { done -> Bool in
+            defer { done = true }
+            return !done
+        }
     }
 }

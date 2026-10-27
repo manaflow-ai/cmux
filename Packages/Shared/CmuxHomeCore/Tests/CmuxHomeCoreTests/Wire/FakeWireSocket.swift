@@ -1,5 +1,7 @@
 import Foundation
-import os
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import CmuxHomeCore
 
 /// One fake `cmux.wire/1` socket: the test pushes owner frames and reads
@@ -17,19 +19,19 @@ final class FakeWireSocket: HomeWireSocket {
     }
 
     // A test fake: the lock guards the frame queue shared by the client's receive and the test's push.
-    private let state = OSAllocatedUnfairLock(uncheckedState: State())
+    private let state = Locked(State())
 
     init(request: URLRequest) {
         self.request = request
     }
 
     /// Frames the client sent, parsed.
-    var sent: [HomeWireJSON] { state.withLockUnchecked { $0.sent }.compactMap(HomeWireJSON.parse) }
-    var isEnded: Bool { state.withLockUnchecked { $0.ended } }
+    var sent: [HomeWireJSON] { state.withLock { $0.sent }.compactMap(HomeWireJSON.parse) }
+    var isEnded: Bool { state.withLock { $0.ended } }
 
     /// The owner sends `frame`.
     func push(_ frame: HomeWireJSON) {
-        let waiter = state.withLockUnchecked { state -> CheckedContinuation<String, any Error>? in
+        let waiter = state.withLock { state -> CheckedContinuation<String, any Error>? in
             guard !state.ended else { return nil }
             if let waiter = state.waiter {
                 state.waiter = nil
@@ -43,7 +45,7 @@ final class FakeWireSocket: HomeWireSocket {
 
     /// The connection ends (with the owner's close code, or an upgrade refusal).
     func drop(code: Int? = nil, upgradeStatus: Int? = nil) {
-        let waiter = state.withLockUnchecked { state -> CheckedContinuation<String, any Error>? in
+        let waiter = state.withLock { state -> CheckedContinuation<String, any Error>? in
             guard !state.ended else { return nil }
             state.ended = true
             state.closeCode = code
@@ -55,7 +57,7 @@ final class FakeWireSocket: HomeWireSocket {
     }
 
     func send(_ text: String) async throws {
-        let ended = state.withLockUnchecked { state -> Bool in
+        let ended = state.withLock { state -> Bool in
             guard !state.ended else { return true }
             state.sent.append(text)
             return false
@@ -65,7 +67,7 @@ final class FakeWireSocket: HomeWireSocket {
 
     func receive() async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, any Error>) in
-            let ready = state.withLockUnchecked { state -> Result<String, any Error>? in
+            let ready = state.withLock { state -> Result<String, any Error>? in
                 if !state.inbound.isEmpty { return .success(state.inbound.removeFirst()) }
                 if state.ended { return .failure(URLError(.networkConnectionLost)) }
                 state.waiter = continuation
@@ -76,11 +78,11 @@ final class FakeWireSocket: HomeWireSocket {
     }
 
     func close() {
-        drop(code: state.withLockUnchecked { $0.closeCode })
+        drop(code: state.withLock { $0.closeCode })
     }
 
-    var closeCode: Int? { state.withLockUnchecked { $0.closeCode } }
-    var upgradeStatus: Int? { state.withLockUnchecked { $0.upgradeStatus } }
+    var closeCode: Int? { state.withLock { $0.closeCode } }
+    var upgradeStatus: Int? { state.withLock { $0.upgradeStatus } }
 
     func ping() async -> Bool { !isEnded }
 }

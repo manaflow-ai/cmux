@@ -29,7 +29,11 @@ public actor HomeCache {
     /// The queue this actor runs on (threading-model.md, `com.cmuxterm.home.cache`): its file calls block a
     /// thread of its own, never a cooperative pool thread, so a full pool (a stuck quit) cannot hold the
     /// forced quit's last draft write.
+    #if canImport(Darwin)
     private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.home.cache", qos: .userInitiated)
+    #else
+    private nonisolated let queue = DispatchQueueExecutor(label: "com.cmuxterm.home.cache", qos: .userInitiated)
+    #endif
 
     /// Runs the actor on ``queue``.
     public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }

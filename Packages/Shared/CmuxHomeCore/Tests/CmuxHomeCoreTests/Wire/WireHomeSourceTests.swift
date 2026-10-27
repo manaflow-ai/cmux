@@ -1,6 +1,5 @@
 import CmuxHomeCoreTestSupport
 import Foundation
-import os
 import Testing
 @testable import CmuxHomeCore
 
@@ -311,7 +310,7 @@ import Testing
 /// True the first time only.
 private final class LostOnce: Sendable {
     // A test fake: a one-shot flag read from the fake server's handler.
-    private let taken = OSAllocatedUnfairLock(initialState: false)
+    private let taken = Locked(false)
 
     func take() -> Bool {
         taken.withLock { taken in

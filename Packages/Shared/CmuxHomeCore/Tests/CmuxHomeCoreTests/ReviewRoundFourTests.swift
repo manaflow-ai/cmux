@@ -1,13 +1,18 @@
-import CoreGraphics
 import Foundation
-import ImageIO
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
+#if canImport(ImageIO)
+import CoreGraphics
+import ImageIO
+#endif
 @testable import CmuxHomeCore
 
 // Regression tests for the fourth attachment review (minor findings 1, 2, 3 and 6).
 
+#if canImport(ImageIO)
 private func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
 
 private func webPChunk(_ tag: String, _ payload: [UInt8]) -> [UInt8] {
@@ -31,10 +36,12 @@ private func webPChunkPayload(_ tag: String, in data: Data) -> [UInt8]? {
     }
     return nil
 }
+#endif
 
 /// A 1x1 VP8L frame (the same bitstream `makeWebPWithLocation` uses).
 private let vp8lPixel: [UInt8] = [0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07]
 
+#if canImport(ImageIO)
 /// A two-frame animated 1x1 WebP whose EXIF chunk holds GPS (orientation 1).
 private func makeAnimatedWebPWithLocation() throws -> Data {
     let exif = try #require(webPChunkPayload("EXIF", in: try makeWebPWithLocation(orientation: 1)))
@@ -148,6 +155,7 @@ private func frameCount(_ data: Data) -> Int {
         }
     }
 }
+#endif
 
 @MainActor
 @Suite(.timeLimit(.minutes(3))) struct UnansweredOpTests {

@@ -1,12 +1,20 @@
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
+import Foundation
+import Testing
+import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
+#if canImport(ImageIO)
 import AVFoundation
 import CoreGraphics
 import CoreVideo
-import CryptoKit
-import Foundation
 import ImageIO
-import Testing
-import CmuxHomeCoreTestSupport
-import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 func temporaryDirectory() throws -> URL {
@@ -19,6 +27,7 @@ func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+#if canImport(ImageIO)
 /// A `width` x `height` JPEG whose EXIF orientation is `orientation`.
 func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -232,8 +241,16 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
                                       sampleSizeArray: &size, sampleBufferOut: &sample) == noErr)
     return try #require(sample)
 }
+#endif
 
 @Suite struct AttachmentPreparationTests {
+    /// Whether this platform reads media (ImageIO, AVFoundation): location removal, previews and posters.
+    #if canImport(ImageIO)
+    static let readsMedia = true
+    #else
+    static let readsMedia = false
+    #endif
+
     @MainActor @Test func hashIsSHA256OfTheBytesAndTheBlobIsCached() async throws {
         let root = try temporaryDirectory()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
@@ -258,6 +275,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try Data(contentsOf: fromFile.fileURL) == large)
     }
 
+    #if canImport(ImageIO)
     @MainActor @Test func imageSizeIsTheDisplaySizeAfterEXIFOrientation() async throws {
         let root = try temporaryDirectory()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
@@ -294,6 +312,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let posterImage = try #require(CGImageSourceCreateImageAtIndex(posterSource, 0, nil))
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
+    #endif
 
     @MainActor @Test func policyRefusesSizesBeforeCopying() async throws {
         let root = try temporaryDirectory()
@@ -318,8 +337,10 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
     @MainActor @Test func mimeTypesUseTheOwnersSpelling() async throws {
         let root = try temporaryDirectory()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
-        // Not real audio: media facts are best effort, the file still prepares.
-        let m4a = try await store.prepareAttachment(data: Data("not audio".utf8), typeIdentifier: UTType.mpeg4Audio.identifier)
+        // Not real audio: media facts are best effort, the file still prepares. Without a media reader the
+        // location cannot be looked for, so prepare refuses it unless kept (NoImageIOAttachmentTests).
+        let m4a = try await store.prepareAttachment(data: Data("not audio".utf8), typeIdentifier: UTType.mpeg4Audio.identifier,
+                                                    keepLocation: !Self.readsMedia)
         #expect(m4a.ref.mimeType == "audio/mp4")
         #expect(m4a.ref.durationMs == nil)
         let wav = try await store.prepareAttachment(data: Data("not wav".utf8), typeIdentifier: UTType.wav.identifier)
@@ -328,7 +349,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
                              ("a.zip", "application/zip"), ("s.mp3", "audio/mpeg"), ("h.heic", "image/heic")] {
             let file = root.appendingPathComponent(name)
             try Data("x\(name)".utf8).write(to: file)
-            #expect(try await store.prepareAttachment(fileURL: file).ref.mimeType == mime)
+            #expect(try await store.prepareAttachment(fileURL: file, keepLocation: !Self.readsMedia).ref.mimeType == mime)
         }
         #expect(HomeAttachmentPolicy.canonicalMimeType("audio/x-m4a") == "audio/mp4")
         #expect(AttachmentPreview.of([.text("hi")]) == nil)
@@ -369,6 +390,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try fm.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.hasPrefix(".incoming-") })
     }
 
+    #if canImport(ImageIO)
     /// A pasted macOS screenshot is TIFF, an iPhone photo can be HEIF:
     /// neither is on the owner's allow list, so the core converts them, PNG
     /// when the image has alpha, else JPEG.
@@ -403,6 +425,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             #expect(photo.ref.mimeType == "image/jpeg")
         }
     }
+    #endif
 
     /// The owner's name rules: 1 to 255 characters, no control characters
     /// or path separators, not blank, `.` or `..`; any extension.
@@ -438,6 +461,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
     }
 
+    #if canImport(ImageIO)
     /// Sample bytes prepare can take for `type`: a real image for a type
     /// that is converted (when ImageIO can write one), else any bytes.
     func sampleInput(for type: UTType) throws -> Data? {
@@ -581,6 +605,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(small.ref.preview == nil)
         #expect(small.previewURL == nil)
     }
+    #endif
 
     @Test func previewEncodesAsItsOwnPartKey() throws {
         let encoder = JSONEncoder()
@@ -884,6 +909,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         store.stop()
     }
 
+    #if canImport(ImageIO)
     @Test func fetchIsIdempotentAndPrefersTheLocalCopy() async throws {
         let (store, source) = try await started()
         let root = try temporaryDirectory()
@@ -1021,6 +1047,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await store.fetchAttachment(first, at: AttachmentLocation(conversation: conversation), variant: .poster)
         }
     }
+    #endif
 
     /// The owner swept the upload before the send reached it (an
     /// unreferenced upload after 24 hours, an expired slot): the store
@@ -1067,6 +1094,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(await source.uploadCalls.filter { $0 == a.ref.hash }.count == 3)
     }
 
+    #if canImport(ImageIO)
     /// The OS purged the blob cache (iOS can): the local copy is skipped
     /// and the bytes come from the source.
     @Test func fetchFallsBackToTheSourceWhenTheCachedFileIsGone() async throws {
@@ -1087,6 +1115,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(await source.fetchLocations.count >= 2)
         #expect(store.transcript(for: conversation).last?.localAttachments.isEmpty == true)
     }
+    #endif
 
     /// A pending upload whose cached file was purged fails with a code that
     /// says so, without calling the source.
@@ -1102,6 +1131,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(await source.uploadCalls.isEmpty)
     }
 
+    #if canImport(ImageIO)
     /// The preview uploads with the image, travels on the part, and is the
     /// `.preview` variant; a part without one throws `no_preview`.
     @Test func previewUploadsWithTheImageAndFetchesAsAVariant() async throws {
@@ -1142,6 +1172,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         await waitUntil { store.log.isEmpty }
         #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(first)])
     }
+    #endif
 
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
         let (store, source) = try await started()
@@ -1165,6 +1196,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         }
     }
 
+    #if canImport(ImageIO)
     /// The part goes out with the owner's mime spelling and without a
     /// size or duration the owner would refuse (a zero width from AV, a
     /// duration past 24 hours).
@@ -1184,6 +1216,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         expected.height = nil
         #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(expected)])
     }
+    #endif
 
     /// The same bytes in two conversations: the fetch names the part in the
     /// conversation the row belongs to.
@@ -1210,6 +1243,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         }
     }
 
+    #if canImport(ImageIO)
     @Test func inboxRowPreviewsAttachmentsWithoutTheirNames() async throws {
         let (store, _) = try await started()
         let root = try temporaryDirectory()
@@ -1231,6 +1265,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(mixed.preview == "notes")
         #expect(mixed.previewAttachments == AttachmentPreview(kind: .file, count: 2))
     }
+    #endif
 
     @Test func sendRefusesAFileTheOwnerWouldRefuseAndLogsNothing() async throws {
         let (store, source) = try await started()

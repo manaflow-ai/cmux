@@ -107,7 +107,12 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public func displayTitle(me: ParticipantID) -> String {
         if !title.isEmpty, !title.isHomeInternalID { return title }
         let names = participants.filter { $0.id != me }.map(\.visibleName).filter { !$0.isEmpty }
-        return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
+        guard !names.isEmpty else { return "" }
+        #if canImport(Darwin)
+        return ListFormatter.localizedString(byJoining: names)
+        #else
+        return names.joined(separator: ", ") // corelibs Foundation has no ListFormatter
+        #endif
     }
 
     /// Messages after my read cursor, without my own: my newest message

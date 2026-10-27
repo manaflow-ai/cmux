@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// One HTTP exchange with a `cmux.wire/1` server: the seam `WireHomeSource`
 /// sends every `POST /v1/ops`, `POST /v1/read`, `GET /v1/selfhost/info` and

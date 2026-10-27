@@ -1,6 +1,7 @@
 public import Foundation
-import ImageIO
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
@@ -199,8 +200,7 @@ public struct HomeAttachmentPolicy {
     /// Image types ImageIO reads that the owner refuses (TIFF, HEIF, BMP,
     /// camera RAW): prepare converts them.
     static let convertibleImageTypes: [UTType] = {
-        let readable = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
-        return readable.compactMap(UTType.init).filter { type in
+        AttachmentMedia.readableImageTypeIdentifiers.compactMap { UTType($0) }.filter { type in
             guard type.conforms(to: .image) else { return false }
             let mime = canonicalMimeType(type.preferredMIMEType ?? "")
             let ext = type.preferredFilenameExtension ?? ""
@@ -270,7 +270,8 @@ public enum HomeAttachmentError: Error, Hashable, Sendable {
     /// More than `HomeAttachmentPolicy.maxParts` parts in one message.
     case tooManyParts(limit: Int)
     /// The file holds location metadata and `keepLocation` is off, but
-    /// the client could not write a copy without it (an export failure).
+    /// the client could not write a copy without it (an export failure),
+    /// or the platform has no media reader to look for it (Linux).
     case locationNotRemoved(name: String)
 }
 
