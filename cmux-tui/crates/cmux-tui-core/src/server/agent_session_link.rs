@@ -90,10 +90,13 @@ impl AcpmuxLink {
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
-        std::thread::Builder::new()
-            .name("mux-acpmux-link".into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || read_loop(reader, pending, closed, on_inbound))?;
+        // Requests wait in `call` for the replies it reads: their class.
+        cmux_threads::spawn_with_stack(
+            "mux-acpmux-link",
+            crate::thread_qos::ThreadType::Interactive.qos(),
+            THREAD_STACK_BYTES,
+            move || read_loop(reader, pending, closed, on_inbound),
+        )?;
         Ok(link)
     }
 

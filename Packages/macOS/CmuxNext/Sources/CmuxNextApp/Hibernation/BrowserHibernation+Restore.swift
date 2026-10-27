@@ -167,7 +167,7 @@ extension BrowserHibernation {
     }
 
     /// Keeps a hibernating page's picture until it wakes or closes.
-    func keep(_ picture: HibernationSnapshots.Picture, for key: String) {
+    func keep(_ picture: PurgeablePicture, for key: String) {
         snapshots.insert(picture, for: key)
     }
 
@@ -175,14 +175,14 @@ extension BrowserHibernation {
     /// default; with feature `compressedSnapshots` off (`snapshots.keepsCompressed`), decoded and
     /// scaled so that four fit the store. None, and no capture, when the store would not keep it (the
     /// critical memory limit, for a tab beside no shown tab).
-    func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
+    func snapshot(_ tab: any BrowserTab, key: String) async -> PurgeablePicture? {
         guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
-        if snapshots.keepsCompressed { return await HibernationSnapshots.compress(image) }
+        if snapshots.keepsCompressed { return await HibernationSnapshots.compress(image, allocator: snapshots.allocator) }
         // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
         let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
-        return HibernationSnapshots.Picture(data: nil, image: fitted)
+        return await HibernationSnapshots.decoded(fitted, allocator: snapshots.allocator)
     }
 }
 
@@ -252,7 +252,7 @@ extension BrowserHibernation: IntentPrewarmWarming {
 
     /// Hidden page `key` hibernates with its view at `size`: its picture (if any) is kept, a prewarm held for it
     /// is spent, and `size` is its target size until a pane lists it.
-    func keepAsleep(_ key: String, picture: HibernationSnapshots.Picture?, size: CGSize) {
+    func keepAsleep(_ key: String, picture: PurgeablePicture?, size: CGSize) {
         if let picture { keep(picture, for: key) }
         intentPrewarm?.service.cooled(key)
         prewarmKinds.slept(key, size: size)
