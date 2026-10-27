@@ -42,6 +42,9 @@ extension UpdaterService {
                 self.controller?.dropQuitInstall()
                 return false
             }
+            // A click took the install over (before the wait began, or as it ended): Sparkle
+            // installs and relaunches it now, so the helper must not quit the app as well.
+            guard self.controller?.waitsToQuitForInstall ?? true else { return false }
             guard self.staysBehindNow else { return false }
             self.updaterWillRelaunchApplication()
             return true

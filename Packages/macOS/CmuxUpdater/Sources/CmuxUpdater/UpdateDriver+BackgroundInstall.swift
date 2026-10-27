@@ -78,7 +78,7 @@ extension UpdateDriver {
         guard case .installing(let installing) = model.state else { return nil }
         if installing.relaunchBlockers != nil { return heldRelaunchItem }
         guard installing.isAutoUpdate else { return nil }
-        return quitInstallItem
+        return quitInstall?.item ?? quitInstallItem
     }
 
     /// Whether `state` ends a click's request to install when ready: nothing
@@ -114,7 +114,13 @@ extension UpdateDriver {
             quitInstall = (item, install, cancel)
             if actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
                 log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
-                setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+                // The quit may wait (the host's moment hold): the update shows as staged, and a
+                // click installs it at once instead of waiting with it.
+                setState(.installing(.init(
+                    isAutoUpdate: true,
+                    retryTerminatingApplication: { [weak self] in _ = self?.installQuitInstallNow() },
+                    dismiss: {}
+                )))
                 return true
             }
             quitInstall = nil
@@ -142,6 +148,20 @@ extension UpdateDriver {
             retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
             dismiss: {}
         )))
+        return true
+    }
+
+    /// A click (Install or Relaunch) while the app waits to quit for an automatic install: the click
+    /// owns it now. The host's wait ends without quitting, and Sparkle installs and relaunches at
+    /// once, activating, as for any click. False when no such install waits.
+    @discardableResult
+    func installQuitInstallNow() -> Bool {
+        guard let pending = quitInstall else { return false }
+        log.append("background install: clicked while the app waited to quit for the install; installing now")
+        endAutomaticInstallHold()
+        relaunchIsAutomatic = false
+        setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+        pending.install()
         return true
     }
 

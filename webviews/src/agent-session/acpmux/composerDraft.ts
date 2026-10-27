@@ -32,12 +32,31 @@ let draftWriteSequence = 0;
 let flushingDraftWrites = false;
 // The drain running now (while `flushingDraftWrites`), so a quit can wait for it (settlePendingDraftWrites).
 let draftDrain: Promise<void> | undefined;
-// The newest text handed to acpmux's queue, by session: a quit compares the editor's value with it.
+// The newest text handed to acpmux's queue and not yet saved, by session: a quit compares the
+// editor's value with it. An entry goes once acpmux holds that text or its composer leaves the
+// session (forgetQueuedDraft), so the map holds only drafts still on their way.
 const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
-// a reload before a clear lands would bring the old draft back from acpmux.
-holdWebSwap(() => (pendingDraftWrites.size || flushingDraftWrites ? "composer.draft-unsaved" : null));
+// a reload before a clear lands would bring the old draft back from acpmux. A write that failed or
+// timed out stays queued, and each ask retries it, so the hold ends once acpmux answers again.
+holdWebSwap(() => {
+  if (!pendingDraftWrites.size && !flushingDraftWrites) return null;
+  if (!flushingDraftWrites) flushPendingDraftWrites();
+  return "composer.draft-unsaved";
+});
+
+/** How long one draft write may go unanswered before it counts as failed (tests shorten it). */
+export const draftWriteLimits = { timeoutMs: 5_000 };
+
+/** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
+function answeredInTime(write: Promise<unknown>): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("chat.writeDraft timed out")), draftWriteLimits.timeoutMs);
+  });
+  return Promise.race([write, late]).finally(() => clearTimeout(timer));
+}
 
 function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftAction | undefined {
   const page = (
@@ -98,10 +117,15 @@ async function flushDraftWrites(): Promise<void> {
       const [sessionId, write] = next;
       pendingDraftWrites.delete(sessionId);
       try {
-        await action({ sessionId: write.sessionId, text: write.text });
+        // A write that never answers would keep this drain, and the web-swap hold, forever.
+        await answeredInTime(action({ sessionId: write.sessionId, text: write.text }));
+        // acpmux holds it: a quit has nothing to compare with until the next keystroke.
+        if (!pendingDraftWrites.has(sessionId) && lastQueuedDraft.get(sessionId) === write.text) {
+          lastQueuedDraft.delete(sessionId);
+        }
       } catch {
-        // A disconnect can invalidate the action while it is in flight. Keep the newest value
-        // for the next connection, while preserving a later keystroke already in the queue.
+        // A disconnect can invalidate the action while it is in flight, or it never answers. Keep
+        // the newest value for the next try, while preserving a later keystroke already in the queue.
         const current = pendingDraftWrites.get(sessionId);
         if (!current || current.sequence === write.sequence) pendingDraftWrites.set(sessionId, write);
         break;
@@ -135,9 +159,14 @@ export function settlePendingDraftWrites(): Promise<void> {
   return pendingDraftWrites.size || flushingDraftWrites ? drainDraftWrites() : Promise.resolve();
 }
 
-/** The newest text queued for `sessionId`'s acpmux draft, or undefined when none was this page's. */
+/** The newest text queued for `sessionId`'s acpmux draft and not yet saved, or undefined when none is. */
 export function lastQueuedDraftText(sessionId: string): string | undefined {
   return lastQueuedDraft.get(sessionId);
+}
+
+/** A composer left `sessionId` (another chat, or the pane closed): its queued text is not compared again. */
+export function forgetQueuedDraft(sessionId: string | undefined): void {
+  if (sessionId) lastQueuedDraft.delete(sessionId);
 }
 
 /** Returns whether a queued write already owns the session's newest value. */

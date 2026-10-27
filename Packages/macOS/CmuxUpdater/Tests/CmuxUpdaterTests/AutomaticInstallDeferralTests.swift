@@ -23,6 +23,19 @@ private final class DeferringHost: UpdateActionDelegate {
     func updaterEndsAutomaticInstallHold() { ended += 1 }
 }
 
+/// Host double that quits the app for an automatic install and reopens itself (#25904's self-quit),
+/// still waiting for the moment to clear when a click comes.
+@MainActor
+private final class QuittingHost: UpdateActionDelegate {
+    var ended = 0
+
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterWillRelaunchApplication() {}
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { .empty }
+    func updaterQuitsForAutomaticInstall(build: String) -> Bool { true }
+    func updaterEndsAutomaticInstallHold() { ended += 1 }
+}
+
 /// Host double with the protocol's default: it never holds an automatic install (classic).
 @MainActor
 private final class PlainHost: UpdateActionDelegate {
@@ -188,6 +201,47 @@ private final class PlainHost: UpdateActionDelegate {
         let asked = host.asked
         #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
         #expect(host.asked == asked)
+    }
+
+    @Test func aClickWhileTheAppWaitsToQuitForTheInstallInstallsAtOnce() {
+        let host = QuittingHost()
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        driver.backgroundItem = Self.item
+        let reply = ChoiceBox()
+        stage(driver, into: reply)
+
+        // The app quits for the install and its quit waits: Sparkle's reply stays held, and the
+        // update shows as staged, so the click has something to install.
+        #expect(reply.choice == nil)
+        #expect(driver.stagedItem?.versionString == "0.64.17")
+        guard case .installing(let installing) = model.state, installing.isAutoUpdate else {
+            Issue.record("expected the staged state, got \(model.state)")
+            return
+        }
+
+        installing.retryTerminatingApplication()
+        #expect(reply.choice == .install, "the click installs now, not an empty retry")
+        #expect(!driver.relaunchIsAutomatic)
+        #expect(host.ended == 1, "the host's wait ends without quitting")
+        #expect(driver.quitInstall == nil)
+
+        reply.choice = nil
+        #expect(!driver.installQuitInstallNow(), "a second click finds nothing to install")
+        #expect(reply.choice == nil)
+    }
+
+    private static var item: SUAppcastItem {
+        SUAppcastItem(dictionary: [
+            "title": "cmux 0.64.17",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": "0.64.17",
+                "sparkle:shortVersionString": "0.64.17",
+            ],
+        ])!
     }
 
     @Test func aHeldRelaunchStillNamesTheStagedUpdate() {

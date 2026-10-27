@@ -3,16 +3,21 @@
 // keystroke is never a write still on its way when the app goes.
 import { afterEach, expect, test } from "bun:test";
 import {
+  draftWriteLimits,
+  forgetQueuedDraft,
+  hasPendingDraftWrite,
   lastQueuedDraftText,
   settleDraftWithin,
   settlePendingDraftWrites,
   writePersistedDraft,
 } from "../src/agent-session/acpmux/composerDraft";
+import { webSwapHold } from "../src/pages/shared/webSwap";
 
 type Write = { sessionId: string; text: string };
 const scope = globalThis as Record<string, unknown>;
 const hadWindow = "window" in scope;
 const savedWindow = scope.window;
+const writeTimeoutMs = draftWriteLimits.timeoutMs;
 
 let currentWriter: { release: () => void } | undefined;
 
@@ -49,6 +54,7 @@ afterEach(async () => {
     await tick();
   }
   await settlePendingDraftWrites();
+  draftWriteLimits.timeoutMs = writeTimeoutMs;
   currentWriter = undefined;
   if (hadWindow) scope.window = savedWindow;
   else delete scope.window;
@@ -147,4 +153,44 @@ test("a new chat's settle sends the waiting text and waits for the host's answer
   answer?.();
   await settle;
   throttle.dispose();
+});
+
+// The composer's hold is the first one asked, so its reason comes back before the page is read.
+const composerHold = () => webSwapHold({} as Document);
+
+test("a draft write that never answers fails after its timeout, and the web-swap ask retries it", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  const writer = installWriter();
+  writePersistedDraft("timeout-a", "stuck");
+  // Without the timeout this drain, and with it the web-update hold, would never end.
+  await settlePendingDraftWrites();
+  expect(hasPendingDraftWrite("timeout-a")).toBe(true);
+  expect(composerHold()).toBe("composer.draft-unsaved");
+  writer.release(); // acpmux answers again: the hung write and the ask's retry both land
+  await settlePendingDraftWrites();
+  expect(hasPendingDraftWrite("timeout-a")).toBe(false);
+  expect(writer.landed.map((write) => write.text)).toEqual(["stuck", "stuck"]);
+});
+
+test("a saved draft leaves the quit's comparison; a newer text stays until it lands too", async () => {
+  const writer = installWriter();
+  writePersistedDraft("saved-a", "one");
+  await tick();
+  writePersistedDraft("saved-a", "two");
+  writer.release(); // "one" lands while "two" waits
+  await tick();
+  expect(lastQueuedDraftText("saved-a")).toBe("two");
+  writer.release();
+  await settlePendingDraftWrites();
+  expect(lastQueuedDraftText("saved-a")).toBeUndefined();
+});
+
+test("a composer leaving its chat forgets the queued text, and the write still goes", async () => {
+  const writer = installWriter();
+  writePersistedDraft("closed-a", "typed");
+  forgetQueuedDraft("closed-a");
+  expect(lastQueuedDraftText("closed-a")).toBeUndefined();
+  writer.release();
+  await settlePendingDraftWrites();
+  expect(writer.landed.map((write) => write.text)).toEqual(["typed"]);
 });
