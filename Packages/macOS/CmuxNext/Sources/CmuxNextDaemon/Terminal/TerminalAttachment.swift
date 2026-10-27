@@ -5,7 +5,9 @@ import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
-/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Output
+/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Streams
+/// are the default (feature `terminalStreams`, p05-ipc-094); for one release `CMUX_DISABLE_FEATURES=terminalStreams`
+/// keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Output
 /// flows through a bounded `TerminalEventQueue`; after the attach every command here is fire-and-forget, so a
 /// consumer that stops draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
