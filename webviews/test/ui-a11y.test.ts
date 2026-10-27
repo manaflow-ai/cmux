@@ -433,6 +433,8 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["edit.button"]);
           await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["mode.rich"]);
+          await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["mode.source"]);
           await page.keyboard.press("Enter");
           expect(await result(page)).toBe("mode: source");
