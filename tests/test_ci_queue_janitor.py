@@ -1467,6 +1467,27 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         self.assertFalse(any(self.listed(fake, run) for run in runs))
 
 
+class RestLineTests(unittest.TestCase):
+    """The summary says what a sweep spent, by endpoint, so a change in REST use shows in its log."""
+
+    def test_requests_are_counted_by_kind_and_printed_most_first(self):
+        self.assertEqual(janitor.request_kind("GET", "/repos/o/r/actions/runs/12/jobs?page=1", "o/r"),
+                         "GET /actions/runs/{id}/jobs")
+        self.assertEqual(janitor.request_kind("POST", "/graphql", "o/r"), "POST /graphql")
+        self.assertEqual(janitor.rest_line({"GET /a": 1, "GET /b": 3}), "REST by kind: GET /b 3, GET /a 1")
+        self.assertEqual(janitor.rest_line({}), "REST by kind: none")
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+
+        class Response(io.BytesIO):
+            headers = email.message.Message()
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", lambda request, timeout=30: Response(b"{}")):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs?page=1")
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/2/jobs?page=1")
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs?status=queued")
+        self.assertEqual(github.kinds, {"GET /actions/runs/{id}/jobs": 2, "GET /actions/runs": 1})
+
+
 class OwnedMarkerListingSweepTests(unittest.TestCase):
     def test_only_runs_that_can_hold_a_marker_have_their_artifacts_listed(self):
         waiting = make_run(status="queued", branch="waiting")

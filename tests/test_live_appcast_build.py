@@ -83,6 +83,9 @@ def run_guard(script: str, helper_rc: int, helper_out: str, env: dict) -> subpro
             "import sys\n"
             f"if sys.argv[1].startswith('https://'):\n    print({helper_out!r}) if {helper_rc} == 0 else None\n    sys.exit({helper_rc})\n"
             "print(open(sys.argv[1]).read().strip())\n", encoding="utf-8")
+        # The lease's pre-write check: exits LEASE_CHECK_RC (0 unless set).
+        (work / "scripts" / "ci" / "classic_publish_lease.py").write_text(
+            "import os, sys\nsys.exit(int(os.environ.get('LEASE_CHECK_RC', '0')))\n", encoding="utf-8")
         # The release writer: records that it ran, and with what.
         (work / "scripts" / "ci" / "publish-release-assets.py").write_text(
             "import sys\nprint('PUBLISHED', *sys.argv[1:])\n", encoding="utf-8")
@@ -113,6 +116,9 @@ def test_the_delta_republish_fails_closed_on_an_unread_feed() -> None:
     for rc, out in ((0, "101"), (1, ""), (3, "")):
         skipped = run_guard(script, rc, out, {"OWN": "100"})
         assert skipped.returncode == 0 and "publish=false" in skipped.stdout and "--replace-feeds" not in skipped.stdout, (rc, skipped)
+    # The job lost the lease: it fails before any read or write.
+    lost = run_guard(script, 0, "100", {"OWN": "100", "LEASE_CHECK_RC": "1"})
+    assert lost.returncode != 0 and lost.stdout.endswith("GH:") and "PUBLISHED" not in lost.stdout, lost
 
 
 def test_the_publish_guard_refuses_an_older_build_and_an_unread_feed() -> None:

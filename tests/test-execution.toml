@@ -697,6 +697,10 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_github_hosted_macos.py"
 lane = "linux-guard"
 
@@ -2071,6 +2075,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_live_appcast_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_publish_lease.py"
 lane = "linux-guard"
 
 [[test]]

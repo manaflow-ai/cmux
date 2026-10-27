@@ -67,8 +67,12 @@ class FakeAPI:
 
     def __init__(self, clock, jobs, *, marker=False, head=HEAD, state="open", settles_after=10,
                  attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None, conclusion=None,
-                 workflow=None):
+                 workflow=None, snapshot=None):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
+        # The janitor's pool snapshot (pool_snapshot()), as a function of elapsed seconds; by default every
+        # Blacksmith label is free, so a queue rescue moves at its configured budget.
+        self.snapshot = snapshot or (lambda seconds: {"generated_at": stamp(seconds), "pools": {}})
+        self.snapshot_reads = 0
         # The workflow file at the run's head (workflow_file()); None reads as missing.
         self.workflow = workflow
         # Jobs of attempt 2 onwards, as a function of seconds since that attempt began.
@@ -109,6 +113,10 @@ class FakeAPI:
         self.calls.append(f"workflow:{path}@{ref}")
         return self.workflow
 
+    def pool_snapshot(self, now):
+        self.snapshot_reads += 1
+        return self.snapshot(self.clock.seconds)
+
     def has_artifact(self, run_id, name):
         self.calls.append(f"artifact:{name}")
         return self.marker(name) if callable(self.marker) else self.marker
@@ -126,6 +134,7 @@ class FakeAPI:
             before_send()  # as GitHub.request() does, right before the request goes out
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
+        self.first_cancel = getattr(self, "first_cancel", None) or self.clock.seconds
 
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
@@ -1301,6 +1310,267 @@ def side_run(*, queued_at=0, started_at=None, gate_done_at=None):
         found += [owned, job("system-keychain", labels=[BLACKSMITH], status="in_progress", runner="bs")]
         return found
     return jobs
+
+
+DEV_DAILY = ".github/workflows/cmux-next-dev-daily.yml"
+DEV_WORKFLOW = (ROOT / DEV_DAILY).read_text()
+
+
+def dev_event(**overrides):
+    return e2e_event(**{"path": DEV_DAILY, **overrides})
+
+
+def blacksmith_snapshot(*, queued=0, running=0, oldest=0, label=BLACKSMITH):
+    """A janitor snapshot with one Blacksmith label's load (simple_pool_picker reads the same fields)."""
+    return lambda seconds: {"generated_at": stamp(seconds), "pools": {
+        label: {"queued": queued, "running": running, "oldest_queued_minutes": oldest}}}
+
+
+def dev_jobs(seconds):
+    """Run 40466780519: verify and tip-dmg-build queued on the light owned pool, never taken."""
+    found = [e2e_runner()(seconds)]
+    if seconds >= 40:
+        found += [job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40),
+                  job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40)]
+    return found
+
+
+class BlacksmithStall(unittest.TestCase):
+    """A queue rescue never moves a job onto a Blacksmith label the pickers call stalled (run 40466780519)."""
+
+    def test_the_dev_daily_retry_label_comes_from_its_workflow(self):
+        self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH})
+        every = set(rescue.simple_pool_picker.BLACKSMITH)
+        # A workflow that names no picker label, calls a reusable workflow or cannot be read may go anywhere.
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"), every)
+        self.assertEqual(rescue.retry_labels(None), every)
+        # A reusable workflow's input names the label; a call that names none may go anywhere.
+        self.assertEqual(rescue.retry_labels(
+            "jobs:\n  a:\n    uses: ./.github/workflows/x.yml\n    with:\n      r: blacksmith-6vcpu-macos-15\n"),
+            {"blacksmith-6vcpu-macos-15"})
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    uses: ./.github/workflows/resolve-dispatch-ref.yml\n"),
+                         every)
+        # A matrix entry or a reusable workflow's input counts, not only runs-on lines.
+        self.assertIn("blacksmith-6vcpu-macos-15", rescue.retry_labels(
+            "jobs:\n  a:\n    strategy:\n      matrix:\n        pool: [blacksmith-6vcpu-macos-15]\n"
+            "    runs-on: ${{ matrix.pool }}\n"))
+        self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()),
+                         {"blacksmith-6vcpu-macos-15"})
+        # A retry route a picker job computes may be any picker label, whatever else the file names.
+        for name in ("ci.yml", "test-e2e.yml", "test-ios.yml", "ios-screenshots.yml"):
+            self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows" / name).read_text()), every, name)
+
+    def test_only_the_labels_a_workflow_names_decide(self):
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        stalled_12 = blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-12vcpu-macos-26")
+        api = FakeAPI(Clock(), dev_jobs, workflow="runs-on: blacksmith-6vcpu-macos-15\n", snapshot=stalled_12)
+        self.assertEqual(rescue.move_verdict(api, target, now=START, sleep=lambda _: None, log=lambda _: None),
+                         ("free", ""))
+        # With two named, the worse decides.
+        api = FakeAPI(Clock(), dev_jobs, workflow="a: blacksmith-6vcpu-macos-15\nb: blacksmith-12vcpu-macos-26\n",
+                      snapshot=stalled_12)
+        self.assertEqual(rescue.move_verdict(api, target, now=START, sleep=lambda _: None, log=lambda _: None),
+                         ("stalled", "blacksmith-12vcpu-macos-26"))
+
+    def test_states_use_the_pickers_stall_rule(self):
+        now = START
+        snapshot = {"generated_at": stamp(0), "pools": {
+            BLACKSMITH: {"queued": 3, "running": 10, "oldest_queued_minutes": 10},
+            "blacksmith-12vcpu-macos-26": {"queued": 1, "running": 5, "oldest_queued_minutes": 2},
+        }}
+        self.assertEqual(rescue.blacksmith_states(snapshot, now), {
+            BLACKSMITH: "stalled", "blacksmith-12vcpu-macos-26": "busy", "blacksmith-6vcpu-macos-15": "free"})
+        # The snapshot's age counts toward the wait, as in the pickers.
+        later = START + dt.timedelta(minutes=8)
+        snapshot["pools"]["blacksmith-12vcpu-macos-26"]["oldest_queued_minutes"] = 3
+        self.assertEqual(rescue.blacksmith_states(snapshot, later)["blacksmith-12vcpu-macos-26"], "stalled")
+
+    def test_a_dev_daily_run_stays_on_the_owned_pool_while_its_retry_label_is_stalled(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"kept on the owned pool: {BLACKSMITH} is stalled", summary)
+        self.assertIn("watch limit reached", summary)
+        # One look at the snapshot every STALL_RECHECK_SECONDS or so, not every poll.
+        self.assertLessEqual(api.snapshot_reads,
+                             rescue.E2E_WATCH_LIMIT_SECONDS // rescue.STALL_RECHECK_SECONDS + 1)
+
+    def test_a_held_run_moves_once_its_retry_label_has_room(self):
+        clock = Clock()
+        moving = 30 * 60
+        stalled = blacksmith_snapshot(queued=40, running=0, oldest=30)
+        free = blacksmith_snapshot()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=lambda seconds: (stalled if seconds < moving else free)(seconds))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertGreaterEqual(api.first_cancel, moving)
+        self.assertIn("held on the owned pool", summary)
+
+    def test_a_busy_retry_label_takes_the_job_only_after_the_owned_floor(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=2, running=10, oldest=1))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        # The jobs were first seen queued at the first look (45 s).
+        self.assertGreaterEqual(api.first_cancel, rescue.FIRST_LOOK_SECONDS + rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertIn("which has no free slot", summary)
+
+    def test_a_free_retry_label_takes_the_job_at_the_configured_budget(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW)
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertNotIn("held on the owned pool", summary)
+
+    def test_an_unreadable_snapshot_waits_the_owned_floor(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW, snapshot=lambda seconds: None)
+        run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertGreaterEqual(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_stall_on_another_label_does_not_hold_the_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-12vcpu-macos-26"))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertIn(f"workflow:{DEV_DAILY}@{HEAD}", api.calls)
+
+    def test_a_ci_attempt_1_picks_again_so_it_reads_no_snapshot(self):
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, main=True)
+        self.assertTrue(rescue.repicks(target))
+        self.assertFalse(rescue.repicks(dataclasses.replace(target, attempt=2)))
+        self.assertFalse(rescue.repicks(rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)))
+
+    def test_a_late_job_moves_onto_a_busy_label_only_after_the_full_floor(self):
+        # job_budget() cuts a budget near the deadline; the floor keeps the 10 minutes.
+        late = rescue.E2E_WATCH_LIMIT_SECONDS - 200
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= late:
+                found.append(job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=late))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=2, running=10, oldest=1))
+        run_main(api, clock, payload=dev_event())
+        first = getattr(api, "first_cancel", None)
+        self.assertTrue(first is None or first - late >= rescue.OWNED_WAIT_FLOOR_SECONDS, first)
+
+    def test_a_refusal_beside_a_queued_sibling_is_not_held(self):
+        def jobs(seconds):
+            found = dev_jobs(seconds)[:2]  # runner, and verify queued on the owned pool
+            if seconds >= 40:
+                found.append({**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40),
+                              "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                              "started_at": stamp(41), "completed_at": stamp(45),
+                              "steps": [{"name": "Set up job", "conclusion": "failure"}]})
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_refusal_found_after_the_run_finished_during_a_hold_is_rerun(self):
+        # verify and tip-dmg-build stay queued while Blacksmith stalls; then verify runs and passes and
+        # tip-dmg-build is refused, and the run finishes, all between two looks of the hold.
+        ran_at = 10 * 60
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds < 40:
+                return found
+            verify = job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40)
+            dmg = job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40)
+            if seconds >= ran_at:
+                verify = {**verify, "status": "completed", "conclusion": "success", "runner_name": "mini",
+                          "started_at": stamp(ran_at - 400), "completed_at": stamp(ran_at),
+                          "steps": [{"name": "Set up job", "conclusion": "success"},
+                                    {"name": "Verify", "conclusion": "success"}]}
+                dmg = {**dmg, "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                       "started_at": stamp(ran_at - 5), "completed_at": stamp(ran_at),
+                       "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+            return found + [verify, dmg]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW, conclusion="failure",
+                      finished=lambda seconds: seconds >= ran_at,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        _, summary = run_main(api, clock, payload=dev_event())
+        self.assertIn("held on the owned pool", summary)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_the_hold_hands_a_finished_refused_run_to_the_refusal_path(self):
+        clock = Clock()
+        refused_job = {**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT]), "status": "completed",
+                       "conclusion": "failure", "runner_name": "mini", "started_at": stamp(1),
+                       "completed_at": stamp(5), "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+        # Still in progress at the hold's look (a sibling runs on); it may finish before rescue() reads it.
+        api = FakeAPI(clock, lambda seconds: [refused_job], finished=lambda seconds: False,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30), workflow=DEV_WORKFLOW)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        outcome, _, _ = rescue.hold_for_destination(
+            api, target, "rescue", "stuck", budget_seconds=90, floor_seconds=90,
+            deadline=START + dt.timedelta(hours=1), now=clock.now, sleep=clock.sleep, log=lambda _: None, seen={})
+        self.assertEqual(outcome, "refused")
+
+    def test_a_refusal_on_the_last_look_of_a_hold_is_rerun(self):
+        clock = Clock()
+        refused_job = {**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT]), "status": "completed",
+                       "conclusion": "failure", "runner_name": "mini", "started_at": stamp(1),
+                       "completed_at": stamp(5), "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+        api = FakeAPI(clock, lambda seconds: [refused_job],
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30), workflow=DEV_WORKFLOW)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        outcome, _, _ = rescue.hold_for_destination(
+            api, target, "rescue", "stuck", budget_seconds=90, floor_seconds=90,
+            deadline=START, now=clock.now, sleep=clock.sleep, log=lambda _: None, seen={})
+        self.assertEqual(outcome, "refused")
+
+    def test_a_superseded_main_attempt_is_still_cancelled_while_blacksmith_stalls(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[LIGHT])],
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        api.attempt = 2
+        target = rescue.Target(run_id=RUN_ID, attempt=2, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertEqual(result, "done")
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_refusal_is_still_rerun_while_the_retry_label_is_stalled(self):
+        # A refused job has already failed: holding it moves nothing, and its re-run is the only way it runs.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append({**job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40),
+                              "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                              "started_at": stamp(41), "completed_at": stamp(45),
+                              "steps": [{"name": "Set up job", "conclusion": "failure"}]})
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW, finished=lambda seconds: seconds >= 45,
+                      conclusion="failure", snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        run_main(api, clock, payload=dev_event())
+        self.assertTrue({"rerun", "rerun-failed"} & set(api.calls))
 
 
 class SideLanes(unittest.TestCase):
@@ -2493,6 +2763,24 @@ class SweepAPI:
         return self.runs[run_id]
 
 
+class CodeSweepAPI(SweepAPI):
+    """A SweepAPI whose main changes the rescue script after `changes_after` code checks."""
+
+    def __init__(self, *args, changes_after=None, fails=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.checks, self.changes_after, self.fails, self.dispatched = 0, changes_after, fails, 0
+
+    def code_shas(self, names):
+        self.checks += 1
+        if self.fails:
+            raise urllib.error.URLError("down")
+        changed = self.changes_after is not None and self.checks > self.changes_after
+        return {name: ("new" if changed and name == "owned_pool_rescue.py" else "old") for name in names}
+
+    def dispatch_sweeper(self):
+        self.dispatched += 1
+
+
 def listed(run_id, **overrides):
     run = dict(event(id=run_id)["workflow_run"])
     run.update(overrides)
@@ -2513,6 +2801,65 @@ class Sweeper(unittest.TestCase):
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
+
+    def code_sweep(self, api, *, ticks=30, follow=None):
+        clock, watched = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            watched.append(target.run_id)
+            return follow(kwargs) if follow else "stopped: the run finished"
+        running = {name: "old" for name in rescue.CODE_FILES}
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                                    log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60,
+                                    wait=clock.sleep, running_code=running)
+        return clock, watched, outcomes
+
+    def test_hands_over_once_main_s_code_changes(self):
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=1)
+        clock, watched, outcomes = self.code_sweep(api)
+        # Checked at the first tick and every CODE_CHECK_TICKS after; the second check sees the change.
+        self.assertEqual(api.checks, 2)
+        self.assertLess(clock.seconds, (rescue.CODE_CHECK_TICKS + 1) * 60)
+        self.assertEqual(outcomes.get("code changed"), 1)
+        self.assertEqual(api.dispatched, 1)
+        self.assertEqual(watched, [1])
+
+    def test_unchanged_or_unreadable_code_keeps_sweeping(self):
+        for api in (CodeSweepAPI([], changes_after=None), CodeSweepAPI([], fails=True)):
+            clock, _, outcomes = self.code_sweep(api, ticks=12)
+            self.assertNotIn("code changed", outcomes)
+            self.assertEqual(api.dispatched, 0)
+            self.assertGreaterEqual(clock.seconds, 12 * 60)
+            self.assertEqual(api.checks, 3)  # ticks 0, 5 and 10
+
+    def test_a_rescue_under_way_finishes_through_a_code_handover(self):
+        # The watch sleeps through `sleep` (raises Stopping at handover); a rescue paces itself with
+        # `rescue_sleep`, which never raises, so a cancel it started is followed by its re-run.
+        finished = []
+
+        def follow(kwargs):
+            for _ in range(3):
+                kwargs["rescue_sleep"](60)  # rescue under way: not interrupted by the handover
+            finished.append(True)
+            return "done"
+        # A change seen at the very first check adopts nothing.
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=0)
+        _, watched, _ = self.code_sweep(api, follow=follow)
+        self.assertEqual((watched, api.dispatched), ([], 1))
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=1)
+        _, watched, outcomes = self.code_sweep(api, follow=follow)
+        self.assertEqual(watched, [1])
+        self.assertEqual(finished, [True])
+        self.assertEqual(outcomes.get("done"), 1)
+
+    def test_running_code_shas_match_git(self):
+        import subprocess
+        shas = rescue.running_code_shas()
+        for name in rescue.CODE_FILES:
+            expected = subprocess.run(["git", "hash-object", str(ROOT / "scripts/ci" / name)], capture_output=True,
+                                      text=True, check=True).stdout.strip()
+            self.assertEqual(shas[name], expected, name)
 
     def test_watches_each_marked_run_once(self):
         runs = [listed(1),

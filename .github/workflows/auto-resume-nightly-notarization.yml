@@ -1044,10 +1044,16 @@ jobs:
       contents: write
       issues: write
     runs-on: ubuntu-24.04
-    concurrency:
-      group: release-publish-${{ needs.preflight.outputs.release_tag }}
-      cancel-in-progress: false
     env:
+      # One writer at a time, newest first, without a concurrency group (a
+      # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
+      # Publish and republish-deltas of every run share one R2 lease, renewed
+      # by a heartbeat while the holder lives; waiters queue by build.
+      LEASE_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-lease.json
+      CLAIM_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-claim.json
+      LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+      # The newest build waits only for the writer already holding the lease.
+      LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
       # publish-release-assets.py waits through rate limits up to this long (default 600 s).
       CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
@@ -1140,6 +1146,15 @@ jobs:
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir nightly-out
+
+      - name: Take the channel publication lease
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py acquire --build "$NIGHTLY_BUILD"
 
       - name: Reject stale continuation before publication
         run: |
@@ -1242,8 +1257,15 @@ jobs:
 
       - name: Publish accepted assets and feeds
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           python3 scripts/prune_nightly_release_assets.py \
             --repo "$GITHUB_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
@@ -1295,8 +1317,15 @@ jobs:
 
       - name: Publish notes-enriched feeds
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
@@ -1313,8 +1342,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
             python3 scripts/ci/upload-r2-object.py --file "nightly-out/$feed" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "${RELEASE_TAG}/$feed" --content-type application/xml --cache-control 'no-cache, no-store, must-revalidate'
           done
@@ -1336,21 +1367,44 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           GITHUB_TOKEN: ''
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           args=(--repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$SOURCE_HEAD_SHA")
           [ "$RELEASE_TAG" = nightly ] || args+=(--allow-non-descendant)
           python3 scripts/ci/update-release-tag.py "${args[@]}"
 
       - name: Record release metadata
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           gh release edit "$RELEASE_TAG" \
             --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
             --notes-file nightly-notes.published.md \
             --draft=false \
             --prerelease
+
+      - name: Release the channel publication lease
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py release || true
 
       - name: Record publication result
         id: publication-result
@@ -1490,15 +1544,22 @@ jobs:
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
       needs.publish.outputs.published == 'true' && needs.generate-deltas.result == 'success'
-    concurrency:
-      group: release-publish-${{ needs.preflight.outputs.release_tag }}
-      cancel-in-progress: false
+    # No concurrency group: the publish job's lease (LEASE_KEY) serializes it.
     permissions:
       actions: read
       contents: write
     runs-on: ubuntu-24.04
     environment: release
     env:
+      # One writer at a time, newest first, without a concurrency group (a
+      # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
+      # Publish and republish-deltas of every run share one R2 lease, renewed
+      # by a heartbeat while the holder lives; waiters queue by build.
+      LEASE_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-lease.json
+      CLAIM_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-claim.json
+      LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+      # The newest build waits only for the writer already holding the lease.
+      LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
       CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -1526,10 +1587,36 @@ jobs:
           path: nightly-deltas
           merge-multiple: true
 
-      - name: Republish deltas only for the current channel head
-        id: republish
+      # The delta feeds name their own build. Without them nothing is
+      # republished, so no lease is taken.
+      - name: Take the channel publication lease
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          if [ ! -f nightly-deltas/appcast-arm64.xml ]; then
+            echo 'DELTAS_SKIP=true' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          python3 scripts/ci/classic_publish_lease.py acquire \
+            --build "$(python3 scripts/ci/live_appcast_build.py nightly-deltas/appcast-arm64.xml)"
+
+      - name: Republish deltas only for the current channel head
+        id: republish
+        if: env.DELTAS_SKIP != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
           if [ "$current_sha" != "$SOURCE_HEAD_SHA" ]; then
             echo "Skipping stale delta result: $RELEASE_TAG is at $current_sha"
@@ -1573,8 +1660,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           for feed in nightly-deltas/appcast*.xml; do
             [ -f "$feed" ] || continue
             name="$(basename "$feed")"
@@ -1586,3 +1675,13 @@ jobs:
               --content-type application/xml \
               --cache-control 'no-cache, no-store, must-revalidate'
           done
+
+      - name: Release the channel publication lease
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py release || true
