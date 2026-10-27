@@ -46,7 +46,7 @@ final class ScreenBarController {
         let node = node ?? content.visibilityNode
             ?? VisibilityNode(root: "screen-bar", own: .visible, workCounts: content.services.visibilityWorkCounts)
         // The strip's node is under it: a hidden bar or workspace defers the strip's syncs to its show.
-        view = TabStripView(model: model, input: content.services.inputTap, node: node)
+        view = TabStripView(model: model, input: content.services.inputTap, deadlines: content.services.mainDeadlines, visibilityNode: node)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.scrollFrameInput = content.services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
         preview = ScreenPreviewSource(content: content)

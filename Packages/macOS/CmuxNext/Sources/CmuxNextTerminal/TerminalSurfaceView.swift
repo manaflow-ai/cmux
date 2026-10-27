@@ -121,6 +121,9 @@ public final class TerminalSurfaceView: NSView {
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
     var appliedDisplayID: UInt32? { appliedBacking.appliedDisplayID }
     var cursor: NSCursor = .iBeam
+    /// The terminal cursor on the render server (feature `terminalCursorLayer`, ``TerminalCursorLayer``); nil:
+    /// Ghostty draws and blinks it (the feature off, or a GhosttyNextKit without `GHOSTTY_EXTERNAL_CURSOR`).
+    let cursorLayer: TerminalCursorLayer?
 
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
     var markedText = NSMutableAttributedString()
@@ -172,9 +175,12 @@ public final class TerminalSurfaceView: NSView {
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil) {
+         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil,
+         externalCursor: Bool = false) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
+        let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
+                                   cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -183,6 +189,7 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        self.cursorLayer = cursorLayer
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
@@ -254,6 +261,16 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         // SAFETY: as above.
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
+        #if GHOSTTY_EXTERNAL_CURSOR
+        if cursorLayer != nil {
+            // Ghostty neither draws nor blinks the cursor; it presents each cursor cell with its frame on the cursor layer.
+            config.cursor_external = true
+            // SAFETY: the callback has ghostty_surface_cursor_cb's signature; `userdata` as above.
+            unsafe config.cursor_cb = ghosttySurfaceCursor
+            // SAFETY: as above.
+            unsafe config.cursor_userdata = userdata
+        }
+        #endif
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -277,6 +294,7 @@ public final class TerminalSurfaceView: NSView {
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
+            cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
             TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
@@ -305,10 +323,23 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        cursorLayer?.place(in: window)
         let before = windowNode.effective
         syncPlacement()
         // A move between windows flips nothing: observe the new window (the old one's observers went above).
         if windowNode.effective == before { syncWindowState() }
+    }
+
+    /// The view's own overlays (copy mode's box and badge, predictive echo) stay over the cursor layer, as they
+    /// were over the cursor Ghostty drew.
+    public override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if cursorLayer != nil { subview.layer?.zPosition = TerminalCursorLayer.subviewZPosition }
+    }
+
+    /// Ghostty presented cursor cells (``ghosttySurfaceCursor(_:_:)``): the blink follows the newest.
+    func cursorCellsDidChange() {
+        cursorLayer?.cellsDidChange()
     }
 
     /// The terminal in the visibility tree (recipe R-hide, TerminalSurfaceView+Visibility.swift): under its
@@ -389,6 +420,7 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { updateSurfaceSize() }
+        cursorLayer?.layout(size: newSize)
         copyMode.syncCursor()
     }
 

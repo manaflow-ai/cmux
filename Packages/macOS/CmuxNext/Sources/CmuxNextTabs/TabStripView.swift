@@ -25,8 +25,17 @@ public final class TabStripView: NSView {
 
     public let model: TabStripModel
     let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
-    /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`): two strips never merge theirs.
-    private(set) lazy var hoverMoves = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
+    /// The app's one deadline placer: the strip's holds, the reorder settle and closing mode's exit are deadlines on it,
+    /// and its ``MainDeadlineScheduler/work`` runs the strip's observations.
+    let deadlines: MainDeadlineScheduler
+    /// The strip in the visibility tree (recipe R-hide): under the node it shows under (its pane's or its bar's),
+    /// own-hidden while AppKit hides the strip or an ancestor (`viewDidHide`). A model, appearance or scale change
+    /// that comes while it is not visible waits on it (`deferUntilVisible`) and applies once, at rest, in its show
+    /// turn; the plus's settings observation tracks only while it is visible (``TabStripRevealController``).
+    public let visibilityNode: VisibilityNode
+    /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`) on the window's frame input
+    /// coalescer: two strips never merge theirs.
+    private(set) lazy var frameInputHover = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
     /// A running tab or group drag's moves (`pointerFrameDrags`, `TabStripView+Drag`): once per frame; the lift and the tear-off act on their own event.
     private(set) lazy var dragMoves = PointerFrameDrag(owner: "TabStripView.drag", view: self) { [weak self] point in self?.dragMoved(toWindowPoint: point) }
 
@@ -85,15 +94,11 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
-    /// The strip in the visibility tree (recipe R-hide): under its pane's or workspace's node, own-hidden
-    /// while AppKit hides the strip or an ancestor (`viewDidHide`). A model, appearance or scale change
-    /// that comes while it is not visible waits on it (`deferUntilVisible`) and applies once, at rest,
-    /// in its show turn.
-    public let visibilityNode: VisibilityNode
     /// Runs ``syncShown(_:)`` on each flip of ``visibilityNode``.
     private var visibilityWatch: VisibilitySubscription?
-    /// In a window and its node visible (`syncShown`): the window-wide fan-outs reach the strip.
-    private(set) var isShownInWindow = false
+    /// In a window and its node visible: written only by `syncShown` (TabStripView+Shown), read instead of an
+    /// ancestor walk; the window-wide fan-outs reach the strip.
+    var isShownInWindow = false
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
@@ -177,7 +182,9 @@ public final class TabStripView: NSView {
     var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
-    let reorderSettle = DemandTimer(owner: "TabStrip.reorderSettle")  // ends a reorder the model never shows
+    let reorderSettle: MainDeadline  // ends a reorder the model never shows
+    /// Click-and-hold on a chip opens its editor (`startChipHold`): the person waits on it.
+    private(set) lazy var chipHold = MainDeadline(owner: "TabStrip.chipHold", workClass: .userBlocking, scheduler: deadlines)
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
@@ -197,13 +204,16 @@ public final class TabStripView: NSView {
     // MARK: - Init
 
     /// - Parameters:
-    ///   - input: The app's input tap, for the strip's mode subscriptions.
-    ///   - node: The node of what holds the strip (its pane, or the screen bar's workspace); nil: a root
-    ///     (demos and tests), visible while AppKit shows the strip.
-    public init(model: TabStripModel, background: Background = .none, input: InputEventTap, node: VisibilityNode? = nil) {
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`).
+    ///   - visibilityNode: The node the strip shows under (its pane's, or its bar's workspace's); the strip's own
+    ///     ``visibilityNode`` is its child.
+    public init(model: TabStripModel, background: Background = .none, input: InputEventTap, deadlines: MainDeadlineScheduler,
+                visibilityNode parent: VisibilityNode) {
         self.model = model
         inputTap = input
-        visibilityNode = node.map { VisibilityNode("tabs.strip", parent: $0) } ?? VisibilityNode(root: "tabs.strip", own: .visible)
+        self.deadlines = deadlines
+        visibilityNode = VisibilityNode("tabs.strip", parent: parent)
+        reorderSettle = MainDeadline(owner: "TabStrip.reorderSettle", workClass: .visible, scheduler: deadlines)
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         visibilityWatch = visibilityNode.subscribe(owner: "TabStripView.shown") { [weak self] _ in self?.syncShown() }
         wantsLayer = true
@@ -329,84 +339,6 @@ public final class TabStripView: NSView {
             motionClock = nil
             endPointerState()
         }
-    }
-
-    /// The strip leaves sight (its window, or hidden in it): its editor panel and pointer
-    /// state end, since it gets no exit while hidden. Closing mode belongs to this window's
-    /// pointer; the strip shown again lays out fully.
-    private func endPointerState() {
-        groupEditor.hide()
-        groups.holdTask?.cancel()
-        escapeMonitor.remove()
-        selectionEscape.remove()
-        closingWatch.end()
-        closingModeWidth = nil
-        menuTracking.end()
-        buttonReveal.pointerInStrip = false
-    }
-
-    public override func viewDidHide() {
-        super.viewDidHide()
-        visibilityNode.set(.hidden)
-    }
-
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        visibilityNode.set(.visible)
-    }
-
-    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a strip
-    /// in a window whose node is visible: a parked workspace's, a suspended pane's, a hidden screen bar
-    /// and a covered or minimized window's strip are not in them, and their spinners stop. The node's
-    /// flip to visible re-reads the window's state here, then runs what waited on the node: the model
-    /// changes, without motion (``syncFromModel()``), and the appearance.
-    func syncShown(_ shown: Bool? = nil) {
-        let shown = shown ?? (window != nil && visibilityNode.isVisible)
-        guard shown != isShownInWindow else { return }
-        isShownInWindow = shown
-        hoverCards.unregister(hoverCard)
-        windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
-        windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
-        for cell in cells.values { cell.isStripShown = shown }
-        guard shown else {
-            if window != nil { endPointerState() }
-            return
-        }
-        hoverCards.register(hoverCard)
-        applyMultiSelection()
-    }
-
-    /// R-appear: a strip out of sight re-themes its layers once, when it shows.
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferAppearance(owner: "TabStripView") { [weak self] in self?.applyAppearance() }
-    }
-
-    public override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        visibilityNode.deferUntilVisible(key: Self.backingKey) { [weak self] in
-            self?.applyAppearance()
-            self?.applyFrames()
-        }
-    }
-
-    /// The ``visibilityNode`` keys of the strip's deferred work.
-    static let backingKey = "TabStripView.backing"
-    static let modelSyncKey = "TabStripView.modelSync"
-
-    /// Layers do not inherit theme scope or scale; push both (re-applies colors).
-    func applyAppearance() {
-        let scope = themeScope
-        let scale = window?.backingScaleFactor ?? 2
-        for cell in cells.values {
-            cell.themeScope = scope
-            cell.scale = scale
-        }
-        for chip in groups.chips.values {
-            chip.themeScope = scope
-            chip.scale = scale
-        }
-        for band in groups.bands.values { band.themeScope = scope }
     }
 
     func applyTokens(animated: Bool) {

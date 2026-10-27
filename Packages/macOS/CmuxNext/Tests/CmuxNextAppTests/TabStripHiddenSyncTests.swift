@@ -9,6 +9,12 @@ import Testing
 /// it nothing until it shows, and then it lands at the final state in one sync, with no motion
 /// (CLAUDE.md "Go past Chrome where cmux is scripted").
 @MainActor @Suite(.serialized) struct TabStripHiddenSyncTests {
+    /// A strip under `node` with a deadline placer of its own.
+    private static func strip(_ model: TabStripModel, under node: VisibilityNode) -> TabStripView {
+        TabStripView(model: model, input: InputEventTap(),
+                     deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), visibilityNode: node)
+    }
+
     @Test func aHiddenStripSyncsOnceWhenItShows() async {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
         let strip = TabStripView.testing(model: model)
@@ -38,7 +44,7 @@ import Testing
     @Test func aStripUnderAHiddenNodeSyncsOnceWhenTheNodeShows() async {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
         let pane = VisibilityNode(root: "pane", own: .visible)
-        let strip = TabStripView(model: model, input: InputEventTap(), node: pane)
+        let strip = Self.strip(model, under: pane)
         strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
         let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
@@ -73,7 +79,7 @@ import Testing
         window.contentView = content
         let strips = workspaces.map { workspace in
             let model = TabStripModel(tabs: [TabItem(id: TabID("tab"), title: "Tab")], selectedID: TabID("tab"))
-            let strip = TabStripView(model: model, input: InputEventTap(), node: workspace)
+            let strip = Self.strip(model, under: workspace)
             strip.frame = content.bounds
             content.addSubview(strip)
             return strip
