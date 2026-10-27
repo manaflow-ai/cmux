@@ -58,7 +58,15 @@ export async function runStream(
     version += 1;
     replaceRows([...base, { id: "debug-stream", version, at, kind: "assistant", text, streaming }]);
   };
+  const end = performance.now() + seconds * 1000;
+  // The feeder stops itself at `end`: a page that hides mid-run draws no frames, so the frame loop
+  // below cannot be what stops it.
+  // wakeup-allow: debug `debug.agent_pane action=stream` only, for its `seconds`.
   const feeder = setInterval(() => {
+    if (performance.now() >= end) {
+      clearInterval(feeder);
+      return;
+    }
     text += SAMPLE.repeat(2).slice(source % SAMPLE.length, (source % SAMPLE.length) + chunkChars);
     source += chunkChars;
     push(true);
@@ -74,7 +82,6 @@ export async function runStream(
   const scrollHeights: number[] = [];
   let shown = 0;
   let lastHeight = scroller.scrollHeight;
-  const end = performance.now() + seconds * 1000;
   let ended = false;
   let tail = 0;
   while (tail < 30) {

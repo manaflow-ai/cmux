@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 24700,
+            "T1": 25480,
             "T2": 48780
           },
           "stories": {
@@ -28,6 +28,9 @@
               "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
+              "frame_pacing.fling",
+              "frame_pacing.golden",
+              "frame_pacing.instant",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
@@ -231,7 +234,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12250
+            "T1": 12790
           },
           "stories": {
             "T0": [
@@ -247,6 +250,8 @@
               "burst",
               "command-pan",
               "daemon-ops",
+              "frame_pacing.fling",
+              "frame_pacing.instant",
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
@@ -275,7 +280,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12450
+            "T1": 12690
           },
           "stories": {
             "T0": [
@@ -292,6 +297,7 @@
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
+              "frame_pacing.golden",
               "fullscreen-transition",
               "home-idle",
               "idle-tabs",

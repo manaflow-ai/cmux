@@ -29,7 +29,7 @@ struct PageChromiumWindowImageTests {
     private func chromiumView(work: BackgroundWork? = nil) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = work.map(FakeChromiumHosting.init(work:)) ?? FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         return (view, try #require(hosting.made.first))
     }
