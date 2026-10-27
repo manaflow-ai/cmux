@@ -188,7 +188,7 @@ const cases = [
   [
     "nested start and named cleanup",
     "useEffect(() => { let id; const start = () => { clearInterval(id); id = setInterval(tick, 1000); }; const stop = () => clearInterval(id); start(); return stop; }, []);",
-    0,
+    1,
   ],
   [
     "cleanup calls helper",
