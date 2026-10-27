@@ -1,20 +1,21 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextPages
+import os
 
-/// A crashed page: reload it, unless it keeps crashing; then the pane says so and waits for the
-/// user (on the old host with its own count, on the page host with the page host's).
+private let crashLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
+
+/// A crashed page shows the crash notice and waits for the person's Reload, on either host: a
+/// reload by itself would build the chat again without what its page held (an open menu or
+/// popover, the caret, an IME composition, chips not yet sent), and a page never reloads unless
+/// the person asks (Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?").
 extension AgentPaneView {
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
+    /// The old host's web content process crashed: the notice, no automatic reload.
     func webContentProcessDidTerminate() {
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
+        crashLogger.error("agent pane web content ended; no automatic reload (the crash notice offers Reload)")
+        showCrashNotice()
     }
 
     /// The page host's crash report: the same as ``webContentProcessDidTerminate()``, with the
@@ -60,7 +61,6 @@ extension AgentPaneView {
     @objc private func reloadAfterCrashes() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
-        crashReloads = PageCrashReloads()
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
     }
 }
