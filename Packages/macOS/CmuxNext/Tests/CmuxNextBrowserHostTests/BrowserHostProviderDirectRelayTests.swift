@@ -112,6 +112,46 @@ import Testing
         await fixture.close()
     }
 
+    /// A tab a pane showed after the prepare and then let go is in no app window: Chromium draws no frame for
+    /// it, so a capture on the link would never answer. Each capture that starts puts it in the render window
+    /// first (``ProviderDevToolsRelay/keepRendering(targetID:)``), then takes its vote, as the app's own relay
+    /// does on each send.
+    @Test func aCaptureOnTheLinkKeepsTheTabRenderingBeforeItsVote() async throws {
+        let capture = DirectCapture()
+        let fixture = try await Self.prepared(direct: CEFAgentDirectTarget(browser: 7, linkID: "L1"), capture: capture)
+        _ = try await Self.answer(fixture, "tab.relay.direct")
+        fixture.sources.onKeepRendering = { capture.order.append("render \($0)") }
+        await fixture.host.send(.cdpCapture(targetID: "tab-1", capture: "screenshot", active: true, id: 1_610_612_736))
+        await fixture.turns.runNext()
+        #expect(capture.order == ["render tab-1", "vote agent.screenshot"])
+        await fixture.host.send(.cdpCapture(targetID: "tab-1", capture: "screenshot", active: false, id: 1_610_612_736))
+        await fixture.turns.runNext()
+        #expect(capture.order.count == 2, "a capture's end asked for rendering")
+        await fixture.host.send(.cdpCapture(targetID: "tab-1", capture: "screencast", active: true, id: nil))
+        await fixture.turns.runNext()
+        #expect(Array(capture.order.suffix(2)) == ["render tab-1", "vote agent.screencast"])
+        await fixture.close()
+    }
+
+    /// The browser host ends the Chromium Host's relay link with the provider connection, so the app takes the
+    /// link back when the connection drops and gives it again at the next `hello.ack`: a host told the same
+    /// link twice would otherwise never dial the browser host again.
+    @Test func theRelayLinkLivesWithTheProviderConnection() async throws {
+        let linking = RelayLinks()
+        let fixture = try ProviderFixture()
+        fixture.provider.relayLinking = linking
+        try await fixture.connect()
+        await Self.until { !linking.links.isEmpty }
+        let link = try #require(linking.links.first ?? nil, "the accepted hello gave no relay link")
+        #expect(link.linkID == fixture.provider.relayLinkID)
+        #expect(link.credential == ProviderSecret("test-secret").relayCredential.value)
+        await fixture.host.dropLink()
+        await Self.until { linking.links.count >= 2 }
+        #expect(linking.links.count == 2 && linking.links.last == .some(nil), "a dropped connection kept the relay link")
+        await fixture.close()
+        withExtendedLifetime(linking) {}
+    }
+
     @Test func aSecondPrepareOfAPreparedTabNamesItAgain() async throws {
         let fixture = try await Self.prepared(direct: CEFAgentDirectTarget(browser: 7, linkID: "L1"))
         _ = try await Self.answer(fixture, "tab.relay.direct")
@@ -138,6 +178,12 @@ extension BrowserHostProviderDirectRelayTests {
         return fixture
     }
 
+    /// Lets the provider's link task run until `done`, for at most 5 s.
+    static func until(_ done: () -> Bool) async {
+        let end = ContinuousClock.now + .seconds(5)
+        while !done(), ContinuousClock.now < end { await Task.yield() }
+    }
+
     /// The payload of the next `name` event the app sent.
     static func answer(_ fixture: ProviderFixture, _ name: String) async throws -> [String: DriverJSON] {
         let frame = try await fixture.host.next { if case .event(name, _) = $0 { true } else { false } }
@@ -150,9 +196,20 @@ extension BrowserHostProviderDirectRelayTests {
 @MainActor
 private final class DirectCapture: ProviderCaptureVoting {
     let node = VisibilityNode(root: "tab:tab-1", own: .hidden)
+    /// Each vote taken, as `vote <reason>`, with what a test adds between them.
+    var order: [String] = []
 
     func captureVote(targetID: String, reason: String) -> VisibilityCaptureVote? {
         guard targetID == "tab-1" else { return nil }
+        order.append("vote \(reason)")
         return node.captureVote(reason: reason, stayHidden: true)
     }
+}
+
+/// The relay links the provider gave its Chromium Host, nil for each end, in order.
+@MainActor
+private final class RelayLinks: ProviderRelayLinking {
+    var links: [ChromiumHostRelayLink?] = []
+
+    func setRelayLink(_ link: ChromiumHostRelayLink?) { links.append(link) }
 }

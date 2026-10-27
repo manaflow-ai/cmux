@@ -331,6 +331,14 @@ actor StandInHost {
         }
     }
 
+    /// Ends the accepted connection only (the host keeps listening).
+    func dropLink() {
+        guard fd >= 0 else { return }
+        _ = Darwin.shutdown(fd, SHUT_RDWR)
+        Darwin.close(fd)
+        fd = -1
+    }
+
     func close() {
         if fd >= 0 { Darwin.close(fd) }
         Darwin.close(listener)
@@ -411,6 +419,11 @@ final class StandInSources: ProviderCredentialsSource, ProviderTabSource, Provid
     var direct: CEFAgentDirectTarget?
 
     func directTarget(targetID: String) -> CEFAgentDirectTarget? { direct }
+
+    /// Each ``keepRendering(targetID:)`` call, as it happens.
+    var onKeepRendering: ((String) -> Void)?
+
+    func keepRendering(targetID: String) { onKeepRendering?(targetID) }
 
     /// Waits until the provider started a relay.
     func started() async {

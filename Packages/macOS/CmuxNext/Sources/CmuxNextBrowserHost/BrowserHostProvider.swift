@@ -311,6 +311,9 @@ public final class BrowserHostProvider {
         guard let link = connection else { return }
         connection = nil
         link.close(reason: reason)
+        // The browser host ends the Chromium Host's relay link with this connection; the next `hello.ack`
+        // gives it again, so the host dials the same browser host anew after a reconnect.
+        relayLinking?.setRelayLink(nil)
         for targetID in Array(relays.keys) { endRelay(targetID) }
         announced = [:]
         accessSent = [:]

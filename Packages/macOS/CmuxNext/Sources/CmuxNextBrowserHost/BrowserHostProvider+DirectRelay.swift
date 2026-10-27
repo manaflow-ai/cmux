@@ -43,9 +43,12 @@ extension BrowserHostProvider {
     }
 
     /// `cdp.capture`: a capture command the browser host sent to the Chromium Host. The tab's capture vote
-    /// starts before the page can answer, so a hidden tab renders for it, and ends at the reply.
+    /// starts before the page can answer, so a hidden tab renders for it, and ends at the reply. A tab a pane
+    /// showed and then let go since the prepare goes back to the render window first, as the app's own relay
+    /// does on each send (`AppDevToolsRelay.send`).
     func directCapture(_ targetID: String, capture kind: String, active: Bool, id: UInt64?) {
         guard let session = relays[targetID], session.direct else { return }
+        if active { relay?.keepRendering(targetID: targetID) }
         switch kind {
         case "screenshot":
             guard let id else { return }
