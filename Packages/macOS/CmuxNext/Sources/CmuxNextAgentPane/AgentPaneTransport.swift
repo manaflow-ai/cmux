@@ -289,7 +289,7 @@ import CmuxNextCompat
 
     func cancelUpload(connection id: Int, sessionId: String, uploadId: String) async {
         guard let socket = try? uploadSocket(connection: id, sessionId: sessionId) else { return }
-        await Task.detached { await socket.cancelUploadAndWait(sessionId: sessionId, uploadId: uploadId) }.value
+        await Task.detached(priority: .userInitiated) { await socket.cancelUploadAndWait(sessionId: sessionId, uploadId: uploadId) }.value
     }
 
     private func uploadSocket(connection id: Int, sessionId: String?) throws -> AcpmuxPaneSocket {

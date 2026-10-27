@@ -58,6 +58,8 @@ import Foundation
         if op == "cmux.agent.uploads.cancel", let task = active[token] {
             task.cancel()
             _ = await task.value
+        } else if op == "cmux.agent.uploads.cancel", let id = record.uploadId, let model {
+            await model.transport.cancelUpload(connection: record.connection, sessionId: record.sessionId, uploadId: id)
         }
         var value: [String: Any] = ["token": token, "state": records[token]?.state ?? record.state, "size": record.size]
         if let id = records[token]?.uploadId { value["uploadId"] = id }
@@ -155,8 +157,21 @@ extension AgentPaneView {
                         await model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
                     }
                     let cancelled = error is CancellationError
-                    coordinator.terminal(token, state: cancelled ? "cancelled" : "failed",
-                                         error: cancelled ? nil : ["code": "upload_failed", "message": "The upload could not be completed"])
+                    let failure = (error as? AgentPaneUploadError)?.failure
+                    var details: [String: Any] = [:]
+                    if let failure { for (key, value) in failure.details { details[key] = value } }
+                    var eventError: [String: Any]? = nil
+                    if let failure {
+                        eventError = ["code": failure.code, "message": failure.message]
+                        for (key, value) in failure.details { eventError?[key] = value }
+                    } else if !cancelled {
+                        eventError = ["code": "upload_failed", "message": "The upload could not be completed"]
+                    }
+                    coordinator.terminal(token, state: cancelled ? "cancelled" : "failed", error: eventError)
+                    if let failure {
+                        return NativeUploadResult(AgentPaneReply.failure(code: failure.code, message: failure.message,
+                                                                         details: details.isEmpty ? nil : details, retryable: nil, origin: "daemon"))
+                    }
                     return NativeUploadResult(AgentPaneReply.failure(
                         code: cancelled ? "transport.gesture_required" : "upload_failed",
                         message: "The upload could not be completed"))

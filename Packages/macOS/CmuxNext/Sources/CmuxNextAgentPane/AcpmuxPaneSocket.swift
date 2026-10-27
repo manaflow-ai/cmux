@@ -403,7 +403,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     if object["_cmuxCancelled"] as? Bool == true {
                         continuation.resume(throwing: CancellationError())
                     } else if let error = object["error"] as? [String: Any] {
-                        continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
+                        let code = error["code"] as? String ?? "upload_failed"
+                        let message = error["message"] as? String ?? "upload refused"
+                        let details = ["host", "path"].reduce(into: [String: String]()) { result, key in
+                            if let value = error[key] as? String { result[key] = value }
+                        }
+                        continuation.resume(throwing: AgentPaneUploadError.rpcDetails(code: code, message: message, details: details))
                     } else {
                         do {
                             continuation.resume(returning: try JSONSerialization.data(withJSONObject: object["result"] as? [String: Any] ?? [:]))

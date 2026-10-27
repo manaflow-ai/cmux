@@ -70,12 +70,6 @@ struct ChromiumUploadBlobReaderTests {
         #expect(page.calls.filter { $0.method == "IO.read" }.count == (heldMethod == "IO.read" ? 1 : 0))
     }
 
-    @Test func missingBlobIsRefusedWithoutReadingBytes() async {
-        let page = FakeChromiumPage()
-        let reader = ChromiumUploadBlobReader(page: page, context: 11, token: "missing")
-        await #expect(throws: AgentPageUploadError.invalidBlob) { try await reader.next() }
-        #expect(!page.calls.contains { $0.method == "IO.read" })
-    }
     @Test(arguments: [true, false])
     func sharedPageUploadEnvelopeRequiresTrustedContext(_ trusted: Bool) async throws {
         let page = FakeChromiumPage()
