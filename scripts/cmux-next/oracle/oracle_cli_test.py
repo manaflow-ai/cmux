@@ -248,6 +248,21 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(retry(["--filter", "daemon-ops/*"]), 0)
         self.assertEqual(retry(["--suite", "daemon-ops", "--retry-limit", "2"]), 2)
 
+    def test_the_mcp_product_on_a_tagged_app_launches_as_the_app(self):
+        parser = oracle.build_parser()
+
+        def options(product, binary):
+            args = parser.parse_args(["run", "--product", product])
+            return oracle.options_from_args(args, retry_default=None, out=Path("/tmp/x"), run_id="r", switch=None,
+                                            arm=None, switches={}, ref=None, binary=binary)
+
+        fleet = options("mcp", "/Applications/x/cmux DEV tag.app")
+        self.assertEqual((fleet.jobs, fleet.batch_limit, fleet.build), (1, 10, "bench"))
+        vm = options("mcp", "/tmp/o/cmux-tui")
+        self.assertEqual((vm.jobs, vm.batch_limit, vm.build), (oracle.VM_JOBS, 1, "debug"))
+        self.assertEqual(options("daemon", "/x/cmux DEV tag.app").jobs, oracle.VM_JOBS)
+        self.assertLessEqual({"resource_api", "actions", "mcp", "restart"}, oracle.PRODUCTS["mcp"])
+
 
 class ClassifyTests(unittest.TestCase):
     def test_unexpected_failures_with_different_hashes_are_flaky(self):

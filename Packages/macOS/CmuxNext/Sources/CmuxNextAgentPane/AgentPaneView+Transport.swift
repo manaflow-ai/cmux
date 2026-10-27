@@ -38,6 +38,18 @@ extension AgentPaneView {
         }
     }
 
+    /// The page lifecycle froze the chat's page (``AgentPageLifecycleTarget/freeze()``): the transport
+    /// makes no call and arms no deadline until the thaw.
+    func pageDidFreeze() {
+        transportPacer?.pageDidFreeze()
+    }
+
+    /// The chat's page runs again, in the thaw's turn (``AgentPageLifecycleTarget/thaw()``): what the
+    /// transport kept goes in one call, before the page shows and the router sends its held batch.
+    func pageDidThaw() {
+        transportPacer?.pageDidThaw()
+    }
+
     /// The native sheet for `asked`: the option and the value it would take.
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
         let line = switch asked {

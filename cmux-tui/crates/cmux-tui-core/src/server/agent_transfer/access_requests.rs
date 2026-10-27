@@ -41,8 +41,8 @@
 //! secret values up to 64 KiB.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;

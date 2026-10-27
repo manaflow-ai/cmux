@@ -34,12 +34,12 @@ use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -371,7 +371,8 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            // Idle for the connection's next request: not blocking work.
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 

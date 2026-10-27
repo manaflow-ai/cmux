@@ -201,9 +201,12 @@ pub(super) fn serve_connection(
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let writer_ipc = mux.ipc_stats().clone();
+    let writer_hangs = mux.echo_watch();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
         // mq14-allow: the writer thread waits for its own queue (a checked wait).
         while let Some(item) = writer_outbound.recv() {
+            // Each item's write is a 100 ms hang scope; the wait above is not.
+            let _item = writer_hangs.item(WatchKind::LineOut);
             match &item {
                 OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
                 OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
@@ -102,26 +103,24 @@ struct AgentPaneSchedulerSweepTests {
         #expect(row.workClass == .automation)
     }
 
-    // MARK: AgentPaneFramePacer (its tab node)
+    // MARK: AgentPaneFramePacer (visible)
 
-    /// A pane that follows its tab node holds its stream while the node is hidden, whatever the view tree says, and
-    /// delivers it in the node's show flip; a visible node delivers at once.
-    @Test func aHiddenTabNodeHoldsTheStreamUntilItShows() {
-        let root = VisibilityNode(root: "app", own: .visible)
-        let tab = VisibilityNode("tab", own: .hidden, parent: root)
-        let seen = Seen()
-        // The view tree would say shown (isHidden false): only the node holds the stream.
-        let pacer = AgentPaneFramePacer(frames: AgentPaneHiddenPacingTests.Ticks(), fallback: AgentPaneHiddenPacingTests.Deadline(),
-                                        nextTurn: { _ in }, isHidden: { false })
-        pacer.follow(tab)
-        pacer.schedule {
+    /// A pane's next-turn delivery (a capped flush left frames) is one visible task of the pacer, not a main-queue job.
+    @Test func aPanesNextTurnDeliveryIsAVisibleTask() async throws {
+        let rig = Rig(), seen = Seen()
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let pacer = AgentPaneFramePacer(view: view, mainThread: AgentPaneMainThread(deadlines: MainDeadlineScheduler(work: rig.work),
+                                                                                     appEvents: AppEvents(center: NotificationCenter()),
+                                                                                     workspaceEvents: AppEvents(center: NotificationCenter())))
+        defer { pacer.stop() }
+        // Frames the page waits on, refused once (not delivered) and capped: the rest go on the next turn.
+        pacer.schedule(urgent: true) {
             seen.calls += 1
-            return AgentPaneFlush(delivered: true, more: false)
+            return AgentPaneFlush(delivered: false, more: seen.calls == 1)
         }
-        #expect(seen.calls == 0, "a hidden tab's chat got its stream")
-        tab.set(.visible)
-        #expect(seen.calls == 1, "showing the tab did not deliver what it held")
-        pacer.delivered()
-        pacer.stop()
+        #expect(seen.calls == 1)
+        await Self.settle { rig.row("agent-pane.transport.next-turn") != nil }
+        let row = try #require(rig.row("agent-pane.transport.next-turn"), "the next-turn delivery ran outside the scheduler")
+        #expect(row.workClass == .visible)
     }
 }

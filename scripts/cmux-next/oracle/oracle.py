@@ -136,7 +136,8 @@ CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", 
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
-    "mcp": frozenset({"resource_api", "actions", "mcp"}),
+    # The VM mcp session is the daemon driver's case: its own daemon, which a restart step restarts.
+    "mcp": frozenset({"resource_api", "actions", "mcp", "restart"}),
     "tui": frozenset({"resource_api", "keys", "tui"}),
     "headless": frozenset({"resource_api", "actions"}),
     "app": frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp"}),
@@ -1603,6 +1604,14 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
+def launch_kind(product: str, binary: Optional[str]) -> str:
+    """The product whose launch defaults (jobs, batch limit, build) a run takes: the mcp product against a tagged
+    app bundle (driver_mcp.py fleet mode) launches the app, so it runs as the app product does."""
+    if product == "mcp" and isinstance(binary, str) and binary.rstrip("/").endswith(".app"):
+        return "app"
+    return product
+
+
 def new_run_id() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + base36(random.SystemRandom().randrange(36**6))
 
@@ -1620,6 +1629,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
     if args.shuffle and seed is None:
         seed = new_seed()
     product = args.product
+    launch = launch_kind(product, binary)
     for name in ("jobs", "batch_limit", "repeat"):
         value = getattr(args, name)
         if value is not None and value < 1:
@@ -1631,13 +1641,13 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         suites=suites,
         filters=filters,
         shard=parse_shard(args.shard),
-        jobs=args.jobs or DEFAULT_JOBS.get(product, VM_JOBS),
-        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(product, 1),
+        jobs=args.jobs or DEFAULT_JOBS.get(launch, VM_JOBS),
+        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(launch, 1),
         repeat=args.repeat,
         retry_limit=0,
         seed=seed,
         platform=args.platform,
-        build=args.build or DEFAULT_BUILD.get(product, "debug"),
+        build=args.build or DEFAULT_BUILD.get(launch, "debug"),
         switch=switch,
         arm=arm,
         switches=switches,

@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 @testable import CmuxNextHangReports
 import CmuxNextMetrics
 import CmuxNextTrace
@@ -7,7 +8,7 @@ import Testing
 /// Schema 2 on the wire: the same bytes the web route's tests decode
 /// (web/tests/fixtures/hang-report-schema2.json), so client and server cannot drift. Schema 3's
 /// active seconds and main-thread histograms: ``golden3MainThread``, the bytes the PL-telemetry web decode PR
-/// copies to web/tests/fixtures/hang-report-schema3-main-thread.json.
+/// copies to web/tests/fixtures/hang-report-schema3-main-thread.json. The launch's features: ``golden3Features``.
 struct HangReportWireFormatTests {
     static let golden = #"{"app":{"build":"2123456789012","channel":"nightly","version":"0.70.0"},"counts":{"panes":"6-10","tabs":"31-100","windows":"1","workspaces":"11-30"},"cpuExceptions":[{"cpuMs":90000,"frames":[{"image":"other"},{"image":"libsystem_kernel.dylib","offset":30,"uuid":"BBBBBBBB-CCCC-3DDD-8EEE-FFFFFFFFFFFF"}],"sampledMs":180000}],"day":"2026-10-23","hangs":[{"durationMs":2340,"frames":[{"image":"other"},{"image":"AppKit","offset":123456,"uuid":"8B1E5C0A-1D4F-3B2E-A6C7-9F8E7D6C5B4A"},{"image":"cmux NEXT Nightly","offset":777,"uuid":"3F0C9E43-7A61-3C8E-9C1A-2B7F5D0E9A11"},{"image":"GhosttyKit","offset":55,"uuid":"77A62F2E-8212-30F3-84C1-E8497440ACF8"}],"kind":"hang","source":"metrickit"},{"cpuMs":290,"durationMs":300,"frames":[{"image":"other"},{"image":"AppKit","offset":8192,"uuid":"8B1E5C0A-1D4F-3B2E-A6C7-9F8E7D6C5B4A"}],"kind":"stall","source":"watchdog"}],"hardware":{"arch":"arm64","chip":"Apple M4 Pro","cores":14,"memoryGB":48},"installId":"0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20","intervals":[{"buckets":[{"count":1100,"highMs":10,"lowMs":0},{"count":100,"highMs":20,"lowMs":10}],"category":"motion","count":1200,"hitchMsPerS":0.4,"name":"motion.frame"}],"metrics":{"hangTime":[{"count":40,"highMs":100,"lowMs":0}],"launchExtended":[],"launchFirstDraw":[{"count":2,"highMs":300,"lowMs":200}],"launchOptimizedFirstDraw":[],"launchResume":[],"scrollHitchMsPerS":1.5},"os":{"version":"15.7.4"},"reportId":"5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11","schema":2,"stallHistogram":[{"count":1,"highMs":500,"lowMs":250}]}"#
 
@@ -469,5 +470,83 @@ struct HangReportWireFormatTests {
         #expect(fitted.hangs == report.hangs)
         #expect(fitted.stability == report.stability)
         #expect((fitted.launchSections?.count ?? 0) + (fitted.histograms?.count ?? 0) < 1 + names.count)
+    }
+
+    // MARK: Features (p12-perf-process-151)
+
+    static let features = HangReport.FeatureState(hash: "363b2a8f1f789985", nonDefault: [
+        HangReport.FeatureEntry(name: "hangReportsSchema3", state: "on", source: "env"),
+        HangReport.FeatureEntry(name: "vsyncHub", state: "off", source: "remote"),
+    ])
+
+    static func report(_ schema: HangReport.WireSchema, features: HangReport.FeatureState?) -> HangReport {
+        var context = HangReportFixtures.context()
+        context.features = features
+        return HangReportFixtures.builder(wireSchema: schema).build(context: context, watchdog: StallAggregate(), metricKit: [])
+    }
+
+    /// Schema 3 with the launch's features hash and the two features an override decided.
+    static let golden3Features = #"{"app":{"build":"70123","channel":"nightly","version":"0.70.0"},"counts":{"panes":"11-30","tabs":"31-100","windows":"1","workspaces":"11-30"},"cpuExceptions":[],"day":"2026-10-23","features":[{"name":"hangReportsSchema3","source":"env","state":"on"},{"name":"vsyncHub","source":"remote","state":"off"}],"features_hash":"363b2a8f1f789985","hangs":[],"hardware":{"arch":"arm64","chip":"Apple M4 Pro","cores":14,"memoryGB":48},"installId":"0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20","intervals":[],"metrics":{"hangTime":[],"launchExtended":[],"launchFirstDraw":[],"launchOptimizedFirstDraw":[],"launchResume":[]},"os":{"version":"15.7.4"},"reportId":"5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11","schema":3,"stallHistogram":[]}"#
+
+    @Test func schemaThreeSendsTheFeaturesHashAndTheNonDefaultFeatures() throws {
+        let report = Self.report(.v3, features: Self.features)
+        #expect(report.featuresHash == "363b2a8f1f789985")
+        #expect(report.features == Self.features.nonDefault)
+        let encoded = try HangReport.encoder.encode(report)
+        #expect(String(decoding: encoded, as: UTF8.self) == Self.golden3Features)
+        #expect(try JSONDecoder().decode(HangReport.self, from: encoded) == report)
+        #expect(HangReportServerRules.violations(in: encoded).isEmpty)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: encoded).isEmpty)
+        // The features describe a report; they are not a finding of their own.
+        #expect(report.hasNoFindings)
+    }
+
+    @Test func schemaTwoCarriesNoFeatures() throws {
+        let report = Self.report(.v2, features: Self.features)
+        #expect(report == Self.report(.v2, features: nil))
+        let encoded = try HangReport.encoder.encode(report)
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("features"))
+        #expect(HangReportServerRules.violations(in: encoded).isEmpty)
+        let featuresInSchema2 = Self.golden3Features.replacingOccurrences(of: #""schema":3"#, with: #""schema":2"#)
+        #expect(HangReportServerRules.violations(in: Data(featuresInSchema2.utf8)).count == 2)
+    }
+
+    @Test func aReportWithoutFeaturesStillDecodesAndOmitsThem() throws {
+        let older = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden3.utf8))
+        #expect(older.featuresHash == nil && older.features == nil)
+        #expect(String(decoding: try HangReport.encoder.encode(older), as: UTF8.self) == Self.golden3)
+        let none = Self.report(.v3, features: nil)
+        #expect(!String(decoding: try HangReport.encoder.encode(none), as: UTF8.self).contains("features"))
+    }
+
+    @Test func theLaunchsFeatureListBecomesTheReportsFeatures() {
+        let schema3 = Feature(index: 0, name: "hangReportsSchema3", owner: "PL-test", description: "A test feature.", kind: .killSwitch,
+                              process: .app, chromiumFeature: nil, defaults: FeatureDefaults(all: false), expires: nil, params: [],
+                              stories: [], sticky: false, runtimeMutable: false)
+        let list = FeatureList(registry: FeatureRegistry([schema3]), channel: .nightly,
+                               overrides: FeatureOverrides(environmentEnabled: ["hangReportsSchema3"]))
+        let state = HangReport.FeatureState(list.fieldState)
+        #expect(state.hash == list.fieldState.hash)
+        #expect(state.nonDefault == [HangReport.FeatureEntry(name: "hangReportsSchema3", state: "on", source: "env")])
+        #expect(Self.report(.v3, features: state).features == state.nonDefault)
+    }
+
+    @Test func onlyRegistryNamesStatesAndOverrideSourcesAreSent() {
+        let entries = [
+            HangReport.FeatureEntry(name: "vsyncHub", state: "on", source: "trial"),
+            HangReport.FeatureEntry(name: "/Users/alice", state: "on", source: "env"),
+            HangReport.FeatureEntry(name: "vsync hub", state: "on", source: "env"),
+            HangReport.FeatureEntry(name: "vsyncHub", state: "enabled", source: "env"),
+            HangReport.FeatureEntry(name: "vsyncHub", state: "on", source: "default"),
+        ]
+        let report = Self.report(.v3, features: HangReport.FeatureState(hash: "0123456789abcdef", nonDefault: entries))
+        #expect(report.features == [entries[0]])
+        for hash in ["0123456789ABCDEF", "0123456789abcde", "0123456789abcdef0", "/Users/alice/x.y"] {
+            let bad = Self.report(.v3, features: HangReport.FeatureState(hash: hash, nonDefault: [entries[0]]))
+            #expect(bad.featuresHash == nil && bad.features == nil)
+        }
+        let many = (0 ..< HangReport.maxFeatures + 5).map { HangReport.FeatureEntry(name: "feature\($0)", state: "off", source: "remote") }
+        let capped = Self.report(.v3, features: HangReport.FeatureState(hash: "0123456789abcdef", nonDefault: many))
+        #expect(capped.features == Array(many.prefix(HangReport.maxFeatures)))
     }
 }

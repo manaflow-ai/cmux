@@ -12,13 +12,14 @@
 
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};

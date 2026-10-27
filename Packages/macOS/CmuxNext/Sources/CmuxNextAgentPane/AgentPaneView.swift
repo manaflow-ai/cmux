@@ -234,7 +234,6 @@ public final class AgentPaneView: NSView {
         guard signals !== appearanceSignals || node !== visibilityNode else { return }
         appearanceSignals = signals
         visibilityNode = node
-        transportPacer?.follow(node) // a hidden chat's stream waits for its tab to show
         observeReduceMotion()
     }
 

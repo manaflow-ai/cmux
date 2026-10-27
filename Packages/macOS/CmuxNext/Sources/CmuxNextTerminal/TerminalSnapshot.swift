@@ -3,18 +3,11 @@ import CoreImage
 import IOSurface
 import QuartzCore
 
-// Hover previews. Ghostty's Metal renderer presents each frame by setting an
-// IOSurface as this view's layer contents (renderer/metal/IOSurfaceLayer.zig),
-// so the latest frame is always available without asking Ghostty to draw.
+// Hover previews. The latest presented frame (``TerminalSurfaceView/presentedFrame``)
+// is always available without asking Ghostty to draw.
 extension TerminalSurfaceView {
-    /// The last presented frame, or nil before the first draw.
-    var presentedFrame: IOSurface? {
-        guard let contents = layer?.contents else { return nil }
-        let object = contents as CFTypeRef
-        guard CFGetTypeID(object) == IOSurfaceGetTypeID() else { return nil }
-        // SAFETY: the CF type ID check above proves `object` is an IOSurface.
-        return unsafe unsafeDowncast(object, to: IOSurface.self)
-    }
+    /// The last presented frame, or nil before the first draw (``GhosttyFrameSource``).
+    var presentedFrame: IOSurface? { frameSource.presentedFrame }
 
     /// Downscaled copy of the last presented frame. One GPU blit; does not
     /// wake the renderer, so it is safe for surfaces that are occluded.

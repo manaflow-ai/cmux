@@ -35,10 +35,17 @@ import CmuxNextWakeups
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
 ///   beachballed (2026-10-20).
+/// - A pane whose page the page lifecycle froze (``pageDidFreeze()``): no call, no deadline and no
+///   display-frame request at all, whatever arrives, as Blink runs no freezable task while a page is
+///   frozen (third_party/blink/renderer/platform/scheduler/main_thread/main_thread_task_queue.h,
+///   `can_be_frozen`). The thaw (``pageDidThaw()``) sends what waited in one call, in the thaw's turn:
+///   the show thaws before the page is visible, so that call joins the router's held batch.
 ///
-/// Who can see the pane is its tab's ``VisibilityNode`` once the pane follows one (``follow(_:)``): one read, and a
-/// flip delivers what it held, as Chromium's `WebContents` visibility drives its renderer
-/// (content/public/browser/visibility.h). Its next-turn calls are `visible` tasks on the app's scheduler.
+/// Whether the pane is seen comes from the visibility tree (``AgentPaneVisibilityProbe``: its node
+/// under the window's, which follows occlusion, minimizing and app hide once per window), and its
+/// frozen state from the page lifecycle (``AgentPageLifecycleTarget``). Its next-turn calls are `visible` tasks
+/// and its fallback a `visible` ``MainDeadline``, on the app's scheduling (``AgentPaneMainThread``): what a shown
+/// chat streams is what it shows, and no input of the person's caused it.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
@@ -52,9 +59,6 @@ import CmuxNextWakeups
     private let now: @MainActor () -> TimeInterval
     private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private let isHidden: @MainActor () -> Bool
-    /// The chat's tab node (``follow(_:)``), which says who can see the pane in place of ``isHidden``.
-    private var node: VisibilityNode?
-    private var nodeWatch: VisibilitySubscription?
     private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
     /// Frames arrived, or a capped flush left some, since the last call began.
     private var pending = false
@@ -71,8 +75,12 @@ import CmuxNextWakeups
     private(set) var held = false
     /// The waiting frames include ones the page waits on (``schedule(urgent:_:)``) or a backlog.
     private var urgent = false
+    /// The page lifecycle froze the pane's page: frames wait for the thaw, with nothing armed.
+    private(set) var frozen = false
+    /// The page thawed: its next call goes even to a pane nobody sees (``pageDidThaw()``).
+    private var thawCall = false
     /// The pane's ``AgentPaneVisibilityProbe``.
-    private var probe: NSView?
+    private var probe: AgentPaneVisibilityProbe?
     /// The last delivery found frames waiting within one frame interval of its call's start.
     private var loadedBefore = false
     private var lastCall: TimeInterval = -.infinity
@@ -93,41 +101,18 @@ import CmuxNextWakeups
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
-    /// The pacer of a pane: its window's display frames, a ``MainDeadline`` fallback, and next-turn deliveries as
-    /// `visible` tasks, all on the app's scheduling (``AgentPaneMainThread``).
+    /// The pacer of a pane: its window's display frames, a ``MainDeadline`` fallback and next-turn deliveries as
+    /// `visible` tasks on the app's scheduling, and whether the pane is seen from its probe's node in the
+    /// visibility tree (O(1), no view walk).
     public convenience init(view: NSView, mainThread: AgentPaneMainThread) {
+        let probe = AgentPaneVisibilityProbe(frame: .zero)
         let mainWork = mainThread.mainWork, owner = mainWork.board.owner("agent-pane.transport.next-turn")
         self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneMainDeadline(deadlines: mainThread.deadlines),
                   nextTurn: { work in mainWork.post(.visible, owner: owner, work) },
-                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
-        let probe = AgentPaneVisibilityProbe(frame: .zero)
+                  isHidden: { [weak probe] in !(probe?.isSeen ?? false) })
         probe.onChange = { [weak self] in self?.visibilityChanged() }
         view.addSubview(probe)
         self.probe = probe
-    }
-
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized. Only for a pane
-    /// that follows no tab node (``follow(_:)``).
-    static func nobodySees(_ view: NSView) -> Bool {
-        guard let window = view.window else { return true }
-        // visibility-walk-allow: a pane no tab node holds (a standalone chat, a spare not adopted yet) has only
-        // AppKit's view state; one walk per delivery, and none once the pane follows its tab's node
-        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
-    }
-
-    /// Follows `node`, the chat's tab in the visibility tree: it says who can see the pane from now on, and a flip to
-    /// visible delivers the frames held meanwhile. Nil goes back to the view's own state.
-    public func follow(_ node: VisibilityNode?) {
-        guard node !== self.node else { return }
-        self.node = node
-        nodeWatch = node?.subscribe(owner: "AgentPaneFramePacer") { [weak self] _ in self?.visibilityChanged() }
-        visibilityChanged()
-    }
-
-    /// Nobody can see the pane: its tab node says so, or without one the injected test.
-    private var nobodyCanSee: Bool {
-        if let node { return !node.isVisible }
-        return isHidden()
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
@@ -139,6 +124,8 @@ import CmuxNextWakeups
         pending = true
         // Frames the page waits on stay waiting until a call takes them.
         self.urgent = self.urgent || urgent
+        // A frozen page takes nothing, urgent or not: the thaw sends it all (``pageDidThaw()``).
+        if frozen { return }
         // Only frames the page waits on reach a held pacer (the socket wakes it for no others);
         // the rest go when the pane shows (``visibilityChanged()``).
         if held {
@@ -151,8 +138,9 @@ import CmuxNextWakeups
 
     public func delivered() {
         inFlight = false
-        guard pending else {
+        guard pending, !frozen else {
             loadedBefore = false
+            thawCall = false
             return
         }
         let since = now() - lastCall + 1e-6 // a microsecond of rounding is a full frame
@@ -185,6 +173,7 @@ import CmuxNextWakeups
         held = false
         urgent = false
         loadedBefore = false
+        thawCall = false
         fallback.cancel()
         frames.deactivate()
     }
@@ -192,13 +181,44 @@ import CmuxNextWakeups
     /// Stops pacing (the pane closed).
     public func stop() {
         reset()
+        frozen = false
         probe?.removeFromSuperview()
         probe = nil
     }
 
+    /// The page lifecycle froze the pane's page: from now on until ``pageDidThaw()`` the pacer makes no
+    /// call and arms no deadline and no display frame. What waits stays waiting; a call in flight ends
+    /// with ``delivered()`` and starts no next one.
+    public func pageDidFreeze() {
+        guard !frozen else { return }
+        frozen = true
+        thawCall = false
+        waitingForFrame = false
+        waitingForInterval = false
+        waitingWhileHidden = false
+        held = false
+        fallback.cancel()
+        frames.deactivate()
+    }
+
+    /// The page runs again (it shows, a turn started on it, or a call needed it): what waited goes now
+    /// in one call, hidden or not. The show thaws before the page is visible and before the router
+    /// sends what it held, so this call joins that batch; later frames follow the usual rules. A call
+    /// still in flight from before the freeze goes first: the thaw's call follows its ``delivered()``.
+    public func pageDidThaw() {
+        guard frozen else { return }
+        frozen = false
+        // Only frames that waited through the freeze make a thaw call; with none, the hidden hold stays.
+        thawCall = pending
+        guard !inFlight, !nextTurnScheduled else { return }
+        call()
+    }
+
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        guard held || waitingWhileHidden, !nobodyCanSee else { return }
+        // A page that shows runs: the page view thaws before it shows, whichever path showed it.
+        if frozen, !isHidden() { return pageDidThaw() }
+        guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {
             waitingWhileHidden = false
@@ -208,9 +228,12 @@ import CmuxNextWakeups
     }
 
     private func call() {
-        guard let flush, pending else { return }
+        // The thaw's call is the first one after it, made or not: a hidden pane takes only that one.
+        let thawing = thawCall
+        thawCall = false
+        guard !frozen, let flush, pending else { return }
         // Every path here has the deadline free: none of the waits that use it is on.
-        if nobodyCanSee {
+        if !thawing, isHidden() {
             guard urgent else {
                 held = true
                 return
@@ -241,6 +264,7 @@ import CmuxNextWakeups
 
     private func ticked() {
         linkStalled = false
+        if frozen { return frames.deactivate() }
         if waitingForInterval {
             waitingForInterval = false
             fallback.cancel()

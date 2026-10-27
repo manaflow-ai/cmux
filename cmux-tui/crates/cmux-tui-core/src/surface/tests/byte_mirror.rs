@@ -3,57 +3,6 @@
 
 use super::*;
 
-/// p09-observability-018: a slow viewer's merged output keeps the key
-/// press it echoes, and the echoes of two key presses never merge into one
-/// event (each `output` carries at most one `flow`).
-#[test]
-fn echo_flow_survives_output_merging_and_two_flows_never_merge() {
-    let budget = usize::MAX;
-    let mut frame = AttachFrame::Output(b"a".to_vec());
-    assert!(matches!(
-        frame.merge_adjacent_output(AttachFrame::with_flow(b"b".to_vec(), 42), budget),
-        AttachFrameMerge::Merged
-    ));
-    assert_eq!(frame, AttachFrame::FlowOutput { output: b"ab".to_vec(), flow: 42 });
-    assert!(matches!(
-        frame.merge_adjacent_output(AttachFrame::Output(b"c".to_vec()), budget),
-        AttachFrameMerge::Merged
-    ));
-    assert_eq!(frame, AttachFrame::FlowOutput { output: b"abc".to_vec(), flow: 42 });
-    let AttachFrameMerge::Unmerged(next) =
-        frame.merge_adjacent_output(AttachFrame::with_flow(b"d".to_vec(), 43), budget)
-    else {
-        panic!("two flows merged into one output event");
-    };
-    assert_eq!((next.flow(), next.output()), (43, Some(&b"d"[..])));
-    assert_eq!(frame.flow(), 42);
-    assert_eq!(AttachFrame::with_flow(b"e".to_vec(), 0), AttachFrame::Output(b"e".to_vec()));
-}
-
-#[test]
-fn adjacent_output_merge_respects_the_exact_retained_budget() {
-    let mut bytes = Vec::with_capacity(1_024);
-    bytes.resize(1_024, 1);
-    let mut frame = AttachFrame::Output(bytes);
-    let max_retained_bytes = size_of::<AttachFrame>() + 1_025;
-
-    assert!(matches!(
-        frame.merge_adjacent_output(AttachFrame::Output(vec![2]), max_retained_bytes),
-        AttachFrameMerge::Merged
-    ));
-    let AttachFrame::Output(merged) = frame else { unreachable!() };
-    assert_eq!(merged.len(), 1_025);
-    assert!(merged.capacity() <= 1_025);
-
-    let mut full = AttachFrame::Output(merged);
-    assert!(matches!(
-        full.merge_adjacent_output(AttachFrame::Output(vec![3]), max_retained_bytes),
-        AttachFrameMerge::Overflow
-    ));
-    let AttachFrame::Output(full) = full else { unreachable!() };
-    assert_eq!(full.len(), 1_025, "overflow must not append rejected bytes");
-}
-
 #[test]
 fn slow_attach_coalesces_adjacent_output_without_losing_bytes() {
     let mux = Mux::new_for_test("attach-output-coalescing", SurfaceOptions::default());

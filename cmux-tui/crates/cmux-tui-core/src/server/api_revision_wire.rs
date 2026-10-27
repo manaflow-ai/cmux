@@ -17,10 +17,11 @@
 //! Not covered yet: resource API v2 lines (`cmux.protocol/2`), terminal
 //! byte streams and `session.events` stream items.
 
+use cmux_threads::sync::Mutex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, PoisonError};
 
 use cmux_api_compat::handshake::{RevisionHello, Translator, negotiate};
 use cmux_api_compat::{Compat, Schema};

@@ -412,7 +412,7 @@ impl PtySurface {
         match frame {
             Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
             None => {
-                for tap in &*taps {
+                for tap in taps.iter() {
                     tap.resync_snapshot_at_cut(local.as_ref());
                 }
             }

@@ -66,7 +66,7 @@ final class LoadErrorView: ChromeFrameView {
             titleLabel.stringValue = Strings.loadFailedTitle
             messageLabel.stringValue = error.message
         }
-        retryButton.isHidden = isCertificateInterstitial
+        retryButton.isHidden = isCertificateInterstitial || !error.retryable
         backButton.isHidden = !isCertificateInterstitial
         showsDetails = false
         applyDetails()

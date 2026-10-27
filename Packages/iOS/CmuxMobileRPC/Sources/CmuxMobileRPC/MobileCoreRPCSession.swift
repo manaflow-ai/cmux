@@ -1,4 +1,7 @@
 internal import CMUXMobileCore
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 actor MobileCoreRPCSession {
@@ -16,7 +19,7 @@ actor MobileCoreRPCSession {
         case awaiting(PendingContinuation)
         case settled(PendingRequestSettlement)
     }
-    typealias PendingContinuation = CheckedContinuation<PendingRequestSettlement, Never>
+    typealias PendingContinuation = OnceContinuation<PendingRequestSettlement, OnceContinuationError>
     typealias ConnectingTask = (
         id: UUID,
         lease: MobileRPCConnectAttemptLease?,
@@ -168,12 +171,12 @@ actor MobileCoreRPCSession {
     // `internal` so cancellation tests can observe the writer-queue gate via
     // `@testable import` without adding a production debug hook.
     var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
-    var writeResolutionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    var writeResolutionWaiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
     // `internal` so recovery tests can assert waiter cleanup via `@testable import`.
     var writeResolutionWaiterCount: Int { writeResolutionWaiters.count }
     var listeners: [UUID: EventListener] = [:]
     var isTearingDown: Bool = false
-    var tearDownWaiters: [CheckedContinuation<Void, Never>] = []
+    var tearDownWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     var writeQueue: AsyncStream<PendingWrite>.Continuation?
     var writerTask: Task<Void, Never>?
     var activeWrite: ActiveWrite?
@@ -283,7 +286,8 @@ actor MobileCoreRPCSession {
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 
         let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped request settles as a closed connection.
+            (try? await withOnceContinuation { (continuation: PendingContinuation) in
                 guard pending[requestID] == nil,
                       pipelinedPending[requestID] == nil,
                       queuedWriteIDs[requestID] == nil else {
@@ -304,7 +308,7 @@ actor MobileCoreRPCSession {
                 }
                 queuedWriteIDs[requestID] = queuedWriteID
                 _ = queue.yield(PendingWrite(id: queuedWriteID, requestID: requestID, frame: frame))
-            }
+            }) ?? .response(.failure(.connectionClosed))
         } onCancel: {
             Task {
                 await self.cancelPendingRequest(requestID: requestID)
@@ -357,7 +361,8 @@ actor MobileCoreRPCSession {
 
     func awaitResponse(requestID: String) async throws -> Data {
         let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped request settles as a closed connection.
+            (try? await withOnceContinuation { (continuation: PendingContinuation) in
                 switch pipelinedPending[requestID] {
                 case .pending:
                     pipelinedPending[requestID] = .awaiting(continuation)
@@ -369,7 +374,7 @@ actor MobileCoreRPCSession {
                         returning: .response(.failure(.invalidResponse))
                     )
                 }
-            }
+            }) ?? .response(.failure(.connectionClosed))
         } onCancel: {
             Task {
                 await self.cancelPendingRequest(requestID: requestID)
