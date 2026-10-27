@@ -190,25 +190,137 @@ test("the summary card leaves out the pull requests the agent only named; the In
   expect(sessionSummary(rows, null).pullRequests.map((pr) => pr.number)).toEqual([3, 2]);
 });
 
-test("Changes keeps created and mutated pull requests while read-only references remain sources", () => {
+test("streaming prose leaves the PR cache key stable; reference, state and repository changes invalidate it", () => {
+  const create = activity([shell('gh pr create --title "Retry"', "https://github.com/acme/uploader/pull/41")], 1);
+  const key = (text: string) => transcriptPullRequestKey([create, assistant(text, 2)], true);
+  expect(key("Working on the follow-up")).toBe(key("Working on the follow-up now."));
+  expect(key("See acme/uploader#42")).toBe(key("See acme/uploader#42 for details."));
+  expect(key("See acme/uploader#42")).not.toBe(key("See acme/uploader#43"));
+  expect(key("See acme/uploader#42")).not.toBe(key("See acme/other#42"));
+  expect(key("See acme/uploader#42")).not.toBe(key("Working on the follow-up"));
+  expect(transcriptPullRequestKey([create])).not.toBe(
+    transcriptPullRequestKey([create, activity([shell("gh pr merge 41")], 2)]),
+  );
+});
+
+test("live reply chunks do not visit historical rows to derive the PR activity revision", async () => {
+  const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
+  const rows = new OrderedRows();
+  let historicalReads = 0;
+  for (let index = 0; index < 2000; index++) {
+    const row = assistant(`Earlier reply ${index}`, index);
+    Object.defineProperty(row, "kind", {
+      get: () => {
+        historicalReads++;
+        return "assistant";
+      },
+    });
+    rows.set(row.id, row);
+  }
+  const reply = assistant("Working", 3000);
+  rows.set(reply.id, reply);
+  const before = transcriptPullRequestKey(rows.sorted(), true);
+  historicalReads = 0;
+  for (let version = 2; version < 12; version++) {
+    rows.set(reply.id, { ...reply, version, streaming: true, text: `Working ${version}` });
+    expect(transcriptPullRequestKey(rows.sorted(), true)).toBe(before);
+  }
+  expect(historicalReads).toBe(0);
+  rows.set(reply.id, { ...reply, version: 12, streaming: true, text: "See acme/uploader#42" });
+  expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(before);
+  expect(historicalReads).toBe(0);
+});
+
+test("producer PR revisions invalidate on activity edits, deletion and transcript replacement", async () => {
+  const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
+  const rows = new OrderedRows();
+  const opened = activity([shell('gh pr create --title "Retry"', "https://github.com/acme/uploader/pull/41")], 1);
+  rows.set(opened.id, opened);
+  const initial = transcriptPullRequestKey(rows.sorted(), true);
+  expect(transcriptPullRequestKey(rows.sorted(), true)).toBe(initial);
+  rows.set(opened.id, {
+    ...opened,
+    version: opened.version + 1,
+    items: [...opened.items!, ...activity([shell("gh pr merge 41")], 2).items!],
+  });
+  const merged = transcriptPullRequestKey(rows.sorted(), true);
+  expect(merged).not.toBe(initial);
+  expect(transcriptPullRequests(rows.sorted(), { replies: true })[0]?.state).toBe("merged");
+  rows.delete(opened.id);
+  const deleted = transcriptPullRequestKey(rows.sorted(), true);
+  expect(deleted).not.toBe(merged);
+  expect(transcriptPullRequests(rows.sorted(), { replies: true })).toEqual([]);
+  rows.set(opened.id, opened);
+  rows.clear();
+  expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(deleted);
+});
+
+test("brokered PR mutations and git branch updates are Changes", () => {
   const rows = [
     activity(
       [
-        shell("gh pr create --title 'Ship the rail'", "https://github.com/acme/app/pull/10\n"),
-        shell("gh pr view 11 -R acme/app --json title", '{"title":"Existing rail work"}'),
-        shell("gh pr edit 11 -R acme/app --title 'Updated rail work'"),
-        shell("gh pr view 12 -R acme/app --json title", '{"title":"Referenced issue"}'),
+        shell("gh pr view 41 -R acme/uploader --json title", '{"title":"Read first"}'),
+        shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"),
+        shell("git push origin si-sources-parser"),
       ],
       1,
     ),
   ];
-  const summary = sessionSummary(rows, "acme/app");
-  expect(summary.pullRequests.map((pr) => [pr.number, pr.title, pr.changed])).toEqual([
-    [10, "Ship the rail", true],
-    [11, "Existing rail work", true],
-    [12, "Referenced issue", undefined],
+  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
+});
+
+test("mutating issue calls do not become read-only Sources", () => {
+  for (const action of ["edit", "comment", "close", "reopen", "create"]) {
+    const command =
+      action === "create" ? "gh issue create -R acme/uploader --title x" : `gh issue ${action} 7 -R acme/uploader`;
+    const output = action === "create" ? "https://github.com/acme/uploader/issues/8" : "";
+    const rows = [activity([shell(command, output)], 1)];
+    expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
+  }
+});
+
+test("fetched pull request URLs become Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("Fetch pull request", "fetch", "completed", {
+          inputSummary: JSON.stringify({ url: "https://github.com/acme/uploader/pull/41/files" }),
+          output: "pull request page",
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
+    { url: "https://github.com/acme/uploader/pull/41", label: "acme/uploader #41", kind: "pullRequest" },
   ]);
-  expect(summary.sources.map((source) => [source.label, source.kind])).toEqual([["Referenced issue", "pullRequest"]]);
+});
+
+test("OrderedRows summary revisions stay stable for streaming and invalidate when settled", () => {
+  const rows = new OrderedRows();
+  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
+  rows.set(history.id, history);
+  const initial = transcriptSummaryVersion(rows.sorted());
+  const streaming = { ...assistant("working", 2), streaming: true };
+  rows.set(streaming.id, streaming);
+  expect(transcriptSummaryVersion(rows.sorted())).toBe(initial);
+  rows.set(streaming.id, { ...streaming, streaming: false });
+  expect(transcriptSummaryVersion(rows.sorted())).not.toBe(initial);
+});
+
+test("sessionSummary reuses its producer revision across 50 streamed chunks", () => {
+  const rows = new OrderedRows();
+  let visits = 0;
+  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
+  Object.defineProperty(history, "kind", { get: () => (visits++, "activity") });
+  rows.set(history.id, history);
+  const first = sessionSummary(rows.sorted(), "acme/app");
+  visits = 0;
+  for (let index = 0; index < 50; index++) {
+    rows.set("reply", { ...assistant(`chunk ${index}`, 2), id: "reply", version: index + 1, streaming: true });
+    expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
+  }
+  expect(visits).toBe(0);
 });
 
 test("sources include fetched URLs, files read and MCP tools", () => {
@@ -229,31 +341,6 @@ test("sources include fetched URLs, files read and MCP tools", () => {
     { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
     { label: "github · get issue", kind: "mcp" },
   ]);
-});
-
-test("the transcript PR cache key ignores prose but follows findings and row changes", () => {
-  const create = activity([shell('gh pr create --title "Retry"', "https://github.com/acme/uploader/pull/41")], 1);
-  const key = (text: string) => transcriptPullRequestKey([create, assistant(text, 2)], true);
-  expect(key("Working on the follow-up")).toBe(key("Working on the follow-up now."));
-  expect(key("See acme/uploader#42")).toBe(key("See acme/uploader#42 for details."));
-  expect(key("See acme/uploader#42")).not.toBe(key("See acme/uploader#43"));
-  expect(transcriptPullRequestKey([create])).not.toBe(
-    transcriptPullRequestKey([create, activity([shell("gh pr merge 41")], 2)]),
-  );
-});
-
-test("the dock key uses the producer revision without visiting streamed rows", () => {
-  let visits = 0;
-  const rows = Array.from({ length: 2000 }, (_, index) => {
-    const row = { id: `reply-${index}`, version: 1, at: index, kind: "assistant", text: "steady" };
-    Object.defineProperty(row, "kind", { get: () => (visits++, "assistant") });
-    return row;
-  });
-  const revision = Symbol();
-  markPullRequestActivityVersion(rows as Rows, revision);
-  markPullRequestCommandVersion(rows as Rows, revision);
-  expect(transcriptPullRequestKey(rows as Rows, false)).toBe(revision);
-  expect(visits).toBe(0);
 });
 
 test("update-branch is a Change and JSON titles preserve apostrophes", () => {
@@ -410,72 +497,4 @@ test("without cwd only project-relative Outputs survive, including canonical-pat
     ),
   ];
   expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
-});
-
-test("brokered PR mutations and git branch updates are Changes", () => {
-  const rows = [
-    activity(
-      [
-        shell("gh pr view 41 -R acme/uploader --json title", '{"title":"Read first"}'),
-        shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"),
-        shell("git push origin si-sources-parser"),
-      ],
-      1,
-    ),
-  ];
-  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
-});
-
-test("mutating issue calls do not become read-only Sources", () => {
-  for (const action of ["edit", "comment", "close", "reopen", "create"]) {
-    const command =
-      action === "create" ? "gh issue create -R acme/uploader --title x" : `gh issue ${action} 7 -R acme/uploader`;
-    const output = action === "create" ? "https://github.com/acme/uploader/issues/8" : "";
-    const rows = [activity([shell(command, output)], 1)];
-    expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
-  }
-});
-
-test("fetched pull request URLs become Sources", () => {
-  const rows = [
-    activity(
-      [
-        tool("Fetch pull request", "fetch", "completed", {
-          inputSummary: JSON.stringify({ url: "https://github.com/acme/uploader/pull/41/files" }),
-          output: "pull request page",
-        }),
-      ],
-      1,
-    ),
-  ];
-  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
-    { url: "https://github.com/acme/uploader/pull/41", label: "acme/uploader #41", kind: "pullRequest" },
-  ]);
-});
-
-test("OrderedRows summary revisions stay stable for streaming and invalidate when settled", () => {
-  const rows = new OrderedRows();
-  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
-  rows.set(history.id, history);
-  const initial = transcriptSummaryVersion(rows.sorted());
-  const streaming = { ...assistant("working", 2), streaming: true };
-  rows.set(streaming.id, streaming);
-  expect(transcriptSummaryVersion(rows.sorted())).toBe(initial);
-  rows.set(streaming.id, { ...streaming, streaming: false });
-  expect(transcriptSummaryVersion(rows.sorted())).not.toBe(initial);
-});
-
-test("sessionSummary reuses its producer revision across 50 streamed chunks", () => {
-  const rows = new OrderedRows();
-  let visits = 0;
-  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
-  Object.defineProperty(history, "kind", { get: () => (visits++, "activity") });
-  rows.set(history.id, history);
-  const first = sessionSummary(rows.sorted(), "acme/app");
-  visits = 0;
-  for (let index = 0; index < 50; index++) {
-    rows.set("reply", { ...assistant(`chunk ${index}`, 2), id: "reply", version: index + 1, streaming: true });
-    expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
-  }
-  expect(visits).toBe(0);
 });
