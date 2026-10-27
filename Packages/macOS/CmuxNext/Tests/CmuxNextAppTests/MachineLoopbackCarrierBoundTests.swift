@@ -6,9 +6,9 @@ import Foundation
 import Testing
 
 /// The machine loopback carrier's outbox, the frames the transport sends that the stream has not
-/// written for want of daemon credit, holds at most its bound: past it the path ends (`.closed`)
-/// instead of buffering without limit (p07-memory-098). It was unbounded, so a host that stopped
-/// granting credit grew it with every frame the transport sent.
+/// written for want of daemon credit, holds at most its bound and one frame: at the bound the carrier
+/// is backed up and the producer stops until `.writable`, and no byte is dropped (p07-memory-098). It
+/// was unbounded, so a host that stopped granting credit grew it with every frame the transport sent.
 @Suite(.serialized, .timeLimit(.minutes(3))) struct MachineLoopbackCarrierBoundTests {
     static let window = 256 << 10
     static let bound = 1 << 20
@@ -45,9 +45,11 @@ import Testing
         carrier.cancel()
     }
 
-    /// A transport that keeps sending to a daemon that grants nothing ends the path at the bound,
-    /// once: the outbox never holds more, and what the daemon got is the start of what was sent.
-    @Test func aFloodPastTheBoundEndsThePathInsteadOfBuffering() async throws {
+    /// A producer that sends 100 MB as fast as the carrier lets it, to a daemon that grants credit only
+    /// in bursts and stalls between them: the carrier backs up at the bound, the producer stops until
+    /// `.writable`, the outbox never holds more than the bound and one frame, the path never ends, and
+    /// every byte reaches the daemon in order.
+    @Test func aProducerHeldByTheCarrierFloodsAStalledDaemonWithNoLostByte() async throws {
         let daemon = FakeLoopbackDaemon()
         let stream = daemon.open(window: Self.window)
         let carrier = MachineLoopbackCarrier(outboxBound: Self.bound) { stream }
@@ -56,19 +58,35 @@ import Testing
         carrier.start(queue: DispatchQueue(label: "test.loopback.carrier"), events: events.record)
         #expect(await next.next() == .ready)
 
-        daemon.stall()
+        let total = 100 << 20
+        let ceiling = Self.bound + LoopbackFrames.frameBytes
+        var sent = 0
         var mostQueued = 0
-        var offset = 0
-        while offset < 100 << 20 {
-            carrier.send(LoopbackFrames.frame(at: offset))
-            offset += LoopbackFrames.frameBytes
-            mostQueued = max(mostQueued, carrier.queuedOutboxBytes)
+        var backups = 0
+        daemon.stall()
+        while sent < total {
+            guard carrier.isBackedUp else {
+                carrier.send(LoopbackFrames.frame(at: sent))
+                sent += LoopbackFrames.frameBytes
+                mostQueued = max(mostQueued, carrier.queuedOutboxBytes)
+                continue
+            }
+            // Backed up: the stalled daemon grants a burst, enough to drain the outbox to half, and stalls
+            // again; the producer waits for `.writable`.
+            backups += 1
+            await daemon.release(untilReceived: sent - Self.bound / 2)
+            daemon.stall()
+            while carrier.isBackedUp {
+                #expect(await next.next() == .writable)
+            }
         }
+        await daemon.release(untilReceived: total)
 
-        #expect(await next.next() == .closed)
-        #expect(mostQueued <= Self.bound, "the outbox held \(mostQueued) bytes, past \(Self.bound)")
-        #expect(daemon.received <= Self.window, "the daemon got only what its window allowed")
-        #expect(daemon.mismatches == 0)
+        #expect(mostQueued <= ceiling, "the outbox held \(mostQueued) bytes, past \(ceiling)")
+        #expect(backups >= total / Self.bound, "the carrier backed up at every bound")
+        #expect(daemon.received == total, "every byte reaches the daemon")
+        #expect(daemon.mismatches == 0, "in order")
+        #expect(!events.seen.contains(.closed), "the path stayed open")
         carrier.cancel()
     }
 }
@@ -86,7 +104,7 @@ private nonisolated struct LoopbackFrames {
 
 /// The carrier's events, in order, as a stream and a log.
 private nonisolated final class CarrierEventLog: Sendable {
-    enum Kind: Sendable, Equatable { case ready, data, closed }
+    enum Kind: Sendable, Equatable { case ready, data, writable, closed }
 
     let stream: AsyncStream<Kind>
     private let continuation: AsyncStream<Kind>.Continuation
@@ -101,6 +119,7 @@ private nonisolated final class CarrierEventLog: Sendable {
             let kind: Kind = switch event {
             case .ready: .ready
             case .data: .data
+            case .writable: .writable
             case .closed: .closed
             }
             log.withLock { $0.append(kind) }

@@ -13,19 +13,20 @@ import CmuxNextCompat
 /// Bounds, both directions: bytes from the host stay within the stream's
 /// receive window (``LoopbackStream``), whose credit goes back only once the
 /// transport took them. Bytes to the host wait in the outbox for the
-/// daemon's credit; past ``outboxBound`` the host has stopped taking them,
-/// and the path ends (`.closed`) instead of buffering without limit, as a
-/// control connection drops a client that stopped reading
-/// (`ControlConnection`'s `maxOutboxBytes`).
+/// daemon's credit; at ``outboxBound`` the carrier is backed up, and the
+/// transport stops producing until the outbox drained to half (`.writable`),
+/// so the outbox stays near the bound and no byte is lost
+/// (``RemoteRdByteCarrier``).
 nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
-    /// The bytes `send` may queue that the stream has not written yet: 4 MiB,
-    /// 16 of the daemon's 256 KiB windows.
+    /// The bytes `send` may queue that the stream has not written yet before
+    /// the carrier is backed up: 4 MiB, 16 of the daemon's 256 KiB windows.
     static let outboxBound = 4 << 20
 
     private let open: @Sendable () async throws -> LoopbackStream
     private let outgoing: AsyncStream<Data>
     private let outbox: AsyncStream<Data>.Continuation
-    private let bound: Int
+    /// The outbox's bytes against ``outboxBound``: `send` produces, the stream's writes consume.
+    private let unsent: ByteCreditWindow
     private let state = Mutex(State())
 
     private struct State {
@@ -34,22 +35,21 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
         var task: Task<Void, Never>?
         var stream: LoopbackStream?
         var cancelled = false
-        /// Bytes `send` queued that the stream has not written yet.
-        var outboxBytes = 0
-        /// The outbox passed the bound: the path ended and later sends are dropped.
-        var overflowed = false
     }
 
     /// - Parameters:
-    ///   - outboxBound: The bytes `send` may queue that the stream has not written yet.
+    ///   - outboxBound: The bytes `send` may queue that the stream has not written yet before the
+    ///     carrier is backed up.
     ///   - open: Opens the stream when the transport starts.
     init(outboxBound: Int = MachineLoopbackCarrier.outboxBound, open: @escaping @Sendable () async throws -> LoopbackStream) {
         self.open = open
-        bound = max(outboxBound, 1)
-        // concurrency-allow: the transport's frames in send order; send() ends the path past outboxBound
-        // memory: bounded-by outboxBound (4 MiB): send() ends the path instead of queueing past it
+        unsent = ByteCreditWindow(limit: outboxBound)
+        // concurrency-allow: the transport's frames in send order; the transport stops producing while the carrier is backed up
+        // memory: bounded-by outboxBound (4 MiB): past it isBackedUp holds the transport's frames until .writable
         (outgoing, outbox) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
     }
+
+    var isBackedUp: Bool { unsent.isPaused }
 
     func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {
         state.withLock { state in
@@ -88,7 +88,7 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
                             self.emit(.closed)
                             return
                         }
-                        self.state.withLock { $0.outboxBytes -= bytes.count }
+                        if self.unsent.consumed(bytes.count) { self.emitWritable() }
                     }
                 }
                 // Either direction ending ends the path.
@@ -100,40 +100,17 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
         state.withLock { $0.task = task }
     }
 
-    /// Queues `bytes` for the host. Past ``outboxBound`` unwritten bytes the
-    /// path ends (`.closed`, once) and these and later bytes are dropped.
+    /// Queues `bytes` for the host, after the bytes sent before. Dropped only
+    /// after ``cancel()``; a full outbox backs the carrier up (``isBackedUp``)
+    /// instead of dropping.
     func send(_ bytes: Data) {
-        let admission = state.withLock { state -> OutboxAdmission in
-            guard !state.cancelled, !state.overflowed else { return .dropped }
-            guard state.outboxBytes + bytes.count <= bound else {
-                state.overflowed = true
-                return .overflowed(state.stream)
-            }
-            state.outboxBytes += bytes.count
-            return .queued
-        }
-        switch admission {
-        case .queued:
-            outbox.yield(bytes)
-        case .dropped:
-            break
-        case .overflowed(let stream):
-            emit(.closed)
-            outbox.finish()
-            stream?.close()
-        }
-    }
-
-    /// What ``send(_:)`` does with one frame.
-    private nonisolated enum OutboxAdmission {
-        case queued
-        case dropped
-        /// The frame would pass the bound: the path ends; the stream, when one is open, closes.
-        case overflowed(LoopbackStream?)
+        guard !state.withLock(\.cancelled) else { return }
+        _ = unsent.produced(bytes.count)
+        outbox.yield(bytes)
     }
 
     /// Bytes `send` queued that the stream has not written yet (tests).
-    var queuedOutboxBytes: Int { state.withLock(\.outboxBytes) }
+    var queuedOutboxBytes: Int { unsent.bufferedBytes }
 
     func cancel() {
         let (task, stream) = state.withLock { state in
@@ -151,6 +128,16 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
             guard !state.cancelled else { return false }
             state.stream = stream
             return true
+        }
+    }
+
+    /// On the transport's queue, the producer's context: ends the backup once
+    /// the outbox drained to half, and tells the transport (`.writable`).
+    private func emitWritable() {
+        let (events, queue) = state.withLock { ($0.events, $0.queue) }
+        guard let events, let queue else { return }
+        queue.async { [unsent] in
+            if unsent.resumeIfDrained() { events(.writable) }
         }
     }
 

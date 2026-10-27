@@ -32,42 +32,65 @@ public nonisolated struct RemoteRdServiceMessages: AsyncSequence, Sendable {
 }
 
 /// Where the transport's queue puts the service bodies for their consumer, counting what the consumer
-/// has not taken. The bound is the core's own for the messages it holds (cmux-rd-ffi receiver.rs,
-/// `MAX_MESSAGE_BYTES` and `MESSAGE_OVERHEAD`): a body costs its JSON bytes plus 64, so a flood of
-/// empty bodies is bounded too, and a consumer that falls ``byteBound`` behind ends the session as a
-/// host that floods the core does. A body is never dropped: the session ends instead.
+/// has not taken. A body costs its JSON bytes plus 64, as the core counts the messages it holds
+/// (cmux-rd-ffi receiver.rs, `MAX_MESSAGE_BYTES` and `MESSAGE_OVERHEAD`), so a flood of empty bodies is
+/// bounded too. Once the consumer holds ``byteBound`` untaken the outlet is backed up: the transport
+/// stops taking messages from the core, which holds them under its own bound, until the consumer took
+/// half (``ByteCreditWindow``, Mojo's data pipe). A body is never dropped.
 nonisolated final class RemoteRdServiceOutlet: Sendable {
-    /// The cost the consumer may hold untaken: 4 MiB, as the core's `MAX_MESSAGE_BYTES`.
+    /// The cost the consumer may hold untaken before the outlet is backed up: 4 MiB, as the core's
+    /// `MAX_MESSAGE_BYTES`.
     static let byteBound = 4 << 20
     /// What each body costs besides its bytes, as the core's `MESSAGE_OVERHEAD`.
     static let bodyOverhead = 64
 
     private let continuation: AsyncStream<RemoteRdServiceMessages.Item>.Continuation
-    private let bound: Int
-    private let held = Atomic<Int>(0)
+    private let window: ByteCreditWindow
+    private let caughtUp: @Sendable () -> Void
 
-    init(_ continuation: AsyncStream<RemoteRdServiceMessages.Item>.Continuation, bound: Int = RemoteRdServiceOutlet.byteBound) {
+    /// - Parameters:
+    ///   - bound: The cost the consumer may hold untaken before the outlet is backed up.
+    ///   - caughtUp: Called on the consumer's thread once it took half of what it held, and when it
+    ///     stops taking: the producer calls ``resumeIfCaughtUp()`` in its own context and takes the
+    ///     core's messages again.
+    init(_ continuation: AsyncStream<RemoteRdServiceMessages.Item>.Continuation, bound: Int = RemoteRdServiceOutlet.byteBound,
+         caughtUp: @escaping @Sendable () -> Void = {}) {
         self.continuation = continuation
-        self.bound = bound
+        let window = ByteCreditWindow(limit: bound)
+        self.window = window
+        self.caughtUp = caughtUp
+        // A consumer that stops taking never catches up: the producer must not wait for it.
+        continuation.onTermination = { _ in
+            if window.releasePause() { caughtUp() }
+        }
     }
 
-    /// Hands `body` (`bytes` of JSON) to the consumer. False, handing nothing, when the consumer
-    /// already holds the bound: the caller ends the session.
-    func offer(_ body: RemoteRdJSON, bytes: Int) -> Bool {
+    /// True while the consumer holds the bound untaken: the producer offers nothing until ``caughtUp``.
+    var isBackedUp: Bool { window.isPaused }
+
+    /// Hands `body` (`bytes` of JSON) to the consumer. A body for a consumer that stopped taking is not
+    /// counted.
+    func offer(_ body: RemoteRdJSON, bytes: Int) {
         let cost = bytes + Self.bodyOverhead
-        guard held.load(ordering: .acquiring) + cost <= bound else { return false }
-        held.add(cost, ordering: .acquiringAndReleasing)
-        continuation.yield(RemoteRdServiceMessages.Item(body: body, cost: cost))
-        return true
+        _ = window.produced(cost)
+        guard case .terminated = continuation.yield(RemoteRdServiceMessages.Item(body: body, cost: cost)) else { return }
+        _ = window.consumed(cost)
+        _ = window.releasePause()
     }
 
     /// The consumer took a body that cost `cost`.
     func taken(_ cost: Int) {
-        held.subtract(cost, ordering: .acquiringAndReleasing)
+        if window.consumed(cost) { caughtUp() }
+    }
+
+    /// In the producer's context after ``caughtUp``: true when the outlet was backed up and the consumer
+    /// now holds at most half the bound, so the producer offers again.
+    func resumeIfCaughtUp() -> Bool {
+        window.resumeIfDrained()
     }
 
     /// The cost the consumer holds untaken (tests).
-    var heldCost: Int { held.load(ordering: .acquiring) }
+    var heldCost: Int { window.bufferedBytes }
 
     func finish() {
         continuation.finish()

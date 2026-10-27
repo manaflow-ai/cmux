@@ -258,6 +258,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         case let .data(data):
             guard !engine.handshake.isEnded else { return }
             ingest(data)
+        case .writable:
+            // The carrier drained: send what pump held back.
+            guard !engine.handshake.isEnded else { return }
+            pump()
         case .closed:
             closed()
         }
@@ -300,31 +304,40 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             finish()
             return
         }
-        var out: [Data] = (try? engine.core.feedback(nowMicros: now)) ?? []
-        // The caller's frames first, in its call order; then input packets due now (repeats of unacknowledged events).
-        out += inputChannel.withLock { channel in
-            defer { channel.outbox = [] }
-            return channel.outbox + ((try? channel.input.packets(nowMicros: now)) ?? [])
-        }
-        for sender in engine.upstream?.activeSenders ?? [] {
-            out += (try? sender.datagrams()) ?? []
-        }
-        for bytes in out {
-            sendRaw(bytes)
-        }
+        sendProduced(now: now)
         armTimer(now: now)
     }
 
-    /// Hands out queued control messages and datagrams.
+    /// Sends feedback, the caller's frames and input packets, and upstream media, each only while the
+    /// carrier is not backed up (``RemoteRdByteCarrier``): what it holds back stays where it is (the
+    /// core's feedback, the caller's outbox, each sender's queue) until `.writable` pumps again.
+    private func sendProduced(now: UInt64) {
+        guard !carrier.isBackedUp else { return }
+        for bytes in (try? engine.core.feedback(nowMicros: now)) ?? [] { sendRaw(bytes) }
+        guard !carrier.isBackedUp else { return }
+        // The caller's frames first, in its call order; then input packets due now (repeats of unacknowledged events).
+        let caller = inputChannel.withLock { channel in
+            defer { channel.outbox = [] }
+            return channel.outbox + ((try? channel.input.packets(nowMicros: now)) ?? [])
+        }
+        for bytes in caller { sendRaw(bytes) }
+        for sender in engine.upstream?.activeSenders ?? [] {
+            guard !carrier.isBackedUp else { return }
+            for bytes in (try? sender.datagrams()) ?? [] { sendRaw(bytes) }
+        }
+    }
+
+    /// Hands out queued control messages and datagrams. While the service consumer is behind
+    /// (``RemoteRdServiceOutlet/isBackedUp``) the messages stay in the core, under its own bound, until
+    /// the consumer catches up and pumps again.
     private func drainMessages(now: UInt64) {
-        while let message = try? engine.core.popMessage() {
+        while state.withLock({ $0.services?.isBackedUp }) != true, let message = try? engine.core.popMessage() {
             switch message {
             case let .control(json):
                 guard let control = try? RemoteRdControl.parse(json) else { continue }
                 if case let .service(service, body) = control, service == hello.service, !engine.handshake.isEnded {
                     applySurfaceStreams(body)
-                    // A consumer past the outlet's bound ends the session, as the core ends a flood.
-                    guard state.withLock({ $0.services?.offer(body, bytes: json.count) }) != false else { return closed() }
+                    state.withLock(\.services)?.offer(body, bytes: json.count)
                 }
                 engine.handshake.receive(control)
                 handleUpstream(control)

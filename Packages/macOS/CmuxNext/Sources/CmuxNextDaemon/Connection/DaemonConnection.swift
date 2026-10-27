@@ -104,7 +104,7 @@ public actor DaemonConnection {
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
-        // memory: bounded-by DaemonEventRoute.highWater (8 MiB of event lines): past it the reader stops reading the socket
+        // memory: bounded-by DaemonEventRoute.highWater (8 MiB of event lines): past it, while a consumer takes them, the reader stops reading the socket
         let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
         let route = DaemonEventRoute(continuation)
         self.route = route
@@ -279,6 +279,7 @@ public actor DaemonConnection {
                     }
                     gate.deliver(envelope) { route.emit($0, bytes: line.count, parksReader: true) }
                 },
+                waitForConsumer: { route.waitWhileReaderParked() },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }

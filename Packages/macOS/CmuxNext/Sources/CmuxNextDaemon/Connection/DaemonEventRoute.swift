@@ -20,12 +20,15 @@ import Dispatch
 /// under the route's lock, so the consumer and each subscriber see one order whichever thread emits.
 ///
 /// Bound: the stream holds the events its consumer has not taken yet, and the reader counts each
-/// one's line bytes. Past ``highWater`` bytes the reader thread waits until the consumer has taken
-/// the stream down to ``lowWater``, so the socket stops draining and the daemon's bounded outbound
-/// queue (cmux-tui-core server/bounded_outbound.rs) applies its budget instead of the app buffering
-/// without limit: Mojo's data pipe gives a producer the same `MOJO_RESULT_SHOULD_WAIT`
-/// (mojo/core/data_pipe_producer_dispatcher.cc). An attach connection's reader waits the same way
-/// (``TerminalEventQueue``). Events the actor emits (`connected`, `disconnected`) never wait.
+/// one's line bytes. Past ``highWater`` bytes the reader thread waits, after the line and outside its
+/// hang scope (``waitWhileReaderParked()``), until the consumer has taken the stream down to
+/// ``lowWater``, so the socket stops draining and the daemon's bounded outbound queue (cmux-tui-core
+/// server/bounded_outbound.rs) applies its budget instead of the app buffering without limit: Mojo's
+/// data pipe gives a producer the same `MOJO_RESULT_SHOULD_WAIT` (mojo/core/data_pipe_producer_dispatcher.cc).
+/// The reader waits only for a live consumer, as an attach connection's reader waits only once the view
+/// attached (``TerminalEventQueue``): before one takes the stream (its owner first sends requests on this
+/// connection, whose replies this reader reads) and after it stopped taking (its iterator ended or was
+/// dropped), the reader never waits. Events the actor emits (`connected`, `disconnected`) never wait.
 final class DaemonEventRoute: Sendable {
     /// Takes one event. Called with the route's lock held: it must not block or call back into the
     /// connection.
@@ -48,13 +51,18 @@ final class DaemonEventRoute: Sendable {
         var lastSubscriberID: UInt64 = 0
         /// The line bytes of each event the stream holds that its consumer has not taken, oldest first.
         var backlog = DaemonEventBacklog()
-        /// The reader waits on `readerWake`; whoever clears this signals it exactly once.
+        /// The stream's consumer stopped taking it (its iterator ended or was dropped, or the stream
+        /// ended under it): nothing it holds is taken again, so the reader never waits for it.
+        var consumerGone = false
+        /// The reader waits on `readerWake`; whoever clears this signals it exactly once. Only the reader
+        /// sets it, and only when it is clear, so each set pairs with exactly one wait.
         var readerParked = false
+        /// An emit parked the reader; its ``DaemonEventRoute/waitWhileReaderParked()`` waits once for it.
+        var readerOwesWait = false
 
-        /// Whether the reader must wait now (not finished, above `highWater`); marks it parked if so.
-        mutating func parkReader(above highWater: Int) -> Bool {
-            readerParked = !finished && backlog.bytes > highWater
-            return readerParked
+        /// Whether the reader must wait now: a live consumer holds more than `highWater` bytes.
+        func mustPark(above highWater: Int) -> Bool {
+            streamTaken && !consumerGone && !finished && backlog.bytes > highWater
         }
 
         /// Clears the parked mark; true when the caller must signal the reader.
@@ -73,8 +81,8 @@ final class DaemonEventRoute: Sendable {
     // concurrency-allow: the designed backpressure that makes the daemon's bounded outbound queue act: only the
     // control connection's dedicated reader thread (LineTransport) waits on it, never the main thread or a pool thread.
     private let readerWake = DispatchSemaphore(value: 0)
-    /// Called on the reader thread each time it starts to wait past ``highWater``, before it waits.
-    /// Tests use it to see the backpressure without timing; it must not block.
+    /// Called on the reader thread each time it starts to wait past ``highWater``, before it waits and
+    /// outside any hang scope. Tests use it to see the backpressure without timing; it must not block.
     private let onReaderParked: (@Sendable () -> Void)?
 
     init(_ continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation,
@@ -89,30 +97,51 @@ final class DaemonEventRoute: Sendable {
     /// events and the stream holds none it has not taken, else to the stream. Dropped once the route
     /// finished, as a finished stream drops it.
     ///
+    /// An event the stream's consumer will never take (its stream ended under it) is not counted, and
+    /// marks the consumer gone. Never waits.
+    ///
     /// - Parameters:
     ///   - bytes: The event's line bytes, counted while the stream holds it.
-    ///   - parksReader: True only on the reader thread: past ``highWater`` it waits here for the consumer.
+    ///   - parksReader: True only on the reader thread: past ``highWater`` it marks the reader parked,
+    ///     and the reader waits in ``waitWhileReaderParked()`` once it has handled the line.
     func emit(_ envelope: DaemonEventEnvelope, bytes: Int = 0, parksReader: Bool = false) {
-        let parked = state.withLock { state -> Bool in
-            guard !state.finished else { return false }
+        state.withLock { state in
+            guard !state.finished else { return }
             for subscriber in state.subscribers { subscriber.inbox.offer(envelope) }
-            if let sink = state.sink, state.queued == 0 {
-                sink(envelope)
-                return false
+            if let sink = state.sink, state.queued == 0 { return sink(envelope) }
+            guard case .enqueued = continuation.yield(envelope) else {
+                state.consumerGone = true
+                return
             }
             state.queued += 1
             state.backlog.append(bytes)
-            continuation.yield(envelope)
-            return parksReader && state.parkReader(above: highWater)
+            guard parksReader, !state.readerOwesWait, !state.readerParked, state.mustPark(above: highWater) else { return }
+            state.readerParked = true
+            state.readerOwesWait = true
         }
-        guard parked else { return }
+    }
+
+    /// The reader's backpressure wait, after it handled a line and outside the line's hang scope
+    /// (`LineTransport`'s `waitForConsumer`): when an emit parked it, it waits until the consumer has
+    /// taken the stream down to ``lowWater``, stopped taking it, or the route finished. Returns at once
+    /// otherwise.
+    func waitWhileReaderParked() {
+        let owed = state.withLock { state -> Bool in
+            defer { state.readerOwesWait = false }
+            return state.readerOwesWait
+        }
+        guard owed else { return }
         onReaderParked?()
-        var waiting = parked
+        var waiting = true
         while waiting {
             // The designed backpressure (see the type): a checked wait, only on the control connection's
             // dedicated reader thread (LineTransport), never the main thread or a pool thread.
             readerWake.blockingWait()
-            waiting = state.withLock { $0.parkReader(above: highWater) }
+            waiting = state.withLock { state -> Bool in
+                guard state.mustPark(above: highWater) else { return false }
+                state.readerParked = true
+                return true
+            }
         }
     }
 
@@ -122,6 +151,17 @@ final class DaemonEventRoute: Sendable {
         let release = state.withLock { state -> Bool in
             state.backlog.removeFirst()
             guard state.backlog.bytes <= lowWater else { return false }
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
+    }
+
+    /// The stream's consumer stopped taking it: its iterator ended (the stream finished, or its task was
+    /// cancelled) or was dropped. The reader no longer waits for it; a waiting reader resumes.
+    func consumerEnded() {
+        let release = state.withLock { state -> Bool in
+            state.consumerGone = true
+            state.backlog = DaemonEventBacklog()
             return state.releaseReader()
         }
         if release { readerWake.signal() }
