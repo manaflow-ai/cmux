@@ -42,6 +42,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 
 pub(crate) use merged::HistoryHost;
+pub(crate) use pages::release_memory as release_visit_store_memory;
 use pages::run;
 
 /// Advertised in identify: the daemon answers `history.*` and publishes

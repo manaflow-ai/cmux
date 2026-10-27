@@ -451,6 +451,7 @@ impl Mux {
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::new(&memory),
             memory,
+            sqlite_trim: sqlite_trim::SqliteTrim::default(),
             #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]

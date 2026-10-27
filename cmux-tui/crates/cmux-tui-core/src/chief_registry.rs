@@ -303,6 +303,21 @@ impl ChiefHost {
         self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
     }
 
+    /// Frees the open store's unused SQLite page cache under the store lock
+    /// (`mux/sqlite_trim.rs`); a store not opened yet holds none.
+    #[track_caller]
+    pub(crate) fn release_memory(&self) -> rusqlite::Result<()> {
+        let store = self.lock_store().unwrap_or_else(std::sync::PoisonError::into_inner);
+        store.as_ref().map_or(Ok(()), |store| store.connection.release_memory())
+    }
+
+    /// The bytes the open store's page cache holds now.
+    #[cfg(test)]
+    pub(crate) fn cache_used_bytes(&self) -> Option<u64> {
+        let store = self.lock_store().unwrap_or_else(std::sync::PoisonError::into_inner);
+        cmux_history::page_cache::cache_used_bytes(&store.as_ref()?.connection)
+    }
+
     /// The threads waiting for the store lock now.
     #[cfg(test)]
     pub(crate) fn store_waiting(&self) -> u32 {

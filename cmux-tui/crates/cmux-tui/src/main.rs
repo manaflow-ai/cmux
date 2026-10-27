@@ -2473,6 +2473,8 @@ fn run_server(
     if let Err(error) = mux.start_power_source(&features) {
         eprintln!("cmux-tui: power source reading did not start: {error}");
     }
+    // Long-lived SQLite connections free their page caches under pressure.
+    mux.start_sqlite_trim(&features);
     #[cfg(debug_assertions)]
     owner_start::hang_for_test(args.headless);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
