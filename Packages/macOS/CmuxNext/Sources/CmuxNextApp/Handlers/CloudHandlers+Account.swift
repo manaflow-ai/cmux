@@ -74,7 +74,10 @@ extension CloudHandlers {
             request.script = try await request.loadScript(work: services.work)
             try Task.checkCancellation()
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
-            let creation = creationFlow(context, startedByPerson: true, askedBy: askedBy).start(in: window, existing: nil, request: request)
+            let creation = creationFlow(context, startedByPerson: true, askedBy: askedBy, proceed: { creation in
+                try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                       currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
+            }).start(in: window, existing: nil, request: request)
             // Failed attempts remain listed for Retry. Only readiness, explicit dismissal,
             // teardown, cancellation, or an account change ends this observation.
             for await (readiness, currentUser, currentTeam) in ObservationStream({
@@ -316,12 +319,16 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil) -> CloudCreationFlow {
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil,
+                             proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
-            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy, request: creation.request) },
+            create: { creation in
+                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy,
+                                               request: creation.request, proceed: { try proceed(creation) })
+            },
             open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
@@ -345,6 +352,18 @@ extension CloudHandlers {
                 await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )
+    }
+
+    /// A machine response must still belong to the account and team that started this creation
+    /// before it can be attached to the local list. A changed scope tears down the observer and
+    /// throws cancellation so CloudCreationFlow does not attach or open the returned machine.
+    static func checkCreationScope(_ creation: CloudMachineCreation, in creations: CloudCreations,
+                                   expectedUserID: String?, expectedTeamID: String?,
+                                   currentUserID: String?, currentTeamID: String?) throws {
+        guard let expectedUserID, expectedUserID == currentUserID, expectedTeamID == currentTeamID else {
+            creations.end(creation)
+            throw CancellationError()
+        }
     }
 
     static func bindAccount(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {

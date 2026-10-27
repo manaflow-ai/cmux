@@ -46,4 +46,21 @@ struct CloudWorkspaceSetupLifecycleTests {
         #expect(ended?.ended == true)
         #expect(CloudHandlers.workspaceSetupReadiness(creation, in: creations) == .ended)
     }
+
+    @Test func accountChangeTearsDownBeforeMachineAttach() {
+        let creations = CloudCreations()
+        let creation = creations.begin(window: nil)
+        do {
+            try CloudHandlers.checkCreationScope(creation, in: creations, expectedUserID: "before", expectedTeamID: "team",
+                                                 currentUserID: "after", currentTeamID: "team")
+            Issue.record("scope check unexpectedly passed")
+        } catch is CancellationError {
+            // Expected: the create response must not attach after an account switch.
+        } catch {
+            Issue.record("unexpected scope-check error: \(error)")
+        }
+        #expect(creation.isTornDown)
+        #expect(creations.creation(creation.id) == nil)
+        #expect(CloudHandlers.workspaceSetupReadiness(creation, in: creations) == .ended)
+    }
 }
