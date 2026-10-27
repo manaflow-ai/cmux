@@ -9,15 +9,27 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=20,100]
+#     [--arg=agents=20,100] [--arg=hidden=100 --arg=grace=960 --arg=host_model=holder] [--arg=pressure=critical]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
+# hidden=N [grace=S]: also the hidden-workspace phase (bench_memory.py
+# --hidden-workspaces N --grace S, terminal workspaces), as PERF-IDLE-HIDDEN
+# lines with the footprint one hidden workspace adds per process kind.
+# host_model=hosts|holder: the terminal host model of the phases' app
+# (bench_memory.py --terminal-host-model; default hosts). DC6 runs holder.
+# pressure=warning|critical: also the pressure phase (debug override), as a
+# PERF-IDLE-PRESSURE line. Both degrade to process footprint without
+# debug.memory.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
+hidden=""
+grace=0
+pressure=""
+host_model=""
 reload_config=()
 for arg in "$@"; do
   case "$arg" in
@@ -25,9 +37,14 @@ for arg in "$@"; do
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
+    hidden=*) hidden="${arg#hidden=}" ;;
+    grace=*) grace="${arg#grace=}" ;;
+    pressure=*) pressure="${arg#pressure=}" ;;
+    host_model=*) host_model="${arg#host_model=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+case "$host_model" in ""|hosts|holder) ;; *) echo "perf-10x-idle.sh: host_model must be hosts or holder" >&2; exit 2 ;; esac
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
@@ -90,6 +107,32 @@ for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+PY
+fi
+if [[ -n "$hidden" || -n "$pressure" ]]; then
+  echo "PERF-IDLE-LOAD phases $(uptime | sed 's/.*load averages*: //')"
+  phase_args=()
+  [[ -n "$hidden" ]] && phase_args+=(--hidden-workspaces "$hidden" --grace "$grace")
+  [[ -n "$pressure" ]] && phase_args+=(--pressure "$pressure")
+  [[ -n "$host_model" ]] && phase_args+=(--terminal-host-model "$host_model")
+  python3 scripts/cmux-next/bench_memory.py --app "$app" --mix terminal --settle 20 --top 8 \
+    "${phase_args[@]}" --out "$work/phases.json" > "$work/phases.log" 2>&1 || { status=$?; tail -n 60 "$work/phases.log"; }
+  python3 - "$work/phases.json" <<'PY' || status=$?
+import json, sys
+data = json.load(open(sys.argv[1]))
+hidden = data.get("hidden_workspaces")
+if hidden:
+    for kind, e in hidden["after_grace"].items():
+        early = hidden["settled"].get(kind, {})
+        print(f"PERF-IDLE-HIDDEN hidden={hidden['hidden']} grace_s={hidden['grace_s']} model={hidden['terminal_host_model']} "
+              f"model_requested={hidden.get('terminal_host_model_requested')} "
+              f"kind={kind} added={e['processes_added']} mb_each_settled={early.get('mb_each')} mb_each_grace={e['mb_each']}")
+pressure = data.get("pressure")
+if pressure:
+    print(f"PERF-IDLE-PRESSURE level={pressure['level']} skipped={pressure.get('skipped')} "
+          f"error={json.dumps(pressure.get('error'))} "
+          f"released_mb={pressure.get('released_mb')} release_s={pressure.get('release_s')} "
+          f"managed_before_mb={pressure.get('managed_before_mb')} debug_memory={data.get('debug_memory')}")
 PY
 fi
 exit "$status"

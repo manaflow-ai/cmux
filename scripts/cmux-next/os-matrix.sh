@@ -4,20 +4,30 @@
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
 #
-# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME|exec:NAME]
-#                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
+# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|threads|fuzz|chaos|repro:NAME|exec:NAME]
+#                                       [--seed N] [--minutes N] [--diag NAME] [--ref SHA] [--attempt N]
+#                                       [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
 #              (14, 15, 26; default 14,15). One VM at a time; about 3 min per major for the smoke.
 #   --suite    smoke (default): launch, window, a terminal that echoes, a split, a Chromium and a
 #              WebKit tab that load a page served in the guest, Settings, quit.
+#              threads: launch, then debug.pool_context: a Task.detached and a DispatchQueue.global seam
+#              call are classified pool, .files and .cpu lane items lane and cpu-lane, debug.blocking lists
+#              the pool and cpu-lane sites, a WorkHandle.raise lifts a running item's thread priority; and
+#              debug.threads reads every thread (chrome-parity p02-threads RUN-10: run it with --os 14,15).
+#              A DEV build of perf/chrome-parity or later; result.json's "labels" has each case's queue label.
 #              fuzz: the seeded UI fuzz (fuzz.py) for --minutes (default 15) per major.
+#              chaos: one fault at a time during a typing and split tour (chaos.py; DEV build),
+#              one result.json row per fault with its expected outcome and ok/FAIL/skip.
 #              repro:NAME: replay scripts/fuzz/macos-matrix/repros/NAME.jsonl.
 #              exec:NAME: an OS probe, scripts/fuzz/macos-matrix/probes/NAME.swift, compiled on the
 #              Tart host from the runner ref and run in each guest (exit 0 PASS, 1 FAIL, else no
 #              verdict; its output is in <out>/<major>/result.json). It tests the OS, not the build.
 #   --seed     fuzz seed (default 1); the same seed and build repeat the same steps.
+#   --diag     fuzz and repro: run the app under a check (gmalloc, scribble, probguard, mtc, coop-strict,
+#              asan, tsan, ubsan; scripts/fuzz/macos-matrix/diag.py). summary.json's "diag" records it.
 #   --ref      the feat-cmux-next commit whose vm.sh runs (default: the current tip). The fleet runs
 #              a script only in its reviewed (landed) version.
 #   --attempt  a new step for the same build, ref, majors and suite (default 1): the step key holds
@@ -26,13 +36,13 @@
 # Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
 # usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
 # one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
-# *.hang,faults.ndjson,smoke.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
+# *.hang,faults.ndjson,smoke.log|threads.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
 # A VM has a paravirtual GPU and no ProMotion: use it for correctness, crashes, hangs, launch and
 # OS-behavior differences, never for frame timing. Label any VM timing "VM, not comparable".
 # cmux-unit tests inside the guest are not supported (the base images have no Xcode); see MATRIX.md.
 set -euo pipefail
 
-BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1
+BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1 DIAG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) BUILD=$2; shift 2 ;;
@@ -40,11 +50,12 @@ while [[ $# -gt 0 ]]; do
     --suite) SUITE=$2; shift 2 ;;
     --seed) SEED=$2; shift 2 ;;
     --minutes) MINUTES=$2; shift 2 ;;
+    --diag) DIAG=$2; shift 2 ;;
     --ref) REF=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -56,12 +67,18 @@ done
 [[ "$ATTEMPT" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "--attempt takes 1..999" >&2; exit 2; }
 suite_args=(--suite "${SUITE%%:*}")
 case "$SUITE" in
-  smoke) ;;
+  smoke|threads|chaos) ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
   exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
-  *) echo "--suite takes smoke, fuzz, repro:NAME or exec:NAME" >&2; exit 2 ;;
+  *) echo "--suite takes smoke, threads, fuzz, chaos, repro:NAME or exec:NAME" >&2; exit 2 ;;
 esac
+if [[ -n "$DIAG" ]]; then
+  # vm.sh checks the name against diag.py; this keeps the step key and arguments plain.
+  [[ "$DIAG" =~ ^[a-z][a-z-]{1,19}$ ]] || { echo "--diag takes a check name like gmalloc or asan" >&2; exit 2; }
+  [[ "$SUITE" == fuzz || "$SUITE" == repro:* ]] || { echo "--diag needs --suite fuzz or repro:NAME" >&2; exit 2; }
+  suite_args+=(--diag "$DIAG")
+fi
 
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run os-matrix.sh from a cmux worktree" >&2; exit 2; }
@@ -85,6 +102,7 @@ OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//:/-}-$(date -u +%Y%m
 mkdir -p "$OUT"
 key="os-matrix-${BUILD:0:12}-${REF:0:12}-${OS//,/-}-${SUITE//:/-}-a$ATTEMPT"
 [[ "$SUITE" == fuzz ]] && key+="-s$SEED-m$MINUTES"
+[[ -z "$DIAG" ]] || key+="-d$DIAG"
 args=(--arg=--build-job "--arg=$BUILD" --arg=--majors "--arg=$OS")
 for a in "${suite_args[@]}"; do args+=("--arg=$a"); done
 echo "os-matrix: build $BUILD, macOS $OS, suite $SUITE, vm.sh at $REF, key $key" >&2

@@ -9,8 +9,9 @@ import ObjectiveC
 /// image it gets reads the thumbnail when it draws, so an arrival changes no layout. It used to lay
 /// out the whole text (`invalidateLayout(for: documentRange)`): with N pictures pasted at once,
 /// each of the N thumbnails laid out all N picture blocks again on the main thread (Lawrence
-/// 2026-10-23, msg 11952: pasting several images lags). One per text view, kept with it; used on
-/// the main thread only (the thumbnail lands there, and AppKit draws there).
+/// 2026-10-23, msg 11952: pasting several images lags). One per text view, kept with it; main
+/// actor (the thumbnail lands there, and AppKit draws there).
+@MainActor
 final class ComposeInlineRedraw {
     private weak var field: NSTextView?
     /// The pictures whose thumbnails arrived since the last update.
@@ -25,9 +26,9 @@ final class ComposeInlineRedraw {
 
     /// FIELD's redraw (made with it the first time).
     static func of(_ field: NSTextView) -> ComposeInlineRedraw {
-        if let made = objc_getAssociatedObject(field, redrawKey.pointer) as? ComposeInlineRedraw { return made }
+        if let made = redrawKey.value(on: field) as? ComposeInlineRedraw { return made }
         let made = ComposeInlineRedraw(field: field)
-        objc_setAssociatedObject(field, redrawKey.pointer, made, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        redrawKey.set(made, on: field)
         return made
     }
 

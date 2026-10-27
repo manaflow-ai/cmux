@@ -4,6 +4,7 @@ import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
+import { jumpParams } from "./inputAt";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -100,7 +101,7 @@ export function newTabScreenActions(deps: {
       deps.leave();
       ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
     },
-    onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
+    onJump: (target, id, at) => ignore(callNative("tab.jump", jumpParams(target, id, at))),
     onOpenSession(sessionId) {
       deps.selectSession(sessionId);
     },

@@ -70,10 +70,11 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -82,7 +83,8 @@ use serde_json::{Map, Value, json};
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
-use super::{MessageWriter, Response, SurfaceId};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
@@ -94,6 +96,8 @@ pub mod access_requests;
 pub mod agent_update;
 mod ask_first;
 mod askable;
+mod guard;
+use guard::{guard_for, is_chat_name, is_plain_id, plain_cwd};
 mod landed;
 mod state_file;
 
@@ -391,39 +395,41 @@ struct AbortParams {
     transfer_id: String,
 }
 
+/// The `agent-transfer-*` commands, decoded by their `cmd`; spec/sdk-schema.json
+/// types each variant (check-sdk-schema.py compares the fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
 enum Verb {
+    #[serde(rename = "agent-transfer-receive")]
     Receive(ReceiveParams),
+    #[serde(rename = "agent-transfer-write")]
     Write(WriteParams),
+    #[serde(rename = "agent-transfer-finish")]
     Finish(FinishParams),
+    #[serde(rename = "agent-transfer-receive-abort")]
     ReceiveAbort(ReceiveAbortParams),
+    #[serde(rename = "agent-transfer-begin")]
     Begin(BeginParams),
+    #[serde(rename = "agent-transfer-read")]
     Read(ReadParams),
+    #[serde(rename = "agent-transfer-commit")]
     Commit(CommitParams),
+    #[serde(rename = "agent-transfer-abort")]
     Abort(AbortParams),
+    #[serde(rename = "agent-transfer-source")]
     Source(SourceParams),
 }
 
 impl Verb {
-    fn parse(cmd: &str, params: Map<String, Value>) -> Option<Self> {
-        if params.keys().any(|key| {
+    /// The verb of a frame (its `cmd` and params, `id` taken out); `None` for
+    /// a forbidden, unknown or malformed param or an unknown verb.
+    fn parse(frame: Map<String, Value>) -> Option<Self> {
+        if frame.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
             return None;
         }
-        let params = Value::Object(params);
-        use serde_json::from_value;
-        Some(match cmd {
-            "agent-transfer-receive" => Self::Receive(from_value(params).ok()?),
-            "agent-transfer-write" => Self::Write(from_value(params).ok()?),
-            "agent-transfer-finish" => Self::Finish(from_value(params).ok()?),
-            "agent-transfer-receive-abort" => Self::ReceiveAbort(from_value(params).ok()?),
-            "agent-transfer-begin" => Self::Begin(from_value(params).ok()?),
-            "agent-transfer-read" => Self::Read(from_value(params).ok()?),
-            "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
-            "agent-transfer-abort" => Self::Abort(from_value(params).ok()?),
-            "agent-transfer-source" => Self::Source(from_value(params).ok()?),
-            _ => return None,
-        })
+        serde_json::from_value(Value::Object(frame)).ok()
     }
 }
 
@@ -548,35 +554,31 @@ impl From<LinkError> for Failure {
     }
 }
 
-/// Handles an `agent-transfer-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
-        .or_else(|| agent_update::try_handle(mux, client, message, writer))
-    {
-        return Some(keep_open);
-    }
-    if !message.contains("\"agent-transfer-") {
+/// The `cmd` names this module answers (server/routes.rs); access requests
+/// and agent updates have their own routes.
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("agent-transfer-")],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
+
+/// Answers a line whose `cmd` starts with `agent-transfer-` (the route found
+/// it by name). The line's one decode is its `Value`, which gives every
+/// reply the `id` as written, a refused one too, and then the typed
+/// [`Verb`]. `None` only for a line with no `Value` (a number past `f64`, a
+/// lone surrogate); the `Command` parse answers it. Remote-relay
+/// connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
-    }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd.starts_with("agent-transfer-") => cmd,
-        _ => return None,
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Refusal::NotTrusted.into())));
     }
-    let Some(verb) = Verb::parse(&cmd, object) else {
+    let Some(verb) = Verb::parse(object) else {
         return Some(reply(writer, id, Err(Refusal::BadRequest.into())));
     };
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
@@ -613,6 +615,14 @@ pub(super) fn try_handle(
         return Some(reply(writer, id, Err(Refusal::Limit.into())));
     }
     Some(true)
+}
+
+/// What the request thread decided: a verb ready to run, or a receive
+/// whose folder the worker resolves on disk ([`guarded`]) before anything
+/// reaches acpmux.
+enum Unresolved {
+    Ready(Prepared),
+    Receive { manifest: Map<String, Value>, host: AgentTransferHost, cwd: String, moved: Moved },
 }
 
 /// A verb with everything the daemon decides filled in.
@@ -665,13 +675,15 @@ enum Prepared {
     },
 }
 
-fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
+fn prepare(mux: &Mux, verb: Verb) -> Result<Unresolved, Failure> {
     let transfers = &mux.agent_transfers;
-    Ok(match verb {
+    Ok(Unresolved::Ready(match verb {
         Verb::Receive(ReceiveParams { manifest, cwd }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
             host_gate(mux)?;
-            let (guard, cwd) = guard_for(&host, &cwd)?;
+            if !plain_cwd(&cwd) {
+                return Err(Refusal::BadRequest.into());
+            }
             // Before acpmux makes a receive, so a refused one leaves nothing
             // there (calls racing past this overshoot by at most MAX_CALLS).
             if AgentTransfers::full(&mut lock(&transfers.receives), MAX_RECEIVES, |r| r.touched) {
@@ -688,7 +700,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             };
             let moved = Moved { transfer_id, session_id };
-            Prepared::Receive { manifest, guard, cwd, moved }
+            return Ok(Unresolved::Receive { manifest, host, cwd, moved });
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
             if !is_bundle_path(&path) || page_data_len(&data).is_none_or(|n| n > MAX_PAGE_BYTES) {
@@ -761,7 +773,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             }
             Prepared::Abort { session, transfer_id }
         }
-    })
+    }))
 }
 
 /// The tab's bound acpmux session, if `surface` is an agent tab of this
@@ -774,59 +786,22 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
     }
 }
 
-// MARK: The guard
-
-/// The receive guard and the canonical folder for `cwd` on `host`.
-fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Failure> {
-    let path = Path::new(cwd);
-    if cwd.is_empty() || cwd.len() > MAX_PATH_BYTES || !path.is_absolute() {
-        return Err(Refusal::BadRequest.into());
-    }
-    let home = std::fs::canonicalize(&host.home).map_err(|_| Refusal::Unavailable)?;
-    let folder = std::fs::canonicalize(path)
-        .ok()
-        .filter(|folder| folder.is_dir())
-        .ok_or(Refusal::OutsideRoots)?;
-    let (control, root) = if host.cloud {
-        let root = std::fs::canonicalize(home.join("work"))
-            .ok()
-            .filter(|root| root.is_dir())
-            .ok_or(Refusal::OutsideRoots)?;
-        ("peer", root)
-    } else {
-        // Strictly under home, and not in a dot folder of home.
-        let rel = folder.strip_prefix(&home).map_err(|_| Refusal::OutsideRoots)?;
-        let first = rel.components().next();
-        let plain = matches!(first, Some(Component::Normal(name))
-            if !name.to_string_lossy().starts_with('.'));
-        if !plain {
-            return Err(Refusal::OutsideRoots.into());
-        }
-        ("web", folder.clone())
-    };
-    if !folder.starts_with(&root) {
-        return Err(Refusal::OutsideRoots.into());
-    }
-    let text = |path: &Path| path.to_str().map(str::to_owned).ok_or(Refusal::BadRequest);
-    let guard = json!({"control": control, "roots": [text(&root)?]});
-    Ok((guard, text(&folder)?))
-}
-
-/// An acpmux receive or transfer id (a UUID): 1 to 128 of `[A-Za-z0-9_-]`.
-fn is_plain_id(id: &str) -> bool {
-    (1..=128).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
-/// A chat name for finish: 1 to 128 bytes, no control characters (acpmux
-/// checks the rest).
-fn is_chat_name(name: &str) -> bool {
-    (1..=128).contains(&name.len()) && !name.chars().any(char::is_control)
-}
-
 // MARK: Calls
 
-fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
+/// A receive with its guard built: the folder resolved on disk, on the
+/// worker (the request thread never touches the disk).
+fn guarded(unresolved: Unresolved) -> Result<Prepared, Failure> {
+    match unresolved {
+        Unresolved::Ready(prepared) => Ok(prepared),
+        Unresolved::Receive { manifest, host, cwd, moved } => {
+            let (guard, cwd) = guard_for(&host, &cwd)?;
+            Ok(Prepared::Receive { manifest, guard, cwd, moved })
+        }
+    }
+}
+
+fn run(mux: &Mux, socket: &Path, unresolved: Unresolved) -> Result<Value, Failure> {
+    let prepared = guarded(unresolved)?;
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }

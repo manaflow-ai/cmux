@@ -6,10 +6,10 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
-import CmuxNextWakeups
 
 /// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
@@ -30,19 +30,34 @@ final class CloudService {
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
-    @ObservationIgnored private let machines: MachineRegistry
+    @ObservationIgnored let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
-    @ObservationIgnored private let link: CloudLinkLifecycle
+    @ObservationIgnored let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
-    @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    /// What ``start()`` follows until ``stop()``: the local connection follows and the activation and wake
+    /// subscriptions (releasing a token ends it), and the account from the restored session on.
+    @ObservationIgnored private var followTokens: [AnyObject] = []
+    @ObservationIgnored private var accountFollow: ServiceObservation<String?>?
+    /// Between `start()` and `stop()`: a restore that ends after the stop follows nothing.
+    @ObservationIgnored private var isFollowing = false
+    /// The restore wait, then one run per account change, each after the one before it.
+    @ObservationIgnored private var accountRun: Task<Void, any Error>?
+    /// The credential family's registration on the current local connection.
+    @ObservationIgnored private var credentialRegistration: Task<Void, any Error>?
+    /// The app's one ``BackgroundWork``, and its observers of the default and NSWorkspace centers (composition root).
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let appEvents: AppEvents
+    @ObservationIgnored private let workspaceEvents: AppEvents
+    /// The app's one deadline scheduler (``MainDeadline``s: a create's backoff, the uploads' stage expiry).
+    @ObservationIgnored let deadlines: MainDeadlineScheduler
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
-    @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored private let credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
@@ -64,7 +79,7 @@ final class CloudService {
     private(set) var creating = 0
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
-    let creations = CloudCreations()
+    let creations: CloudCreations
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
     /// What Retry does for each chat whose move stopped.
@@ -79,18 +94,31 @@ final class CloudService {
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
-    @ObservationIgnored let uploads = CloudUploads()
+    @ObservationIgnored let uploads: CloudUploads
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
+    /// - Parameter auth: The app's sign-in (`AppServices.cloudAuth`); its configuration is this service's.
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler) {
+    /// - Parameter work: The app's one ``BackgroundWork``: the install key's disk and Keychain calls run on its lanes,
+    ///   and the awaits of the follows and the machines' hops on its tasks.
+    /// - Parameter deadlines: The app's one ``MainDeadlineScheduler`` (`AppServices.mainDeadlines`).
+    /// - Parameter appEvents: The composition root's `NotificationCenter.default` observer (app activation).
+    /// - Parameter workspaceEvents: The composition root's NSWorkspace center observer (wake).
+    init(machines: MachineRegistry, auth: CloudAuth, mainWork: MainWorkScheduler, work: BackgroundWork,
+         deadlines: MainDeadlineScheduler, appEvents: AppEvents, workspaceEvents: AppEvents) {
         self.machines = machines
         self.mainWork = mainWork
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
-        auth = CloudAuth(configuration: configuration)
+        self.work = work
+        self.deadlines = deadlines
+        self.appEvents = appEvents
+        self.workspaceEvents = workspaceEvents
+        uploads = CloudUploads(deadlines: deadlines)
+        creations = CloudCreations(work: work, mainWork: mainWork)
+        configuration = auth.configuration
+        self.auth = auth
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
         api = CloudAPIClient(
@@ -101,7 +129,7 @@ final class CloudService {
         installIdentity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, work: work),
             transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -119,14 +147,17 @@ final class CloudService {
                                   connection: { [machines] in machines.local.connection })
         let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
         let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
+        credentialProvider = CloudCredentialProvider(work: work, mainWork: mainWork, relay: CloudCredentialRelay(
             post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
             token: { try await identity.installToken() },
             invalidate: { await identity.invalidate() },
             // The team is the backend team the relay bills: the install
             // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
+            session: { [auth, mainWork] in
+                // R-hop: the one main read of the relay's call, posted in the automation class (an app server asks).
+                guard await mainWork.apply(.automation, owner: "CloudCredentialRelay.session", { auth.isSignedIn }) else {
+                    return CloudCredentialRelay.Session(signedIn: false, team: nil)
+                }
                 let token = try? await identity.installToken()
                 return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
@@ -181,66 +212,6 @@ final class CloudService {
         return true
     }
 
-    func start() {
-        auth.start()
-        startCredentialProvider()
-        if configuration.linkSource == .appServer, linkEvents == nil {
-            // `cloud.link.changed` arrives on the local daemon as an app server event.
-            let machines = machines
-            linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudAppLinks.change(in: event) else { return }
-                machines.session(change.key.machine)?.linkChanged(change)
-            }
-            // task-owner: observers; cancelled in stop()
-            observers.append(Task {
-                // A reconnected local connection is a new daemon client: subscribe it again.
-                for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { continue }
-                    await CloudAppLinks.resubscribe(local: machines.local)
-                }
-            })
-        }
-        observers.append(Task { [weak self] in
-            guard let self else { return }
-            await auth.awaitRestored()
-            // The account, not only signed-in: Switch Account stays signed in.
-            for await account in ObservationStream({ self.auth.isSignedIn ? (self.auth.user?.id ?? "") : nil }) {
-                if account != nil {
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
-                    // Another account's machines and connections end first.
-                    if await self.link.sessionBegan(user: self.auth.user?.id) { self.dropAllMachines() }
-                    // The install first: the app server path's first list goes
-                    // through the credential relay, which sends the install token.
-                    await self.installSignedIn()
-                    self.hands.start()
-                    await self.ensureLink()
-                    await self.refresh()
-                } else {
-                    self.dropAllMachines()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
-                    await self.link.endLink(final: true)
-                    await self.installIdentity.unbind()
-                    self.hands.stop()
-                }
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                guard let self, let last = self.lastRefresh, last.duration(to: .now) > .seconds(30) else { continue }
-                await self.refresh()
-            }
-        })
-        // After sleep the list is stale even with cmux in front: the idle
-        // auto-pause may have parked machines while the lid was closed.
-        observers.append(Task { [weak self] in
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
-                await self?.refresh(ifOlderThan: .seconds(30))
-            }
-        })
-    }
-
     /// Set while an administrator turned Cloud off (`DisabledFeatures`).
     private(set) var policyDisabled = false
 
@@ -256,57 +227,22 @@ final class CloudService {
                 session.disconnect()
             }
             // The local tunnel hub stops too; nothing is revoked remotely.
-            // task-owner: one teardown hop; hub.stop() is idempotent
-            if let hub { Task { await hub.stop() } }
+            // task-owner: one teardown hop, off main; hub.stop() is idempotent
+            if let hub { work.task(.bestEffort) { await hub.stop() } }
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
             dropAllMachines()
-            // task-owner: one list fetch after the policy lifted
-            Task { [weak self] in
-                guard let self, auth.isSignedIn else { return }
-                await hub?.resume()
-                await installSignedIn()
-                await refresh()
-            }
+            // task-owner: one list fetch after the policy lifted, awaited off main
+            work.task(.userVisible) { [weak self] in await self?.policyLifted() }
         }
     }
 
-    func stop() {
-        for observer in observers { observer.cancel() }
-        observers.removeAll()
-        if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
-        linkEvents = nil
-        if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
-        credentialEvents = nil
-        credentialProvider?.stop()
-        for session in machines.cloud { session.disconnect() }
-        // task-owner: teardown hop at quit; hub.stop() is idempotent
-        if let hub { Task { await hub.stop() } }
-    }
-
-    /// Serves the `credential` family on the local daemon: answers its
-    /// calls on the connection that sent them, and registers again after
-    /// every handshake of the verified app connection (a reconnected
-    /// connection is a new provider; its calls in flight ended with it).
-    /// Only the app server path uses it: with the legacy link (the release
-    /// and default Debug path) the relay never registers.
-    private func startCredentialProvider() {
-        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
-        let local = machines.local
-        credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
-            guard let connection = local?.connection else { return }
-            provider.handle(event) { result in _ = try await connection.request(result) }
-        }
-        // task-owner: observers; cancelled in stop()
-        observers.append(Task {
-            for await state in ObservationStream({ local.store.connectionState }) {
-                guard case .connected = state, let connection = local.connection else { continue }
-                provider.stop()
-                let allowed = await connection.userOriginAllowed
-                _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
-            }
-        })
+    private func policyLifted() async {
+        guard auth.isSignedIn else { return }
+        await hub?.resume()
+        await installSignedIn()
+        await refresh()
     }
 
     // MARK: Machine list
@@ -315,7 +251,7 @@ final class CloudService {
     /// or delete here: a list that comes back after a newer refresh started,
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
-    @ObservationIgnored private var listGeneration = 0
+    @ObservationIgnored var listGeneration = 0
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -398,11 +334,11 @@ final class CloudService {
             })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
-                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
+                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork, work: work)
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
+            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork, work: work)
         }
         session.daemon.workTracker = machines.local.workTracker
         // An attach to a paused machine resumes it through Resume Machine's own path.
@@ -416,7 +352,7 @@ final class CloudService {
         return session
     }
 
-    private func dropAllMachines() {
+    func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
         for creation in creations.all { creations.remove(creation) }
@@ -448,80 +384,146 @@ final class CloudService {
         return session
     }
 
-    func deleteMachine(_ machineID: String) async throws {
-        try await api.deleteMachine(machineID)
-        // A list in flight was asked while this machine still existed.
-        listGeneration += 1
-        creations.machineRemoved(machineID)
-        machines.remove(machineID)?.disconnect()
-        logger.info("deleted machine \(machineID, privacy: .public)")
-    }
-
-    func pauseMachine(_ machineID: String) async throws {
-        try await api.pauseMachine(machineID)
-        await refresh()
-        logger.info("paused machine \(machineID, privacy: .public)")
-    }
-
-    func resumeMachine(_ machineID: String) async throws {
-        try await api.resumeMachine(machineID)
-        await refresh()
-        logger.info("resumed machine \(machineID, privacy: .public)")
-    }
-
-    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
-    /// of idle before cmux Cloud pauses it; 0 is Off.
-    func setIdlePause(_ machineID: String, minutes: Int) async throws {
-        try await api.setIdlePause(machineID, minutes: minutes)
-        machines.session(machineID)?.machine.idlePauseMinutes = minutes
-        logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
-    }
-
-    func renameMachine(_ machineID: String, to name: String) async throws {
-        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
-        machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
-    }
-
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
     var willSignOut: [@MainActor () -> Void] = []
 
-    func signOut() async {
-        for hook in willSignOut { hook() }
-        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
-        // No ensure starts from here until the session's final endLink (the
-        // signed-out branch above, after auth.signOut).
-        link.beginEnding()
-        dropAllMachines()
-        await link.endLink(final: false)
-        if let hub { await hub.revoke() }
-        // Revoke the install while the Stack session still exists.
-        if let stackUser = auth.user?.id {
-            let auth = auth
-            await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+    // MARK: Follows
+
+    func start() {
+        auth.start()
+        isFollowing = true
+        startCredentialProvider()
+        if configuration.linkSource == .appServer, linkEvents == nil {
+            // `cloud.link.changed` arrives on the local daemon as an app server event.
+            let machines = machines, work = work
+            linkEvents = machines.local.store.sideEvents.subscribe { event in
+                guard let change = CloudAppLinks.change(in: event) else { return }
+                machines.session(change.key.machine)?.linkChanged(change)
+            }
+            // A reconnected local connection is a new daemon client: subscribe it again.
+            followTokens.append(ServiceObservation(.background, owner: "CloudService.linkResubscribe", on: mainWork) {
+                machines.local.store.connectionState
+            } apply: { state in
+                guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { return }
+                let local = machines.local
+                work.task(.userVisible) { await CloudAppLinks.resubscribe(local: local) }
+            })
         }
-        // An ensure that slipped in during the revoke: stop that link too.
-        await link.stopLink()
-        await auth.signOut()
+        let auth = auth, mainWork = mainWork
+        // The account follow starts once the session is restored (the wait runs off main).
+        accountRun = work.task(.userVisible) { [weak self] in
+            await auth.awaitRestored()
+            mainWork.postFromAnyThread(.background, owner: "CloudService.account") { [weak self] in self?.followAccount() }
+        }
+        followTokens.append(appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "CloudService.activeRefresh") { [weak self] in
+            guard let self, let last = lastRefresh, last.duration(to: .now) > .seconds(30) else { return }
+            refreshOffMain(ifOlderThan: .seconds(30))
+        })
+        // After sleep the list is stale even with cmux in front: the idle
+        // auto-pause may have parked machines while the lid was closed.
+        followTokens.append(workspaceEvents.subscribe(NSWorkspace.didWakeNotification, owner: "CloudService.wakeRefresh") { [weak self] in
+            self?.refreshOffMain(ifOlderThan: .seconds(30))
+        })
     }
 
-    /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
-    func ensureLink() async { await link.ensureLink() }
+    func stop() {
+        isFollowing = false
+        accountFollow?.cancel()
+        accountFollow = nil
+        accountRun?.cancel()
+        accountRun = nil
+        credentialRegistration?.cancel()
+        credentialRegistration = nil
+        followTokens.removeAll()
+        if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
+        linkEvents = nil
+        if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
+        credentialEvents = nil
+        credentialProvider?.stop()
+        for session in machines.cloud { session.disconnect() }
+        // task-owner: teardown hop at quit, off main; hub.stop() is idempotent
+        if let hub { work.task(.bestEffort) { await hub.stop() } }
+    }
 
-    /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
-    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
+    /// ``refresh(ifOlderThan:)``, awaited off main: what a notice (activation, wake) starts.
+    func refreshOffMain(ifOlderThan age: Duration = .zero) {
+        // task-owner: one throttled list read; refresh's generation drops a list a newer read overtook
+        work.task(.userVisible) { [weak self] in await self?.refresh(ifOlderThan: age) }
+    }
 
-    /// Registers (or reuses) this Mac's install for the signed-in user and
-    /// mints one token. A failure is logged: the relay mints again when it
-    /// needs a token, and the hub path does not depend on it.
-    private func installSignedIn() async {
-        guard let stackUser = auth.user?.id, mayCallCloud else { return }
-        let auth = auth
-        do {
-            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-            hostReplica.installReady()
-        } catch {
-            logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+    /// From the restored session on, each account (the user, not only signed in: Switch Account stays
+    /// signed in) runs ``accountBegan()`` or ``accountEnded()`` once, after the run before it.
+    private func followAccount() {
+        guard isFollowing, accountFollow == nil else { return }
+        accountFollow = ServiceObservation(.background, owner: "CloudService.account", on: mainWork) { [weak self] () -> String? in
+            guard let self, auth.isSignedIn else { return nil }
+            return auth.user?.id ?? ""
+        } apply: { [weak self] account in
+            self?.accountChanged(signedIn: account != nil)
+        }
+    }
+
+    private func accountChanged(signedIn: Bool) {
+        let previous = accountRun
+        // task-owner: accountRun; each run waits for the one before it, stop() cancels the last
+        accountRun = work.task(.userVisible) { [weak self] in
+            _ = await previous?.result
+            if signedIn { await self?.accountBegan() } else { await self?.accountEnded() }
+        }
+    }
+
+    private func accountBegan() async {
+        // Sign-out revoked the WireGuard peer and parked the hub.
+        await hub?.resume()
+        // Another account's machines and connections end first.
+        if await link.sessionBegan(user: auth.user?.id) { dropAllMachines() }
+        // The install first: the app server path's first list goes
+        // through the credential relay, which sends the install token.
+        await installSignedIn()
+        hands.start()
+        await ensureLink()
+        await refresh()
+    }
+
+    private func accountEnded() async {
+        dropAllMachines()
+        // The session ended (signed out here or elsewhere, or
+        // expired): no link keeps running for it.
+        await link.endLink(final: true)
+        await installIdentity.unbind()
+        hands.stop()
+    }
+
+    /// Serves the `credential` family on the local daemon: answers its
+    /// calls on the connection that sent them, and registers again after
+    /// every handshake of the verified app connection (a reconnected
+    /// connection is a new provider; its calls in flight ended with it).
+    /// Only the app server path uses it: with the legacy link (the release
+    /// and default Debug path) the relay never registers.
+    private func startCredentialProvider() {
+        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
+        let local = machines.local
+        credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
+            guard let connection = local?.connection else { return }
+            provider.handle(event) { result in _ = try await connection.request(result) }
+        }
+        followTokens.append(ServiceObservation(.background, owner: "CloudService.credentialProvider", on: mainWork) {
+            local.store.connectionState
+        } apply: { [weak self] state in
+            guard case .connected = state, let connection = local.connection else { return }
+            provider.stop()
+            self?.registerCredentials(on: connection)
+        })
+    }
+
+    /// Registers the credential family on `connection` off main, in place of a registration still running.
+    private func registerCredentials(on connection: DaemonConnection) {
+        credentialRegistration?.cancel()
+        // task-owner: credentialRegistration; the next connect or stop() cancels it
+        credentialRegistration = work.task(.userVisible) {
+            let allowed = await connection.userOriginAllowed
+            _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
         }
     }
 }

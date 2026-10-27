@@ -1,5 +1,5 @@
+import CmuxNextCompat
 public import Foundation
-import os
 
 /// One macOS wallpaper as the Wallpaper pane lists it: a picture file in Desktop Pictures, or a
 /// `.madesktop` description of one that macOS downloads when the person first picks it. Read
@@ -120,13 +120,22 @@ public nonisolated struct AppleWallpaperAssets: Sendable {
     /// window reads its wallpaper several times per change and the picker once per tile, while a
     /// download in System Settings shows up soon after.
     public static func recent(now: Date = Date()) -> AppleWallpaperAssets {
-        recentList.withLock { last in
-            if let last, now.timeIntervalSince(last.listed) < 5, now >= last.listed { return last.assets }
-            let assets = AppleWallpaperAssets()
-            last = (now, assets)
-            return assets
-        }
+        recent(now: now) { AppleWallpaperAssets() }
     }
 
-    private static let recentList = OSAllocatedUnfairLock<(listed: Date, assets: AppleWallpaperAssets)?>(initialState: nil)
+    /// ``recent(now:)`` with the folder listing passed in. The listing runs with the lock free: the
+    /// lock covers only the kept list, so a reader never waits for another's directory walk (two
+    /// readers of a stale list may both list; the later one is kept).
+    static func recent(now: Date, listing: () -> AppleWallpaperAssets) -> AppleWallpaperAssets {
+        let kept = recentList.withLock { last -> AppleWallpaperAssets? in
+            guard let last, now.timeIntervalSince(last.listed) < 5, now >= last.listed else { return nil }
+            return last.assets
+        }
+        if let kept { return kept }
+        let assets = listing()
+        recentList.withLock { $0 = (now, assets) }
+        return assets
+    }
+
+    private static let recentList = Mutex<(listed: Date, assets: AppleWallpaperAssets)?>(nil)
 }

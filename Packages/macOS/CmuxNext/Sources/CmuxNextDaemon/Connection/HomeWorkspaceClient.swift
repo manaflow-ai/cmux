@@ -41,7 +41,7 @@ public struct NewConversationTabRequest: DaemonRequest {
             case tabResourceID = "tab_resource_id"
         }
     }
-    public static let command = "new-conversation-tab"
+    public static let commandName: DaemonCommandName = "new-conversation-tab"
     public static let requiredCapability: String? = DaemonCapability.conversationTabs.rawValue
     public var conversation: String?
     public var owner: String?
@@ -148,7 +148,7 @@ public struct BindConversationTabSessionRequest: DaemonRequest {
         public var surface: SurfaceID
         public var replayed: Bool
     }
-    public static let command = "bind-conversation-tab-session"
+    public static let commandName: DaemonCommandName = "bind-conversation-tab-session"
     public var surface: SurfaceID
     public var session: String
     public var expectedSession: String?

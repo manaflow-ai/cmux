@@ -41,7 +41,7 @@ public struct NewScreenWithSpecRequest: TerminalSpawningRequest {
             case terminalID = "terminal_id"
         }
     }
-    public static let command = "new-screen"
+    public static let commandName: DaemonCommandName = "new-screen"
     public var workspace: WorkspaceHandle?
     public var spec: ScreenSpec
     public var options: SpawnOptions

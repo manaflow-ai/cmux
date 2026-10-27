@@ -248,7 +248,8 @@ extension AgentPaneRequest {
         case "tab.jump":
             if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
                let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .jump(target, id: id)
+                let inputAt = (params?["inputAt"] as? NSNumber)?.doubleValue
+                self = .jump(target, id: id, inputAt: inputAt.flatMap { $0.isFinite && $0 > 0 ? $0 : nil })
             } else {
                 self = .unsupported(method)
             }

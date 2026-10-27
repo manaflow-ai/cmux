@@ -96,8 +96,8 @@ fn proc_environ(pid: u32) -> Option<HashMap<String, String>> {
 /// Runs tmux against the server named by `$TMUX`, killed at `deadline`.
 #[cfg(target_os = "linux")]
 fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
+    use cmux_process::{Command, Stdio};
     use std::io::Read;
-    use std::process::{Command, Stdio};
 
     let mut child = Command::new("tmux")
         .args(args)
@@ -106,17 +106,13 @@ fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+    // wakeup-allow: cli-only the short-lived hook process's one bound on tmux; tmux's exit ends the wait first
+    match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(Some(status)) if status.success() => {}
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
         }
     }
     let mut output = String::new();

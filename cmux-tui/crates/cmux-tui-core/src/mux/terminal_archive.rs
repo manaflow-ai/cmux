@@ -51,6 +51,7 @@ impl Mux {
     /// close kept out of history is never archived). Unix only: only Unix
     /// reopens a terminal seeded with its archive. Store them with
     /// [`Self::store_terminal_archives`] once the close committed.
+    #[track_caller]
     pub(crate) fn capture_terminal_archives(
         &self,
         runtimes: &[Arc<Surface>],
@@ -80,6 +81,7 @@ impl Mux {
     /// grace; a crash or power loss inside the grace would otherwise lose its
     /// screen, so a Reopen Closed after the restart had only its directory
     /// (cx-jc9vh).
+    #[track_caller]
     pub(crate) fn archive_unplaced_terminals(&self, closed_views: &[Arc<Surface>]) {
         if !cfg!(unix) || closed_views.is_empty() {
             return;
@@ -108,6 +110,7 @@ impl Mux {
 
     /// Store `archives` in one registry transaction. Best effort: a failure
     /// costs the reopened tab its screen, never the close.
+    #[track_caller]
     pub(crate) fn store_terminal_archives(&self, archives: Vec<TerminalArchive>) {
         if archives.is_empty() {
             return;
@@ -131,6 +134,7 @@ impl Mux {
     /// as [`Self::store_terminal_archives`]. The closed groups whose screen
     /// the budget cleared are published again in the next commit, so a
     /// client that follows the change stream shows `scrollback_not_kept`.
+    #[track_caller]
     pub(crate) fn put_terminal_archive_rows(
         &self,
         rows: &[ArchiveRow<'_>],
@@ -173,6 +177,7 @@ impl Mux {
     }
 
     /// The archive of one live PTY runtime.
+    #[track_caller]
     fn capture_terminal_archive(&self, runtime: &Arc<Surface>) -> Option<TerminalArchive> {
         if runtime.kind() != SurfaceKind::Pty {
             return None;
@@ -211,6 +216,7 @@ impl Mux {
     /// archive, on a reserved terminal id whose launch is seeded with it.
     /// The returned guard removes an unused seed when it drops, so a failed
     /// creation leaves none behind.
+    #[track_caller]
     pub(crate) fn reopen_terminal_spawn(
         &self,
         tab: &Value,
@@ -236,6 +242,7 @@ impl Mux {
     /// The archived terminal's original viewport, used to seed the new PTY
     /// before the frontend resizes it to the current pane.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn archived_terminal_size(&self, closed_terminal: &str) -> Option<(u16, u16)> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         registry
@@ -249,6 +256,7 @@ impl Mux {
     /// line that names the program its close stopped (none when nothing
     /// ran). `None` without an archive.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn archived_terminal_seed(&self, closed_terminal: &str) -> Option<Vec<u8>> {
         let archive = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

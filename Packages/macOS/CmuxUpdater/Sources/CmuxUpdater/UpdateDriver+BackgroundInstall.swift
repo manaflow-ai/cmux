@@ -1,4 +1,4 @@
-@preconcurrency import Sparkle
+import Foundation
 
 /// Background installs (``UpdateController/installsUpdatesInBackground``): no prompt is ever
 /// published. A found update is accepted at once so Sparkle downloads it, and Sparkle's
@@ -16,7 +16,7 @@ extension UpdateDriver {
         available.reply.consume(.install, source: .background)
     }
 
-    func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    func stageInBackground(_ reply: @escaping @Sendable (UpdateChoice) -> Void) {
         stagedInstall = { reply(.install) }
         stagedCancel = { reply(.skip) }
         if installsWhenStaged {
@@ -43,7 +43,7 @@ extension UpdateDriver {
     /// The staged update, or nil when nothing waits for the user: this driver's held download,
     /// the update whose relaunch the gate holds, else the one Sparkle's silent driver staged
     /// while its install still waits.
-    var stagedItem: SUAppcastItem? {
+    var stagedItem: UpdateAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
         guard case .installing(let installing) = model.state else { return nil }
         if installing.relaunchBlockers != nil { return heldRelaunchItem }

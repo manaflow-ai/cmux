@@ -1,10 +1,20 @@
 //! Subscriptions and event emission: mux event, config reload, attached surface and session subscriptions, and the emit_* helpers that publish terminal and tree events.
 
 use super::*;
+use crate::event_cause::EventCause;
 
 impl Mux {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
+    }
+
+    /// A subscription that receives only events of `kinds` (a page relay's
+    /// interest set): the bus never queues the others for it.
+    pub(crate) fn subscribe_kinds(
+        &self,
+        kinds: crate::event_bus::MuxEventKinds,
+    ) -> MuxEventReceiver {
+        self.subscribers.subscribe_kinds(kinds)
     }
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
@@ -31,8 +41,12 @@ impl Mux {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(ConfigReloadError::TimedOut);
             };
-            let (next, timeout) =
-                self.config_reload_changed.wait_timeout(state, remaining).unwrap();
+            let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
+                &self.config_reload_changed,
+                state,
+                remaining,
+            )
+            .unwrap();
             state = next;
             if timeout.timed_out() && state.applied < request {
                 return Err(ConfigReloadError::TimedOut);
@@ -67,12 +81,16 @@ impl Mux {
         Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
     }
 
+    /// Publish `event` to every subscriber, stamped with this thread's
+    /// [`EventCause`]: the cause of the request being handled, or `Program`
+    /// outside one (PTY output, OSC titles, hooks, reaps).
     pub fn emit(&self, event: MuxEvent) {
+        let cause = EventCause::current();
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }
-        self.subscribers.emit(event);
+        self.subscribers.emit_caused(event, cause);
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {

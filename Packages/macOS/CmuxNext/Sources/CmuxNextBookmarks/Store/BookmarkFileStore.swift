@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The local bookmark file (bookmarks.md section 2): every profile's tree in
@@ -21,7 +22,7 @@ public actor BookmarkFileStore {
     public func load() -> [String: [BookmarkNode]] {
         if let cache { return cache }
         let loaded: [String: [BookmarkNode]]
-        if let data = try? Data(contentsOf: file), let document = try? JSONDecoder().decode(Document.self, from: data) {
+        if let data = try? Data(contentsOf: file), let document = try? JSONDecoder().blockingDecode(Document.self, from: data) {
             loaded = document.profiles
         } else {
             loaded = [:]

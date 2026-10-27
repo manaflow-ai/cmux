@@ -23,8 +23,10 @@ import {
   MARKDOWN_RESOLVE_LINKS_OP,
   MARKDOWN_SELECTION_OP,
   MARKDOWN_SET_TABLE_WIDTHS_OP,
+  MARKDOWN_VIEW_STATE_OP,
   resolveImageURL,
 } from "./host";
+import { anchoredScrollTop, markdownHeadingBoxes, markdownScrollAnchor } from "./viewState";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
 import { LinkResolver, type ResolvedLink } from "./links";
@@ -257,8 +259,22 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     shownConfig = next;
     editor?.setComments(parseComments(next?.comments));
   });
+  // A discarded page of this tab comes back where it was, once its document is in the editor and
+  // laid out (the next frame), anchored to its heading (viewState.ts).
+  let editorReady = false;
+  const restoreView = () => {
+    if (!editorReady || store.getState().phase !== "ready") return;
+    const view = store.takeRestoredView();
+    if (!view) return;
+    requestAnimationFrame(() => {
+      const element = scroller();
+      element?.scrollTo({ top: anchoredScrollTop(markdownHeadingBoxes(element), view) });
+    });
+  };
+  store.subscribe(restoreView);
   const editorRef = (element: HTMLDivElement | null) => {
     if (!element) {
+      editorReady = false;
       store.attachEditor(null);
       void editor?.destroy();
       editor = null;
@@ -277,6 +293,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       if (editor !== next) return;
       store.attachEditor(next);
       next.setComments(parseComments(store.getState().config?.comments));
+      editorReady = true;
+      restoreView();
     });
   };
   if (client) {
@@ -315,6 +333,14 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     );
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
+    // Before the host discards the hidden page: the mode, history and place its next page goes back
+    // to. Only the rich view has headings to anchor to; the source view keeps its plain scroll.
+    client.handle(MARKDOWN_VIEW_STATE_OP, () => {
+      const element = scroller();
+      const scroll = element?.scrollTop ?? 0;
+      const rich = store.getState().mode === "rich";
+      return store.viewState(scroll, rich ? markdownScrollAnchor(markdownHeadingBoxes(element), scroll) : undefined);
+    });
     // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
     client.handle(MARKDOWN_SELECTION_OP, () => editor?.selectionQuote() ?? null);
   }

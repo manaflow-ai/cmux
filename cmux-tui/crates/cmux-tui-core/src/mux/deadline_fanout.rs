@@ -3,8 +3,9 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Most jobs admitted at once (queued plus running), and most worker threads.
@@ -112,12 +113,16 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                 inner.changed.notify_all();
                 return;
             }
-            let (mut state, _) = inner
-                .changed
-                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
-                    !state.shutdown && state.jobs.is_empty()
-                })
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let idle_until = Instant::now() + DEADLINE_FANOUT_IDLE_TIMEOUT;
+            while !state.shutdown && state.jobs.is_empty() {
+                let Some(remaining) = idle_until.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                // wakeup-allow: deadline the idle worker's one exit deadline (idle_until); a job ends the wait first
+                state = cmux_threads::checked::sync::wait_timeout(&inner.changed, state, remaining)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0;
+            }
             if state.shutdown || state.jobs.is_empty() {
                 state.worker_count = state.worker_count.saturating_sub(1);
                 inner.changed.notify_all();
@@ -162,6 +167,8 @@ pub(super) enum DeadlineMapResult<R> {
     Unscheduled,
 }
 
+/// Its wait for the items is a checked `recv` at the caller's line.
+#[track_caller]
 pub(super) fn bounded_deadline_map<T, R, F>(
     pool: &DeadlineFanoutPool,
     items: &[T],
@@ -209,7 +216,7 @@ where
         if remaining.is_zero() {
             break;
         }
-        match receiver.recv_timeout(remaining) {
+        match cmux_threads::checked::sync::recv_timeout(&receiver, remaining) {
             Ok(index) => {
                 let pending =
                     std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);

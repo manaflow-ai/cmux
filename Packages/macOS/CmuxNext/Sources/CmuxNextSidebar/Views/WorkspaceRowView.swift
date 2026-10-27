@@ -86,6 +86,7 @@ final class WorkspaceRowView: SidebarRowView {
         didSet {
             guard isSecondarySelected != oldValue else { return }
             updateAccessibilitySelection()
+            // invalidate: the secondary selection changed (the guard above).
             needsDisplay = true
         }
     }
@@ -334,8 +335,8 @@ final class WorkspaceRowView: SidebarRowView {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown))
-        needsLayout = true
-        needsDisplay = true
+        // invalidate: the content changed (`needsConfigure` above).
+        needsLayout = true; needsDisplay = true
     }
 
     /// Applies a title-only transition after the row's content has been set.

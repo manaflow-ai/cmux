@@ -1,5 +1,7 @@
 import Foundation
 public import Observation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// Why `perform` did not return a committed result.
 public enum HomeSendState: Error, Hashable, Sendable {
@@ -95,7 +97,7 @@ public final class HomeStore {
     /// cancelled or failed its upload. So a text sent while a photo uploads
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
-    @ObservationIgnored var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored var turnWaiters: [IdempotencyKey: OnceContinuation<Void, OnceContinuationError>] = [:]
     /// Delayed resends (and upload passes) of sends that got no answer
     /// while the connection stayed up, and how many each has had.
     @ObservationIgnored var backoffTasks: [IdempotencyKey: Task<Void, Never>] = [:]
@@ -224,7 +226,7 @@ public final class HomeStore {
         connection = .offline(since: Date())
         let waiters = turnWaiters.values
         turnWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     // MARK: Reading
@@ -308,7 +310,7 @@ public final class HomeStore {
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
         for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }
-        for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume() }
+        for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume(returning: ()) }
     }
 
     func afterLogChange(_ op: HomeOp) {

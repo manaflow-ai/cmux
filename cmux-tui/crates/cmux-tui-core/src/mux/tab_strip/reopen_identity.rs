@@ -51,19 +51,7 @@ pub(crate) fn insert_field(fields: &mut Map<String, Value>) {
     }
 }
 
-/// Whether `tab` names a tab the registry retired (closed): the only ids a
-/// reopen may give back.
-pub(crate) fn is_retired_tab(connection: &rusqlite::Connection, tab: &str) -> anyhow::Result<bool> {
-    use rusqlite::OptionalExtension;
-    Ok(connection
-        .query_row(
-            "SELECT 1 FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NOT NULL",
-            [tab],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
-}
+pub(crate) use crate::workspace_registry::resource_identity_queries::is_retired_tab;
 
 #[cfg(test)]
 mod tests {

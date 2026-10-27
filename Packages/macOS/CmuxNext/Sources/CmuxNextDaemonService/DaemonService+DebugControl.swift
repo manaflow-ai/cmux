@@ -1,5 +1,6 @@
 public import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension DaemonService {
@@ -59,6 +60,37 @@ extension DaemonService {
             if let failure = self.recovery.restartFailure { recovery["restart_failure"] = .string(failure) }
             report["recovery"] = .object(recovery)
             report["windows"] = .array(windows().map { .object(["id": .string($0.id), "shows": .string($0.shows)]) })
+            return .value(.object(report))
+        }
+    }
+
+    /// `debug.drain_cost` (DEBUG and bench builds): what the store's drains of the daemon's event
+    /// inbox cost since launch or the last `{"reset": true}` (``DrainCost``), for
+    /// script-storm-bench `--hidden`. The report: `batches`, `events`, `sidebar_flattens`,
+    /// `list_changes`, the drain time's `p50_ms`, `p95_ms`, `p99_ms` and `max_ms` (bucket upper
+    /// edges, capped at the longest drain), and `buckets`: `[upper_ns, count]` per non-empty bucket.
+    /// A reset answers the counts it cleared.
+    @MainActor
+    public var debugDrainCostMethod: ControlMethod {
+        .mainActor("debug.drain_cost") { [weak self] call in
+            guard let self else { return .value(.null) }
+            let cost = store.drainCost
+            if call.params["reset"]?.boolValue == true { store.resetDrainCost() }
+            let histogram = cost.histogram
+            // An empty dictionary of the control socket's own JSON type (as `debug.daemon`).
+            var report = call.params.filter { _ in false }
+            report["batches"] = .number(Double(cost.batches))
+            report["events"] = .number(Double(cost.events))
+            report["sidebar_flattens"] = .number(Double(cost.sidebarFlattens))
+            report["list_changes"] = .number(Double(cost.listChanges))
+            report["p50_ms"] = .number(Double(histogram.percentile(0.5)) / 1_000_000)
+            report["p95_ms"] = .number(Double(histogram.percentile(0.95)) / 1_000_000)
+            report["p99_ms"] = .number(Double(histogram.percentile(0.99)) / 1_000_000)
+            report["max_ms"] = .number(Double(histogram.maxNanos) / 1_000_000)
+            let filled = histogram.counts.enumerated().filter { $0.element > 0 }
+            report["buckets"] = .array(filled.map { bucket in
+                .array([.number(Double(MainOwnerLedger.Histogram.upperBound(of: bucket.offset))), .number(Double(bucket.element))])
+            })
             return .value(.object(report))
         }
     }

@@ -38,6 +38,38 @@ extension Motion {
     /// `windowDidFailToExitFullScreen` (no notification is posted for them).
     public static func fullScreenTransitionFailed(_ window: NSWindow) { LiveResizeWindows.shared.endTransition(of: window) }
 
+    /// Returns true once no window is entering or leaving full screen (at once when none is), or false when the
+    /// task was cancelled. The oracle's settle awaits it after the motion clocks (`debug.oracle.settle`): AppKit's
+    /// full screen animation runs on no `MotionClock`, and `styleMask` has `.fullScreen` from its start.
+    public static func fullScreenTransitionsEnded() async -> Bool { await LiveResizeWindows.shared.transitionsEnded() }
+
+    /// True once no motion clock steps an animator (the windows' and the app clock window-less views share) and
+    /// no window is in a full screen transition, false when cancelled: the motion half of the oracle's settle.
+    /// Each wait is the clock's or the transitions' own; one that starts again while another is awaited is found
+    /// on the next pass. Chromium's mac widget reports a full screen change when its transition completes, not
+    /// when it starts (ui/views/cocoa/native_widget_mac_ns_window_host.cc OnWindowFullscreenTransitionComplete).
+    public static func waitAtRest(_ windows: @MainActor @Sendable () -> [NSWindow]) async -> Bool {
+        while let wait = nextRestWait(windows()) {
+            guard await wait() else { return false }
+        }
+        return true
+    }
+
+    /// The traces of the animators running now, on every clock that can step one (no clock is created), and
+    /// `window.fullScreenTransition` for each window AppKit moves into or out of full screen.
+    public static func running(in windows: [NSWindow]) -> [String] {
+        MotionClock.existing(in: windows).filter { !$0.isIdle }.flatMap(\.running)
+            + windows.filter { isFullScreenTransitioning($0) }.map { _ in "window.fullScreenTransition" }
+    }
+
+    /// The wait for what still moves now: a clock that steps an animator, else a full screen transition; nil
+    /// when nothing does.
+    private static func nextRestWait(_ windows: [NSWindow]) -> (() async -> Bool)? {
+        if let busy = MotionClock.existing(in: windows).first(where: { !$0.isIdle }) { return { await busy.waitIdle() } }
+        if isFullScreenTransitioning { return { await fullScreenTransitionsEnded() } }
+        return nil
+    }
+
     /// Tests set a live resize here instead of posting AppKit's notifications
     /// to the process-wide center (check-test-notification-centers.sh).
     static var liveResizeOverride: Bool?
@@ -52,7 +84,11 @@ extension Motion {
 final class LiveResizeWindows {
     static let shared = LiveResizeWindows()
     private var resizing: Set<ObjectIdentifier> = []
-    private var transitioning: Set<ObjectIdentifier> = []
+    private var transitioning: Set<ObjectIdentifier> = [] {
+        didSet { resumeTransitionWaiters() }
+    }
+    private var transitionWaiters: [UInt64: AsyncStream<Void>.Continuation] = [:]
+    private var lastTransitionWaiterID: UInt64 = 0
 
     var isActive: Bool { !resizing.isEmpty || !transitioning.isEmpty }
     /// Some window is entering or leaving full screen.
@@ -61,15 +97,40 @@ final class LiveResizeWindows {
     /// A transition AppKit gave up on (`windowDidFailToEnterFullScreen`, `windowDidFailToExitFullScreen`).
     func endTransition(of window: NSWindow) { transitioning.remove(ObjectIdentifier(window)) }
 
+    /// True once no window is in a full screen transition, false when the task was cancelled: one signal sent
+    /// where the last transition ends (its did-enter or did-exit notification, a failure, a close), as
+    /// `MotionClock.waitIdle()` resumes where its last animator stops. The stream's iteration ends on cancel.
+    func transitionsEnded() async -> Bool {
+        if transitioning.isEmpty { return true }
+        lastTransitionWaiterID &+= 1
+        let id = lastTransitionWaiterID
+        let (ended, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        transitionWaiters[id] = signal
+        for await _ in ended { break }
+        transitionWaiters.removeValue(forKey: id)?.finish()
+        return !Task.isCancelled
+    }
+
+    /// ``transitionsEnded()`` callers parked now (tests).
+    var transitionWaiterCount: Int { transitionWaiters.count }
+
+    private func resumeTransitionWaiters() {
+        guard transitioning.isEmpty, !transitionWaiters.isEmpty else { return }
+        let waiters = transitionWaiters
+        transitionWaiters.removeAll()
+        for signal in waiters.values {
+            signal.yield()
+            signal.finish()
+        }
+    }
+
     init(center: NotificationCenter = .default) {
-        let changes: [(Notification.Name, Bool)] = [
-            (NSWindow.willStartLiveResizeNotification, true),
-            (NSWindow.didEndLiveResizeNotification, false),
-            (NSWindow.willCloseNotification, false),
-        ]
-        for (name, resizing) in changes {
-            let closes = name == NSWindow.willCloseNotification
+        // (name, starts a resize, closes the window).
+        // raw-observer-allow: the sets need each notice's sender window; an AppEvents call carries none
+        let changes: [(Notification.Name, Bool, Bool)] = [(NSWindow.willStartLiveResizeNotification, true, false), (NSWindow.didEndLiveResizeNotification, false, false), (NSWindow.willCloseNotification, false, true)]
+        for (name, resizing, closes) in changes {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the sets need each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)
@@ -79,12 +140,11 @@ final class LiveResizeWindows {
                 }
             }
         }
-        let transitions: [(Notification.Name, Bool)] = [
-            (NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false),
-            (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false),
-        ]
+        // raw-observer-allow: the transition set needs each notice's sender window; an AppEvents call carries none
+        let transitions: [(Notification.Name, Bool)] = [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false), (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)]
         for (name, starts) in transitions {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the set needs each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)

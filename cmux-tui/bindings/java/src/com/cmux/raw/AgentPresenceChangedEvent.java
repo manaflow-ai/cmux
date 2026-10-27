@@ -16,6 +16,8 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
     private final AgentPresenceActivity activity;
     /** Adapter identity (claude, codex, ...). */
     private final String agent;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     /** The 1-based line the tool call targets, when the tool input names one. */
     private final UInt64 line;
     /** The file the tool call targets, when the tool input names one. */
@@ -33,6 +35,7 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
         this.activity = builder.activity;
         if (!builder.agentSet) throw new IllegalArgumentException("agent is required");
         this.agent = builder.agent;
+        this.cause = builder.cause;
         if (!builder.lineSet) throw new IllegalArgumentException("line is required");
         this.line = builder.line;
         if (!builder.pathSet) throw new IllegalArgumentException("path is required");
@@ -51,6 +54,7 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
 
     public AgentPresenceActivity activity() { return activity; }
     public String agent() { return agent; }
+    public Field<EventCause> cause() { return cause; }
     public UInt64 line() { return line; }
     public String path() { return path; }
     public String session() { return session; }
@@ -67,6 +71,10 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
         builder.activity(rawActivity == null ? null : AgentPresenceActivity.fromWire(rawActivity));
         Object rawAgent = Wire.required(object, "agent");
         builder.agent(rawAgent == null ? null : Wire.string(rawAgent, "AgentPresenceChangedEvent.agent"));
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawLine = Wire.required(object, "line");
         builder.line(rawLine == null ? null : Wire.uint64(rawLine, "AgentPresenceChangedEvent.line"));
         Object rawPath = Wire.required(object, "path");
@@ -88,6 +96,7 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
         object.put("event", "agent-presence-changed");
         Wire.put(object, "activity", activity);
         Wire.put(object, "agent", agent);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "line", line);
         Wire.put(object, "path", path);
         Wire.put(object, "session", session);
@@ -100,11 +109,11 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentPresenceChangedEvent that)) return false;
-        return Objects.equals(activity, that.activity) && Objects.equals(agent, that.agent) && Objects.equals(line, that.line) && Objects.equals(path, that.path) && Objects.equals(session, that.session) && Objects.equals(surface, that.surface) && Objects.equals(tool, that.tool) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(activity, that.activity) && Objects.equals(agent, that.agent) && Objects.equals(cause, that.cause) && Objects.equals(line, that.line) && Objects.equals(path, that.path) && Objects.equals(session, that.session) && Objects.equals(surface, that.surface) && Objects.equals(tool, that.tool) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activity, agent, line, path, session, surface, tool, updatedAtMs); }
+    public int hashCode() { return Objects.hash(activity, agent, cause, line, path, session, surface, tool, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentPresenceChangedEvent" + toWire(); }
@@ -114,6 +123,7 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
         private boolean activitySet;
         private String agent;
         private boolean agentSet;
+        private Field<EventCause> cause = Field.omitted();
         private UInt64 line;
         private boolean lineSet;
         private String path;
@@ -135,6 +145,10 @@ public final class AgentPresenceChangedEvent implements WireValue, DeltaStreamEv
         public Builder agent(String value) {
             this.agent = value;
             this.agentSet = true;
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder line(UInt64 value) {

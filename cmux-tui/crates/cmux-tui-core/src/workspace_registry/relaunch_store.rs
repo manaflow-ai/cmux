@@ -298,6 +298,7 @@ fn now_ms() -> anyhow::Result<i64> {
 impl WorkspaceRegistry {
     /// Record a launched terminal. A replayed launch of the same id keeps the
     /// existing row, so a directory reported since is not lost.
+    #[track_caller]
     pub(crate) fn record_terminal_relaunch(
         &mut self,
         terminal_id: &str,
@@ -325,6 +326,7 @@ impl WorkspaceRegistry {
 
     /// The shell reported `cwd` (already validated as a local directory). A
     /// cleared report keeps the last directory.
+    #[track_caller]
     pub(crate) fn record_terminal_relaunch_cwd(
         &mut self,
         terminal_id: &str,
@@ -364,6 +366,7 @@ pub(crate) fn resumable_session_id(session_id: &str) -> bool {
 
 impl WorkspaceRegistry {
     /// The relaunch record of terminal `terminal_id`, if one was stored.
+    #[track_caller]
     pub(crate) fn terminal_relaunch_record(
         &self,
         terminal_id: &str,
@@ -424,6 +427,7 @@ impl WorkspaceRegistry {
     /// one, what is already stored for the same session is kept: its launch,
     /// or that it is a non-interactive run (`AgentStart::NonInteractive`),
     /// which no respawn resumes. An id that is not resumable is never stored.
+    #[track_caller]
     pub(crate) fn record_terminal_relaunch_agent(
         &mut self,
         terminal_public_id: &str,
@@ -488,6 +492,7 @@ const NON_INTERACTIVE: &str = "non_interactive";
 impl WorkspaceRegistry {
     /// The agent record stored for `harness` session `session_id` of terminal
     /// `terminal_public_id`, if that is the session its record names.
+    #[track_caller]
     fn stored_agent_of(
         &self,
         terminal_public_id: &str,

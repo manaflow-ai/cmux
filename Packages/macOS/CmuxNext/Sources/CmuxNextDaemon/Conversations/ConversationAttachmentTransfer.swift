@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// Attachment bytes over one daemon connection (`local-attachments-v1`):
@@ -43,11 +44,11 @@ extension ConversationClient {
     /// Reads `variant` of `hash` in `conversation` into `destination`
     /// atomically: the bytes land in a temporary file beside it that moves
     /// into place only when complete, so a cancelled read leaves nothing.
-    /// Returns the variant's mime type.
+    /// Its disk steps run on `work`'s files lane. Returns the variant's mime type.
     @discardableResult
     public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
-                                   to destination: URL) async throws -> String {
+                                   to destination: URL, on work: BackgroundWork) async throws -> String {
         try await requireAttachments()
-        return try await transfer.download(conversation: conversation, hash: hash, variant: variant, to: destination)
+        return try await transfer.download(conversation: conversation, hash: hash, variant: variant, to: destination, on: work)
     }
 }

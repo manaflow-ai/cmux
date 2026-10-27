@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The wallpapers macOS ships, read where macOS keeps them; cmux copies none.
@@ -95,7 +96,7 @@ public nonisolated struct AppleWallpapers: Sendable {
             let assets: [Asset]
         }
         guard let data = try? Data(contentsOf: aerials.appendingPathComponent("entries.json")),
-              let entries = try? JSONDecoder().decode(Entries.self, from: data) else { return [:] }
+              let entries = try? JSONDecoder().blockingDecode(Entries.self, from: data) else { return [:] }
         return Dictionary(entries.assets.compactMap { asset in asset.accessibilityLabel.map { (asset.id, $0) } }) { first, _ in first }
     }
 

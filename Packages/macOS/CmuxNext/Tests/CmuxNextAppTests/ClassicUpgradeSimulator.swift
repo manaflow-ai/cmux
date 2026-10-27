@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSidebar
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import Testing
@@ -109,6 +110,7 @@ final class ClassicUpgradeSimulator {
         self.mac = mac
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: mac.root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })

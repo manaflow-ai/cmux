@@ -50,7 +50,7 @@ import CmuxNextWakeupsTestSupport
             item.isNewTabPage = id == newTabPage
             return item
         }
-        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("a")))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: tabs, selectedID: TabID("a")))
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 700, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

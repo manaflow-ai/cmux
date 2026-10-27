@@ -69,6 +69,35 @@ public enum Intent: Sendable, Hashable {
     case closeTabs(surfaces: [SurfaceID])
 }
 
+extension Intent {
+    /// The case's name (`renameTab`): what a diagnostic may print about an intent. Never the payload, which can
+    /// hold a tab, pane or workspace name (`debug.oracle.settle`'s `intent:<case>` pending entries).
+    public var caseName: String {
+        switch self {
+        case .moveTab: "moveTab"
+        case .renameTab: "renameTab"
+        case .setTabPinned: "setTabPinned"
+        case .renamePane: "renamePane"
+        case .renameScreen: "renameScreen"
+        case .setScreenColor: "setScreenColor"
+        case .setScreenIcon: "setScreenIcon"
+        case .setScreenPinned: "setScreenPinned"
+        case .renameWorkspace: "renameWorkspace"
+        case .moveWorkspace: "moveWorkspace"
+        case .setWorkspaceGroup: "setWorkspaceGroup"
+        case .placeWorkspace: "placeWorkspace"
+        case .setWorkspaceGroupCollapsed: "setWorkspaceGroupCollapsed"
+        case .setTabGroupCollapsed: "setTabGroupCollapsed"
+        case .setRowHeights: "setRowHeights"
+        case .createTab: "createTab"
+        case .bindAgentSession: "bindAgentSession"
+        case .splitPane: "splitPane"
+        case .createWorkspace: "createWorkspace"
+        case .closeTabs: "closeTabs"
+        }
+    }
+}
+
 /// One row's height in permille (`set-row-heights` `heights[]`).
 public struct RowHeightValue: Sendable, Hashable, Codable {
     public var row: RowID

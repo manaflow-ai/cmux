@@ -375,6 +375,7 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    raw_settings: cold::RawSettings,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -501,6 +502,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            raw_settings: Default::default(),
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1160,21 +1162,6 @@ impl Terminal {
         })
     }
 
-    /// Names the terminfo entry this terminal's program runs as (its TERM),
-    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
-    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
-    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
-        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
-        // SAFETY: libghostty copies the string before the call returns.
-        check(unsafe {
-            sys::ghostty_terminal_set(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
-                (&value as *const sys::GhosttyString).cast(),
-            )
-        })
-    }
-
     /// Apply all Kitty limits through one shared path. Returns whether native
     /// image or placement content changed.
     pub fn set_kitty_graphics_limits(&mut self, limits: KittyGraphicsLimits) -> Result<bool> {
@@ -1214,6 +1201,18 @@ impl Terminal {
         }
         self.kitty_replay_pixel_cache.0 = pixel_cache;
         snapshot.map(|_| ())
+    }
+
+    /// Drop the replay encoder's decoded Kitty pixel copies. Lossless: the
+    /// next replay copies the images libghostty still stores again. The
+    /// daemon calls it under critical memory pressure.
+    pub fn clear_kitty_replay_pixel_cache(&mut self) {
+        self.kitty_replay_pixel_cache.0 = HashMap::new();
+    }
+
+    /// Decoded Kitty pixel bytes the replay encoder's cache holds.
+    pub fn kitty_replay_pixel_cache_bytes(&self) -> usize {
+        kitty::pixel_cache_bytes(&self.kitty_replay_pixel_cache.0)
     }
 
     pub fn kitty_image_storage_limit(&self) -> Result<u64> {
@@ -3241,3 +3240,9 @@ impl Drop for Terminal {
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[path = "cold_pages.rs"]
+mod cold;
+pub use cold::{
+    ColdPagesError, ColdRefused, ColdTerminal, PageMemory, ScrollbackCompression, ThawFailed,
+};

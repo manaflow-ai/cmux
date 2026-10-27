@@ -1,0 +1,23 @@
+{
+  "id": "diff-viewer",
+  "tier": "linux",
+  "description": "Diff sidecar manifest decode and sequential read rate, and the webview diff stream p95, on Linux (the perf cron's diff-viewer part).",
+  "command": ["scripts/benchmark-diff-viewer.sh"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "diff\\.sidecar\\.manifest_decode_p95", "unit": "us", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-cron.py", "key": "DIFF_BUDGETS/diff.sidecar.manifest_decode_p95"}},
+    {"name": "diff\\.sidecar\\.read_ms_per_gib", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-cron.py", "key": "DIFF_BUDGETS/diff.sidecar.read_ms_per_gib"}},
+    {"name": "diff\\.stream\\.p95", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-cron.py", "key": "DIFF_BUDGETS/diff.stream.p95"}}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Native/DiffSidecar/Cargo.toml", "file:webviews/bench/diff-stream.bench.ts"],
+  "owner": "Performance Lead",
+  "component": "DiffViewer",
+  "perf_cron_part": "diff-viewer"
+}

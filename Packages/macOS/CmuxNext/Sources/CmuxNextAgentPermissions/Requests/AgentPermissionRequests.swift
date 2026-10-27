@@ -1,6 +1,9 @@
 public import Foundation
 public import Observation
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The one path every agent permission request takes (socket
 /// `permissions.request`, the CLI verb, the MCP tool):
@@ -35,7 +38,7 @@ public final class AgentPermissionRequests {
     @ObservationIgnored private let opener: any PermissionSettingsOpening
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private let makeID: () -> String
-    @ObservationIgnored private var waiters: [String: [CheckedContinuation<PermissionOutcome, Never>]] = [:]
+    @ObservationIgnored private var waiters: [String: [OnceContinuation<PermissionOutcome, OnceContinuationError>]] = [:]
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
     @ObservationIgnored private var watch: Task<Void, Never>?
 
@@ -66,7 +69,9 @@ public final class AgentPermissionRequests {
         if await probe.status(request.kind, target: request.target) == .granted {
             return PermissionOutcome(kind: request.kind, result: .alreadyGranted, requestID: nil, reasonCheck: verdict)
         }
-        return await withCheckedContinuation { continuation in
+        // A waiter dropped without an answer reads as withdrawn (cancelled).
+        let abandoned = PermissionOutcome(kind: request.kind, result: .cancelled, requestID: nil, reasonCheck: verdict)
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<PermissionOutcome, OnceContinuationError>) in
             if let joined = pending.first(where: { $0.request.joins(request) }) {
                 waiters[joined.id, default: []].append(continuation)
                 update(joined.id) { $0.callers += 1 }
@@ -81,7 +86,7 @@ public final class AgentPermissionRequests {
                 queued.append(pendingRequest)
             }
             startTimeout(pendingRequest.id, after: timeout)
-        }
+        }) ?? abandoned
     }
 
     /// The person pressed Continue: open the list (or the macOS prompt) for
@@ -149,7 +154,7 @@ public final class AgentPermissionRequests {
     private func startTimeout(_ id: String, after timeout: Duration) {
         // The request's one deadline; finish() cancels it.
         let timer = DemandTimer(owner: "agent-permissions.request-timeout", clock: clock)
-        timer.schedule(after: timeout) { @MainActor [weak self] in self?.finish(id, .timedOut) }
+        timer.scheduleOnMain(after: timeout) { [weak self] in self?.finish(id, .timedOut) }
         timeouts[id] = timer
     }
 

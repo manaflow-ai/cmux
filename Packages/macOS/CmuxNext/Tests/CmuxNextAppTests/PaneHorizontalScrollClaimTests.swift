@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWakeups
 import CoreGraphics
 import Testing
 
@@ -51,7 +52,7 @@ struct PaneHorizontalScrollClaimTests {
             var signals = ScrollFocusSignals()
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
-            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             for view in provider.views.values { for inner in view.subviews { inner.frame = view.bounds } }

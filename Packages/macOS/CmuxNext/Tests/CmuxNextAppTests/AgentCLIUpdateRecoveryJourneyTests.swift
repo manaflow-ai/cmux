@@ -21,7 +21,7 @@ struct AgentCLIUpdateRecoveryJourneyTests {
         configuration.runtimeBase = root.appendingPathComponent("run")
         let environment = ["HOME": root.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh",
                            "ACPMUX_CATALOG_FETCH": "0", "ACPMUX_REGISTRY_FETCH": "0", "ACPMUX_HEALTH_FETCH": "0"]
-        let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
+        let launcher = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
         let owner = try await launcher.ensure()
         let connectionConfiguration = DaemonConnection.Configuration(terminalEnvironment: nil, clientHello: .init(installKey: key))
         let control = DaemonConnection(endpoint: owner.endpoint, configuration: connectionConfiguration)

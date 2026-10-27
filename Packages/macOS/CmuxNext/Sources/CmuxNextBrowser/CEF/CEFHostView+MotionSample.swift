@@ -28,9 +28,10 @@ extension CEFHostView {
             .filter { $0.isVisible && abs($0.frame.minX - screenRect.minX) < 2 && abs($0.frame.maxY - screenRect.maxY) < 2 }
             .min { abs($0.frame.width - screenRect.width) < abs($1.frame.width - screenRect.width) }
         func rounded(_ value: CGFloat) -> Double { (Double(value) * 100).rounded() / 100 }
+        // wall-clock: browser_resize.py matches it to the page's epoch `performance.timeOrigin + t`.
+        let wallMs = (Date().timeIntervalSince1970 * 1_000_000).rounded() / 1_000
         let row: [Any] = [rounded(host.bounds.width), rounded(host.bounds.height),
-                          page.map { rounded($0.frame.width) } ?? -1, page.map { rounded($0.frame.height) } ?? -1,
-                          (Date().timeIntervalSince1970 * 1_000_000).rounded() / 1_000]
+                          page.map { rounded($0.frame.width) } ?? -1, page.map { rounded($0.frame.height) } ?? -1, wallMs]
         return ["page": [row]]
     }
 }

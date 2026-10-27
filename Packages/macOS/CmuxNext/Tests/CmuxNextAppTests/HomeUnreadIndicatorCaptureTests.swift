@@ -46,7 +46,7 @@ struct HomeUnreadIndicatorCaptureTests {
         var home = TabItem(id: TabID("home"), title: "Home", icon: .symbol("house"))
         home.isUnread = after
         let model = TabStripModel(tabs: [TabItem(id: TabID("term"), title: "zsh"), home], selectedID: TabID("term"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         return snapshot(strip, size: NSSize(width: 420, height: TabStripView.preferredHeight + 12), dark: dark)
     }

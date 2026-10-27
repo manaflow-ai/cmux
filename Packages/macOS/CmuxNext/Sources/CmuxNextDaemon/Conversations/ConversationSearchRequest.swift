@@ -20,7 +20,7 @@ public struct ConversationSearchRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var hits: [Hit]
     }
-    public static let command = "conversation-search"
+    public static let commandName: DaemonCommandName = "conversation-search"
     public static let requiredCapability: String? = DaemonCapability.conversationSearch.rawValue
     public var query: String
     public var limit: Int

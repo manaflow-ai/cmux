@@ -35,8 +35,11 @@ public final class WireGuardNet: @unchecked Sendable {
 
 private final class TerminalClientState: @unchecked Sendable {
     let raw: OpaquePointer
-    /// Retained while an output handler is installed; the C callback context.
+    /// The installed output handler (the box the native callback is set to, or about to be).
     private var outputBox: OutputBox?
+    /// The +1 the native client holds as its output callback's context, from the call that sets
+    /// the callback until the call that replaces or clears it has returned.
+    private var nativeOutputContext: Unmanaged<OutputBox>?
     /// Most recently requested handler. A callback can request replacement
     /// while the FFI is synchronously draining the old callback, so that
     /// request is applied after the drain returns.
@@ -92,16 +95,28 @@ private final class TerminalClientState: @unchecked Sendable {
             return
         }
         rawDisconnected = true
-        let installedOutputBox = outputBox
         lock.unlock()
 
-        withExtendedLifetime(installedOutputBox) {
-            cmux_terminal_client_set_output_callback(raw, nil, nil)
-        }
+        setNativeOutputCallback(raw, to: nil)
         lock.lock()
         outputBox = nil
         lock.unlock()
         cmux_terminal_client_disconnect(raw)
+    }
+
+    /// Points the native output callback at `box` (nil clears it). The native client takes a +1
+    /// on `box` as the callback's context and drops the previous one only after the call returns,
+    /// since the native client waits for callbacks already in flight before it returns. Never
+    /// called with `lock` held: the handler can request a deferred replacement.
+    private func setNativeOutputCallback(_ raw: OpaquePointer, to box: OutputBox?) {
+        let next = box.map { Unmanaged.passRetained($0) }
+        let callback: OutputCallback? = next == nil ? nil : outputTrampoline
+        cmux_terminal_client_set_output_callback(raw, callback, next?.toOpaque())
+        lock.lock()
+        let previous = nativeOutputContext
+        nativeOutputContext = next
+        lock.unlock()
+        previous?.release()
     }
 
     func withConnectedFFI<Result>(
@@ -170,8 +185,8 @@ private final class TerminalClientState: @unchecked Sendable {
         lock.lock()
         // A failed update can race with disconnect after it has read the
         // installed box but before `withConnectedFFI` enters the native call.
-        // The native client still owns that unretained context until
-        // `finishDisconnect` clears the callback, so let that path release it.
+        // The native client still holds that box's context until
+        // `finishDisconnect` clears the callback, so let that path drop it.
         if !didDisconnect {
             outputBox = nil
         }
@@ -201,7 +216,7 @@ private final class TerminalClientState: @unchecked Sendable {
                 // call because the handler can request a deferred replacement.
                 do {
                     try withConnectedFFI { raw in
-                        cmux_terminal_client_set_output_callback(raw, nil, nil)
+                        setNativeOutputCallback(raw, to: nil)
                     }
                 } catch {
                     abandonOutputHandlerUpdate()
@@ -224,10 +239,7 @@ private final class TerminalClientState: @unchecked Sendable {
             if let latest {
                 do {
                     try withConnectedFFI { raw in
-                        cmux_terminal_client_set_output_callback(
-                            raw,
-                            outputTrampoline,
-                            Unmanaged.passUnretained(latest).toOpaque())
+                        setNativeOutputCallback(raw, to: latest)
                     }
                 } catch {
                     abandonOutputHandlerUpdate()
@@ -483,6 +495,8 @@ private typealias OutputCallback = @convention(c) (
 ) -> Void
 
 private let outputTrampoline: OutputCallback = { context, kind, bytes, length, cols, rows in
+    // A non-NULL context is the +1 box `setNativeOutputCallback` gave the native client, which
+    // holds it until the call that replaces or clears the callback has returned.
     guard let context else { return }
     let box = Unmanaged<OutputBox>.fromOpaque(context).takeUnretainedValue()
     let owner = box.owner

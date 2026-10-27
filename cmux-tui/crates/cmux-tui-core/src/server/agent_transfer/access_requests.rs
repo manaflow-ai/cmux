@@ -41,17 +41,18 @@
 //! secret values up to 64 KiB.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
-use crate::mux::Mux;
 use crate::server::remote_relay::gate::COMMAND_PARAMS;
 use crate::server::responses::send_response_with_details;
-use crate::server::{MessageWriter, Response};
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter, Response};
 
 pub const ACCESS_REQUEST_CAPABILITY: &str = "access-request-v1";
 
@@ -129,26 +130,68 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Handles an `access-request*` line; None for any other line.
-pub(super) fn try_handle(
-    mux: &Mux,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"access-request") {
-        return None;
-    }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd))
-            if cmd == "access-request" || cmd.starts_with("access-request-") =>
-        {
-            cmd
+/// The `access-request*` commands, decoded by their `cmd`. A null optional
+/// field is absent; any other field or a non-string value is a bad request.
+/// spec/sdk-schema.json types each variant (check-sdk-schema.py compares the
+/// fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd", deny_unknown_fields)]
+enum Command {
+    #[serde(rename = "access-request")]
+    Make {
+        kind: String,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        session: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    #[serde(rename = "access-request-status")]
+    Status { request_id: String },
+    #[serde(rename = "access-request-list")]
+    List {},
+    #[serde(rename = "access-request-answer")]
+    Answer {
+        request_id: String,
+        outcome: String,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        value: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+}
+
+impl Command {
+    /// The command of a frame (its `cmd` and params, `id` taken out).
+    fn parse(frame: Map<String, Value>) -> Result<Self, Refusal> {
+        if frame.keys().any(|key| COMMAND_PARAMS.contains(&key.as_str())) {
+            return Err(Refusal::BadRequest);
         }
-        _ => return None,
+        serde_json::from_value(Value::Object(frame)).map_err(|_| Refusal::BadRequest)
+    }
+}
+
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact("access-request"), RouteName::Prefix("access-request-")],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
+
+/// Answers an `access-request` or `access-request-*` line (the route found
+/// it by name). The line's one decode is its `Value`, which gives every
+/// reply the `id` as written, a refused one too, and then the typed
+/// [`Command`]. `None` only for a line with no `Value` (a number past
+/// `f64`, a lone surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
+        return None;
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
@@ -158,57 +201,34 @@ pub(super) fn try_handle(
     if !mux.on_cloud_host() {
         return Some(reply(writer, id, Err(Refusal::Unavailable)));
     }
-    let result = handle(&mux.access_requests, &cmd, object, Instant::now());
+    let result = Command::parse(object)
+        .and_then(|command| serve(&mux.access_requests, command, Instant::now()));
     Some(reply(writer, id, result))
 }
 
-fn handle(
-    requests: &AccessRequests,
-    cmd: &str,
-    params: Map<String, Value>,
-    now: Instant,
-) -> Result<Value, Refusal> {
-    if params.keys().any(|key| COMMAND_PARAMS.contains(&key.as_str())) {
-        return Err(Refusal::BadRequest);
-    }
+/// A file path on the Mac or on this machine: absolute, bounded, no control
+/// character.
+fn plain_path(path: &str) -> bool {
+    path.starts_with('/') && path.len() <= MAX_PATH_BYTES && !path.chars().any(char::is_control)
+}
+
+fn serve(requests: &AccessRequests, command: Command, now: Instant) -> Result<Value, Refusal> {
     let mut kept = lock(&requests.requests);
     kept.retain(|_, request| {
         let since = request.answer.as_ref().map_or(request.made, |(at, _)| *at);
         now.duration_since(since) < KEPT
     });
-    match cmd {
-        "access-request" => {
-            let params = Params::take(params, &["kind", "path", "name", "session", "reason"])?;
-            let (kind, path, name) = match params.text("kind")? {
-                Some("file") => {
-                    let path = params
-                        .text("path")?
-                        .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
-                        .filter(|path| !path.chars().any(char::is_control))
-                        .ok_or(Refusal::BadRequest)?;
-                    if params.text("name")?.is_some() {
-                        return Err(Refusal::BadRequest);
-                    }
-                    ("file", Some(path.to_string()), None)
-                }
-                Some("secret") => {
-                    let name = params
-                        .text("name")?
-                        .filter(|name| plain_name(name))
-                        .ok_or(Refusal::BadRequest)?;
-                    if params.text("path")?.is_some() {
-                        return Err(Refusal::BadRequest);
-                    }
-                    ("secret", None, Some(name.to_string()))
-                }
+    match command {
+        Command::Make { kind, path, name, session, reason } => {
+            let (kind, path, name) = match (kind.as_str(), path, name) {
+                ("file", Some(path), None) if plain_path(&path) => ("file", Some(path), None),
+                ("secret", None, Some(name)) if plain_name(&name) => ("secret", None, Some(name)),
                 _ => return Err(Refusal::BadRequest),
             };
-            let session = params.text("session")?;
-            if session.is_some_and(|session| !plain_session(session)) {
+            if session.as_deref().is_some_and(|session| !plain_session(session)) {
                 return Err(Refusal::BadRequest);
             }
-            let reason = params.text("reason")?;
-            if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
+            if reason.as_ref().is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                 return Err(Refusal::BadRequest);
             }
             if kept.len() >= MAX_REQUESTS {
@@ -217,22 +237,12 @@ fn handle(
             let request_id = new_id().ok_or(Refusal::Limit)?;
             kept.insert(
                 request_id.clone(),
-                Request {
-                    kind,
-                    path,
-                    name,
-                    session: session.map(str::to_string),
-                    reason: reason.map(str::to_string),
-                    made: now,
-                    answer: None,
-                },
+                Request { kind, path, name, session, reason, made: now, answer: None },
             );
             Ok(json!({ "request_id": request_id }))
         }
-        "access-request-status" => {
-            let params = Params::take(params, &["request_id"])?;
-            let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
-            let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
+        Command::Status { request_id } => {
+            let request = kept.get_mut(&request_id).ok_or(Refusal::UnknownRequest)?;
             Ok(match &mut request.answer {
                 None => json!({"state": "pending"}),
                 Some((_, Answer::Delivered(path))) => json!({"state": "delivered", "path": path}),
@@ -250,8 +260,7 @@ fn handle(
                 Some((_, Answer::Denied(reason))) => json!({"state": "denied", "reason": reason}),
             })
         }
-        "access-request-list" => {
-            Params::take(params, &[])?;
+        Command::List {} => {
             let mut pending: Vec<(&String, &Request)> =
                 kept.iter().filter(|(_, request)| request.answer.is_none()).collect();
             pending.sort_by_key(|(_, request)| request.made);
@@ -271,40 +280,24 @@ fn handle(
                 .collect();
             Ok(json!({ "requests": requests }))
         }
-        "access-request-answer" => {
-            let mut params =
-                Params::take(params, &["request_id", "outcome", "path", "value", "reason"])?;
-            let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?.to_string();
-            let outcome = params.text("outcome")?.map(str::to_string);
+        Command::Answer { request_id, outcome, path, value, reason } => {
+            // Moved out of the frame, so the only copy kept is wiped.
+            let value = value.map(Zeroizing::new);
             let request = kept.get_mut(&request_id).ok_or(Refusal::UnknownRequest)?;
-            let answer = match (outcome.as_deref(), request.kind) {
-                (Some("delivered"), "file") if params.text("value")?.is_none() => {
-                    Answer::Delivered(
-                        params
-                            .text("path")?
-                            .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
-                            .filter(|path| !path.chars().any(char::is_control))
-                            .ok_or(Refusal::BadRequest)?
-                            .to_string(),
-                    )
+            let answer = match (outcome.as_str(), request.kind, path, value) {
+                ("delivered", "file", Some(path), None) if plain_path(&path) => {
+                    Answer::Delivered(path)
                 }
-                (Some("delivered"), "secret") if params.text("path")?.is_none() => {
-                    // Moved out of the frame, so the only copy kept is wiped.
-                    let value = params
-                        .take_text("value")?
-                        .map(Zeroizing::new)
-                        .filter(|value| !value.is_empty() && value.len() <= MAX_SECRET_BYTES)
-                        .ok_or(Refusal::BadRequest)?;
+                ("delivered", "secret", None, Some(value))
+                    if !value.is_empty() && value.len() <= MAX_SECRET_BYTES =>
+                {
                     Answer::Secret(Some(value))
                 }
-                (Some("denied"), _)
-                    if params.text("path")?.is_none() && params.text("value")?.is_none() =>
-                {
-                    let reason = params.text("reason")?;
-                    if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
+                ("denied", _, None, None) => {
+                    if reason.as_ref().is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                         return Err(Refusal::BadRequest);
                     }
-                    Answer::Denied(reason.map(str::to_string))
+                    Answer::Denied(reason)
                 }
                 _ => return Err(Refusal::BadRequest),
             };
@@ -313,37 +306,6 @@ fn handle(
             }
             request.answer = Some((now, answer));
             Ok(json!({}))
-        }
-        _ => Err(Refusal::BadRequest),
-    }
-}
-
-/// A frame's params, with none but the listed ones.
-struct Params(Map<String, Value>);
-
-impl Params {
-    fn take(params: Map<String, Value>, allowed: &[&str]) -> Result<Self, Refusal> {
-        if params.keys().any(|key| !allowed.contains(&key.as_str())) {
-            return Err(Refusal::BadRequest);
-        }
-        Ok(Self(params))
-    }
-
-    /// The string param `key`; a non-string value is refused.
-    fn text(&self, key: &str) -> Result<Option<&str>, Refusal> {
-        match self.0.get(key) {
-            None | Some(Value::Null) => Ok(None),
-            Some(Value::String(text)) => Ok(Some(text)),
-            Some(_) => Err(Refusal::BadRequest),
-        }
-    }
-
-    /// The string param `key`, moved out of the frame.
-    fn take_text(&mut self, key: &str) -> Result<Option<String>, Refusal> {
-        match self.0.remove(key) {
-            None | Some(Value::Null) => Ok(None),
-            Some(Value::String(text)) => Ok(Some(text)),
-            Some(_) => Err(Refusal::BadRequest),
         }
     }
 }
@@ -388,3 +350,7 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Refusa
         None,
     )
 }
+
+#[cfg(test)]
+#[path = "access_requests_tests.rs"]
+mod tests;

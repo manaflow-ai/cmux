@@ -101,11 +101,15 @@ final class RemoteInputController {
     }
 
     func scroll(_ event: NSEvent) {
+        scroll(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+               precise: event.hasPreciseScrollingDeltas, phase: event.phase, momentumPhase: event.momentumPhase)
+    }
+
+    /// One scroll of `deltaX`, `deltaY` in `phase` and `momentumPhase`: one event's, or the sum of a
+    /// frame's events in the same phase (``RemoteInputCaptureView``'s frame-aligned input).
+    func scroll(deltaX: Double, deltaY: Double, precise: Bool, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) {
         guard isActive else { return }
-        let precise = event.hasPreciseScrollingDeltas
-        if let scrollEvent = scroll.add(
-            deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), precise: precise,
-            phase: event.phase, momentumPhase: event.momentumPhase) {
+        if let scrollEvent = scroll.add(deltaX: deltaX, deltaY: deltaY, precise: precise, phase: phase, momentumPhase: momentumPhase) {
             emit([scrollEvent])
         }
     }
@@ -137,9 +141,13 @@ final class RemoteInputController {
     /// Whether the selected input source can type ASCII (false for an IME
     /// such as Japanese kana input), for `keyboard.mode = auto`.
     nonisolated static func currentInputSourceIsASCIICapable() -> Bool {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-              let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
-        let value = Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue()
+        // SAFETY: a Copy function returns its source at +1: taken once here. The property
+        // getter returns a +0 pointer owned by `source`, which lives to the end of this function.
+        guard let source = unsafe TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let raw = unsafe TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
+        // SAFETY: kTISPropertyInputSourceIsASCIICapable is a CFBoolean (TextInputSources.h),
+        // read at +0 while `source` keeps it alive.
+        let value = unsafe Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue()
         return CFBooleanGetValue(value)
     }
 }

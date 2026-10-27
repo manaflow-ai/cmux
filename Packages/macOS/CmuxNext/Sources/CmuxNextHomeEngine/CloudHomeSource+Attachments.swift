@@ -26,7 +26,7 @@ nonisolated extension CloudHomeSource {
             _ = try await reply(for: identity) {
                 try await Self.attachmentCall {
                     try await commands.downloadAttachment(conversation: location.conversation.rawValue, hash: ref.hash, variant: piece,
-                                                          to: target)
+                                                          to: target, on: self.work)
                 }
             }
         }

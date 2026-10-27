@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn resource_zoom_pane(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -87,6 +88,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_set_split_ratio(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -177,6 +179,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_set_viewport_width(
         self: &Arc<Self>,
         selectors: ResourceSelectors,

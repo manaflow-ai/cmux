@@ -22,6 +22,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
     )
 }
 
+#[track_caller]
 pub(super) fn dispatch(mux: &Mux, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     use ResourceOperation as Op;
     let fields = &request.fields;

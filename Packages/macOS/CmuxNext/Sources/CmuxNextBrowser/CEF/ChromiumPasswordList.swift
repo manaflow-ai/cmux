@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The saved sign-ins and never-save sites of one Chromium profile, from the fork's
@@ -49,7 +50,7 @@ public nonisolated struct ChromiumPasswordList: Sendable, Hashable {
 
     /// The fork's JSON `{"passwords": [...], "exceptions": [...]}`; nil when it is not that object.
     public static func parse(_ json: String) -> ChromiumPasswordList? {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
         func date(_ value: Any?) -> Date? {
             guard let ms = (value as? NSNumber)?.doubleValue, ms > 0 else { return nil }
             return Date(timeIntervalSince1970: ms / 1000)

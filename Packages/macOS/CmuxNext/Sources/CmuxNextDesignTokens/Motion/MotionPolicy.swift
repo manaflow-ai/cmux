@@ -13,6 +13,11 @@ public import Foundation
 /// - A live resize (a window edge under the pointer): movement is instant,
 ///   so each frame lays out at the window's size and nothing springs toward
 ///   a size the next frame replaces; fades and loops run as usual.
+/// - Energy Saver (``energySaver``): ambient loops (spinners, pulses, breaths, sweeps) hold
+///   still; movement, fades and the blinks a person or a notification starts run as in normal
+///   mode. Chrome's battery saver throttles frame sinks the person does not interact with and
+///   leaves the ones with recent input alone (chrome/browser/performance_manager/user_tuning/
+///   battery_saver_mode_manager.cc, plans/cmux-next/chrome-parity/p14-energy.md, D).
 public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var speed: MotionSpeed
     public var reduceMotion: Bool
@@ -29,11 +34,17 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// The category this policy decides for (``MotionGate``); nil decides
     /// with the master switch only (reports, the debug window).
     public var category: MotionCategory?
+    /// Looping indicators ask the render server for only the frames they need (30 a second for a
+    /// spinner), not the display's full rate (feature `frameRateClasses`). Never a timing change.
+    public var pacesLoops: Bool
+    /// Energy Saver is on (`EnergyPolicy.isSaver`, feature `energySaver`): ambient loops hold still
+    /// (``animatesLoops``). Nothing else in the policy reads it, so normal mode is unchanged.
+    public var energySaver: Bool
 
     public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none,
                 enabledKinds: Set<MotionKind> = [], liveResize: Bool = false,
                 animationsEnabled: Bool = true, disabledCategories: Set<MotionCategory> = [],
-                category: MotionCategory? = nil) {
+                category: MotionCategory? = nil, pacesLoops: Bool = false, energySaver: Bool = false) {
         self.speed = speed
         self.reduceMotion = reduceMotion
         self.bounce = bounce
@@ -42,6 +53,8 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         self.animationsEnabled = animationsEnabled
         self.disabledCategories = disabledCategories
         self.category = category
+        self.pacesLoops = pacesLoops
+        self.energySaver = energySaver
     }
 
     /// This policy deciding for `category`.
@@ -67,8 +80,13 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     public func animates(_ kind: MotionKind) -> Bool { animatesMovement && enabledKinds.contains(kind) }
     /// Opacity and color changes animate. When false, apply at once.
     public var animatesFades: Bool { categoryAnimates }
-    /// Repeating indicators (spinner, pulse) run.
-    public var animatesLoops: Bool { categoryAnimates && !reduceMotion }
+    /// Ambient repeating indicators (spinner, pulse, breath, sweep) run: not Reduce Motion and not
+    /// Energy Saver. When false they show their static frame.
+    public var animatesLoops: Bool { animatesBlinks && !energySaver }
+    /// Blinks and repeats that end on their own or follow what the person does (an attention
+    /// blink, the flash verb, dictation level bars, edit mode's wiggle) run: not Reduce Motion. Energy Saver leaves
+    /// them as they are; it stills only ambient ``animatesLoops``.
+    public var animatesBlinks: Bool { categoryAnimates && !reduceMotion }
 
     /// The spring for `token` at this speed. Callers still snap when
     /// `animatesMovement` is false; `off` returns the `fast` spring so a
@@ -98,8 +116,9 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         animatesMovement ? spring(token).perceivedDuration : 0
     }
 
-    /// Period of `loop`, or nil when loops are stopped.
+    /// Period of `loop`, or nil when it is stopped: an ambient loop by ``animatesLoops``, a loop
+    /// that follows the person (``MotionLoop/isAmbient`` false: the flash, the wiggle) by ``animatesBlinks``.
     public func period(_ loop: MotionLoop) -> TimeInterval? {
-        animatesLoops ? loop.period : nil
+        (loop.isAmbient ? animatesLoops : animatesBlinks) ? loop.period : nil
     }
 }

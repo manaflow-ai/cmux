@@ -200,5 +200,5 @@ public final class HomeInboxSource {
 
     /// Milliseconds since 1970: the position the Channels page gives a pin too, so both views'
     /// pins sort by when they were made.
-    static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+    static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) } // wall-clock: shared with the Channels page
 }

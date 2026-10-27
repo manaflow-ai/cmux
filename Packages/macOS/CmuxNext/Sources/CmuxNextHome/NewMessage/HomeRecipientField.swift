@@ -18,6 +18,10 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public var onDone: () -> Void = {}
     /// Escape: the page may end the draft (Messages leaves New Message).
     public var onEscape: () -> Void = {}
+    /// The field's height or its suggestions' height or visibility changed: the page that places
+    /// both (``height(forWidth:)``, ``HomeRecipientSuggestionsView/preferredHeight``) lays out again.
+    /// The field never invalidates its ancestor itself.
+    public var onGeometryChange: () -> Void = {}
     /// The people the field suggests (read on each change).
     public var contacts: () -> [HomeContact] = { [] }
     /// What the list offers before anyone is chosen or typed (the Chiefs, main first).
@@ -34,6 +38,8 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     private(set) var chips: [HomeRecipientChip] = []
     /// The + button showed every contact (cleared by the next keystroke).
     private var browsing = false
+    /// The suggestions' height and visibility the page was last told about (``onGeometryChange``).
+    private var reportedList: ListGeometry?
     /// The token a click selected: Backspace removes it.
     private(set) var selectedToken: Int? {
         didSet { for (index, chip) in chips.enumerated() { chip.isSelected = index == selectedToken } }
@@ -147,8 +153,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         let chosen = Set(draft.recipients)
         let all = contacts().map(HomeRecipient.contact).filter { !chosen.contains($0) }
         suggestions.show(all, empty: HomeConversationStrings.composeNoContacts)
-        needsLayout = true
-        superview?.needsLayout = true
+        reportGeometry()
         focus()
     }
 
@@ -174,7 +179,23 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         } else {
             suggestions.show(draft.suggestions(contacts: contacts()))
         }
-        superview?.needsLayout = true
+        reportGeometry()
+    }
+
+    /// The suggestions' height and visibility: what the page places under the field.
+    private struct ListGeometry: Equatable {
+        var height: CGFloat
+        var shown: Bool
+    }
+
+    /// Tells the page when what it places changed (``onGeometryChange``), never per keystroke otherwise.
+    /// The field's height is checked against the frame the page gave it, so a width change since the
+    /// last report never hides a new height.
+    private func reportGeometry() {
+        let list = ListGeometry(height: suggestions.preferredHeight, shown: !suggestions.isHidden)
+        guard height(forWidth: bounds.width) != bounds.height || list != reportedList else { return }
+        reportedList = list
+        onGeometryChange()
     }
 
     public func controlTextDidChange(_ notification: Notification) {
@@ -221,6 +242,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
             if !suggestions.isHidden, browsing || !draft.isEmpty {
                 browsing = false
                 suggestions.show([])
+                reportGeometry()
                 return true
             }
             onEscape()
@@ -243,9 +265,9 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         }
         let names = draft.tokens.map(\.text).joined(separator: ", ")
         text.setAccessibilityValueDescription(names.isEmpty ? nil : HomeConversationStrings.composeTo(names))
-        needsLayout = true
+        needsLayout = true // invalidate: the chips were rebuilt (a token added or removed, or a new draft)
         invalidateIntrinsicContentSize()
-        superview?.needsLayout = true
+        reportGeometry()
     }
 
     /// The frames of the chips and the text field for `width`, and the height they need.

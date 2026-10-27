@@ -145,36 +145,63 @@ pub struct Sampler {
     inner: imp::Sampler,
 }
 
+/// A read of the operating system's process table: one `proc_scan` on a
+/// request thread (`request_path`), noted at the caller of the public method.
+#[track_caller]
+fn note_proc_scan() {
+    crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
+}
+
+/// Whether the per-process lookups ask the kernel. On Linux the sampler
+/// keeps its one `/proc` scan and answers tree and parent lookups from it.
+const LOOKUPS_READ_THE_KERNEL: bool = !cfg!(target_os = "linux");
+
 impl Sampler {
-    /// Read what a request needs up front. On Linux this is one `/proc` scan.
+    /// Read what a request needs up front: on Linux one `/proc` scan, on
+    /// Windows one process snapshot, on macOS this daemon's own path.
+    #[track_caller]
     pub fn new() -> Self {
+        note_proc_scan();
         Self { inner: imp::Sampler::new() }
     }
 
     /// The process tree under `root`, capped at
     /// [`MAX_PROCESSES_PER_TERMINAL`].
+    #[track_caller]
     pub fn tree(&self, root: u32) -> ProcessTree {
+        if LOOKUPS_READ_THE_KERNEL {
+            note_proc_scan();
+        }
         walk_tree(root, MAX_PROCESSES_PER_TERMINAL, |pid| self.inner.children(pid))
     }
 
     /// The parent pid, when the process still exists.
+    #[track_caller]
     pub fn parent(&self, pid: u32) -> Option<u32> {
+        if LOOKUPS_READ_THE_KERNEL {
+            note_proc_scan();
+        }
         self.inner.parent(pid)
     }
 
     /// Name, CPU time and memory, or `None` when the process is gone or the
     /// platform does not report it.
+    #[track_caller]
     pub fn sample(&self, pid: u32) -> Option<ProcessSample> {
+        note_proc_scan();
         self.inner.sample(pid)
     }
 
     /// The process runs this daemon's own executable.
+    #[track_caller]
     pub fn runs_own_executable(&self, pid: u32) -> bool {
+        note_proc_scan();
         self.inner.runs_own_executable(pid)
     }
 }
 
 impl Default for Sampler {
+    #[track_caller]
     fn default() -> Self {
         Self::new()
     }

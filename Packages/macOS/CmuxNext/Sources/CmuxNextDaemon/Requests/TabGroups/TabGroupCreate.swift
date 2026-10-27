@@ -4,7 +4,7 @@ import Foundation
 /// position and leave any group they were in; pinned tabs are refused.
 public struct CreateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "create-tab-group"
+    public static let commandName: DaemonCommandName = "create-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     /// Tabs of one pane (wire `surfaces`).
     public var tabs: [SurfaceID]
@@ -49,7 +49,7 @@ public struct CreateTabGroupRequest: DaemonRequest {
 /// sent only when set; `.clear` sends `null`, which removes it.
 public struct UpdateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "update-tab-group"
+    public static let commandName: DaemonCommandName = "update-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var name: String?

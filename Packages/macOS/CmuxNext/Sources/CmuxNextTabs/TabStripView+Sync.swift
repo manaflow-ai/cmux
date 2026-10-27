@@ -167,7 +167,7 @@ extension TabStripView {
         applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
-            needsLayout = true
+            needsLayout = true // invalidate: the + button shows or goes (the check above)
         }
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,

@@ -29,7 +29,9 @@ nonisolated final class SyntheticFrameEncoder {
         ]
         var created: VTCompressionSession?
         for spec in specs where created == nil {
-            VTCompressionSessionCreate(
+            // SAFETY: VideoToolbox writes one +1 session to the local `created`; with no
+            // callback and a nil refcon it keeps no pointer of ours.
+            unsafe VTCompressionSessionCreate(
                 allocator: kCFAllocatorDefault, width: Int32(width), height: Int32(height),
                 codecType: codec == .h264 ? kCMVideoCodecType_H264 : kCMVideoCodecType_HEVC,
                 encoderSpecification: spec as CFDictionary, imageBufferAttributes: attributes as CFDictionary,
@@ -57,7 +59,8 @@ nonisolated final class SyntheticFrameEncoder {
     func makeBuffer() -> CVPixelBuffer? {
         guard let pool = VTCompressionSessionGetPixelBufferPool(session) else { return nil }
         var buffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
+        // SAFETY: Core Video writes one +1 buffer to the local `buffer`, live for the call.
+        unsafe CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
         return buffer
     }
 
@@ -70,7 +73,8 @@ nonisolated final class SyntheticFrameEncoder {
         let pts = CMTime(value: CMTimeValue(index), timescale: 60)
         let properties = forceKeyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let codec = self.codec
-        let status = VTCompressionSessionEncodeFrame(
+        // SAFETY: with a nil info pointer VideoToolbox writes no flags back.
+        let status = unsafe VTCompressionSessionEncodeFrame(
             session, imageBuffer: buffer, presentationTimeStamp: pts, duration: CMTime(value: 1, timescale: 60),
             frameProperties: properties, infoFlagsOut: nil
         ) { status, _, sample in
@@ -107,8 +111,10 @@ nonisolated final class SyntheticFrameEncoder {
         let total = CMBlockBufferGetDataLength(block)
         var raw = [UInt8](repeating: 0, count: total)
         let status = raw.withUnsafeMutableBytes { destination -> OSStatus in
-            guard let base = destination.baseAddress else { return -1 }
-            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: total, destination: base)
+            // SAFETY: destination views `raw`, live for this closure.
+            guard let base = unsafe destination.baseAddress else { return -1 }
+            // SAFETY: Core Media writes `total` bytes, exactly raw.count, to base during the call.
+            return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: total, destination: base)
         }
         guard status == noErr else { return nil }
         var offset = 0
@@ -130,16 +136,22 @@ nonisolated final class SyntheticFrameEncoder {
             var size = 0
             let status = switch codec {
             case .h264:
-                CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                // SAFETY: Core Media writes a pointer into `format`'s own parameter set storage
+                // and the counts to the locals, all live for the call; nil asks for no header length.
+                unsafe CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
                     format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
                     parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
             case .hevc:
-                CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                // SAFETY: as for H.264 above.
+                unsafe CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
                     format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
                     parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
             }
-            guard status == noErr, let pointer else { return nil }
-            return Array(UnsafeBufferPointer(start: pointer, count: size))
+            // SAFETY: on success `pointer` is the set's `size` bytes inside `format`, which the
+            // caller holds for this call.
+            guard status == noErr, let pointer = unsafe pointer else { return nil }
+            // SAFETY: as above; Array copies the bytes before this returns.
+            return unsafe Array(UnsafeBufferPointer(start: pointer, count: size))
         }
         // The first call also reports how many sets there are.
         guard let first = set(at: 0) else { return [] }

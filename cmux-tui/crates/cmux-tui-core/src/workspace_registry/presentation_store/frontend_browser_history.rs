@@ -43,6 +43,7 @@ fn validate_frontend_browser_history(value: &str) -> anyhow::Result<()> {
 impl WorkspaceRegistry {
     /// Store (`Some`) or clear (`None`) the session history of a
     /// frontend-rendered browser.
+    #[track_caller]
     pub fn set_frontend_browser_history(
         &mut self,
         browser_id: &str,
@@ -78,6 +79,7 @@ impl WorkspaceRegistry {
     }
 
     /// The session history last stored for a frontend browser, if any.
+    #[track_caller]
     pub fn frontend_browser_history(&self, browser_id: &str) -> anyhow::Result<Option<String>> {
         validate_browser_public_id(browser_id)?;
         Ok(self

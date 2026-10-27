@@ -76,6 +76,10 @@
       "type": "string",
       "pattern": "^(?:[A-Za-z_][A-Za-z0-9_]{0,79}\\.[A-Za-z_][A-Za-z0-9_]{0,79}/[A-Za-z_][A-Za-z0-9_]{0,79}|[a-z_][a-z0-9_]{0,63}(?:::[A-Za-z_][A-Za-z0-9_]{0,79}){1,8})$"
     },
+    "benchOnly": {
+      "description": "Only DEBUG and bench (CMUX_BENCH_HOOKS) builds declare the feature: its handle and registry entry are compiled out of Release, Nightly and RC, so no shipped list, CLI or environment can name it. App features only.",
+      "type": "boolean"
+    },
     "replaces": {
       "description": "Debug tunable keys and env switches this feature took over (gen-features.py --unmigrated stops listing them).",
       "type": "array",
@@ -99,6 +103,11 @@
       "if": { "required": ["process"], "properties": { "process": { "const": "chromium" } } },
       "then": { "required": ["chromium_feature"] },
       "else": { "not": { "required": ["chromium_feature"] } }
+    },
+    {
+      "description": "a benchOnly feature is an app feature: only the app has bench builds",
+      "if": { "required": ["benchOnly"], "properties": { "benchOnly": { "const": true } } },
+      "then": { "properties": { "process": { "const": "app" } } }
     }
   ],
   "$defs": {

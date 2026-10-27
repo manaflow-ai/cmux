@@ -83,11 +83,8 @@ extension ChatColumnPlacement {
         case .terminal(let spawn)?:
             controller.workspace?.newColumn(after: controller.layoutPaneID, options: spawn)
         case .browser(let url, _, _)? where URL(string: url).map(isWebPage) == true:
-            let daemon = controller.daemon
-            services.registry.track(Task { @MainActor in
-                _ = await daemon.request("workspace.open_url") { try await WorkspaceOpenURLClient($0).openOnHome(url) }
-                return nil
-            })
+            // The daemon's send path: it runs on the connection and reports to a capturing caller.
+            controller.daemon.send("workspace.open_url") { try await WorkspaceOpenURLClient($0).openOnHome(url) }
         case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
             // A browser tab aimed at the lone dock opens in a new column right of it (the daemon's
             // reroute, or PaneBrowserTabOpener's move while the dock takes tabs).

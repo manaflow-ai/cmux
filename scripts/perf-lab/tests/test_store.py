@@ -129,11 +129,12 @@ class MigrationTests(StoreTestCase):
 
     def test_applies_only_newer_migrations_and_refuses_a_newer_database(self) -> None:
         self.store.insert_run(run("r1"), build=build(1), host=HOST, metrics=[metric("a", [1.0])])
-        newer = (*store.MIGRATIONS, (2, "run notes", ("ALTER TABLE runs ADD COLUMN note TEXT",)))
+        next_version = len(store.MIGRATIONS) + 1
+        newer = (*store.MIGRATIONS, (next_version, "run notes", ("ALTER TABLE runs ADD COLUMN note TEXT",)))
         self.store.close()
         self.store = self.open(newer)
-        self.assertEqual(self.store.migrate(), 2)
-        self.assertEqual(self.store.migrate(), 2)
+        self.assertEqual(self.store.migrate(), next_version)
+        self.assertEqual(self.store.migrate(), next_version)
         self.assertEqual(self.store.run_metrics("r1"), {"a": [1.0]})
         self.store.close()
         self.store = self.open()
@@ -152,7 +153,7 @@ class MigrationTests(StoreTestCase):
 
     def test_refuses_gaps_in_migration_versions(self) -> None:
         with self.assertRaises(store.StoreError):
-            self.open((*store.MIGRATIONS, (3, "gap", ())))
+            self.open((*store.MIGRATIONS, (len(store.MIGRATIONS) + 2, "gap", ())))
 
 
 class SeriesKeyTests(StoreTestCase):

@@ -1,0 +1,27 @@
+{
+  "id": "home-idle",
+  "tier": "T1",
+  "description": "perf-budgets families home (composer key dispatch, scroll frame) and idle (app CPU with terminals and a static Chromium page) (the perf cron's home-idle part).",
+  "command": ["scripts/cmux-next/perf-budgets.py", "--only=home,idle"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "home\\.typing\\.key_dispatch", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/home\\.typing\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/home\\.typing\\..*/floor"}},
+    {"name": "home\\.scroll\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/home\\.scroll\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/home\\.scroll\\.frame/floor"}},
+    {"name": "idle\\.[a-z-]+\\.app_cpu_pct", "unit": "percent", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/idle\\..*\\.app_cpu_pct/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/idle\\..*\\.app_cpu_pct/floor"}}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": [],
+  "hot_paths": ["home-key"],
+  "owner": "PL-typing",
+  "component": "Home",
+  "perf_cron_part": "home-idle"
+}

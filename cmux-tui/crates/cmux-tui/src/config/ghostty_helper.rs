@@ -1,6 +1,8 @@
 //! Ghostty config helper process: runs the resolver child, reads its bounded output, and reaps it and its process groups on a deadline.
 
 use super::*;
+#[cfg(any(unix, not(test)))]
+use cmux_process::Command;
 
 pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
     args.first().map(String::as_str) == Some("__ghostty-config-defaults")

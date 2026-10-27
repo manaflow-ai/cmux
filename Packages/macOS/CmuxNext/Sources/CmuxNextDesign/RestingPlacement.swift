@@ -18,11 +18,16 @@ public protocol RestingPlacement: NSView {
     /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
     /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
     var restContentSizeChange: CGSize? { get }
+    /// Whether the view's frame is where it rests, or is set there in this turn, although it may be on a layout
+    /// spring: the render server shows that spring (`PaneHostView.placeAtRest`). False on a CPU spring, whose
+    /// frame moves on every display frame. True at rest.
+    var framePlacedAtRest: Bool { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
+    var framePlacedAtRest: Bool { !isOnLayoutSpring }
 }
 
 public extension NSView {
@@ -36,6 +41,26 @@ public extension NSView {
         }
         return nil
     }
+
+    /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/framePlacedAtRest``; true outside one.
+    var enclosingFramePlacedAtRest: Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if let placement = view as? RestingPlacement { return placement.framePlacedAtRest }
+            ancestor = view.superview
+        }
+        return true
+    }
+}
+
+/// A view inside a pane host that follows the host's place in its window once per finished move, never per
+/// frame: a strip or canvas camera that landed, a pan that ended, a spring that landed, a pane moved by a
+/// close or a reorder with no animation. The layout calls it after the frame the move rests in, once the
+/// layout is out of motion (`LayoutRootView.setLayoutInMotion`); a page's glass pushes its lens rect there.
+@MainActor
+public protocol PanePlacementFollowing: NSView {
+    /// The enclosing pane host's place in its window changed since the last call and is final now.
+    func panePlacementDidSettle()
 }
 
 /// A view inside a ``RestingPlacement`` that defers costly work while its placement is on a layout
@@ -106,5 +131,12 @@ public extension NSView {
     func notifyPaneMotionSettled() {
         if let settling = self as? PaneMotionSettling { settling.paneMotionDidSettle() }
         for subview in subviews { subview.notifyPaneMotionSettled() }
+    }
+
+    /// Tells every ``PanePlacementFollowing`` view in this subtree (this view included) that its pane host's
+    /// place in the window is final.
+    func notifyPanePlacementSettled() {
+        if let following = self as? PanePlacementFollowing { following.panePlacementDidSettle() }
+        for subview in subviews { subview.notifyPanePlacementSettled() }
     }
 }

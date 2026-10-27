@@ -1,7 +1,6 @@
 import CmuxNextWakeups
 import CmuxUpdater
 import Foundation
-@preconcurrency import Sparkle
 
 /// Keeps the staged update the right one: a staged build that is not newer than the running one
 /// has its installer cancelled (``dropStale(updater:)``), and a staged build gives way to a newer
@@ -79,7 +78,7 @@ final class StagedUpdateRefresh {
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
         let probe = updater.probe()
-        clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
+        clickTimer.scheduleOnMain(after: Self.clickProbeDeadline) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.settleClick(answered: false, updater: updater)
         }
@@ -163,7 +162,7 @@ final class StagedUpdateRefresh {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
         armedFast = probesFast(updater)
-        timer.schedule(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { @MainActor [weak self, weak updater] in
+        timer.scheduleOnMain(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }
@@ -268,7 +267,7 @@ final class StagedUpdateRefresh {
     func dropStale(updater: UpdaterService) {
         let running = updater.identity.build
         guard case .ready = updater.sourcePhase, let build = updater.stagedBuild(), !build.isEmpty,
-              SUStandardVersionComparator.default.compareVersion(build, toVersion: running) != .orderedDescending,
+              SparkleVersionComparator().compare(build, running) != .orderedDescending,
               updater.cancelStaged() else { return }
         updater.log.append("staged build \(build) is not newer than build \(running): cancelling its installer")
     }

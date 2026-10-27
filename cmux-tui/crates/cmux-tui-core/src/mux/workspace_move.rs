@@ -5,6 +5,7 @@ use super::*;
 impl Mux {
     /// Reorder a workspace as `actor`. The active workspace follows the
     /// moved entry.
+    #[track_caller]
     pub fn move_workspace_at_revision_as(
         &self,
         actor: &Actor,
@@ -44,6 +45,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_workspace_with_mutation(
         &self,
         workspace: Option<WorkspaceId>,

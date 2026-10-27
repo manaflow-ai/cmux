@@ -12,12 +12,15 @@ import java.util.Objects;
 
 /** Immutable conversation-changed event. Protocol v12; streams: subscribe. */
 public final class ConversationChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Object change;
     private final String conversation;
     private final UInt64 rev;
     private final String transaction;
 
     private ConversationChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.changeSet) throw new IllegalArgumentException("change is required");
         this.change = builder.change == null ? null : Wire.immutableJson(builder.change);
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
@@ -30,6 +33,7 @@ public final class ConversationChangedEvent implements WireValue, DeltaStreamEve
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public Object change() { return change; }
     public String conversation() { return conversation; }
     public UInt64 rev() { return rev; }
@@ -40,6 +44,10 @@ public final class ConversationChangedEvent implements WireValue, DeltaStreamEve
         Map<String, Object> object = Wire.object(value, "ConversationChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "conversation-changed", "ConversationChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawChange = Wire.required(object, "change");
         builder.change(rawChange == null ? null : Wire.immutableJson(rawChange));
         Object rawConversation = Wire.required(object, "conversation");
@@ -55,6 +63,7 @@ public final class ConversationChangedEvent implements WireValue, DeltaStreamEve
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "conversation-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "change", change);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "rev", rev);
@@ -65,16 +74,17 @@ public final class ConversationChangedEvent implements WireValue, DeltaStreamEve
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationChangedEvent that)) return false;
-        return Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(cause, that.cause) && Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(change, conversation, rev, transaction); }
+    public int hashCode() { return Objects.hash(cause, change, conversation, rev, transaction); }
 
     @Override
     public String toString() { return "ConversationChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private Object change;
         private boolean changeSet;
         private String conversation;
@@ -84,6 +94,10 @@ public final class ConversationChangedEvent implements WireValue, DeltaStreamEve
         private String transaction;
         private boolean transactionSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder change(Object value) {
             this.change = value;
             this.changeSet = true;

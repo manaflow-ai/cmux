@@ -60,6 +60,7 @@ final class BrowserTabOpeners {
                pinned: @escaping @MainActor () -> Set<SurfaceID> = { [] },
                create: @escaping @MainActor (_ after: SurfaceID) async throws -> SurfaceID) async throws -> SurfaceID {
         let previous = queue[opener]
+        // main-hop-allow: placements of one opener run in order behind the previous one, through the main-actor create seam
         let placing = Task { [weak self] () async throws -> SurfaceID in
             // A failed earlier placement does not stop this one.
             _ = try? await previous?.value

@@ -10,7 +10,7 @@ extension WorkspaceContentController {
     /// `apply` runs it sends once, at its end. The coordinator drops a
     /// topology equal to the one it holds.
     func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        guard !isParked, !isApplying else { return }
+        guard !isParked, !isApplying, !isTornDown else { return }
         focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
@@ -31,7 +31,7 @@ extension WorkspaceContentController {
     /// A pane's part of the topology changed: every pane that changes in this main-actor turn
     /// shares one build and send (`FocusCoordinator.setNeedsTopology`), not one each (I4).
     func setNeedsTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        guard !isParked, !isApplying else { return }
+        guard !isParked, !isApplying, !isTornDown else { return } // teardown dropped its queued one
         focus.setNeedsTopology(owner: self) { [weak self] in
             guard let self, !self.isParked, !self.isApplying else { return nil }
             #if DEBUG
@@ -101,6 +101,9 @@ extension WorkspaceContentController {
     /// once it left that pane (a tab created there and moved away).
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
+        // A create or repair that lands after teardown: this workspace left the window, so it asks
+        // the window's coordinator for nothing (the next content shown restores its own pane).
+        guard !isTornDown else { return }
         // The coordinator lands an expectation against the topology it holds at once (reducer
         // `Expect`), and again on each later topology: no re-apply or topology send here.
         // The topology names tabs by id: a tab the store has goes by its id; else `rekeySurfaceWait` later.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import QuartzCore
 /// Scrollable document view that renders the sidebar tree.
@@ -20,6 +21,15 @@ final class SidebarListView: NSView {
     var displayed = SidebarLayout.empty
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
+    /// The feed that maps this list's rows: told which rows the list draws near its viewport (`watchRows`).
+    weak var rowFeed: SidebarRowFeed?
+    /// Something beside the list shows every row's content (the rail): the feed observes every row.
+    var observesEveryRow = false
+    /// The open group headers on screen and the members they roll up, for this layout (`watchRows`).
+    var rollUpWatch: (headers: [GroupID], members: Set<WorkspaceID>)?
+    /// Whether the list can be seen: its window's node (miniaturized, covered, the app hidden), hidden out of a
+    /// window. The row feed arms no row while it is not visible.
+    let visibility = VisibilityNode(root: "sidebar.list", own: .hidden)
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
@@ -71,7 +81,25 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// The row views built while the app starts (SidebarListView+LaunchRows, p08-startup-064).
+    var launchRows = SidebarModel.LaunchRows()
     var hoveredKey: SidebarRowKey?
+    /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
+    var onHoverRow: ((SidebarRowKey?) -> Void)?
+    /// A press on a row: the workspace row it switches to only on the release (`sidebar.multiView`, a row of
+    /// a multi-selection), nil when it switches on the press or switches nothing. The App prewarms that
+    /// row's page while the button is down (`intentPrewarmPress`).
+    var onPressRow: ((SidebarRowKey?) -> Void)?
+    /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
+    /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
+    private(set) lazy var frameInputHover = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
+        self?.updateHover(point)
+    }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`); nil: each move hovers at once.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { frameInputHover.frames }
+        set { frameInputHover.frames = newValue }
+    }
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
@@ -91,6 +119,9 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
+    /// Told which rows each reload lists (`reportListedRows`): a new workspace's `create.workspace` interval ends
+    /// at the commit of the reload that first lists its row. Nil for a list nobody sees (a space page).
+    var newRows: SidebarNewRowTimer?
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -129,8 +160,17 @@ final class SidebarListView: NSView {
     let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
-    /// Clock for the spring-load delay; tests inject a manual clock.
-    var springLoadClock: any Clock<Duration> = ContinuousClock()
+    /// The app's one deadline placer (the container injects `AppServices.mainDeadlines`). The spring-load hover is a
+    /// deadline on it; a list with none (a space page, a list made alone) takes no external drag and springs nothing.
+    var deadlines: MainDeadlineScheduler? {
+        didSet {
+            springLoad?.cancel()
+            springLoad = deadlines.map { MainDeadline(owner: "Sidebar.springLoad", workClass: .userBlocking, scheduler: $0) }
+        }
+    }
+    /// The spring-load hover of an external tab drag on one row (`updateSpringLoad`): the person holds the tab there
+    /// and waits for it, so it is the rest of their action (userBlocking), on a flexible wake, never aligned as hidden.
+    private(set) var springLoad: MainDeadline?
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?
@@ -164,30 +204,32 @@ final class SidebarListView: NSView {
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
-        // A refused change: a settling drop lets go and the rows spring back.
-        // A no-op drop settles the same way (nothing will change the model).
-        for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
-            settleObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let key = note.userInfo?["key"] as? String
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
-                    guard let self, let settling = self.settling, settling.key == nil || settling.key == key else { return }
-                    self.settling = nil
-                    // The rows spring back from the drop's look and the card flies back to its source slot.
-                    self.reload(animated: true, adopt: true)
-                    self.land(settling.drag, then: settling.then)
-                }
-            })
+    }
+    /// The app's sidebar document store (the App injects it, `SidebarView.docStore`): a drop sent to it settles on its
+    /// events, the link rows redraw on its favicons, and a drop reads the key of the change it sent.
+    var docStore: SidebarDocStore? {
+        didSet {
+            guard docStore !== oldValue else { return }
+            docObservation?.cancel()
+            docObservation = docStore?.observe { [weak self] event in self?.docStoreEvent(event) }
         }
-        // A favicon arrived: the link rows draw it (one configure per realized link row).
-        faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
-                for (key, view) in self.rowViews {
-                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
-                    self.configure(view, row: row, animated: false)
-                }
+    }
+    private func docStoreEvent(_ event: SidebarDocEvent) {
+        switch event {
+        case .refused(let key), .settled(let key):
+            // A refused change: a settling drop lets go and the rows spring back.
+            // A no-op drop settles the same way (nothing will change the model).
+            // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
+            guard let settling, settling.key == nil || settling.key == key else { return }
+            self.settling = nil
+            // The rows spring back from the drop's look and the card flies back to its source slot.
+            reload(animated: true, adopt: true)
+            land(settling.drag, then: settling.then)
+        case .faviconsChanged:
+            // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+            for (key, view) in rowViews {
+                guard case .item = key, let row = displayed.row(for: key) else { continue }
+                configure(view, row: row, animated: false)
             }
         }
     }
@@ -199,20 +241,27 @@ final class SidebarListView: NSView {
         MainActor.assumeIsolated {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
-            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-            if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
-            if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+            for subscription in focusObservers { subscription.cancel() }
+            for subscription in pointerEnds { subscription.cancel() }
         }
     }
-    // MARK: - Window occlusion
+    // MARK: - Window
     private var observedWindow: NSWindow?
-    private var occlusionObserver: (any NSObjectProtocol)?
-    private var faviconObserver: (any NSObjectProtocol)?
-    private var settleObservers: [any NSObjectProtocol] = []
-    private var focusObservers: [any NSObjectProtocol] = []
+    /// The list's window node's flips, mirrored into ``visibility``.
+    private var windowVisibility: VisibilitySubscription?
+    /// This list's observation of `docStore` (released with the list, which ends it).
+    private(set) var docObservation: SidebarDocObservation?
+    /// The window's resign-key and the app's resign-active subscriptions while the list is in a window (`observeFocusLoss`).
+    private var focusObservers: [EventSubscription] = []
+    /// The app's one fan-out of app-wide notices (the container injects `AppServices.appEvents`); a list made
+    /// elsewhere (a space page, a test) has one of its own on the default center.
+    lazy var appEvents = AppEvents(center: .default)
+    /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
+    var inputTap: InputEventTap? {
+        didSet { if inputTap !== oldValue { subscribePointerEnds() } }
+    }
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
-    private var pointerMonitor: Any?
+    private var pointerEnds: [InputSubscription] = []
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -226,42 +275,29 @@ final class SidebarListView: NSView {
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
         if window != nil { hoverCards.register(hoverCard) }
+        reportListedRows() // the rows its last reload listed off screen show from this window's next commit
         guard observedWindow !== window else { return }
-        let center = NotificationCenter.default
-        if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
         // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
         // a drag ends in place (`abandonDrag`, its rows shown again).
-        for observer in focusObservers { center.removeObserver(observer) }
+        for subscription in focusObservers { subscription.cancel() }
         focusObservers = window == nil ? [] : observeFocusLoss(of: window)
         // A press whose release never came here ends at the app's next press, or after a release that went to
         // another window (`pointerEventSeen`).
-        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
-        pointerMonitor = window == nil ? nil : observePointerEnds()
+        subscribePointerEnds()
         if window == nil {
             if let drag { abandonDrag(drag) }
             press = nil
         }
-        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
-        occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
-        } }
-        // The rows read the window when they moved in; the list's own reading starts them all from
-        // the same state, not each from whatever its window said a moment earlier.
-        if window != nil { windowOcclusionChanged() }
+        // Each row's indicator follows its own visibility node (StatusIndicatorView, p06-scheduler-042).
+        // The list's node takes its window's state (WindowVisibilitySource); out of a window it is hidden.
+        let windowNode = window.map { WindowVisibilitySource.of($0).node }
+        windowVisibility = windowNode?.subscribe(owner: "SidebarListView") { [weak self] in self?.visibility.set($0) }
+        visibility.set(windowNode?.effective ?? .hidden)
     }
-    private func windowOcclusionChanged() {
-        setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
-    }
-    /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
-    func setWindowVisible(_ visible: Bool) {
-        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
-        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
-        // then on capturing ones in Release).
-        var pending: [NSView] = subviews.reversed()
-        while let view = pending.popLast() {
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
-        }
+    private func subscribePointerEnds() {
+        for subscription in pointerEnds { subscription.cancel() }
+        pointerEnds = window == nil ? [] : inputTap.map { observePointerEnds(on: $0) } ?? []
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
@@ -278,13 +314,18 @@ final class SidebarListView: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self
         ))
     }
-    override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
-    override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
+    override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        frameInputHover.flush()
+        updateHover(event.locationInWindow)
+    }
     override func mouseExited(with event: NSEvent) {
+        frameInputHover.flush()
         releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
@@ -323,6 +364,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        onHoverRow?(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

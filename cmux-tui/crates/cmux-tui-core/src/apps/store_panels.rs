@@ -18,6 +18,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use cmux_threads::checked::fs as files;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -217,7 +218,7 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let missing = || ApiError::new("apps.asset.missing", "the package has no such file");
-        let size = std::fs::metadata(package.dir.join(&p.path)).map_err(|_| missing())?.len();
+        let size = files::metadata(package.dir.join(&p.path)).map_err(|_| missing())?.len();
         if size > MAX_ASSET_BYTES as u64 {
             return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
         }

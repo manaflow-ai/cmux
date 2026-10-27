@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDevices
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -55,10 +56,14 @@ public final class DeviceHubService {
     /// What `loading` is making a hub for.
     private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
+    /// The app's Energy Saver policy, which holds the hub socket's ping while the Mac sleeps and
+    /// reconnects it once after a wake; nil keeps it always awake.
+    private let energy: EnergyPolicySource?
 
-    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?) {
+    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, energy: EnergyPolicySource? = nil) {
         self.pages = pages
         self.account = account
+        self.energy = energy
         self.bundleIdentifier = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         settingsModel = MacScreenDevicesSettings(pages: pages)
         settingsModel.canSignIn = { [weak self] in self?.leftHub ?? false }
@@ -113,7 +118,7 @@ public final class DeviceHubService {
     /// Loads the identity (file Keychain, Secure Enclave) off the main thread,
     /// then installs the hub unless a stop or another start came first.
     private func startHub(url: URL, user: String) {
-        let token = account.accessToken, bundleIdentifier = bundleIdentifier
+        let token = account.accessToken, bundleIdentifier = bundleIdentifier, energy = energy
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
         // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
@@ -121,7 +126,7 @@ public final class DeviceHubService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                 tokens: DeviceHubAccountToken(token))
+                                                 tokens: DeviceHubAccountToken(token), energy: energy)
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")

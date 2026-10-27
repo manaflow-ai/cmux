@@ -46,7 +46,7 @@ nonisolated enum AgentPaneImageCopies {
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
         if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
-        while base.utf8.count > maximumNameBytes { base.removeLast() }
+        while base.utf8.count > maximumNameBytes, !base.isEmpty { base.removeLast() }
         let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
         return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
@@ -89,7 +89,7 @@ extension AgentPaneImageCopies {
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
         case .copyImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in
-                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, data: await AgentPaneImageCopies.imageBytes(file)))
+                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, image: await AgentPaneImageCopies.pasteboardImage(file)))
             }
         case .saveImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in
@@ -183,11 +183,13 @@ extension AgentPaneImageCopies {
     /// `file`'s bytes when, as it is opened, it is a regular file (not a link, which the agent could
     /// swap in after the path was checked, nor a pipe that would block the read) of at most `limit` bytes.
     nonisolated static func regularFileBytes(_ file: URL, limit: Int) -> Data? {
-        let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let descriptor = unsafe open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
+        // SAFETY: fstat writes one struct stat into `info`, a local.
+        guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
               let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
         return data
     }

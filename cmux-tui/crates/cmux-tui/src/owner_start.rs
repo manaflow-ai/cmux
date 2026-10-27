@@ -7,6 +7,7 @@ mod background_checks;
 mod crash_forward;
 mod memory_guard;
 mod owner_panic;
+pub(crate) mod poll_watch_lab;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,6 +16,35 @@ use cmux_threads::ThreadQos;
 use cmux_tui_core::Mux;
 
 pub(crate) use after_first_client::FirstClientGate;
+
+/// Debug builds only: the owner's hang log test trigger, once its mux
+/// exists (tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub(crate) fn hang_for_test(headless: bool) {
+    if headless {
+        owner_panic::hang_for_test();
+    }
+}
+
+/// The QoS of the owner's main thread: it serves requests a person waits
+/// on, so UserInitiated (Chromium's kDefault in the `cmux_threads::qos`
+/// table), below the UserInteractive echo threads.
+const MAIN_THREAD_QOS: ThreadQos = ThreadQos::UserInitiated;
+
+/// Lists the calling thread as `main` in the thread registry at
+/// [`MAIN_THREAD_QOS`] and sets its QoS, so `cmux_threads::snapshot` (and
+/// `server.threads` on it, p02-threads task 203) shows it.
+/// Returns false, and changes nothing, when the thread is listed already.
+///
+/// Call it once the main thread has started the owner's workers: a macOS
+/// thread starts at its creator's class, and those workers (journal
+/// maintenance, history search) run at their own lower classes, not at the
+/// main thread's. The deferred work it starts later ([`OwnerBackground`])
+/// names its own QoS, except the journal plugin and apps, which start at
+/// this class so the processes they spawn are not demoted.
+pub(crate) fn register_main_thread() -> bool {
+    cmux_threads::register_current("main", MAIN_THREAD_QOS)
+}
 
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
@@ -28,6 +58,8 @@ pub(crate) use after_first_client::FirstClientGate;
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<Option<OwnerChecks>> {
     let checks = args.headless.then(|| {
         owner_panic::install(&args.session);
+        #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+        poll_watch_lab::install(&args.session);
         OwnerChecks { panic_log: owner_panic::log_path(&args.session) }
     });
     if args.ephemeral && args.state.is_some() {
@@ -141,16 +173,24 @@ impl OwnerWorkPlan {
 }
 
 /// The owner's background work: waiting for the first client, or started.
+/// The default holds nothing and has started nothing.
+#[derive(Default)]
 pub(crate) struct OwnerBackground {
-    plan: Option<OwnerWorkPlan>,
-    gate: Option<FirstClientGate>,
+    held: Option<Held>,
     work: OwnerWork,
+}
+
+/// Work held until its gate marks it due, with the mux it starts on.
+struct Held {
+    plan: OwnerWorkPlan,
+    gate: FirstClientGate,
+    mux: Arc<Mux>,
 }
 
 impl OwnerBackground {
     /// Starts `plan` now: an interactive owner is its own first client.
     pub(crate) fn now(mux: &Arc<Mux>, plan: OwnerWorkPlan) -> Self {
-        Self { plan: None, gate: None, work: plan.start(mux) }
+        Self { held: None, work: plan.start(mux) }
     }
 
     /// Holds `plan` until `gate` marks it due (`take_due`, `start_due`). With
@@ -161,7 +201,10 @@ impl OwnerBackground {
         gate: std::io::Result<FirstClientGate>,
     ) -> Self {
         match gate {
-            Ok(gate) => Self { plan: Some(plan), gate: Some(gate), work: OwnerWork::default() },
+            Ok(gate) => Self {
+                held: Some(Held { plan, gate, mux: Arc::clone(mux) }),
+                work: OwnerWork::default(),
+            },
             Err(error) => {
                 crate::client_log::warn("startup", &format!("first-client gate: {error}"));
                 Self::now(mux, plan)
@@ -171,25 +214,23 @@ impl OwnerBackground {
 
     /// True once, when the gate marked the held work due.
     pub(crate) fn take_due(&self) -> bool {
-        self.gate.as_ref().is_some_and(FirstClientGate::take_due)
+        self.held.as_ref().is_some_and(|held| held.gate.take_due())
     }
 
     /// Starts the held work on the calling (owner) thread; call it after
     /// `take_due` returned true.
-    pub(crate) fn start_due(&mut self, mux: &Arc<Mux>) {
-        if let Some(gate) = self.gate.take() {
+    pub(crate) fn start_due(&mut self) {
+        if let Some(Held { plan, gate, mux }) = self.held.take() {
             gate.stop();
-        }
-        if let Some(plan) = self.plan.take() {
-            self.work = plan.start(mux);
+            self.work = plan.start(&mux);
         }
     }
 
     /// The owner is stopping: a gate still waiting ends and its work never
     /// starts. Returns the started work for the shutdown steps.
     pub(crate) fn into_work(mut self) -> OwnerWork {
-        if let Some(gate) = self.gate.take() {
-            gate.stop();
+        if let Some(held) = self.held.take() {
+            held.gate.stop();
         }
         self.work
     }

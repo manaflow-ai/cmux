@@ -46,6 +46,7 @@ public final class ThemedTextField: NSTextField, ThemedTextInput {
         applyThemeColors()
     }
 
+    // visibility-walk-allow: the field's text, fill and placeholder colors; no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
@@ -115,6 +116,7 @@ public final class ThemedSecureTextField: NSSecureTextField, ThemedTextInput {
         applyThemeColors()
     }
 
+    // visibility-walk-allow: the field's text, fill and placeholder colors; no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
@@ -170,8 +172,9 @@ extension NSTextField {
             placeholderAttributedString = placeholder
             return
         }
+        guard cell.placeholderAttributedString != placeholder else { return }
         cell.placeholderAttributedString = placeholder
-        needsDisplay = true
+        needsDisplay = true // invalidate: another placeholder (the guard above).
     }
 
     /// Text, placeholder, fill and the active field editor's caret and selection in the active

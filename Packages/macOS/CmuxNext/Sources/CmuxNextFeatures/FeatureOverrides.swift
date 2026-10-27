@@ -1,7 +1,9 @@
 import Foundation
 
-/// Local Labs and Debug overrides (resolution step 3). The App adapts
-/// `TunableStore` to it for the perfPath keys that were tunables; the
+/// Local Labs and Debug overrides (resolution step 3). The launch's provider,
+/// ``FeatureLaunchLocalOverrides``, gives the Labs choice, else the Debug toggle
+/// a feature replaced (``Feature/replaces``), read from the `TunableStore` file
+/// at launch; the
 /// ``FeatureList`` asks it only on DEV and NIGHTLY, so Release never reads it.
 public protocol FeatureLocalOverrideProvider: Sendable {
     /// The value the developer chose for `feature`, or nil for none.
@@ -26,7 +28,7 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
     public var environmentEnabled: Set<String>
     /// The signed remote document's values, already filtered by safe mode (step 4).
     public var remote: [String: Bool]
-    /// The Nightly field-trial arms (step 5).
+    /// The field-trial arms (step 5): ``FieldTrials/values``, already filtered by channel and build.
     public var fieldTrial: [String: Bool]
 
     public init(

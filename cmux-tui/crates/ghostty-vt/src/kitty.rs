@@ -10,7 +10,9 @@ use ghostty_vt_sys as sys;
 use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
-pub const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
+/// Largest decoded image, and the default kitty image storage of one
+/// terminal: the daemon memory budget's per-terminal kitty cap.
+pub const MAX_KITTY_IMAGE_BYTES: usize = cmux_memory::budget::KITTY_IMAGE_BYTES_PER_TERMINAL;
 pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
 const KITTY_INFLIGHT_REPLAY_FRAMING_MAX_BYTES: u64 = 256 * 1024;
@@ -597,6 +599,13 @@ impl From<&KittyPlacement> for PlacementSortKey {
     }
 }
 
+/// Decoded bytes a pixel map holds. Both maps (the renderer's and the replay
+/// encoder's) keep only the current image generations (`snapshot_impl`), so
+/// this is at most the terminal's native image bytes times the RGB expansion.
+pub(crate) fn pixel_cache_bytes(pixel_cache: &HashMap<u64, Arc<[u8]>>) -> usize {
+    pixel_cache.values().map(|pixels| pixels.len()).sum()
+}
+
 pub(crate) fn snapshot(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
@@ -833,6 +842,102 @@ fn snapshot_impl(
         },
         anchors,
     })
+}
+
+/// Whether the active screen holds Kitty state that libghostty's replay
+/// encoder drops, found without encoding or copying pixels: an image with
+/// pixels that no placement uses (the stream sends it without pixels), or a
+/// placement whose rectangle is wholly outside the active area (the stream
+/// sends only placements that show). The second also matches a relative
+/// placement drawn wholly in scrollback by its offsets, which the stream
+/// keeps; refusing that one too is the safe side.
+pub(crate) fn active_scene_drops_from_replay(terminal: &Terminal) -> Result<bool> {
+    let Some(graphics) = terminal_graphics(terminal)? else {
+        return Ok(false);
+    };
+
+    // SAFETY: `graphics` is the terminal's borrowed storage, valid while
+    // `&Terminal` keeps it unchanged; the iterators are freed by their
+    // guards; every out-pointer is a live local of the type the call takes.
+    let mut used = HashSet::new();
+    let mut raw_iterator: sys::GhosttyKittyGraphicsPlacementIterator = ptr::null_mut();
+    check(unsafe {
+        sys::ghostty_kitty_graphics_placement_iterator_new(ptr::null(), &mut raw_iterator)
+    })?;
+    let mut iterator = PlacementIterator(raw_iterator);
+    check(unsafe {
+        sys::ghostty_kitty_graphics_get(
+            graphics,
+            sys::GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR,
+            (&mut iterator.0 as *mut sys::GhosttyKittyGraphicsPlacementIterator).cast(),
+        )
+    })?;
+    while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
+        let image_id = placement_value::<u32>(
+            iterator.0,
+            sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
+        )?;
+        used.insert(image_id);
+        if placement_value::<bool>(
+            iterator.0,
+            sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
+        )? {
+            continue;
+        }
+        let raw_image = unsafe { sys::ghostty_kitty_graphics_image(graphics, image_id) };
+        if raw_image.is_null() {
+            continue;
+        }
+        let mut rect = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        check(unsafe {
+            sys::ghostty_kitty_graphics_placement_rect(
+                iterator.0,
+                raw_image,
+                terminal.raw(),
+                &mut rect,
+            )
+        })?;
+        if !in_active_area(terminal, &rect.start)? && !in_active_area(terminal, &rect.end)? {
+            return Ok(true);
+        }
+    }
+
+    let mut raw_images: sys::GhosttyKittyGraphicsImageIterator = ptr::null_mut();
+    check(unsafe {
+        sys::ghostty_kitty_graphics_image_iterator_new(ptr::null(), graphics, &mut raw_images)
+    })?;
+    let images = ImageIterator(raw_images);
+    loop {
+        let raw_image = unsafe { sys::ghostty_kitty_graphics_image_next(images.0) };
+        if raw_image.is_null() {
+            return Ok(false);
+        }
+        let id: u32 = image_value(raw_image, sys::GHOSTTY_KITTY_IMAGE_DATA_ID)?;
+        let data_len: usize = image_value(raw_image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN)?;
+        if data_len > 0 && !used.contains(&id) {
+            return Ok(true);
+        }
+    }
+}
+
+fn in_active_area(terminal: &Terminal, grid_ref: &sys::GhosttyGridRef) -> Result<bool> {
+    // SAFETY: `grid_ref` came from this terminal with no mutation since;
+    // a NULL out-pointer is allowed.
+    match check(unsafe {
+        sys::ghostty_terminal_point_from_grid_ref(
+            terminal.raw(),
+            grid_ref,
+            sys::GHOSTTY_POINT_TAG_ACTIVE,
+            ptr::null_mut(),
+        )
+    }) {
+        Ok(()) => Ok(true),
+        Err(Error::NoValue) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 fn graphics_generation(graphics: sys::GhosttyKittyGraphics) -> Result<u64> {

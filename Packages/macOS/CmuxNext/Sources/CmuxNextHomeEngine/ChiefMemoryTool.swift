@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// The memory store's own import and export (`optchat-chief memory`,
@@ -13,6 +14,8 @@ public protocol ChiefMemoryTool: Sendable {
 /// The `optchat-chief` this build bundles (Contents/Resources/bin).
 public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
     let executable: URL
+    /// Runs the tool to its end (``AsyncProcess``; tests pass a fake).
+    var processes: any ProcessRunning = AsyncProcess()
 
     /// The bundled tool, or nil when the build has none (Release, RC).
     public static func bundled(bin: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> BundledChiefMemoryTool? {
@@ -22,34 +25,22 @@ public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
     }
 
     public func exportText(muxHome: URL, to directory: URL) async throws {
-        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path])
+        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path], onCancel: .stop)
     }
 
     public func importText(muxHome: URL, from directory: URL) async throws {
-        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path])
+        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path], onCancel: .finish)
     }
 
-    /// Runs the tool to its exit without blocking a thread: the exit
-    /// resumes the caller; its error output goes to a scratch file.
-    @concurrent private func run(_ arguments: [String]) async throws {
-        let errors = FileManager.default.temporaryDirectory.appendingPathComponent("optchat-chief-\(UUID().uuidString).err")
-        FileManager.default.createFile(atPath: errors.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: errors) }
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = try FileHandle(forWritingTo: errors)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            process.terminationHandler = { _ in continuation.resume() }
-            do { try process.run() } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: error)
-            }
-        }
-        guard process.terminationStatus == 0 else {
-            // concurrency-allow: @concurrent: runs on the global executor, never the main actor
-            let text = (try? String(contentsOf: errors, encoding: .utf8)) ?? ""
+    /// Runs the tool to its exit without blocking a thread: the spawn runs off the caller's actor
+    /// and the exit resumes the caller. Home waits for the migration, so it runs at userVisible.
+    /// `onCancel`: an export only writes its scratch folder, so a cancel may stop it; an import writes
+    /// the Chief home's memory, which must not be left half filled, so it always runs to its exit.
+    @concurrent private func run(_ arguments: [String], onCancel: ProcessRequest.CancelBehavior) async throws {
+        let request = ProcessRequest(executable, arguments, errorOutput: .separate, onCancel: onCancel, priority: .userVisible)
+        let outcome = try await processes.outcome(of: request)
+        guard outcome.succeeded else {
+            let text = String(decoding: outcome.errorOutput, as: UTF8.self)
             throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "optchat-chief \(arguments.prefix(2).joined(separator: " ")): \(text)"])
         }
     }

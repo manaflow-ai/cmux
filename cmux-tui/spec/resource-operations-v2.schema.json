@@ -19,6 +19,12 @@
     "$schema": {"const": "./resource-operations-v2.schema.json"},
     "schema_version": {"const": 1},
     "protocol": {"const": "cmux.protocol/2"},
+    "families": {
+      "type": "object",
+      "description": "Frame method id families of the transported operations (transports.md, \"Method ids\"). Append-only.",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"},
+      "additionalProperties": {"$ref": "#/$defs/family"}
+    },
     "resource_scopes": {
       "type": "array",
       "minItems": 1,
@@ -394,9 +400,23 @@
         "constraints": {
           "type": "array",
           "items": {"type": "string", "minLength": 1}
-        }
+        },
+        "method_id": {"type": "integer", "minimum": 24576, "maximum": 49151, "description": "Frame method id, family << 8 | ordinal, in a declared v2 family (0x6000-0xBFFF). Append-only: api-compat-check records it in spec/api-compat.wire.json."},
+        "priority": {"enum": ["input", "control", "bulk", "background"]},
+        "priority_changed_reason": {"type": "string", "minLength": 1, "description": "Why priority changed; api-compat-check requires a new one on every priority change."},
+        "payload": {"enum": ["json", "binary"]},
+        "layout_version": {"type": "integer", "minimum": 1, "maximum": 255, "description": "First byte of a binary layout; bumped on every layout change."}
+      },
+      "dependentRequired": {
+        "priority_changed_reason": ["priority"],
+        "layout_version": ["payload"]
       },
       "allOf": [
+        {
+          "if": {"required": ["payload"], "properties": {"payload": {"const": "binary"}}},
+          "then": {"required": ["layout_version"]},
+          "else": {"not": {"required": ["layout_version"]}}
+        },
         {
           "if": {"properties": {"class": {"const": "mutation"}}},
           "then": {"properties": {"idempotency": {"const": "required"}}},
@@ -444,6 +464,22 @@
           "type": "array",
           "items": {"type": "string", "minLength": 1}
         }
+      }
+    },
+    "familyByte": {
+      "type": "integer",
+      "minimum": 96,
+      "maximum": 191,
+      "description": "High byte of a frame method id, 0x60-0xBF (the v2 range of the id space shared with sdk-schema.json). Not a resource ID."
+    },
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description"],
+      "properties": {
+        "id": {"$ref": "#/$defs/familyByte"},
+        "description": {"type": "string", "minLength": 1},
+        "next_ordinal": {"type": "integer", "minimum": 0, "maximum": 256, "description": "Next ordinal to give; every ordinal below it stays reserved."}
       }
     },
     "errorDescriptor": {

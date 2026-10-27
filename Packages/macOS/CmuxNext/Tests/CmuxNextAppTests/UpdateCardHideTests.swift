@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -39,7 +40,8 @@ import Testing
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: EmptyFeed()),
-                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.start()
         return updater
@@ -54,7 +56,7 @@ import Testing
         let defaults: UserDefaults
         let sidebar: SidebarView
         let window: NSWindow
-        let feed: Task<Void, Never>
+        let feed: ServiceObservation<SidebarCardFeed.Cards>
         var card: SidebarUpdateCardView { sidebar.updateCardView }
 
         /// Lays the sidebar out until `condition` holds (it follows the model on a task).
@@ -95,7 +97,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
-        let feed = SidebarCardFeed.start(model: model, updater: updater)
+        let feed = SidebarCardFeed.start(model: model, updater: updater, on: MainWorkScheduler(budget: MainFrameBudget()))
         let harness = Harness(updater: updater, defaults: defaults, sidebar: sidebar, window: window, feed: feed)
         await harness.wait { !harness.card.isHidden && harness.card.card != nil }
         return harness
@@ -160,7 +162,7 @@ import Testing
         relaunched.debugStage(version: Self.version, notes: nil)
         #expect(relaunched.readyCard == nil)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: relaunched)
+        UpdateHandlers.bind(into: registry, updater: relaunched, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
         #expect(relaunched.readyCard != nil, "Check for Updates did not show the hidden update")
     }

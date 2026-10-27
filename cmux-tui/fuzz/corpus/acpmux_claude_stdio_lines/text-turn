@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-haiku","tools":["Bash"],"slash_commands":["compact","clear"]}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-haiku"}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"working"}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}}
+{"type":"result","subtype":"success","result":"working","num_turns":1,"duration_api_ms":1,"usage":{"input_tokens":3,"output_tokens":5}}

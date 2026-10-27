@@ -54,7 +54,8 @@ struct PageHostPoolClaimReadyBenchmark {
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let memory = PageTestMemory()
+        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()
@@ -71,15 +72,15 @@ struct PageHostPoolClaimReadyBenchmark {
         let page = try #require(pool.claim(.settings, routes: routes, route: "#/settings/general",
                                            window: window, focus: false))
         // The probe covers the current document and any document the claim loads next.
-        page.webKitView.configuration.userContentController.addUserScript(
+        page.webView.configuration.userContentController.addUserScript(
             WKUserScript(source: readyProbe, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        page.webKitView.evaluateJavaScript(readyProbe, completionHandler: nil)
+        page.webView.evaluateJavaScript(readyProbe, completionHandler: nil)
         if let content = window.contentView {
             page.frame = content.bounds
             content.addSubview(page)
         }
         for _ in 0..<400 {
-            let ready = try? await page.webKitView.callAsyncJavaScript(
+            let ready = try? await page.webView.callAsyncJavaScript(
                 "return document.documentElement.dataset.benchReady || null;", contentWorld: .page) as? String
             if let ready, let at = Double(ready) {
                 claims.append(page.lastClaimSummary)
@@ -87,7 +88,7 @@ struct PageHostPoolClaimReadyBenchmark {
             }
             try await Task.sleep(for: .milliseconds(25))
         }
-        let text = try? await page.webKitView.callAsyncJavaScript(
+        let text = try? await page.webView.callAsyncJavaScript(
             "return (document.body && document.body.innerText || '').slice(0, 300);", contentWorld: .page) as? String
         Issue.record("claimed page never became ready; ops \(provider.ops); text \(text ?? "nil")")
         return nil

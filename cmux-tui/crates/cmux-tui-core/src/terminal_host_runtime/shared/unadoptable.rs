@@ -3,7 +3,8 @@
 //! visible, is watched until its host proves it ended, and is ended only with
 //! proof that the recorded PID is its host.
 
-use std::fs::{self, File};
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::fs::File;
 
 use super::super::sys::{self, PrivateOpen};
 use super::super::*;
@@ -55,7 +56,7 @@ impl UnadoptableTerminalHostRecord {
 pub fn load_unadoptable_terminal_host_records(
     root: &Path,
 ) -> anyhow::Result<Vec<UnadoptableTerminalHostRecord>> {
-    let entries = match fs::read_dir(root) {
+    let entries = match files::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
@@ -74,7 +75,7 @@ pub fn load_unadoptable_terminal_host_records(
         else {
             continue;
         };
-        let bytes = match fs::read(&path) {
+        let bytes = match files::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => {
@@ -162,11 +163,12 @@ pub fn wait_for_unadoptable_terminal_host_exit(
     }
     let Some(parent) = record.record_path.parent() else { return Ok(()) };
     let endpoints = sys::canonical_endpoints(sys::file_owner(parent)?, parent, &record.terminal_id);
-    let _ = fs::remove_file(&record.record_path);
-    let _ = fs::remove_file(marker);
+    let _ = files::remove_file(&record.record_path);
+    let _ = files::remove_file(marker);
     for endpoint in endpoints {
-        if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
-            let _ = fs::remove_file(endpoint);
+        if files::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata))
+        {
+            let _ = files::remove_file(endpoint);
         }
     }
     Ok(())

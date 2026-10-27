@@ -1,8 +1,8 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
+use cmux_process::{Command, ExitStatus, Stdio};
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
 
 use super::{GlobalArgs, UsageError};
 
@@ -50,7 +50,8 @@ pub(super) fn scope_help(scope: &str) -> Option<Cow<'static, str>> {
 pub(super) fn run(plan: Plan) -> i32 {
     let runner = resolve_runner(std::env::current_exe().ok());
     let mut command = Command::new(runner);
-    command.arg(&plan.script).args(&plan.args);
+    // The script's arguments may name the caller's descriptors (`<(cmd)`).
+    command.arg(&plan.script).args(&plan.args).inherit_like_std();
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     if let Some(socket) = plan.global.socket {
         command.env("CMUX_TUI_SOCKET", socket);

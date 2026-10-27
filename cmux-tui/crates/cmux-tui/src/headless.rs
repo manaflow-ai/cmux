@@ -8,6 +8,9 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(unix)]
+#[path = "server_lifecycle.rs"]
+mod server_lifecycle;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
@@ -66,20 +69,13 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
-    let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
-    while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
-        // The gate sets its flag before it takes this lock to wake the loop,
-        // so a due mark is seen here or wakes the wait below.
-        if background.take_due() {
-            drop(generation);
-            background.start_due(mux);
-            generation = lock.lock().unwrap();
-            continue;
-        }
-        generation = wake.wait(generation).unwrap();
-    }
-    drop(generation);
+    // Any owner, with leftoverDaemonIdleExit on (server_lifecycle.rs).
+    #[cfg(unix)]
+    let idle_exit = server_lifecycle::start_for_owner(mux, chief_brains.is_some());
+    wait_for_stop(
+        || shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished(),
+        background,
+    );
     // Another waiter (the remote runtime) can wake the loop on the same
     // signal before the signal thread has recorded the shutdown start and
     // the sender; teardown and exit then raced that record and left a cut
@@ -97,6 +93,10 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    #[cfg(unix)]
+    if let Some(idle_exit) = idle_exit {
+        idle_exit.stop();
     }
     Ok(())
 }
@@ -152,6 +152,31 @@ pub(crate) fn finish_server_shutdown<W, R>(
     result
 }
 
+/// Blocks the owner's main thread until `stopped`, re-checked on every
+/// [`wake_headless`], and starts `background` here when its first-client
+/// gate marks it due. The thread waits as the `main` registry row at
+/// UserInitiated (`owner_start::register_main_thread`). The workers it
+/// starts before that run at their own classes; of the deferred work, the
+/// checks name their QoS, the poller and the idle reaper start under a
+/// lower one, and the journal plugin and apps start at this class so the
+/// processes they spawn are not demoted.
+fn wait_for_stop(stopped: impl Fn() -> bool, background: &mut owner_start::OwnerBackground) {
+    owner_start::register_main_thread();
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    while !stopped() {
+        // The gate sets its flag before it takes this lock to wake the loop,
+        // so a due mark is seen here or wakes the wait below.
+        if background.take_due() {
+            drop(generation);
+            background.start_due();
+            generation = lock.lock().unwrap();
+            continue;
+        }
+        generation = wake.wait(generation).unwrap();
+    }
+}
+
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
 /// every flag under this lock, so no wake is lost.
 static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
@@ -168,6 +193,47 @@ pub(crate) fn wake_headless() {
 mod tests {
     fn args(argv: &[&str]) -> crate::Args {
         crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
+    }
+
+    /// p02-threads-207: the headless owner's main thread waits as the
+    /// `main` row at UserInitiated, and a thread it starts during setup
+    /// (`owner_start::prepare`, then the mux workers) does not run at that
+    /// class. On Linux the class is nice 0, which a thread started at a
+    /// higher nice value (a `nice cargo test`) may not take back.
+    #[test]
+    fn the_owner_main_thread_waits_at_user_initiated_and_its_workers_do_not() {
+        use cmux_threads::{LiveQos, ThreadQos};
+        std::thread::spawn(|| {
+            let before = cmux_threads::current();
+            super::super::owner_start::prepare(&args(&[])).unwrap();
+            let worker = std::thread::spawn(cmux_threads::current).join().unwrap();
+            assert_ne!(worker, LiveQos::Class(ThreadQos::UserInitiated), "setup worker");
+            assert!(cmux_threads::snapshot().iter().all(|row| row.name != "main"));
+            let seen = std::cell::RefCell::new(None);
+            super::wait_for_stop(
+                || {
+                    *seen.borrow_mut() =
+                        cmux_threads::snapshot().into_iter().find(|row| row.name == "main");
+                    true
+                },
+                &mut Default::default(),
+            );
+            let row = seen.into_inner().expect("a main row while the owner waits");
+            assert_eq!(row.declared, ThreadQos::UserInitiated);
+            if cfg!(target_vendor = "apple") || before == LiveQos::Nice(0) {
+                assert_eq!(row.effective, Some(ThreadQos::UserInitiated));
+            }
+            #[cfg(target_vendor = "apple")]
+            assert_eq!(row.live, LiveQos::Class(ThreadQos::UserInitiated));
+            let slot = cmux_threads::current_slot().expect("the waiting thread is the row");
+            assert_eq!(slot.name(), "main");
+        })
+        .join()
+        .unwrap();
+        assert!(
+            cmux_threads::snapshot().iter().all(|row| row.name != "main"),
+            "the row leaves with its thread"
+        );
     }
 
     #[test]

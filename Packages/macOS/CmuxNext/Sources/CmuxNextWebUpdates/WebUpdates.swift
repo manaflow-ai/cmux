@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -15,7 +15,7 @@ import Observation
 /// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
 /// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
 /// open pages keep the files they started with, so a page never mixes two builds' chunks.
-/// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
+/// The App starts it with ``prepare(_:bundle:files:energy:shown:)`` and calls ``follow(_:bundle:)`` with each `updates.*` read.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
 @Observable
 public final class WebUpdates {
@@ -46,6 +46,11 @@ public final class WebUpdates {
     @ObservationIgnored var unseenNote: String?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
+    /// The lanes the updater reads its trusted keys on (``WebUpdater/KeySource/bundled(_:)``), the
+    /// app's Energy Saver policy and its shown windows (nil: checks whether or not one shows), from
+    /// ``prepare(_:bundle:files:energy:shown:)``; web updates start only once they are known.
+    @ObservationIgnored private var inputs: (files: BackgroundWork, energy: EnergyPolicySource, shown: ShownWindows?)?
+    @ObservationIgnored private var shownObservation: ShownWindowsObservation?
 
     /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
     static func isAvailable(_ bundle: Bundle) -> Bool {
@@ -54,15 +59,19 @@ public final class WebUpdates {
 
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
-    /// bundled web even while the settings observer is still starting.
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+    /// bundled web even while the settings observer is still starting. `files` is the app's
+    /// blocking-work lanes (its one `BackgroundWork`). Checks wait `energy`'s poll stretch, and
+    /// with `shown`, none is booked while no cmux window shows (p14-energy-032).
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, files: BackgroundWork,
+                        energy: EnergyPolicySource, shown: ShownWindows?) {
+        inputs = (files, energy, shown)
         start(bundle: bundle, settings: settings)
     }
 
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
-        guard !started else { return }
+        guard !started, let inputs else { return }
         started = true
         guard Self.isAvailable(bundle),
               let pages = WebBundleOverlay.bundledPages,
@@ -76,7 +85,7 @@ public final class WebUpdates {
         if let resources = bundle.resourceURL {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
-        let updater = WebUpdater(store: store, app: app)
+        let updater = WebUpdater(store: store, app: app, keys: .bundled(inputs.files), energy: inputs.energy)
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
             self?.ready(tree, version: pointer)
@@ -84,6 +93,10 @@ public final class WebUpdates {
         updater.served = { WebBundleOverlay.shared.activeTree }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
+        if let shown = inputs.shown {
+            updater.noteShown(shown.anyShown)
+            shownObservation = shown.observe { [weak updater] anyShown in updater?.noteShown(anyShown) }
+        }
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
@@ -117,7 +130,7 @@ public final class WebUpdates {
         })
     }
 
-    /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
+    /// `updates.*`: the channel and what downloads may use. Starts web updates once ``prepare(_:bundle:files:energy:shown:)`` gave the lanes.
     public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
         start(bundle: bundle)
         guard let updater else { return }

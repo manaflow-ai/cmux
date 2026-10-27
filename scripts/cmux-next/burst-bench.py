@@ -88,11 +88,14 @@ Per scenario it reports:
 
 Prints one `BURST-BENCH {json}` line and writes report.json to --out. Exit 1 when a press was lost,
 a run was extra, a commit missed, or a row is invalid (also when the signpost stream or the trace
-dropped records). Run on a fleet GUI host, never on Lawrence's Mac, and quote the
+dropped records). Percentiles are perf_stats.pct (linear interpolation). Each phase also writes
+cmux-perf-result/v1 into --out (idle_burst_bench_report.burst_series; story burst for light, burst-stress for
+STRESS, each phase its own run): per scenario `invalid`, and for a valid row each press's input -> next commit,
+lost, extra, commit_missed and frames_missed. Run on a fleet GUI host, never on Lawrence's Mac, and quote the
 host, macOS and refresh rate:
 
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/burst-bench.sh ...
-  burst-bench.py --app APP --out DIR [--no-stress] [--presses N]
+  burst-bench.py --app APP --out DIR [--phases light,stress | --no-stress] [--presses N]
   burst-bench.py --self-test                     the accounting and the key sequences on synthetic runs
   burst-bench.py --scenario NAME --socket S --workspace W --pane P --out DIR   (internal: one scenario)
 """
@@ -100,8 +103,9 @@ import argparse, importlib.util, json, os, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from idle_burst_bench_report import burst_series, percentiles, record_all  # noqa: E402
 
-KEY = {"w": 13, "d": 2, "l": 37, "cmd": 55, "shift": 56}
+KEY ={"w": 13, "d": 2, "l": 37, "cmd": 55, "shift": 56}
 NEWTAB = [f"newtab-{focus}-{shape}" for focus in ("terminal", "chromium") for shape in ("one", "burst", "held", "mixed")]
 SCENARIOS = ["cmdw-terminal", "cmdw-chromium", "cmdw-chat", "cmdd", "cmdshiftd", "cmdd-one", "cmdshiftd-one", "mixed",
              "held-cmdw"] + NEWTAB
@@ -177,14 +181,6 @@ def sequence(presses, gap_ms, repeat=None):
                 step(KEY["shift"], False, 1)
     step(KEY["cmd"], False, 2)
     return steps, offsets
-
-
-def percentiles(values):
-    v = sorted(values)
-    if not v:
-        return None
-    pick = lambda q: v[min(len(v) - 1, int(q * len(v)))]
-    return {"n": len(v), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2), "max": round(v[-1], 2)}
 
 
 def unit_of(name):
@@ -470,7 +466,9 @@ def summarize(signposts, ndjson, record, busy_surfaces=()):
         index = nearest(times, event_time(interval), bound)
         total = float(interval["fields"]["input_age_ms"]) + interval["ms"]
         (applied if index is not None and fates[index] in APPLIED_FATES else noop).append(total)
-    out.update({"input_to_next_commit_ms": percentiles(applied), "noop_input_to_next_commit_ms": percentiles(noop),
+    out.update({"input_to_next_commit_ms": percentiles(applied),
+                "input_to_next_commit_samples_ms": [round(v, 3) for v in applied],  # result-v1's raw samples
+                "noop_input_to_next_commit_ms": percentiles(noop),
                 "commit_missed": missed, "resize": resize_stats(trace.get("events") or [], times, busy_surfaces)})
     return out
 
@@ -580,16 +578,22 @@ def run_phase(opts, phase, app, signposts, stress, report):
             print("STRESS-SESSION " + json.dumps(session), flush=True)
         rows.append(row)
         report["failures"] += failures_of(phase, row)
-        print(f"{phase} {name}: " + json.dumps({k: v for k, v in row.items() if k != "stress_session"}), flush=True)
+        print(f"{phase} {name}: " + json.dumps({k: v for k, v in row.items()
+                                                if k not in ("stress_session", "input_to_next_commit_samples_ms")}),
+              flush=True)
         if phase == "stress" and any(r.startswith("the STRESS shape") for r in row["invalid"]):
             report["failures"].append(f"stress: stopped after {name}: the session is no longer STRESS")
             break
     report["phases"][phase] = rows
 
 
-def main():
+PHASES = ("light", "stress")
+
+
+def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app", help="a Debug or bench `cmux DEV <tag>.app` to launch (not running)")
+    parser.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
     parser.add_argument("--socket", help="(--scenario) the running app's debug socket")
     parser.add_argument("--scenario", choices=SCENARIOS, help=argparse.SUPPRESS)
     parser.add_argument("--workspace", help=argparse.SUPPRESS)
@@ -604,26 +608,49 @@ def main():
                         help="seconds after the last key by which the app must say the burst is done (a failure bound)")
     parser.add_argument("--redraw-wait", type=float, default=2.0,
                         help="seconds to wait for each echoed terminal's first output (a program that never redraws prints nothing)")
-    parser.add_argument("--no-stress", action="store_true", help="the light phase only")
+    parser.add_argument("--phases", default=",".join(PHASES),
+                        help="light, stress or both (each its own app and its own result-v1 run and story)")
+    parser.add_argument("--no-stress", action="store_true", help="the light phase only (--phases light)")
     parser.add_argument("--self-test", action="store_true", help="check the accounting and the key sequences")
-    opts = parser.parse_args()
+    opts = parser.parse_args(argv)
+    opts.phases = ["light"] if opts.no_stress else [p for p in opts.phases.split(",") if p]
+    if not opts.phases or not set(opts.phases) <= set(PHASES):
+        parser.error(f"--phases takes {' and '.join(PHASES)}, not {','.join(opts.phases) or 'nothing'}")
+    if not (opts.self_test or opts.scenario or opts.app):
+        parser.error("--app is required")
+    return opts
+
+
+def record_phase(app, phase, report):
+    """The phase's rows as cmux-perf-result/v1 in --out (BenchApp.record, story burst or burst-stress, one run)."""
+    series = burst_series(phase, report["phases"].get(phase) or [])
+    if not series:
+        print(f"result-v1 {phase}: no row measured, nothing recorded", flush=True)
+        return
+    written = record_all(app.bench, series)
+    kept = sum(1 for v in written.values() if not v.startswith("not recorded"))
+    print(f"result-v1 {phase}: {kept} of {len(written)} series written", flush=True)
+
+
+def main(argv=None):
+    opts = parse(argv)
     if opts.self_test:
         return self_test()
     os.makedirs(opts.out, exist_ok=True)
     if opts.scenario:
         return scenario(opts)
-    if not opts.app:
-        parser.error("--app is required")
     signposts = load("perf_signposts", "perf-signposts.py")
     stress = load("perf_stress_session", "perf-stress-session.py")
     actions = load("action_signposts_bench", "action-signposts-bench.py")
     App = load("activation_perf", "activation-perf.py").App
     report = {"host": actions.host_facts(), "gap_ms": opts.gap_ms, "repeat_delay_ms": opts.repeat_delay_ms,
               "repeat_ms": opts.repeat_ms, "focus": FOCUS_NOTE, "phases": {}, "failures": []}
-    for phase in (["light"] if opts.no_stress else ["light", "stress"]):
+    for phase in opts.phases:
         # A new app per phase: nothing the light phase made is in STRESS, which then has exactly its 60 workspaces.
-        app = App(os.path.abspath(opts.app), os.path.join(opts.out, phase), 50)
-        os.makedirs(app.out, exist_ok=True)
+        # Its results go into --out itself (the lab reads that folder only), its log into the phase's folder.
+        app = App(os.path.abspath(opts.app), opts.out, 50)
+        os.makedirs(os.path.join(opts.out, phase), exist_ok=True)
+        app.bench.log_path = os.path.join(opts.out, phase, "app.log")
         app.launch()
         try:
             run_phase(opts, phase, app, signposts, stress, report)
@@ -631,6 +658,7 @@ def main():
             report["failures"].append(f"{phase}: {error}")
         finally:
             app.stop()
+        record_phase(app, phase, report)
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("BURST-BENCH " + json.dumps(report), flush=True)

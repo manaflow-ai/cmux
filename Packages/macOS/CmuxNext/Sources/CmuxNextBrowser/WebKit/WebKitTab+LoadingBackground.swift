@@ -31,7 +31,7 @@ extension WebKitTab {
     func pageDidCommit() {
         guard BrowserPageTunables.loadingBackground.value else { return }
         setDrawsPageBackground(false)
-        pageBaseHold.schedule(after: Self.pageBaseHoldLimit) { @MainActor [weak self] in
+        pageBaseHold.schedule(after: Self.pageBaseHoldLimit) { [weak self] in
             self?.pageDidFinish()
         }
     }

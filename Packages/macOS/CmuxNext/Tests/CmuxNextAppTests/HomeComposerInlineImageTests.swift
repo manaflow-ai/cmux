@@ -59,7 +59,7 @@ import UniformTypeIdentifiers
         let id = try #require((inbox.conversations.first { $0.participants.contains { $0.id == chief } } ?? inbox.conversations.first)?.id)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 800), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id, mainWork: linklessMainWork())
         view.frame = window.contentView!.bounds
         window.contentView!.addSubview(view)
         await view.binding.opened()

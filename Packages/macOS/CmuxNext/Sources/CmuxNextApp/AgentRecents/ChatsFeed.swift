@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -19,7 +20,11 @@ final class ChatsFeed {
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
-    private var reconnect: Task<Void, Never>?
+    /// One backoff wait after a lost connection. `background`: nobody waits on the reconnect; the
+    /// mirror shows its last state meanwhile.
+    private let reconnect: MainDeadline
+    /// Where the socket folder's notices reach the main thread (``watchForSocket()``).
+    private let mainWork: MainWorkScheduler
     private var requestID = 2
     /// The seq of the last index change in the mirror (acpmux numbers every change; the page
     /// names the last one it holds). Nil from a daemon that does not number them.
@@ -34,7 +39,15 @@ final class ChatsFeed {
     private var early: [(change: AcpmuxChatsStore.Change, seq: UInt64?)] = []
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
 
-    init(socketPath: String) { socket = socketPath }
+    /// - Parameters:
+    ///   - socketPath: acpmux's socket.
+    ///   - deadlines: The app's one deadline scheduler: the reconnect backoff and the socket folder's
+    ///     notices run on its main-thread scheduler.
+    init(socketPath: String, deadlines: MainDeadlineScheduler) {
+        socket = socketPath
+        mainWork = deadlines.work
+        reconnect = MainDeadline(owner: "ChatsFeed.reconnect", workClass: .background, scheduler: deadlines)
+    }
 
     /// One chat by key, O(1).
     func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
@@ -45,7 +58,6 @@ final class ChatsFeed {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        reconnect?.cancel()
         subscription?.cancel()
         directoryWatch?.cancel()
     }
@@ -53,7 +65,7 @@ final class ChatsFeed {
     /// Starts one long-lived watch for the first live observer.
     func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
-        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
+        if subscription == nil, directoryWatch == nil, !reconnect.isScheduled { connect() }
     }
 
     /// Keeps the mirror current for the palette chats page and Open Chat while
@@ -63,7 +75,7 @@ final class ChatsFeed {
     }
 
     private func connect() {
-        reconnect = nil
+        reconnect.cancel()
         guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
         directoryWatch?.cancel()
         directoryWatch = nil
@@ -90,7 +102,7 @@ final class ChatsFeed {
         case lagged
 
         init?(line: Data) {
-            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
                let result = message["result"] as? [String: Any] {
                 var store = AcpmuxChatsStore()
@@ -208,14 +220,14 @@ final class ChatsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
-        reconnect?.cancel()
-        reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "agent-chats.reconnect") } catch { return }
-            self?.backoff = backoff
-            self?.connect()
-        }
+        reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
+    }
+
+    /// A notice of the socket folder: connects unless a connection or a reconnect already exists (a
+    /// notice posted before an earlier one connected).
+    private func connectIfIdle() {
+        guard subscription == nil, !reconnect.isScheduled else { return }
+        connect()
     }
 
     /// Waits for the socket path to appear by watching its nearest existing directory.
@@ -227,10 +239,16 @@ final class ChatsFeed {
         guard directory != watchedDirectory else { return }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let fd = open(directory, O_EVTONLY)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let fd = unsafe open(directory, O_EVTONLY)
         guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in Task { @MainActor in self?.connect() } }
+        // The notices arrive off main; each posts one background task (the socket appearing is no one's input).
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
+                                                               queue: .global(qos: .utility))
+        let work = mainWork
+        source.setEventHandler { [weak self] in
+            work.postFromAnyThread(.background, owner: "ChatsFeed.socketFolder") { [weak self] in self?.connectIfIdle() }
+        }
         source.setCancelHandler { close(fd) }
         directoryWatch = source
         watchedDirectory = directory

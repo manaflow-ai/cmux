@@ -1,5 +1,6 @@
-import AppKit
-import CmuxNextBrowserImport
+public import AppKit
+public import CmuxNextBrowserImport
+public import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -100,10 +101,10 @@ final class ImportProfileRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    convenience init(profile: BrowserSourceProfile, appURL: URL?, needsFullDiskAccess: Bool = false,
+    convenience init(profile: BrowserSourceProfile, icon: NSImage?, needsFullDiskAccess: Bool = false,
                      onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
         self.init(toggle: toggle)
-        configure(profile: profile, appURL: appURL, needsFullDiskAccess: needsFullDiskAccess,
+        configure(profile: profile, icon: icon, needsFullDiskAccess: needsFullDiskAccess,
                   onAccess: onAccess, toggle: toggle)
     }
 
@@ -122,15 +123,15 @@ final class ImportProfileRow: NSView {
         return slot
     }
 
-    func configure(profile: BrowserSourceProfile, appURL: URL?, needsFullDiskAccess: Bool = false,
+    func configure(profile: BrowserSourceProfile, icon browserIcon: NSImage?, needsFullDiskAccess: Bool = false,
                    onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
         self.toggle = toggle
         self.onAccess = onAccess
         requiresFullDiskAccess = needsFullDiskAccess || profile.needsFullDiskAccess
         configured = true
         (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.openSystemSettings)
-        icon.image = Self.icon(appURL, browser: profile.browser)
-        avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
+        icon.image = browserIcon ?? Self.placeholder
+        avatar.image = profile.avatar.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { blockingNSImage($0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
         name.stringValue = profile.browser.displayName
         let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore)
@@ -144,13 +145,13 @@ final class ImportProfileRow: NSView {
 
     /// A browser whose profile folder cmux has no grant for: its icon and
     /// name, "No access yet", and Allow Access… (the grant explainer).
-    func configureAwaiting(_ browser: ImportBrowser, onAccess: @escaping () -> Void) {
+    func configureAwaiting(_ browser: ImportBrowser, icon browserIcon: NSImage?, onAccess: @escaping () -> Void) {
         toggle = nil
         self.onAccess = onAccess
         requiresFullDiskAccess = true
         configured = true
         (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.allowAccess)
-        icon.image = Self.icon(nil, browser: browser)
+        icon.image = browserIcon ?? Self.placeholder
         avatar.image = nil
         avatar.alphaValue = 0
         name.stringValue = browser.displayName
@@ -184,22 +185,9 @@ final class ImportProfileRow: NSView {
         targetMenu.isHidden = true
     }
 
-    /// The installed browser's own icon. Resolve the bundle again for rows
-    /// restored from a data folder so Helium does not fall back to a globe
-    /// when detection missed its application URL.
-    static func icon(_ appURL: URL?, browser: ImportBrowser = .chrome) -> NSImage {
-        if let appURL { return NSWorkspace.shared.icon(forFile: appURL.path) }
-        for bundleID in browser.bundleIDs {
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                return NSWorkspace.shared.icon(forFile: appURL.path)
-            }
-        }
-        let conventionalURL = URL(fileURLWithPath: "/Applications/\(browser.displayName).app")
-        if FileManager.default.fileExists(atPath: conventionalURL.path) {
-            return NSWorkspace.shared.icon(forFile: conventionalURL.path)
-        }
-        return NSImage.icon(.browser, size: 16)
-    }
+    /// What a row shows until its browser's icon lands (``ImportStepModel/browserIcons``), and for a browser with
+    /// no app.
+    static var placeholder: NSImage { NSImage.icon(.browser, size: 16) }
 
     /// The cmux profiles this row can go into: "New Profile" (its own,
     /// matching the source) first, then each existing one; `selected` is
@@ -296,5 +284,19 @@ final class ImportProfileRow: NSView {
         mark.contentTintColor = Palette.textSecondary
         mark.alphaValue = markIcon == nil ? 0 : 1
         alphaValue = showsBox && !checked ? 0.55 : 1
+    }
+}
+
+extension ImportBrowser {
+    /// This browser's own icon: the app at `appURL`, else its app by bundle id (for rows restored from a data folder,
+    /// so Helium does not fall back to a globe when detection missed its application URL), else the app at
+    /// `/Applications/<name>.app`; nil with none. Blocking (Launch Services and the disk): run it on the system lane.
+    public nonisolated func appIcon(installedAt appURL: URL?, _ system: any WorkspaceQuerying) -> NSImage? {
+        if let appURL { return system.fileIcon(atPath: appURL.path) }
+        if let found = bundleIDs.lazy.compactMap({ system.application(withBundleIdentifier: $0) }).first {
+            return system.fileIcon(atPath: found.path)
+        }
+        let conventionalURL = URL(fileURLWithPath: "/Applications/\(displayName).app")
+        return FileManager.checked.fileExists(atPath: conventionalURL.path) ? system.fileIcon(atPath: conventionalURL.path) : nil
     }
 }

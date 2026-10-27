@@ -7,6 +7,15 @@ import Testing
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchStateResourcesTests {
+    /// A state mutation the app never sends, so it has no generated request: the test plays an agent.
+    private static func mutation(_ connection: DaemonConnection, _ operation: String,
+                                 _ params: [String: JSONValue]) async throws {
+        let key = "cmux-next-test-" + UUID().uuidString.lowercased()
+        _ = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
+        }, as: ResourceMutationResult<JSONValue>.self)
+    }
+
     @Test func closedTabsAreRecordedAndReopened() async throws {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
@@ -84,10 +93,10 @@ struct BranchStateResourcesTests {
             let created = try await h.connection.state.createWorkspace(name: "eph", ephemeral: true, terminal: true, focus: true)
             try await store.waitUntil("the ephemeral workspace", timeout: .seconds(20)) { store.workspace(resourceID: created.workspaceID)?.ephemeral == true }
 
-            try await h.connection.state.stateMutation("workspace_status.set", [
+            try await Self.mutation(h.connection, "workspace_status.set", [
                 "workspace": .string(created.workspaceID.rawValue), "key": .string("build"), "text": .string("Building"),
             ])
-            try await h.connection.state.stateMutation("workspace_progress.set", [
+            try await Self.mutation(h.connection, "workspace_progress.set", [
                 "workspace": .string(created.workspaceID.rawValue), "value": .number(0.5),
             ])
             try await store.waitUntil("its status and progress", timeout: .seconds(20)) {

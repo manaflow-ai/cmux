@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// A pane-edge drop's target draws the layout that lands, pane for pane: the new pane's fill and
@@ -146,7 +147,7 @@ struct DropPreviewLandingParityTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: tree.panes.first)
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()

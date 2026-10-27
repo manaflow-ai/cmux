@@ -120,27 +120,16 @@ public actor IrxControlPlaneClient {
         let type: String
     }
 
-    /// The two ISO 8601 parsers shared by every date the decoder sees.
-    ///
-    /// `ISO8601DateFormatter` is thread-safe, but only newer SDKs declare it
-    /// `Sendable`; with Swift 6.0 and the macOS 15 SDK the bare formatters
-    /// cannot be captured by the `@Sendable` custom decoding closure. Boxing
-    /// them keeps one pair per decoder instead of allocating per date.
-    private struct ISO8601Formatters: @unchecked Sendable {
-        let plain = ISO8601DateFormatter()
-        let fractional: ISO8601DateFormatter = {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter
-        }()
-    }
-
-    private static func makeDecoder() -> JSONDecoder {
+    /// Control-plane dates are RFC 3339, with or without fractional seconds
+    /// and with `Z` or a `±hh:mm` offset. The format styles are Sendable
+    /// values, so the `@Sendable` decoding closure captures them directly.
+    static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        let formatters = ISO8601Formatters()
+        let plain = Date.ISO8601FormatStyle()
+        let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
         decoder.dateDecodingStrategy = .custom { decoder in
             let raw = try decoder.singleValueContainer().decode(String.self)
-            if let date = formatters.plain.date(from: raw) ?? formatters.fractional.date(from: raw) {
+            if let date = (try? plain.parse(raw)) ?? (try? fractional.parse(raw)) {
                 return date
             }
             throw DecodingError.dataCorrupted(.init(

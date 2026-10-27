@@ -141,7 +141,7 @@ nonisolated enum DiffSessionRoot {
             let url = root.appending(path: name)
             // concurrency-allow: nonisolated sweep; DiffPageRuntime runs it from a @concurrent task
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count < 64 * 1024,
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
                   let token = object["token"] as? String, DiffPatchResolver.isValidToken(token),
                   !leaseIsHeld(root: root, token: token) else { continue }
             let resolver = DiffPatchResolver(root: root, token: token)

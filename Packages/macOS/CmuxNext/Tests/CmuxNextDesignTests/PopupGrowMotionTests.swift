@@ -35,6 +35,16 @@ import CmuxNextDesignTokens
         return Motion.speed != .off && !DisplaySleep.shared.isAsleep(screen)
     }
 
+    /// Runs one main run-loop turn that polls and exits without waiting, so the commit that ends
+    /// it, and the popup's order-in right after that commit, run. A mode with no source returns
+    /// before notifying observers, so a far-future timer keeps the default mode non-empty.
+    static func commitTurn() {
+        let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
+        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
+        _ = CFRunLoopRunInMode(.defaultMode, 0, false)
+        CFRunLoopTimerInvalidate(timer)
+    }
+
     /// The x scale a `sublayerTransform` value holds.
     private static func scale(_ value: Any?) -> CGFloat? {
         (value as? NSValue).map { $0.caTransform3DValue.m11 }
@@ -48,6 +58,7 @@ import CmuxNextDesignTokens
         defer { window.resetPopupScale(); window.orderOut(nil) }
 
         window.openPopup(pivot: Self.pivot)
+        Self.commitTurn()
 
         #expect(window.alphaValue == 1, "the window alpha fade does not show on the glass card")
         let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "the card does not fade in")
@@ -73,6 +84,7 @@ import CmuxNextDesignTokens
         let (window, layer) = try Self.popupWindow()
         defer { window.orderOut(nil) }
         window.openPopup(pivot: Self.pivot)
+        Self.commitTurn()
         let openGrow = try #require(layer.animation(forKey: "sublayerTransform"))
 
         var ended = false
@@ -102,6 +114,7 @@ import CmuxNextDesignTokens
         defer { window.resetPopupScale(); window.orderOut(nil) }
 
         window.openPopup(pivot: Self.pivot)
+        Self.commitTurn()
 
         #expect(window.alphaValue == 1)
         #expect(layer.animation(forKey: "sublayerTransform") == nil, "Reduce Motion: no grow")

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// Gets a remote suggest response. The App uses `URLSessionSuggestFetcher`;
 /// tests inject a fake. A fetch must end with `CancellationError` (or any
@@ -57,30 +58,26 @@ public nonisolated struct OmniboxRemoteConfiguration: Sendable {
 extension OmniboxSuggestionEngine {
     /// Phase B for `text`: after `remote.debounce` without cancellation, one
     /// request to the engine's suggest endpoint, cancelled after
-    /// `remote.timeout` or with the query; nil when anything fails.
-    static func remoteRows(_ text: String, engine: BrowserSearchEngine, remote: OmniboxRemoteConfiguration,
-                           answer: String? = nil) async -> [BrowserSuggestion]? {
+    /// `remote.timeout` or with the query; nil when anything fails. Off the
+    /// main thread from the pause to the parsed rows (Chrome's SearchProvider
+    /// fetches through a URLLoader and parses on a worker,
+    /// components/omnibox/browser/search_provider.cc).
+    @concurrent nonisolated static func remoteRows(_ text: String, engine: BrowserSearchEngine, remote: OmniboxRemoteConfiguration,
+                                                   answer: String? = nil) async -> [BrowserSuggestion]? {
         guard let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
-        let clock = remote.clock, timeout = remote.timeout, ephemeral = remote.isPrivate
+        let clock = remote.clock, ephemeral = remote.isPrivate
         do {
-            // wakeup-allow: one-shot debounce on the injected clock; a newer keystroke cancels it.
-            try await clock.sleep(for: remote.debounce)
+            // wakeup-allow: the typing pause inside one suggest fetch; a newer keystroke cancels the whole fetch task, pause included; injected clock
+            // timer-class-allow: off main (remoteRows is @concurrent), and an event (the next key) ends it first; Chrome's SearchProvider waits the same kDelayMs
+            try await clock.sleep(for: remote.debounce, tolerance: WakeLeeway.window(delay: remote.debounce).tolerance)
         } catch {
             return nil
         }
         guard !Task.isCancelled else { return nil }
-        let fetch = Task { try await fetcher.fetch(url, ephemeral: ephemeral) }
-        let deadline = Task {
-            // wakeup-allow: one-shot request deadline on the injected clock, cancelled when the fetch ends.
-            try await clock.sleep(for: timeout)
-            fetch.cancel()
-        }
-        defer { deadline.cancel() }
-        let data = await withTaskCancellationHandler {
-            try? await fetch.value
-        } onCancel: {
-            fetch.cancel()
-        }
+        // The request races its timeout; the loser, or the query's own cancellation, cancels it.
+        let data: Data? = await Deadline(remote.timeout, clock: clock).value("omnibox.suggest") {
+            try? await fetcher.fetch(url, ephemeral: ephemeral)
+        } ?? nil
         guard let data, !Task.isCancelled else { return nil }
         return OmniboxRemoteSuggestions.rows(OmniboxRemoteSuggestions.parse(data), query: text, engine: engine, limit: remote.limit,
                                              answer: answer)

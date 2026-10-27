@@ -5,18 +5,19 @@ extension GhosttyRuntime {
     /// separate budget for the primary and alternate screens, so a surface
     /// may retain about twice this value. An explicit config or theme value
     /// takes precedence.
-    static let cmuxDefaultImageStorageBytes: UInt32 = 5_000_000
+    nonisolated static let cmuxDefaultImageStorageBytes: UInt32 = 5_000_000
 
     /// Loads the bounded viewer default after finalization only when neither
     /// the user's config files nor their theme assigned the key.
-    static func loadImageStorageDefaultIfUnset(into config: ghostty_config_t) {
+    nonisolated static func loadImageStorageDefaultIfUnset(into config: ghostty_config_t) {
         let key = "image-storage-limit"
         var source = ghostty_config_source_s()
-        let explicitlySet = key.withCString {
-            ghostty_config_key_source(config, $0, UInt(key.utf8.count), &source)
-        }
+        // SAFETY: the caller passes a live config; Swift passes a NUL-terminated copy of `key`
+        // for the call, and Ghostty fills `source`, which lives for the call.
+        let explicitlySet = unsafe ghostty_config_key_source(config, key, UInt(key.utf8.count), &source)
         guard !explicitlySet else { return }
         let line = "image-storage-limit = \(cmuxDefaultImageStorageBytes)"
-        line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        // SAFETY: the caller passes a live config.
+        unsafe loadConfigLine(line, into: config, source: "cmux-next")
     }
 }

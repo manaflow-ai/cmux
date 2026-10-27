@@ -36,7 +36,7 @@ extension WindowController {
             dismiss: { [weak self] creation in
                 guard let self else { return }
                 CloudHandlers.creationFlow(AppActionContext(services: self.services)).dismiss(creation, in: self.state)
-            }))
+            }), parent: visibility, mainWork: services.mainWork, deadlines: services.mainDeadlines)
         root.show(view)
         // Keys typed before the terminal exists land on the view (it says so), not on a hidden pane.
         window?.makeFirstResponder(view)

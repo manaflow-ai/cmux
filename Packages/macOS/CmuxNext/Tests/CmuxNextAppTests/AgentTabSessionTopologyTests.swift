@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ struct AgentTabSessionTopologyTests {
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
-        let launcher = DaemonLauncher(configuration: .init(binary: binary, session: "cn-tabbind-\(UUID().uuidString.prefix(6).lowercased())",
+        let launcher = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-tabbind-\(UUID().uuidString.prefix(6).lowercased())",
                                                            stateDirectory: root.appendingPathComponent("state")), environment: environment)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

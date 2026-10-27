@@ -50,6 +50,7 @@ pub(super) fn run_placement_for_surface(state: &State, surface: SurfaceId) -> Op
     })
 }
 
+#[track_caller]
 pub(super) fn terminal_exit_snapshot_in_state(
     registry: &WorkspaceRegistry,
     state: &State,

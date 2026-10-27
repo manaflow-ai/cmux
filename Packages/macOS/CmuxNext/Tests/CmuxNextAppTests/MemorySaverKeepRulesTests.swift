@@ -12,12 +12,15 @@ import Testing
 /// other, and a page that answered "form input" and then stopped answering (a busy renderer) was
 /// discarded under pressure after three missed probes, its draft lost.
 @MainActor @Suite struct MemorySaverKeepRulesTests {
+    /// A hidden browser page with no fact of its own: only the probe's answer can keep it.
+    static let page = HibernationPlanner.Candidate(key: "page", hiddenFor: 600)
+
     // MARK: Every pressure level
 
     @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
     func aRunningWebAudioContextKeepsThePageAtEveryPressure(_ pressure: MemoryPressureLevel) {
         let probe = PageProbe(webAudio: true)
-        #expect(probe.keepReason(pressure: pressure, doubted: false, showsFormSubmission: false) == .webAudio)
+        #expect(probe.keepReason(Self.page, pressure: pressure, doubted: false) == .webAudio)
     }
 
     @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
@@ -32,9 +35,10 @@ import Testing
             (PageProbe(unreadableFrame: true), .unreadableFrame),
         ]
         for (probe, reason) in cases {
-            #expect(probe.keepReason(pressure: pressure, doubted: false, showsFormSubmission: false) == reason)
+            #expect(probe.keepReason(Self.page, pressure: pressure, doubted: false) == reason)
         }
-        #expect(PageProbe().keepReason(pressure: pressure, doubted: false, showsFormSubmission: true) == .formSubmission)
+        #expect(PageProbe().keepReason(HibernationPlanner.Candidate(key: "page", hiddenFor: 600, showsFormSubmission: true),
+                                         pressure: pressure, doubted: false) == .formSubmission)
     }
 
     /// A page that answered "the person's form input" and then stopped answering (its renderer busy)
@@ -47,7 +51,7 @@ import Testing
             #expect(doubted, "a page with a draft lost the doubt")
         }
         let unanswered = PageProbe(answered: false)
-        #expect(unanswered.keepReason(pressure: .critical, doubted: history.doubted("page"), showsFormSubmission: false) == .unanswered)
+        #expect(unanswered.keepReason(Self.page, pressure: .critical, doubted: history.doubted("page")) == .unanswered)
     }
 
     @Test(arguments: ["beforeUnload", "webRTC", "capturing", "webAudio"])

@@ -49,9 +49,11 @@ impl Backoff {
         base.mul_f64(factor.max(0.0)).min(self.max)
     }
 
-    /// Sleeps `next_delay()` on the current thread.
+    /// Sleeps `next_delay()` on the current thread, a checked sleep at the
+    /// caller (`cmux_threads::checked::sync::sleep`).
+    #[track_caller]
     pub fn sleep(&mut self) {
-        std::thread::sleep(self.next_delay());
+        cmux_threads::checked::sync::sleep(self.next_delay());
     }
 
     /// Call after a success: the next failure starts from `initial` again.
@@ -88,6 +90,25 @@ mod tests {
         assert_eq!(delays, vec![10, 20, 40, 50, 50]);
         backoff.reset();
         assert_eq!(backoff.next_delay(), Duration::from_millis(10));
+    }
+
+    #[test]
+    fn sleep_is_a_checked_sleep_at_its_caller() {
+        cmux_threads::blocking::set_mode(cmux_threads::blocking::BlockingMode::Record);
+        let line =
+            cmux_threads::spawn("backoff-sleep-probe", cmux_threads::ThreadQos::Utility, || {
+                cmux_threads::disallow_blocking();
+                let mut backoff = Backoff::new(Duration::ZERO, Duration::ZERO).with_jitter(0.0);
+                let line = line!() + 1;
+                backoff.sleep();
+                line
+            })
+            .expect("spawn")
+            .join()
+            .expect("join");
+        let snapshot = cmux_threads::blocking::snapshot();
+        let site = snapshot.site(file!(), line).expect("a violation at the sleep's caller");
+        assert!(site.kinds.contains(cmux_threads::BlockingKind::Sleep));
     }
 
     #[test]

@@ -6,11 +6,12 @@
 
 use std::io::Write;
 use std::os::fd::OwnedFd;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_holder::link::{HolderLink, TerminalSink};
+use cmux_holder::link::{FrameWatch, HolderLink, TerminalSink};
 use cmux_holder::{ExitStatus, SpawnRequest};
 
 const TOKEN: [u8; 32] = [0x33; 32];
@@ -283,5 +284,108 @@ fn a_spawn_that_times_out_leaves_no_terminal_on_the_holder() {
     let stream = stand_in.join().expect("the stand-in holder saw every frame it waits for");
     drop(stream);
     drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+static WATCHED_ENTERS: AtomicU32 = AtomicU32::new(0);
+static WATCHED_EXITS: AtomicU32 = AtomicU32::new(0);
+static WATCHED_DATA: AtomicU32 = AtomicU32::new(0);
+
+/// Every frame the reader routes opens a watch with its kind and ends it
+/// with the token that watch returned (the daemon's holder-link hang scope).
+const WATCH: FrameWatch = FrameWatch {
+    enter: |kind| {
+        if kind == cmux_holder::wire::Kind::Data as u16 {
+            WATCHED_DATA.fetch_add(1, Ordering::SeqCst);
+        }
+        WATCHED_ENTERS.fetch_add(1, Ordering::SeqCst) + 1
+    },
+    exit: |token| {
+        if token != 0 {
+            WATCHED_EXITS.fetch_add(1, Ordering::SeqCst);
+        }
+    },
+    hang: |_| {},
+};
+
+#[test]
+fn every_routed_frame_is_watched_and_its_watch_ends() {
+    let dir = support::unique_dir("cmhw");
+    let socket = dir.join("h.sock");
+    let mut holder = cmux_holder::client::launch(
+        std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
+        &socket,
+        &TOKEN,
+    )
+    .unwrap();
+    let (link, _) = HolderLink::connect_watched(
+        &socket,
+        &TOKEN,
+        Box::new(|_| {}),
+        cmux_holder::link::SPAWN_TIMEOUT,
+        WATCH,
+    )
+    .unwrap();
+    let sink = Arc::new(Collect::default());
+    link.spawn(1, &request(1, "echo watched; exit 0"), sink.clone()).unwrap();
+    wait_for("the exit", || sink.exit.lock().unwrap().is_some());
+    assert!(String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("watched"));
+    assert!(WATCHED_DATA.load(Ordering::SeqCst) >= 1);
+    // The exit frame's watch ends right after its sink returns.
+    wait_for("every watch ended", || {
+        WATCHED_EXITS.load(Ordering::SeqCst) == WATCHED_ENTERS.load(Ordering::SeqCst)
+    });
+    assert!(WATCHED_ENTERS.load(Ordering::SeqCst) >= 3, "spawned, data and exit");
+    drop(link);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Records the registry slot of the thread its output arrives on.
+#[derive(Default)]
+struct SlotProbe {
+    slot: Mutex<Option<(String, cmux_threads::ThreadQos)>>,
+    exited: Mutex<bool>,
+}
+
+impl TerminalSink for SlotProbe {
+    fn data(&self, _offset: u64, _bytes: &[u8]) {
+        let slot =
+            cmux_threads::current_slot().map(|slot| (slot.name().to_owned(), slot.desired()));
+        let mut first = self.slot.lock().unwrap();
+        if first.is_none() {
+            *first = Some(slot.expect("the link reader is registered"));
+        }
+    }
+    fn gap(&self, _requested: u64, _oldest: u64) {}
+    fn exit(&self, _status: ExitStatus, _end: u64) {
+        *self.exited.lock().unwrap() = true;
+    }
+}
+
+/// p04-input task 060: holder output reaches its surface on the key echo
+/// path, so the link reader runs registered at the echo class, not at its
+/// creator's.
+#[test]
+fn holder_output_is_routed_on_an_echo_class_thread() {
+    let dir = support::unique_dir("cmhq");
+    let socket = dir.join("h.sock");
+    let mut holder = cmux_holder::client::launch(
+        std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
+        &socket,
+        &TOKEN,
+    )
+    .unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+    let probe = Arc::new(SlotProbe::default());
+    link.spawn(1, &request(1, "echo qos; exit 0"), probe.clone()).unwrap();
+    wait_for("the exit", || *probe.exited.lock().unwrap());
+    let slot = probe.slot.lock().unwrap().clone();
+    assert_eq!(slot, Some(("holder-link".to_owned(), cmux_holder::link::LINK_READER_QOS)));
+    assert_eq!(cmux_holder::link::LINK_READER_QOS, cmux_threads::ThreadQos::UserInteractive);
+    drop(link);
+    let _ = holder.kill();
+    let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }

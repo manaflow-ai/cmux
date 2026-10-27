@@ -1,0 +1,43 @@
+Building for debugging...
+[0/2] Write sources
+[1/2] Write swift-version--103F3EBC7B566D36.txt
+[3/4] Compiling Demo A.swift
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:4:3: warning: 'old()' is deprecated: old [#DeprecatedDeclaration]
+ 2 | public func old() {}
+ 3 | public func f() {
+ 4 |   old()
+   |   `- warning: 'old()' is deprecated: old [#DeprecatedDeclaration]
+ 5 |   var unused = 1
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:5:7: warning: initialization of variable 'unused' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 3 | public func f() {
+ 4 |   old()
+ 5 |   var unused = 1
+   |       `- warning: initialization of variable 'unused' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:7:3: warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+ 5 |   var unused = 1
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+   |   |- warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+   |   `- note: reference to let 'p' involves unsafe type 'UnsafeMutablePointer<Int>'
+ 8 |   p.deallocate()
+ 9 | }
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:8:3: warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+ 8 |   p.deallocate()
+   |   |- warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+   |   |- note: argument 'self' in call to instance method 'deallocate' has unsafe type 'UnsafeMutablePointer<Int>'
+   |   `- note: reference to let 'p' involves unsafe type 'UnsafeMutablePointer<Int>'
+ 9 | }
+10 | 
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[#StrictMemorySafety]: <https://docs.swift.org/compiler/documentation/diagnostics/strict-memory-safety>
+[4/4] Emitting module Demo
+Build complete! (2.10s)

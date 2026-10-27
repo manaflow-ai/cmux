@@ -2,7 +2,8 @@
 // paints first frame as unexplored ... it's indecisive between 'defaults' and 'recently used'").
 // A page that just mounted has no chat list until its own daemon connection answers, so it drew
 // "Choose folder" and then flipped to the project used last. Every agent page shares one website
-// data store (AgentPaneView.sharedDataStore), so this origin's localStorage is the app run's: each
+// data store (WebProcessGroups.dataStore on the page host's WebKit, the one profile in Chromium),
+// so this origin's localStorage is the app run's: each
 // page that hears this Mac's chat list keeps its newest chat folders here, and the next New Tab page
 // reads them before it paints. A blocked store, or a run that has heard no list yet, leaves the
 // page to wait for its own list (NewTabScreen holds the chip's place, never a wrong label).

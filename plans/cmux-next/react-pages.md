@@ -20,7 +20,7 @@ history.md (entry kinds, owners, retention), app-platform.md (catalog semantics,
 | Page client adapter | `webviews/src/pages/shared/pageClient.ts` | the only file that knows the transport (section 1.1) |
 | Strings | `webviews/src/pages/<page>/generated/strings.<locale>.json` from the page's xcstrings | generator with `--check`; no string only in TS |
 | Theme | `WebTheme.bootstrapScript` + `--cmux-*` variables (windows.md "Web theme") | html/body transparent, separators `--cmux-separator`, hover/selection `--cmux-hover`/`--cmux-selection`, no blue, `appearance.borders = none` gives no lines |
-| Swift host | one generic `PageWebView` (WKWebView, `drawsBackground = false`) + scheme handler `cmux-page://<page id>/` serving the bundled webviews output | one origin per page id (pane-protocol.md Pages); proposed to the settings lead as the shared host instead of a per-page scheme |
+| Swift host | one generic `PageWebView` (WebKit, `drawsBackground = false`, or Chromium through `ChromiumPageHost` in the pages' off-the-record profile), opened and closed only by `WebUIHost` (section 1.0b) + scheme handler `cmux-page://<page id>/` serving the bundled webviews output | one origin per page id (pane-protocol.md Pages); a Chromium page makes no WKWebView until it falls back (p13-webui-041) |
 
 ### 1.0a First-party page roots (coordinator decision 2026-10-04)
 
@@ -29,6 +29,19 @@ in the app bundle outside CmuxNextPages (for example cmux.diff on the one webvie
 `PageDescriptor.entry`). It accepts only ids in `PageID.firstParty`, is called once at launch, and the
 first registration wins. P5 of the agent pane move deletes only the agent pane's own special path, not
 H10. App pages never use it.
+
+### 1.0b One owner, lifecycle and preload (chrome-parity p13-webui, 2026-10-26)
+
+Design: [webui-DESIGN.md](webui-DESIGN.md); plan and task list: [chrome-parity/p13-webui.md](chrome-parity/p13-webui.md).
+
+| Part | Owner (path) | State on perf/chrome-parity |
+| --- | --- | --- |
+| Open and close | `WebUIHost` (CmuxNextPages/WebUI), made once in the composition root; Chrome's `WebUIControllerFactory` | every page opens through `webUI.open` and closes through it; a page tab makes its view at first show (040) |
+| Renderer groups | `PageDescriptor.processGroup` by capability, registered with the fork (011, 012) | feature `pageProcessGroups`, off: pages of one group share a renderer, pages of two groups never do |
+| Lifecycle | `PageLifecycle` with the pure `PageLifecyclePlanner` (022, 028, 030, 038) | feature `pageLifecycle`, off: Active, Hidden, Frozen, Discarded ([tab-lifecycle.md](tab-lifecycle.md) section 3b) |
+| Preload | `PagePreloadSlot`, at most one preloaded page in the app (043) | New Tab is its default page ([new-tab.md](new-tab.md) section 2.2); Settings, History and Cloud still claim from `PageHostPool` until 045 |
+| Crashes | `PageCrashGroups`, per real renderer (039) | with `pageLifecycle`: a shown page reloads once, a hidden page reloads when it shows, 3 crashes per 600 s per group; without it each page keeps its own budget and reloads at once |
+| Memory pressure | the app's one memory coordinator (047) | the slot is a `SpareMemoryConsumer` (`webui-preload`): any pressure above normal drops the preload |
 
 ### 1.1 Transport
 

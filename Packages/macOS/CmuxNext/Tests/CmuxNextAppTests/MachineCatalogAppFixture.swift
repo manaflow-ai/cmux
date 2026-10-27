@@ -62,7 +62,8 @@ final class MachineCatalogAppFixture {
         server.connect()
         try await wait("server registry handshake") { server.daemon.connection != nil && server.daemon.identity != nil }
 
-        let transport = DaemonAppsTransport(daemon: local, inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
+        let transport = DaemonAppsTransport(daemon: local, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                            inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
         self.transport = transport
         transport.provider.attach(AppHostCapabilities([AgentCLICapabilityHandler { [registry] in registry.agentInventoryRoutes() }]))
         transport.start()
@@ -136,7 +137,7 @@ final class MachineCatalogAppFixture {
         var configuration = DaemonLauncher.Configuration(binary: binary, session: "appcat-\(name)-\(root.lastPathComponent.suffix(8))",
                                                          stateDirectory: root.appendingPathComponent("\(name)-state"), installKey: installKey)
         configuration.runtimeBase = root.appendingPathComponent("run")
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
     }
 
     private func startOwner(_ launcher: DaemonLauncher) async throws -> DaemonEndpoint {

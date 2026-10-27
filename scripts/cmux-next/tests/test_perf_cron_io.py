@@ -13,6 +13,10 @@ spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, ".
 cron = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cron)
 budgets_mod = cron.load_budgets_module()
+# The suite tests the cron's logic whether or not the checkout has the perf lab's sentinel
+# (test_perf_cron.py's LabSentinelTests covers the sentinel).
+NO_SENTINEL_DIR = tempfile.TemporaryDirectory()
+cron.LAB_SENTINEL = os.path.join(NO_SENTINEL_DIR.name, "OWNS_MEASUREMENT")
 
 T0 = datetime.datetime(2026, 10, 23, 12, 0, tzinfo=datetime.timezone.utc)
 
@@ -526,6 +530,66 @@ class RunPartTests(unittest.TestCase):
         result, calls, _ = self.run_part(1, status=status, seconds="2")
         self.assertTrue(any(c.startswith("cancel abcdef1234567890") for c in calls), calls)
         self.assertEqual((result["state"], result["yielded_to"]), ("yielded", "f" * 24))
+
+
+class PerfBenchSentinelTests(unittest.TestCase):
+    """p12-perf-process task 026: the nightly xbench entry (scripts/measure/perf-bench.sh) stops at the perf lab's
+    sentinel before any build, so the nightly holds the bench host for seconds and measures nothing."""
+
+    def perf_bench(self, sentinel):
+        """scripts/measure/perf-bench.sh (the nightly's fleet entry) in a scratch repository whose reload.sh and
+        fetch_browsers.py record that they ran, with the macOS tools it reads stubbed on PATH."""
+        import shutil
+        d = self.enterContext(tempfile.TemporaryDirectory())
+        repo, bin_dir, calls = os.path.join(d, "repo"), os.path.join(d, "bin"), os.path.join(d, "calls")
+        script = os.path.join(repo, "scripts", "measure", "perf-bench.sh")
+        os.makedirs(os.path.dirname(script))
+        shutil.copy(os.path.join(cron.ROOT, "scripts", "measure", "perf-bench.sh"), script)
+
+        def stub(path, body):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write("#!/usr/bin/env bash\n" + body + "\n")
+            os.chmod(path, 0o755)
+
+        stub(os.path.join(repo, "scripts", "reload.sh"), f'echo reload.sh >> "{calls}"; exit 1')
+        stub(os.path.join(repo, "scripts", "download-prebuilt-ghosttykit.sh"), f'echo ghosttykit >> "{calls}"')
+        os.makedirs(os.path.join(repo, "scripts", "perf-bench"))
+        with open(os.path.join(repo, "scripts", "perf-bench", "fetch_browsers.py"), "w") as f:
+            f.write(f'open({calls!r}, "a").write("fetch_browsers\\n")\n')
+        for sub in ("ghostty", "ghostty-next"):
+            os.makedirs(os.path.join(repo, sub))
+            open(os.path.join(repo, sub, ".git"), "w").close()
+        os.makedirs(os.path.join(repo, "GhosttyKit.xcframework"))
+        open(os.path.join(repo, "GhosttyKit.xcframework", "Info.plist"), "w").close()
+        if sentinel:
+            os.makedirs(os.path.join(repo, "scripts", "perf-lab"))
+            open(os.path.join(repo, "scripts", "perf-lab", "OWNS_MEASUREMENT"), "w").close()
+        for tool, out in (("dscl", ""), ("sysctl", "1"), ("scutil", "bench"), ("sw_vers", "26.0")):
+            stub(os.path.join(bin_dir, tool), f"echo {out}")
+        git = ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-qm", "x"], check=True)
+        env = dict(os.environ, PATH=bin_dir + os.pathsep + os.environ["PATH"])
+        env.pop("CI_SHARED_CACHE_DIR", None)
+        run = subprocess.run(["bash", script, "tabswitch=off", "palette=off"], cwd=repo, env=env,
+                             capture_output=True, text=True, timeout=60)
+        ran = open(calls).read().split() if os.path.exists(calls) else []
+        return run, ran, repo
+
+    def test_with_the_sentinel_the_nightly_entry_builds_and_measures_nothing(self):
+        run, ran, repo = self.perf_bench(sentinel=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("perf-bench: perf lab owns measurement", run.stdout)
+        self.assertEqual(ran, [], "no reload.sh build, no GhosttyKit download, no browser fetch")
+        with open(os.path.join(repo, "artifacts", "perf-bench", "results.json")) as f:
+            self.assertEqual(json.load(f)["skipped"], cron.LAB_REASON, "the nightly's declared artifact exists")
+
+    def test_without_the_sentinel_the_nightly_entry_builds(self):
+        run, ran, _ = self.perf_bench(sentinel=False)
+        self.assertEqual(ran, ["reload.sh"], run.stdout + run.stderr)
+        self.assertNotEqual(run.returncode, 0, "the stub build fails, so the script stops there")
 
 
 if __name__ == "__main__":

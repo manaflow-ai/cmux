@@ -1,19 +1,34 @@
 public import CmuxNextSettings
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// Delivers the router's envelopes to one page in send order, and renders large ones off the main
 /// actor (architecture.md 5a: the main thread does no unbounded work).
 ///
-/// A small envelope with nothing queued ahead of it is rendered and evaluated at once, as before.
+/// By default a small envelope with nothing queued ahead of it is rendered and evaluated at once.
 /// Anything else waits in a FIFO that one drain task works through: it renders each script in a
 /// `@concurrent` function and evaluates it on the main actor, one at a time, so events never
 /// reorder. A ``Gate`` holds the FIFO at a point: the page's reply to a message it posted must
 /// reach the page after the events sent before it and before the events sent after it, as when
 /// every script was evaluated synchronously. ``reset()`` drops what is queued (the router closed:
 /// those envelopes belong to cancelled subscriptions of an old document).
+///
+/// On frames (``deliverOnFrames(_:)``, p06-scheduler-222) envelopes wait for the next frame, and
+/// each run of them between two gates reaches the page as one `receiveMany` script: 20 envelopes
+/// in a frame are 1 evaluate. Chrome's renderer main thread takes the browser's IPC the same way,
+/// with input and IPC aligned to the begin-frame (third_party/blink/renderer/platform/scheduler/
+/// main_thread/main_thread_scheduler_impl.cc). A gate does not wait for the frame: what is queued
+/// ahead of it goes at once, so a reply keeps its turn; ``flush()`` does the same for a built-in
+/// command, a host call, a script the view runs itself (``PageWebView/callPageScript(_:arguments:)``,
+/// ``PageWebView/callPageFunction(_:arguments:)``) or a hidden page's release as it shows. The frame
+/// runs in the class of the highest cause that asked for it since it was asked
+/// (``PageScriptFrame``).
 @MainActor
 final class PageScriptPipeline {
-    /// Above this size an envelope is rendered off the main actor.
+    /// Above this size an envelope (or a frame's run of them) is rendered off the main actor.
     nonisolated static let inlineBudget = PageScriptBudget(nodes: 512, stringBytes: 16 * 1024)
 
     private enum Item {
@@ -42,12 +57,12 @@ final class PageScriptPipeline {
     final class Gate {
         private var isReached = false
         private var isOpen = false
-        private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
-        private var openWaiters: [CheckedContinuation<Void, Never>] = []
+        private var reachedWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+        private var openWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
         func reached() async {
             guard !isReached else { return }
-            await withCheckedContinuation { reachedWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in reachedWaiters.append(waiter) }
         }
 
         func open() {
@@ -56,7 +71,7 @@ final class PageScriptPipeline {
             isOpen = true
             let waiters = openWaiters
             openWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
         fileprivate func markReached() {
@@ -64,56 +79,94 @@ final class PageScriptPipeline {
             isReached = true
             let waiters = reachedWaiters
             reachedWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
-    func opened() async {
+        func opened() async {
             guard !isOpen else { return }
-            await withCheckedContinuation { openWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in openWaiters.append(waiter) }
         }
     }
 
     private let evaluate: @MainActor (String) -> Void
-    private let render: @Sendable (JSONValue) async -> String
+    private let render: @Sendable ([JSONValue]) async -> String
     private var queue: [Item] = []
     private var head = 0
     private var drain: Task<Void, Never>?
-    /// The queue head is advanced before an off-actor render awaits. Keep its drop action here so
-    /// reset reports it before later queued envelopes, even though it is no longer in `queue[head...]`.
-    private var inFlightDrop: Drop?
+    /// The frame envelopes wait for; nil sends each one as it comes (``deliverOnFrames(_:)``).
+    private var frame: PageScriptFrame?
+    /// The highest cause a frame callback was asked for with since the last one ran; nil while none
+    /// is pending. Later sends ride on it, unless their cause runs sooner (``requestFrame()``).
+    private var requestedCause: ObservationCause?
+    /// Names the pending request: the first of its callbacks to run drains, the others find a new
+    /// request (or none) and do nothing.
+    private var frameRequest: UInt64 = 0
+    /// The queue head is advanced before an off-actor render awaits. Keep the run's drop actions
+    /// here so reset reports them before later queued envelopes, even though they are no longer in
+    /// `queue[head...]`.
+    private var inFlightDrops: [Drop] = []
     /// Reset opens a gate even though `head` has advanced past the item.
     private var inFlightGate: Gate?
     /// Bumped by ``reset()``: a script rendered for an older generation is not evaluated.
     private var generation: UInt64 = 0
 
+    /// - Parameters:
+    ///   - evaluate: Runs one script in the page.
+    ///   - render: Makes the script of one run of envelopes (``PageRouter/receiveManyScript(_:)``);
+    ///     the drain task calls it, off the main actor by default.
     init(evaluate: @escaping @MainActor (String) -> Void,
-         render: @escaping @Sendable (JSONValue) async -> String) {
+         render: @escaping @Sendable ([JSONValue]) async -> String) {
         self.evaluate = evaluate
         self.render = render
     }
 
     convenience init(evaluate: @escaping @MainActor (String) -> Void) {
-        self.init(evaluate: evaluate) { envelope in
-            await PageScriptPipeline.render(envelope)
+        self.init(evaluate: evaluate) { envelopes in
+            await PageScriptPipeline.render(envelopes)
         }
     }
+
+    /// From now on envelopes wait for `frame`, and each frame's run goes to the page as one script.
+    func deliverOnFrames(_ frame: PageScriptFrame) {
+        self.frame = frame
+        if drain == nil, head < queue.count { requestFrame() }
+    }
+
+    /// Whether envelopes wait for a frame (``deliverOnFrames(_:)``).
+    var deliversOnFrames: Bool { frame != nil }
 
     /// True when nothing is queued or running, so a script may be evaluated at once.
     private var isIdle: Bool { drain == nil && head == queue.count }
 
     /// Sends `envelope` to the page after everything sent before it.
     func send(_ envelope: JSONValue, onDrop: @escaping @MainActor () -> Void = {}) {
+        if frame != nil {
+            queue.append(.envelope(envelope, Drop(onDrop)))
+            // A running drain takes it with the rest of the queue.
+            if drain == nil { requestFrame() }
+            return
+        }
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
+            // MQ12 held queue: the router holds envelopes while the page is hidden (PageRouter+Hold.swift).
             evaluate(PageRouter.receiveScript(envelope))
             return
         }
         enqueue(.envelope(envelope, Drop(onDrop)))
     }
 
+    /// Sends what waits for the frame now, in this turn: a built-in command or a host call was just
+    /// queued, and nothing a person or the host waits on sits out a frame. A no-op without frames.
+    func flush() {
+        guard frame != nil, drain == nil else { return }
+        drainInline()
+    }
+
     /// A gate after everything sent so far, or nil when nothing is queued and `always` is false
-    /// (a synchronous reply is already in order).
+    /// (a synchronous reply is already in order). On frames the envelopes ahead of it go at once
+    /// (``flush()``), so a reply never waits a frame.
     func gate(always: Bool) -> Gate? {
+        flush()
         guard always || !isIdle else { return nil }
         let gate = Gate()
         enqueue(.gate(gate))
@@ -123,8 +176,9 @@ final class PageScriptPipeline {
     /// Drops every queued envelope and releases every gate.
     func reset() {
         generation &+= 1
-        inFlightDrop?.call()
-        inFlightDrop = nil
+        let inFlight = inFlightDrops
+        inFlightDrops = []
+        for drop in inFlight { drop.call() }
         inFlightGate?.open()
         inFlightGate = nil
         let pending = queue[head...]
@@ -142,6 +196,10 @@ final class PageScriptPipeline {
 
     private func enqueue(_ item: Item) {
         queue.append(item)
+        startDrain()
+    }
+
+    private func startDrain() {
         guard drain == nil else { return }
         let generation = generation
         // task-owner: drains this page's FIFO; ends when it is empty or on reset()
@@ -150,43 +208,113 @@ final class PageScriptPipeline {
         }
     }
 
+    /// Asks the frame for one ``drainInline()`` with the current cause; every send until it runs
+    /// shares it. A send whose cause runs sooner than the pending request's (a person's or the
+    /// frontend's after a program's) asks again with its cause, and the first callback to run drains.
+    private func requestFrame() {
+        guard let frame else { return }
+        let cause = frame.currentCause()
+        if let requestedCause, cause <= requestedCause || cause < .frontend { return }
+        requestedCause = cause
+        let request = frameRequest
+        frame.schedule(cause) { [weak self] in self?.frameDue(request) }
+    }
+
+    /// A frame callback of `request` ran: the first one drains what waits.
+    private func frameDue(_ request: UInt64) {
+        guard request == frameRequest else { return }
+        frameRequest &+= 1
+        requestedCause = nil
+        // A drain a gate started meanwhile takes the queue in order.
+        guard drain == nil else { return }
+        drainInline()
+    }
+
+    /// Evaluates the queued runs in this turn, one script each, while each fits ``inlineBudget``;
+    /// a gate or a larger run goes to the drain task, which keeps the order.
+    private func drainInline() {
+        while head < queue.count {
+            let end = runEnd()
+            guard end > head else { return startDrain() } // a gate at the head
+            let run = envelopes(head..<end)
+            guard JSONValue.array(run.envelopes).fits(Self.inlineBudget) else { return startDrain() }
+            head = end
+            // main-actor-ok: bounded by inlineBudget; larger runs render off the main actor.
+            // MQ12 held queue: as above.
+            evaluate(PageRouter.receiveManyScript(run.envelopes))
+            compact()
+        }
+    }
+
+    /// The end of the run of envelopes at `head`: up to the next gate on frames, one envelope
+    /// otherwise; `head` itself when a gate is there.
+    private func runEnd() -> Int {
+        var end = head
+        while end < queue.count, case .envelope = queue[end] {
+            end += 1
+            if frame == nil { break }
+        }
+        return end
+    }
+
+    /// The envelopes of `range` and their drop actions, in order.
+    private func envelopes(_ range: Range<Int>) -> (envelopes: [JSONValue], drops: [Drop]) {
+        var envelopes: [JSONValue] = []
+        var drops: [Drop] = []
+        envelopes.reserveCapacity(range.count)
+        drops.reserveCapacity(range.count)
+        for index in range {
+            guard case .envelope(let envelope, let drop) = queue[index] else { continue }
+            envelopes.append(envelope)
+            drops.append(drop)
+        }
+        return (envelopes, drops)
+    }
+
     private func run(generation: UInt64) async {
         while generation == self.generation, head < queue.count {
-            let item = queue[head]
-            head += 1
-            switch item {
-            case .envelope(let envelope, let onDrop):
-                inFlightDrop = onDrop
-                let script = await render(envelope)
+            let end = runEnd()
+            if end > head {
+                let run = envelopes(head..<end)
+                head = end
+                inFlightDrops = run.drops
+                let script = await render(run.envelopes)
                 if generation != self.generation {
-                    onDrop.call()
-                    if inFlightDrop === onDrop { inFlightDrop = nil }
+                    // reset() reported them already; each drop is one-shot.
+                    for drop in run.drops { drop.call() }
                     return
                 }
+                inFlightDrops = []
+                // MQ12 held queue: as above.
                 evaluate(script)
-                if inFlightDrop === onDrop { inFlightDrop = nil }
-            case .gate(let gate):
+            } else if case .gate(let gate) = queue[head] {
+                head += 1
                 inFlightGate = gate
                 gate.markReached()
                 await gate.opened()
                 if inFlightGate === gate { inFlightGate = nil }
                 guard generation == self.generation else { return }
             }
-            if head == queue.count {
-                queue.removeAll(keepingCapacity: true)
-                head = 0
-            } else if head >= 64, head * 2 >= queue.count {
-                // A producer that keeps pace never empties the queue: drop
-                // the sent prefix so sent envelopes do not stay in memory.
-                queue.removeFirst(head)
-                head = 0
-            }
+            compact()
         }
         if generation == self.generation { drain = nil }
     }
 
-    @concurrent nonisolated static func render(_ envelope: JSONValue) async -> String {
-        PageRouter.receiveScript(envelope)
+    /// Drops the sent prefix: all of it, keeping the buffer, once the queue is empty; otherwise once
+    /// it is most of the array, so a producer that keeps pace (the queue never empties) does not
+    /// keep sent envelopes in memory.
+    private func compact() {
+        if head == queue.count {
+            queue.removeAll(keepingCapacity: true)
+            head = 0
+        } else if head >= 64, head * 2 >= queue.count {
+            queue.removeFirst(head)
+            head = 0
+        }
+    }
+
+    @concurrent nonisolated static func render(_ envelopes: [JSONValue]) async -> String {
+        PageRouter.receiveManyScript(envelopes)
     }
 }
 

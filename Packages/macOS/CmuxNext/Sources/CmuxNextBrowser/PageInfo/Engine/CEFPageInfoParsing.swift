@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Parsing of the DevTools results Page Info uses (pure, tested).
@@ -28,6 +29,6 @@ nonisolated enum CEFPageInfoParsing {
 
     private static func object(_ json: String) -> [String: Any]? {
         guard let data = json.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
     }
 }

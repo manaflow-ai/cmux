@@ -45,6 +45,7 @@ public struct MotionMove: Sendable {
             animation = CABasicAnimation(keyPath: keyPath)
             animation.duration = duration
             animation.timingFunction = token.timingFunction
+            MotionActivity.began(animation)
         case .spring(let token, let gate):
             animation = gate.springAnimation(token, keyPath, from: offset, to: zero)
         }

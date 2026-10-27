@@ -45,7 +45,7 @@ public struct StatusMapping {
     /// busy, the weakest source. A younger one arms the tab's one-shot recheck for when it comes of age.
     /// An agent's terminal shows its own hook or turn state instead: the agent CLI is one long command
     /// that would look busy while it waits at its prompt.
-    func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? {
+    func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? { // wall-clock: compared with the daemon's commandSinceMs, Unix ms
         let behavior = DesignSettings.shared.statusBehavior
         guard behavior.inferCommandBusy, tab.agent == nil, tab.agentSession == nil, var since = tab.commandSinceMs else { return nil }
         _ = tab.commandRecheck

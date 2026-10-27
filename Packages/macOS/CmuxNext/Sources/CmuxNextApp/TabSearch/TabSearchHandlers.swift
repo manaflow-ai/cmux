@@ -18,7 +18,7 @@ enum TabSearchHandlers {
             live.follow(source, in: services.palette.model)
             return spec
         }
-        services.palette.sources.actionPages["tab.search"] = { page("") }
+        services.palettes.sources.actionPages["tab.search"] = { page("") }
         registry.bind("tab.search", run: { invocation in
             // A tab target: reveal it (Go to Tab, `palette.goToTab`). The only argument is `query`.
             if let target = invocation.target, target.kind == .tab {

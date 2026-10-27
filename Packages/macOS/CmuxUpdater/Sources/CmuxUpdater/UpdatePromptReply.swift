@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency public import Sparkle
 
 /// A Sparkle prompt reply that can be sent at most once, with its consumption observable.
 ///
@@ -11,16 +10,16 @@ import Foundation
 @MainActor
 public final class UpdatePromptReply {
     let id = UUID()
-    private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
-    var onConsumed: ((UpdatePromptReply, SPUUserUpdateChoice, UpdatePromptReplySource) -> Void)?
+    private var handler: (@Sendable (UpdateChoice) -> Void)?
+    var onConsumed: ((UpdatePromptReply, UpdateChoice, UpdatePromptReplySource) -> Void)?
 
     /// The first choice sent to Sparkle, or `nil` until this prompt is answered.
-    public private(set) var consumedChoice: SPUUserUpdateChoice?
+    public private(set) var consumedChoice: UpdateChoice?
     /// The cause of the first choice, or `nil` until this prompt is answered.
     private(set) var consumedSource: UpdatePromptReplySource?
 
     /// Wraps `handler` so it runs on the first call only.
-    public init(_ handler: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    public init(_ handler: @escaping @Sendable (UpdateChoice) -> Void) {
         self.handler = handler
     }
 
@@ -30,12 +29,12 @@ public final class UpdatePromptReply {
     }
 
     /// Sends `choice` to Sparkle; subsequent calls are no-ops.
-    public func callAsFunction(_ choice: SPUUserUpdateChoice) {
+    public func callAsFunction(_ choice: UpdateChoice) {
         consume(choice, source: .user)
     }
 
     /// Sends an internally-caused choice to Sparkle; subsequent calls are no-ops.
-    func consume(_ choice: SPUUserUpdateChoice, source: UpdatePromptReplySource) {
+    func consume(_ choice: UpdateChoice, source: UpdatePromptReplySource) {
         guard let handler = self.handler else { return }
         self.handler = nil
         consumedChoice = choice

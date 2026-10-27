@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// A retained AppKit application reference that can safely cross the resolver
 /// queue. Reading `NSRunningApplication.processIdentifier` can make a
@@ -129,6 +130,13 @@ final class NoActivateKeyboardGuard {
 /// The AppKit host: global input state and cooperative activation.
 @MainActor
 final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
+    private let mainWork: MainWorkScheduler
+
+    /// - Parameter mainWork: The app's main-thread scheduler; the LaunchServices handoff is a task on it.
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
+
     var mouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
     var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
     var isAppActive: Bool { NSApp.isActive }
@@ -136,15 +144,14 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
 
     func giveActivationBack(to app: NSRunningApplication?) {
         // Deactivate synchronously so the guard never retains the keyboard.
-        // The LaunchServices handoff is deferred and uses the already-resolved
+        // The LaunchServices handoff is a later task and uses the already-resolved
         // object, avoiding both PID lookup and activation work in the observer.
         NSApp.deactivate()
         guard let app else { return }
-        let reference = NoActivateApplicationReference(app)
-        DispatchQueue.main.async {
-            guard !reference.application.isTerminated else { return }
-            NSApp.yieldActivation(to: reference.application)
-            _ = reference.application.activate(from: .current, options: [])
+        mainWork.post(.visible, owner: "NoActivateKeyboardGuard.giveBack") {
+            guard !app.isTerminated else { return }
+            NSApp.yieldActivation(to: app)
+            _ = app.activate(from: .current, options: [])
         }
     }
 }

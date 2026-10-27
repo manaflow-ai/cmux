@@ -20,8 +20,10 @@ struct TerminalGridLock {
         generation += 1
         locked = grid
         let generation = generation
-        lane.perform { surface in
-            _ = ghostty_surface_set_grid(surface, columns, rows, generation)
+        // SAFETY: the lane passes its live surface for the body's call only.
+        unsafe lane.perform { surface in
+            // SAFETY: as above.
+            _ = unsafe ghostty_surface_set_grid(surface, columns, rows, generation)
         }
     }
 

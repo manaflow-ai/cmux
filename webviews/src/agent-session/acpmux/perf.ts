@@ -145,13 +145,22 @@ export class FrameRing {
 export type TypingSample = { frame: number; paint: number };
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 
-/** Typing latency: keydown event time to the next frame and to after that frame paints. */
-export function typingSummary(samples: TypingSample[]) {
-  return {
+/**
+ * Typing latency: keydown event time to the next frame and to after that frame paints. `raw` adds
+ * every key's two times, oldest first (the bench's raw samples, as `stats(true)` adds every frame).
+ */
+export function typingSummary(samples: TypingSample[], raw = false): Record<string, unknown> {
+  const result: Record<string, unknown> = {
     keys: samples.length,
     to_frame: summary(samples.map((sample) => sample.frame)),
     to_paint: summary(samples.map((sample) => sample.paint)),
   };
+  if (raw)
+    result.samples = samples.map((sample) => ({
+      to_frame_ms: round2(sample.frame),
+      to_paint_ms: round2(sample.paint),
+    }));
+  return result;
 }
 
 /**

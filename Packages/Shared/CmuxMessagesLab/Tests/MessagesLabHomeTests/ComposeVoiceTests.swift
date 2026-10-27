@@ -22,7 +22,8 @@ import Testing
         func cancelVoice() { cancels += 1 }
     }
 
-    struct Pane {
+    /// Main actor, as the controller and the voice session it drives (a nested type does not take its suite's isolation).
+    @MainActor struct Pane {
         let window: NSWindow
         let controller: ChatController
         let engine: Engine

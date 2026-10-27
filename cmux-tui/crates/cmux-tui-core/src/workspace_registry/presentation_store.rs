@@ -443,6 +443,7 @@ pub fn new_saved_tab_group_id() -> String {
 }
 
 /// Replace every tab group row in the caller's transaction.
+#[track_caller]
 pub(crate) fn write_tab_group_state(
     transaction: &Transaction<'_>,
     state: &TabGroupState,
@@ -855,6 +856,7 @@ fn read_workspace_presentation(
 
 /// Write one workspace's presentation row inside a workspace-registry
 /// transaction. A named group must exist.
+#[track_caller]
 pub(crate) fn write_workspace_presentation(
     transaction: &Transaction<'_>,
     workspace_key: &str,
@@ -934,6 +936,7 @@ impl WorkspaceRegistry {
     /// Create a group at `index` (default: last). Creating an id that
     /// already exists with the same name is an idempotent retry and returns
     /// the stored group with `false`.
+    #[track_caller]
     pub fn create_workspace_group(
         &mut self,
         id: &str,
@@ -982,6 +985,7 @@ impl WorkspaceRegistry {
     }
 
     /// Rename, recolor, or collapse a group. `color: Some(None)` clears it.
+    #[track_caller]
     pub fn update_workspace_group(
         &mut self,
         id: &str,
@@ -1024,6 +1028,7 @@ impl WorkspaceRegistry {
     }
 
     /// Delete a group. Its workspaces stay in place and become ungrouped; their keys are returned.
+    #[track_caller]
     pub fn delete_workspace_group(&mut self, id: &str) -> anyhow::Result<Vec<String>> {
         validate_workspace_group_id(id)?;
         let db = self.connection.get();
@@ -1061,6 +1066,7 @@ impl WorkspaceRegistry {
 
     /// Move a group to a zero-based insertion index among groups, with the
     /// same insertion-point semantics as `move-workspace`. Returns the final index.
+    #[track_caller]
     pub fn move_workspace_group(&mut self, id: &str, index: usize) -> anyhow::Result<usize> {
         validate_workspace_group_id(id)?;
         let db = self.connection.get();
@@ -1089,6 +1095,7 @@ impl WorkspaceRegistry {
 
     /// Store a tab placement's pinned flag, keyed by its public tab id.
     /// Rows of closed tabs are pruned on the way. Returns whether the flag changed.
+    #[track_caller]
     pub fn set_tab_pinned(&mut self, tab_id: &str, pinned: bool) -> anyhow::Result<bool> {
         anyhow::ensure!(
             tab_id.starts_with("tab_") && tab_id.len() <= 64,
@@ -1142,6 +1149,7 @@ impl WorkspaceRegistry {
 
     /// Register a frontend-rendered browser before its tab commits, so the
     /// daemon never bootstraps a CDP target for it. The browser id must be fresh.
+    #[track_caller]
     pub fn put_frontend_browser(
         &mut self,
         browser_id: &str,
@@ -1188,6 +1196,7 @@ impl WorkspaceRegistry {
     /// profile. `None` leaves a field unchanged; `Some(None)` clears a
     /// nullable field. The owner changes only on the state commit path
     /// (`Mux::commit_browser_owner`).
+    #[track_caller]
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
@@ -1238,6 +1247,7 @@ impl WorkspaceRegistry {
 
     /// Notification ids acknowledged as read on the shared console. A
     /// restart restores an unread marker only for unacknowledged ones.
+    #[track_caller]
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
         let db = self.connection.get();
         let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
@@ -1248,6 +1258,7 @@ impl WorkspaceRegistry {
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
+    #[track_caller]
     pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -1258,6 +1269,7 @@ impl WorkspaceRegistry {
 
     /// Create or replace a saved tab group, keeping its bar position and
     /// room (new records go last).
+    #[track_caller]
     pub fn put_saved_tab_group(&mut self, record: &SavedTabGroupRecord) -> anyhow::Result<()> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -1267,6 +1279,7 @@ impl WorkspaceRegistry {
     }
 
     /// Delete a saved tab group. Returns whether it existed.
+    #[track_caller]
     pub fn delete_saved_tab_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;

@@ -49,7 +49,7 @@ struct PageFileDropDragTests {
     }
 
     /// The drop opens the file from the cached answer; a new drag reads again.
-    @Test func dropUsesTheAnswerAndANewDragReadsAgain() {
+    @Test func dropUsesTheAnswerAndANewDragReadsAgain() async {
         var reads = 0
         var opened: [URL] = []
         let web = page(reads: { reads += 1 }, opened: { opened.append($0) })
@@ -57,6 +57,7 @@ struct PageFileDropDragTests {
         _ = web.draggingEntered(first)
         for _ in 0..<10 { _ = web.draggingUpdated(first) }
         #expect(web.performDragOperation(first))
+        await web.dropRead?.value
         #expect(opened == [file])
         #expect(reads == 1)
         let second = Drag(sequence: 2)

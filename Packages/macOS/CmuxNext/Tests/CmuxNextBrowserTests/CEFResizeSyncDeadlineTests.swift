@@ -46,7 +46,7 @@ import Testing
     func makeHosting(enabled: Bool = true, deadline: @escaping () -> Int32,
                      refreshIntervals: @escaping () -> [Double]) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
-                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: deadline, refreshIntervals: refreshIntervals)
         hosting.view = view
         return hosting

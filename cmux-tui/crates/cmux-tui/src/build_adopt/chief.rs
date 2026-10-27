@@ -273,13 +273,13 @@ fn stop_own_chief(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<
         return Err("NEXT's Chief runs; only the app stops it (at its next launch)".into());
     };
     steps.step(format!("NEXT's post-update Chief runs in {}: stopping it", home.display()));
-    let _ = std::process::Command::new(exe)
+    let _ = cmux_process::Command::new(exe)
         .args(["chief", "shutdown", "--chief-home"])
         .arg(home)
         .env(super::CHILD_ENV, "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .status();
     if chief_running(home) {
         return Err(format!("NEXT's Chief in {} did not stop", home.display()));

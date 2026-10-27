@@ -10,7 +10,7 @@ extension AgentPaneView {
     public func hideMovedPage(limit: Duration = .seconds(3), until drawn: @escaping () -> Void) {
         pageContent.alphaValue = 0
         let deadline = DemandTimer(owner: "newTab.moveCover.deadline")
-        deadline.schedule(after: limit) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: limit) { [weak self] in
             withExtendedLifetime(deadline) {}
             self?.revealMovedPage()
         }

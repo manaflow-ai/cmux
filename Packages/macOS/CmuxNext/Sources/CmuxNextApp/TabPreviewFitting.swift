@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 
 /// Hover card thumbnails of browser pages (R131): a page snapshot is the
@@ -8,6 +9,8 @@ enum TabPreviewFitting {
     /// The size a page thumbnail is kept at in `TabContentCache.pageThumbnails` (covers the hover
     /// card and the tab drag ghost at 2x).
     static let cachedPixelSize = CGSize(width: 640, height: 640)
+    /// The most a kept page thumbnail costs in `pageThumbnails`: `cachedPixelSize` at 4 bytes a pixel.
+    static let cachedThumbnailBytes = Int(cachedPixelSize.width) * Int(cachedPixelSize.height) * 4
 
     /// `image` scaled to fit `maxPixelSize` (never up), on a background task.
     static func fit(_ image: CGImage, _ maxPixelSize: CGSize) async -> CGImage {
@@ -20,9 +23,9 @@ enum TabPreviewFitting {
         let scale = min(maxPixelSize.width / max(width, 1), maxPixelSize.height / max(height, 1), 1)
         guard scale < 1 else { return image }
         let size = CGSize(width: max(1, (width * scale).rounded()), height: max(1, (height * scale).rounded()))
-        guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        guard let context = CGContext.bitmapOwningPixels(width: Int(size.width), height: Int(size.height),
+                                                         space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(origin: .zero, size: size))
         return context.makeImage() ?? image

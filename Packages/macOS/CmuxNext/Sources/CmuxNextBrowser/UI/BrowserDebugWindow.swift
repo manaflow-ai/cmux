@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// Development hook until the App layer maps daemon browser tabs into panes:
@@ -29,10 +30,14 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
 
     private let contextMenus = BrowserContextMenuBuilder.shared
 
-    private init(tab: any BrowserTab, report: URL?, activate: Bool) {
+    private let mainWork: MainWorkScheduler
+
+    private init(tab: any BrowserTab, report: URL?, activate: Bool, mainWork: MainWorkScheduler) {
         tabs = [tab]
         reportURL = report
-        chrome = BrowserChromeView(tab: tab)
+        self.mainWork = mainWork
+        // node-free: the debug window has no tab node
+        chrome = BrowserChromeView(tab: tab, mainWork: mainWork, node: nil)
         window = NSWindow(
             contentRect: NSRect(x: 120, y: 120, width: 1100, height: 760),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -50,7 +55,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
 
     private func observe() {
         observation?.cancel()
-        observation = ObservationLoop { [weak self] in self?.report() }
+        // node-free: the report file follows the page whether or not the window shows
+        observation = ObservationLoop(owner: "browser.debugWindow", delivery: .visible(nil), on: mainWork) { [weak self] in self?.report() }
     }
 
     public func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {

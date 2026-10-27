@@ -20,9 +20,34 @@ enum ActionRouting {
             }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
-            body()
+            personScoped(body)
             services.routedDaemon = previous
         }
+        // A run's completion (ActionCompletion) binds its command scope again where it runs, outside the run's task tree.
+        services.registry.runLocals = { CommandScopeLocals(scope: DaemonCommandScope.current) }
+    }
+
+    /// The ``DaemonCommandScope`` of a run, bound again in the tasks its completion posts or starts: their commands
+    /// keep the run's tickets (the CLI's `action.run` waits for them), derived keys and person cause.
+    private nonisolated struct CommandScopeLocals: ActionRunLocals {
+        let scope: DaemonCommandScope?
+
+        @MainActor func bind<T>(_ body: () -> T) -> T { DaemonCommandScope.$current.withValueInTask(scope, operation: body) }
+
+        func bindAwaiting<T>(_ body: () async -> T) async -> T {
+            await DaemonCommandScope.$current.withValueAwaiting(scope, operation: body)
+        }
+    }
+
+    /// Runs a person's action run in a person ``DaemonCommandScope``, so the echoes of what it
+    /// sends apply as `person` (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app
+    /// side"). The run's effective origin decides (``ActionRunScope/current``, which a nested run
+    /// takes from the outer one), never the handed invocation's: a script's handler that performs
+    /// another action with a default invocation stays the script's. A run inside a control-socket
+    /// scope keeps that scope.
+    static func personScoped(_ body: () -> Void) {
+        guard ActionRunScope.current?.origin == .user, DaemonCommandScope.current == nil else { return body() }
+        DaemonCommandScope.$current.withValueInTask(DaemonCommandScope.person(), operation: body)
     }
 
     /// The daemon owning the invocation's explicit target (`target`, else a

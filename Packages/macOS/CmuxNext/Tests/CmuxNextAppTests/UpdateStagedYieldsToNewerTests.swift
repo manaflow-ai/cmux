@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -102,7 +103,8 @@ import CmuxNextWakeupsTestSupport
         let sparkle = FakeSparkle()
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: feed, architecture: .arm64), defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, now: { now }, clock: clock)
+                                     enableSparkle: false, recordsUpdates: false, now: { now }, clock: clock,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
         updater.stagedBuild = { sparkle.staged }

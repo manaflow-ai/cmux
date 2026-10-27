@@ -1,0 +1,21 @@
+{
+  "id": "main-turn",
+  "tier": "T1",
+  "description": "Main-thread turn and input-queueing percentiles (debug.hangs turn_histogram, read before and after the window) during trace.py's STRESS storm with no profiler and during each corpus story; each percentile is its bucket's interval, the upper edge as the sample.",
+  "command": ["scripts/perf-lab/stories/main_turn.py", "--legs", "storm,corpus"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "main_turn\\.p99", "unit": "ms", "better": "lower",
+     "target_ref": {"target": "main-turn"}},
+    {"name": "main_turn\\.(p50|p95)|main_turn\\.p(50|95|99)\\.low", "unit": "ms", "better": "lower"},
+    {"name": "input_queue\\.p(50|95|99)(\\.low)?", "unit": "ms", "better": "lower"},
+    {"name": "corpus\\.[a-z0-9-]+\\.(main_turn|input_queue)\\.p(50|95|99)(\\.low)?", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.hangs", "file:Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainTurnHistogram.swift"],
+  "owner": "Performance Lead",
+  "component": "Scheduler>MainThread"
+}

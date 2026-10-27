@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The output of `cmux device list --json` (plans/cmux-next/add-device-DESIGN.md 2.4): every
@@ -108,6 +109,6 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
 
     /// Parses the CLI's JSON; throws when it is not a listing.
     public static func parse(_ data: Data) throws -> DeviceListing {
-        try JSONDecoder().decode(DeviceListing.self, from: data)
+        try JSONDecoder().blockingDecode(DeviceListing.self, from: data)
     }
 }

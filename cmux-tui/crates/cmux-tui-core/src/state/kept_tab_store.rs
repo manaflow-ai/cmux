@@ -213,6 +213,7 @@ pub(crate) fn delete_kept_tabs(
 impl WorkspaceRegistry {
     /// The kept rows of `tab_ids` (a restart of a kept tab reads them under
     /// the registry lock, `terminal_respawn/manual.rs`).
+    #[track_caller]
     pub(crate) fn kept_tabs_of(&self, tab_ids: &[String]) -> anyhow::Result<Vec<KeptTab>> {
         let db = self.connection.get();
         let mut statement =
@@ -235,6 +236,7 @@ impl WorkspaceRegistry {
     }
 
     /// Whether any of `tab_ids` is a kept tab.
+    #[track_caller]
     pub fn any_kept_tab(&self, tab_ids: &[String]) -> anyhow::Result<bool> {
         let db = self.connection.get();
         let mut statement = db.prepare("SELECT 1 FROM kept_tabs WHERE tab_id = ?1")?;

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 
@@ -82,10 +83,11 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
     }
 
     /// The windows above window `number` on screen now, in global coordinates with the
-    /// origin at the top left of the main display (CGWindowList's space).
+    /// origin at the top left of the main display (CGWindowList's space). It waits for the window
+    /// server: call it on a system lane, never on the main thread.
     public static func windows(above number: Int) -> [Window] {
         guard number > 0,
-              let list = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], CGWindowID(number)) as? [[String: Any]]
+              let list = blockingWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], CGWindowID(number)) as? [[String: Any]]
         else { return [] }
         return list.compactMap { info in
             guard let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })

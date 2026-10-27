@@ -38,22 +38,28 @@ extension MessagesWindowView {
 }
 
 /// The resolution audit's draw hook (ResolutionAudit.swift; the shim's
-/// UIImage.draw reads it). The audit itself is not vendored.
+/// UIImage.draw reads it). The audit itself is not vendored: it never records,
+/// so no draw (on any thread) shares state here.
 enum ResolutionAudit {
-    /// Images drawn above their source size (filled by UIImage.draw).
-    static var drawFindings: [[String: Any]] = []
-    static var recording = false
+    /// Images drawn above their source size (UIImage.draw appends while recording): none kept.
+    static var drawFindings: [[String: Any]] {
+        get { [] }
+        set {}
+    }
+    static let recording = false
 }
 
 /// Counts heap allocations on the main thread with libmalloc's `malloc_logger`
-/// hook (catalyst/Sources/Bench.swift; the shared window view reads it).
+/// hook (catalyst/Sources/Bench.swift; the shared window view reads it). cmux
+/// installs no hook: the count stays 0.
 enum MallocCounter {
-    static var mainAllocations = 0
+    static let mainAllocations = 0
 }
 
 /// MessagesLab's rig frame-pacing log (appkit-native PacingLog.swift, a rig tool, not vendored):
-/// NativeScroll (3508ff9) notes its after-lift pacing in it when it is on. cmux: always off.
-final class PacingLog {
+/// NativeScroll (3508ff9) notes its after-lift pacing in it when it is on. cmux: always off, and
+/// immutable, so any thread may read it.
+final class PacingLog: Sendable {
     static let shared = PacingLog()
     let isOn = false
     func note(_ line: String) {}

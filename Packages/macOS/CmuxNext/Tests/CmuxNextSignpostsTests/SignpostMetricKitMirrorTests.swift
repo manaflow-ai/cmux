@@ -50,6 +50,7 @@ struct SignpostMetricKitMirrorTests {
         let perFrameOrHop: [SignpostName] = [
             .frameTick, .frameCommit, .ghosttyRender, .keyEchoLineOut, .keyEchoRenderer, .motionDragFrame, .taskPost,
             .taskRun, .resizeFrame, .cefGeometry, .cefHostInput, .daemonRequest, .controlRequest, .inputFrame,
+            .inputLatency,
         ]
         for name in perFrameOrHop { #expect(!SignpostMetricKitMirror.mirrors(name), "\(name)") }
         let mirrored = SignpostName.allCases.filter(SignpostMetricKitMirror.mirrors)

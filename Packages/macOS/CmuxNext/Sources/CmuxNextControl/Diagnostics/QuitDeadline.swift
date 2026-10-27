@@ -19,7 +19,10 @@ import os
 /// could wait on the blocked Chromium thread.
 public nonisolated final class QuitDeadline: Sendable {
     /// The engines' close wait (3 s, `CEFEngine.shutdown`) and Chromium's
-    /// own 10 s shutdown watchdog, with room for a loaded machine.
+    /// own 10 s shutdown watchdog, with room for a loaded machine. The
+    /// background lanes' block-shutdown saves drain alongside the engine
+    /// stop, not in front of it, so they take none of this from Chromium
+    /// (`QuitCompletion`).
     public static let engineStopLimit: Duration = .seconds(15)
 
     private let armed = Atomic<Bool>(false)
@@ -42,10 +45,10 @@ public nonisolated final class QuitDeadline: Sendable {
         let reason = reason
         let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18
         let thread = Thread {
-            // concurrency-allow: the dedicated quit-deadline thread waits out the limit; never the main thread.
+            // concurrency-allow: the dedicated quit-deadline thread waits out the limit through the checked seam
+            // (a named thread may block); nothing signals the semaphore, so its timeout is the deadline.
             let never = DispatchSemaphore(value: 0)
-            // concurrency-allow: same dedicated thread; nothing signals it, so this is the deadline.
-            _ = never.wait(timeout: .now() + seconds)
+            _ = never.blockingWait(timeout: .now() + seconds)
             Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                 .fault("quit still running \(seconds, privacy: .public) s after \(reason, privacy: .public); ending the process")
             end()
@@ -66,10 +69,10 @@ extension QuitDeadline {
     public func wedgeMainThread(_ watchdog: MainThreadWatchdog?) {
         // As in a release build: the hang is reported, never asserted.
         watchdog?.endHangAssertions()
-        // concurrency-allow: debug seam that blocks the main thread on purpose, as the wedged CefShutdown did
+        // concurrency-allow: debug seam that blocks the main thread on purpose, as the wedged CefShutdown did: the
+        // quit is decided (allowBlocking(.terminate)), nothing signals it, and the deadline thread ends the process.
         let never = DispatchSemaphore(value: 0)
-        // concurrency-allow: debug seam; nothing signals it, the process must end around it
-        never.wait()
+        allowBlocking(.terminate) { never.blockingWait() }
     }
 }
 #endif

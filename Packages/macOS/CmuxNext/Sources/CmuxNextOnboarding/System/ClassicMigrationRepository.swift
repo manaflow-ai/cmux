@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The classic migration's own folder: its ledger and backup copies of the classic files it read.
@@ -29,11 +30,12 @@ public actor ClassicMigrationRepository {
     /// The ledger, if any. One that does not decode is moved aside as `ledger.unreadable-<ms>.json`.
     public func load() -> ClassicMigrationLedgerLoad {
         guard let data = fileManager.contents(atPath: ledgerURL.path) else { return .none }
-        if let schema = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["schema"] as? Int,
+        if let schema = (try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any])?["schema"] as? Int,
            schema > ClassicMigrationLedger.currentSchema {
             return .newer(schema: schema)
         }
-        if let ledger = try? JSONDecoder().decode(ClassicMigrationLedger.self, from: data) { return .ledger(ledger) }
+        if let ledger = try? JSONDecoder().blockingDecode(ClassicMigrationLedger.self, from: data) { return .ledger(ledger) }
+        // wall-clock: a file name stamp, not a time.
         let aside = directory.appendingPathComponent("ledger.unreadable-\(Int(Date().timeIntervalSince1970 * 1000)).json")
         try? fileManager.moveItem(at: ledgerURL, to: aside)
         return .unreadable

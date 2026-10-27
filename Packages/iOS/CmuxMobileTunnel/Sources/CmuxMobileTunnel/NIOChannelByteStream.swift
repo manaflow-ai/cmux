@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import NIOCore
 
@@ -8,22 +10,30 @@ import NIOCore
 /// nothing buffered asks the channel for one read, so at most one read's
 /// worth of bytes waits here and the kernel/SSH window holds the rest.
 ///
-/// Every mutable property below is confined to the channel's event loop:
-/// the handler's callbacks already run there, and `read()` and `close()`
-/// hop onto it, so the state needs no lock.
-public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
+/// The mutable state is bound to the channel's event loop in a
+/// `NIOLoopBoundBox`, which checks the loop on every access: the handler's
+/// callbacks already run there, and `read()` and `close()` hop onto it. So the
+/// type is plainly `Sendable` and needs no lock (Chromium binds a socket's
+/// state to its sequence the same way: base/sequence_checker.h).
+public final class NIOChannelByteStream: TunnelByteStream, Sendable {
     public let channel: any Channel
 
-    // Event-loop confined.
-    private var buffered: [Data] = []
-    private var ended = false
-    private var failure: (any Error)?
-    private var waiter: CheckedContinuation<Data?, any Error>?
-    private var readRequested = false
+    private struct State {
+        var buffered: [Data] = []
+        var ended = false
+        var failure: (any Error)?
+        var waiter: OnceContinuation<Data?, any Error>?
+        var readRequested = false
+    }
+
+    private let state: NIOLoopBoundBox<State>
 
     private init(channel: any Channel, leftover: [UInt8]) {
         self.channel = channel
-        if !leftover.isEmpty { buffered.append(Data(leftover)) }
+        var initial = State()
+        if !leftover.isEmpty { initial.buffered.append(Data(leftover)) }
+        // The fresh state is sent into the box; every later access checks the loop.
+        state = NIOLoopBoundBox.makeBoxSendingValue(initial, eventLoop: channel.eventLoop)
     }
 
     /// Adds the adapter at the end of `channel`'s pipeline. Call on the
@@ -43,25 +53,30 @@ public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
     }
 
     public func read() async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             onLoop { stream in
-                if !stream.buffered.isEmpty {
-                    continuation.resume(returning: stream.buffered.removeFirst())
-                    return
+                let requestRead = stream.state.withValue { state -> Bool in
+                    if !state.buffered.isEmpty {
+                        continuation.resume(returning: state.buffered.removeFirst())
+                        return false
+                    }
+                    if let failure = state.failure {
+                        continuation.resume(throwing: failure)
+                        return false
+                    }
+                    if state.ended {
+                        continuation.resume(returning: nil)
+                        return false
+                    }
+                    state.waiter = continuation
+                    guard !state.readRequested else { return false }
+                    state.readRequested = true
+                    return true
                 }
-                if let failure = stream.failure {
-                    continuation.resume(throwing: failure)
-                    return
-                }
-                if stream.ended {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                stream.waiter = continuation
-                if !stream.readRequested {
-                    stream.readRequested = true
-                    stream.channel.read()
-                }
+                // Outside the state access: a channel holding input back (an
+                // SSH child channel's pending reads) delivers it inside
+                // `read()`, which re-enters `deliver`, `finish` and `readComplete`.
+                if requestRead { stream.channel.read() }
             }
         }
     }
@@ -101,51 +116,54 @@ public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
     // MARK: Event-loop callbacks
 
     fileprivate func deliver(_ chunk: Data) {
-        channel.eventLoop.assertInEventLoop()
-        if let waiter {
-            self.waiter = nil
-            waiter.resume(returning: chunk)
-        } else {
-            buffered.append(chunk)
+        state.withValue { state in
+            if let waiter = state.waiter {
+                state.waiter = nil
+                waiter.resume(returning: chunk)
+            } else {
+                state.buffered.append(chunk)
+            }
         }
     }
 
     /// A read requested before the channel was active is dropped by the
     /// transport; issue it again now.
     fileprivate func becameActive() {
-        channel.eventLoop.assertInEventLoop()
-        if readRequested { channel.read() }
+        if state.value.readRequested { channel.read() }
     }
 
     fileprivate func readComplete() {
-        channel.eventLoop.assertInEventLoop()
-        readRequested = false
-        // Woken with nothing (a read can complete empty): ask again.
-        if waiter != nil, !ended, failure == nil {
-            readRequested = true
-            channel.read()
+        let readAgain = state.withValue { state -> Bool in
+            state.readRequested = false
+            // Woken with nothing (a read can complete empty): ask again.
+            guard state.waiter != nil, !state.ended, state.failure == nil else { return false }
+            state.readRequested = true
+            return true
         }
+        // Outside the state access, as in `read()`: the read can deliver inline.
+        if readAgain { channel.read() }
     }
 
-    /// End of input (`error` nil) or failure. Wakes a pending read.
+    /// End of input (`error` nil) or failure. Wakes a pending read; with no
+    /// read waiting, buffered chunks stay for the next reads.
     fileprivate func finish(error: (any Error)?) {
-        channel.eventLoop.assertInEventLoop()
-        if let error, failure == nil, !ended { failure = error }
-        ended = true
-        let waiter = self.waiter
-        self.waiter = nil
-        let pending = buffered.isEmpty ? nil : buffered.removeFirst()
-        guard let waiter else { return }
-        if let pending {
-            waiter.resume(returning: pending)
-        } else if let error {
-            waiter.resume(throwing: error)
-        } else {
-            waiter.resume(returning: nil)
+        state.withValue { state in
+            if let error, state.failure == nil, !state.ended { state.failure = error }
+            state.ended = true
+            guard let waiter = state.waiter else { return }
+            state.waiter = nil
+            if !state.buffered.isEmpty {
+                waiter.resume(returning: state.buffered.removeFirst())
+            } else if let error {
+                waiter.resume(throwing: error)
+            } else {
+                waiter.resume(returning: nil)
+            }
         }
     }
 
-    private final class Handler: ChannelInboundHandler, @unchecked Sendable {
+    /// Forwards the pipeline's callbacks, which run on the event loop, to the stream.
+    private final class Handler: ChannelInboundHandler {
         typealias InboundIn = ByteBuffer
 
         private let stream: NIOChannelByteStream

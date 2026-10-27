@@ -169,6 +169,18 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
+/// The environment variable that sets, in milliseconds, how long a terminal
+/// prints nothing before its ring gives its pages back (a test's; the
+/// default is the memory budget's `cold_scrollback_after`). An environment
+/// variable for the same reason as [`ORPHAN_GRACE_ENV`].
+pub const RING_COLD_ENV: &str = "CMUX_HOLDER_RING_COLD_MS";
+
+/// The environment variable that sets the installed RAM, in bytes, the
+/// holder sizes its rings for (a test's, to run as an 8 GB Mac does; the
+/// default is this Mac's). An environment variable for the same reason as
+/// [`ORPHAN_GRACE_ENV`].
+pub const RING_MEMORY_ENV: &str = "CMUX_HOLDER_RING_MEMORY_BYTES";
+
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
@@ -239,6 +251,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|millis| *millis > 0)
         .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
+    let ring_cold_after = std::env::var(RING_COLD_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_millis);
+    let ring_memory =
+        std::env::var(RING_MEMORY_ENV).ok().and_then(|value| value.trim().parse::<u64>().ok());
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -261,12 +279,30 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let listener = UnixListener::bind(&socket)?;
+    // The black box, so the holder grants TRACE_CONTROL: its rings go into a
+    // holder-lifetime directory beside its socket, in the daemon's private
+    // socket directory. The file opens on a one-shot thread, never the loop.
+    drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);
+    if let Some(after) = ring_cold_after {
+        holder.set_ring_cold_after(after);
+    }
+    if let Some(installed_bytes) = ring_memory {
+        holder.set_ring_budget_memory(installed_bytes);
+    }
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
+    // Each pass of the loop is a hang scope; a holder whose watcher cannot
+    // start serves unwatched.
+    match holder::HangWatch::start() {
+        Ok(watch) => holder.set_hang_watch(watch),
+        Err(error) => eprintln!("cmux-holder: no hang watch: {error}"),
+    }
+    // Before `ready`, so a daemon that sees it finds the loop at its class.
+    run_at_echo_qos();
     let mut stdout = io::stdout().lock();
     stdout.write_all(b"ready\n")?;
     stdout.flush()?;
@@ -286,6 +322,25 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     holder.run()
 }
+
+/// The holder's loop carries every terminal's output and input to the
+/// daemon, the key echo path: QOS_CLASS_USER_INTERACTIVE (Chromium's
+/// kDisplayCritical in the `cmux_threads::qos` table). The shells it forks
+/// start at QOS_CLASS_DEFAULT (`pty::reset_qos`), never at this class.
+/// Linux: unchanged, as the class is nice 0 there.
+#[cfg(target_vendor = "apple")]
+fn run_at_echo_qos() {
+    // SAFETY: sets the calling thread's own QoS class; no pointer arguments.
+    let set = unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    if set != 0 {
+        eprintln!("cmux-holder: cannot run at user-interactive QoS: error {set}");
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn run_at_echo_qos() {}
 
 /// When this holder runs from a content-addressed copy (an
 /// [`IN_USE_LOCK`] beside its executable), hold that lock shared for the

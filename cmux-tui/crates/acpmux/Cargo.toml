@@ -16,7 +16,22 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[lints.rust]
+# The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
+
+[features]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
+
 [dependencies]
+cmux-blocking.workspace = true
+cmux-lock-rank.workspace = true
+# Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
+cmux-memory.workspace = true
+# The daemon's features and their sources, shared with the cmux-tui owner (the leftover
+# daemon idle exit, src/daemon_lifecycle.rs), and `memoryAcpmuxPressure`.
+cmux-features = { workspace = true, features = ["sources"] }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
@@ -27,6 +42,8 @@ anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
+# The launchd process-roles table (units::LaunchdJob) for the daemon's agent plist.
+cmux-server-core.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
@@ -47,6 +64,14 @@ tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# The real target and line of `log` crate events (src/trace_layer.rs); already in the graph
+# through tracing-subscriber.
+tracing-log = { version = "0.2", default-features = false }
+# The Release trace ring (src/trace_layer.rs): event instants and request slices.
+cmux-trace.workspace = true
+# Catalog refresh, the health check and the upload sweep on one MaintenanceClock
+# (src/maintenance.rs), and Energy Saver (src/energy_control.rs).
+cmux-wake.workspace = true
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
@@ -90,3 +115,11 @@ windows-sys = { workspace = true, features = [
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# `log` crate events in tests/trace_layer.rs, forwarded by tracing-log's LogTracer.
+log = "0.4"
+tracing-log = "0.2"
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
+disallowed_types = "allow"

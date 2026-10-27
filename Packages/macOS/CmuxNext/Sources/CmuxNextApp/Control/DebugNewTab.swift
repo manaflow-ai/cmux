@@ -3,6 +3,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -25,7 +27,9 @@ import WebKit
 /// the tab the pane showed, then each character as a key-down: the page is left before its field
 /// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
-/// `drop_spare` drops the prewarmed spare, so the next opening loads cold.
+/// `drop_spare` drops the preloaded New Tab page (``NewTabPreload``), so the next opening loads cold.
+/// A spare's `phase` is where the preload slot holds it (`loading`, `capturing`, `parked`, `refitting`);
+/// an opening's `covered` says the slot's cover showed in the key's frame.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -77,8 +81,9 @@ enum DebugNewTab {
         var spares: [JSONValue] = []
         if let spare = pool.spare {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
-            var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
-            if let pid = WebContentProcess.identifier(of: spare.view.webView) {
+            var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake),
+                                              "phase": pool.phase.map { JSONValue.string($0.rawValue) } ?? .null]
+            if let pid = spare.view.page.webKitEngine.flatMap({ WebContentProcess.identifier(of: $0) }) {
                 entry["pid"] = .number(Double(pid))
                 entry["footprint_mb"] = ProcessUsage.sample(pid).map { .number(Double($0.physFootprint) / 1_048_576) } ?? .null
             }
@@ -95,9 +100,9 @@ enum DebugNewTab {
         ])
     }
 
-    private static func opening(_ opening: NewTabSparePool.Opening) -> JSONValue {
+    private static func opening(_ opening: NewTabPreload.Opening) -> JSONValue {
         .object(["spare": .bool(opening.spare), "cross_window": .bool(opening.crossWindow), "refit": .bool(opening.refit),
-                 "ms": .number(opening.milliseconds)])
+                 "covered": .bool(opening.covered), "ms": .number(opening.milliseconds)])
     }
 
     /// The window `index` (`window` param, an index into the main windows), else the first.
@@ -143,7 +148,7 @@ enum DebugNewTab {
                                     open_tabs: openTabs });
             """
         guard let text = try? await view.callPageScript(script) as? String,
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
+              let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
             return .object(["error": .string("the page returned no JSON")])
         }
         return value

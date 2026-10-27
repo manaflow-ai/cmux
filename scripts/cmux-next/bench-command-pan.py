@@ -5,7 +5,7 @@ Launches a tagged DEV app (bench_launch.py) and, light (one workspace) and STRES
 gives the active workspace strip columns that overflow the window (`newColumn`, --columns more). Then per
 round it pans the strip with one trackpad gesture over a pane, Command held (`debug.mouse` scroll with
 `modifiers: ["cmd"]`: began, --steps changes of --dx points one display frame apart, ended), and records the
-display frames from the gesture's start until the strip's spring rests (`debug.frames`): intervals p50/p95/max,
+display frames from the gesture's start until the strip's spring rests (`debug.frames`): intervals p50/p95/p99/max,
 missed vsyncs (an interval over 1.5 refresh periods) and the refresh rate. Rounds alternate the direction.
 
 The pointer stays at one window point per session (the focused pane's center when the session starts, from
@@ -23,7 +23,7 @@ Input to frame (`key.scroll_frame`, the app's always-on signpost per scroll even
 session (perf-signposts.py Recording) while the rounds run; each interval goes to the round whose time window
 holds its begin (the signposts' machTimestamp is mach_continuous_time, and this script stamps the windows with
 CLOCK_MONOTONIC_RAW, the same clock on one host; a session whose windows hold none fails the run). Per mode: `scroll_frame` (dispatch to the turn's commit) and `input_to_frame` (plus the event's
-queue age) p50/p95/max over the events the layout took, and the commits the boundary missed.
+queue age) p50/p95/p99/max over the events the layout took, and the commits the boundary missed.
 
 --target picks the pane under the pointer:
   terminal  (default) the terminal that newColumn made: the layout's own window path.
@@ -41,8 +41,17 @@ signatures, read from this file's syntax tree. Exit 1 names each call that would
 with `python3 -I -m py_compile`, before a fleet submit (a wrong keyword failed one 120 Hz step after a full
 app build).
 
+Percentiles are perf_stats.pct (scripts/perf-lab/perf_stats.py: linear interpolation between closest ranks). Each
+mode's row has the median over its rounds of the app's per-round p95 and p99 (`p95_ms`, `p99_ms`) and, from every
+frame interval of its rounds (`debug.frames` raw), `intervals` n/p50/p95/p99/max.
+
+--story ID (with one session) also writes cmux-perf-result/v1 files into --out (BenchApp.record): per mode
+`<mode>.frame_interval` (ms, every display frame interval), `<mode>.missed` (count per round),
+`<mode>.scroll_frame` and `<mode>.input_to_frame` (ms per event the layout took), engine `none` over a terminal and
+`chromium` over a page. The perf-lab stories are command-pan and command-pan-stress (scripts/perf-lab/stories.d).
+
 Usage: bench-command-pan.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 6]
-       [--steps 40] [--dx 24] [--columns 3] [--target terminal|chromium]
+       [--steps 40] [--dx 24] [--columns 3] [--target terminal|chromium] [--story ID]
        bench-command-pan.py --dry-run
 Fleet: scripts/measure/split-spring.sh --suite=command-pan --vdisplay=120 [--sessions=...] [--rounds=N]
 """
@@ -50,7 +59,8 @@ import argparse, ast, importlib.util, inspect, json, os, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 parser.add_argument("--dry-run", action="store_true", help="check the calls against the real signatures; launch nothing")
@@ -65,9 +75,16 @@ parser.add_argument("--dx", type=float, default=24)
 parser.add_argument("--columns", type=int, default=3, help="strip columns added to the measured workspace")
 parser.add_argument("--settle", type=float, default=1.0, help="seconds after the gesture for the spring to rest")
 parser.add_argument("--target", choices=("terminal", "chromium"), default="terminal", help="what the pointer is over")
+parser.add_argument("--story", help="also write cmux-perf-result/v1 files of this story into --out (one session)")
 opts, _unknown = parser.parse_known_args()
 if not opts.dry_run and not (opts.app and opts.out):
     parser.error("--app and --out are required (or --dry-run)")
+if opts.story and opts.sessions not in ("light", "stress"):
+    parser.error(f"--story records one session (result-v1 names one): pass --sessions light or stress, not {opts.sessions!r}")
+# result-v1's engine: a terminal pane has none.
+ENGINE = "chromium" if opts.target == "chromium" else "none"
+if opts.story and story_problem(opts.story, ENGINE):
+    parser.error(story_problem(opts.story, ENGINE))
 
 
 def load(name, filename):
@@ -83,6 +100,8 @@ def load_stress():
 
 # The signpost reader (Recording, parse): loaded once, here, so --dry-run checks the bench against it too.
 signposts = load("perf_signposts", "perf-signposts.py")
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 
 def uptime():
@@ -92,10 +111,9 @@ def uptime():
 
 
 def pct(values, q):
-    values = sorted(v for v in values if isinstance(v, (int, float)))
-    if not values:
-        return None
-    return round(values[min(len(values) - 1, int(round((len(values) - 1) * q)))], 2)
+    """perf_stats.pct of the numeric values, rounded to 0.01 ms; None when there is none."""
+    value = perf_stats.pct(values, q)
+    return None if value is None else round(value, 2)
 
 
 class Session:
@@ -181,7 +199,7 @@ def pan_round(app, name, mode, index, session, point):
     delivered = session.gesture(point, dx, command=mode == "command")
     time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
     window = (started, uptime())
-    frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+    frames = app.rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     # The main-thread stalls of the pan (over the hang threshold): the longest one's stack says what a long frame was.
     hangs = app.rpc("debug.hangs", {"limit": 8}) or {}
     stalls = sorted(hangs.get("hangs") or [], key=lambda h: -(h.get("duration_ms") or 0)) if isinstance(hangs, dict) else []
@@ -193,7 +211,8 @@ def pan_round(app, name, mode, index, session, point):
     run = {"session": name, "mode": mode, "round": index, "dx": dx, "window_s": window, "events": len(delivered),
            "layout_took": taken, "delivered_to": took,
            "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
-           "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
+           "p95_ms": frames.get("p95_ms"), "p99_ms": frames.get("p99_ms"), "max_ms": frames.get("max_ms"),
+           "missed": frames.get("missed"), "intervals_ms": frames.get("intervals_ms") or [],
            "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls),
            "longest_stall": {"ms": round(stalls[0].get("duration_ms") or 0, 2), "cpu_ms": round(stalls[0].get("cpu_ms") or 0, 2),
                              "frames": (stalls[0].get("frames") or [])[:48]} if stalls else None}
@@ -205,35 +224,47 @@ def pan_round(app, name, mode, index, session, point):
     return run
 
 
-def scroll_frames(intervals, runs):
+def layout_scrolls(intervals, runs):
     """`key.scroll_frame` of the events the layout took in `runs` (an interval belongs to the round whose
-    window holds its begin): scroll_frame and input_to_frame p50/p95/max in ms, and the missed commits."""
+    window holds its begin): ({"scroll_frame": [ms], "input_to_frame": [ms]} of the committed events, the
+    commits the boundary missed)."""
     windows = [r["window_s"] for r in runs]
     mine = [i for i in intervals if i["name"] == "key.scroll_frame" and i.get("end_fields", {}).get("target") == "layout"
             and any(start <= i["at_s"] <= end for start, end in windows)]
     committed = [i for i in mine if not i["missed"]]
-
-    def stats(values):
-        values = sorted(values)
-        if not values:
-            return None
-        return {"n": len(values), "p50_ms": pct(values, 0.5), "p95_ms": pct(values, 0.95), "max_ms": round(values[-1], 2)}
-
     aged = [i["ms"] + float(i["fields"]["age_ms"]) for i in committed if float(i["fields"].get("age_ms", "-1")) >= 0]
-    return {"scroll_frame": stats([i["ms"] for i in committed]), "input_to_frame": stats(aged),
-            "missed_commits": len(mine) - len(committed)}
+    return {"scroll_frame": [i["ms"] for i in committed], "input_to_frame": aged}, len(mine) - len(committed)
 
 
-def summarize(name, mode, runs, report, intervals=None):
+def scroll_frames(intervals, runs):
+    """scroll_frame and input_to_frame p50/p95/p99/max in ms of ``layout_scrolls``, and the missed commits."""
+    samples, missed = layout_scrolls(intervals, runs)
+    return {"scroll_frame": spread(samples["scroll_frame"]), "input_to_frame": spread(samples["input_to_frame"]),
+            "missed_commits": missed}
+
+
+def spread(values):
+    """n, p50, p95, p99 and max in ms (perf_stats.summary), or None for no values."""
+    summary = perf_stats.summary(values)
+    if not summary["n"]:
+        return None
+    return {"n": summary["n"], **{f"{q}_ms": round(summary[q], 2) for q in ("p50", "p95", "p99", "max")}}
+
+
+def summarize(app, name, mode, runs, report, intervals=None):
     """The row of one mode's rounds, checked: every event reached the layout and frames were drawn. With the
     session's signpost `intervals`, its input to frame too."""
     report["runs"].extend(runs)
     row = {"session": name, "mode": mode, "target": opts.target, "rounds": len(runs),
            "refresh_ms": pct([r["refresh_ms"] for r in runs], 0.5),
            "missed_total": sum(r["missed"] or 0 for r in runs), "frames_total": sum(r["frames"] or 0 for r in runs),
-           "p95_ms": pct([r["p95_ms"] for r in runs], 0.5), "max_ms": pct([r["max_ms"] for r in runs], 1.0),
+           "p95_ms": pct([r["p95_ms"] for r in runs], 0.5), "p99_ms": pct([r["p99_ms"] for r in runs], 0.5),
+           "max_ms": pct([r["max_ms"] for r in runs], 1.0),
+           "intervals": spread([v for r in runs for v in r["intervals_ms"]]),
            "events_to_layout": sum(r["layout_took"] for r in runs), "events": sum(r["events"] for r in runs)}
+    scrolls = {}
     if intervals is not None:
+        scrolls, _ = layout_scrolls(intervals, runs)
         row.update(scroll_frames(intervals, runs))
         if not row["input_to_frame"]:
             report["problems"].append(f"{name} {mode}: no key.scroll_frame of the layout's events was recorded")
@@ -249,7 +280,33 @@ def summarize(name, mode, runs, report, intervals=None):
     if not row["frames_total"]:
         report["problems"].append(f"{name} {mode}: no frames drawn")
     print("COMMAND-PAN " + json.dumps(row), flush=True)
+    if opts.story:
+        report["results"].update(record_results(app, name, mode, runs, scrolls))
     return row
+
+
+def record_results(app, name, mode, runs, scrolls):
+    """One cmux-perf-result/v1 file per series of one mode (BenchApp.record): `<mode>.frame_interval` (every display
+    frame interval of its rounds, ms), `<mode>.missed` (missed vsyncs per round) and, from the signposts,
+    `<mode>.scroll_frame` and `<mode>.input_to_frame` (ms per event the layout took). A series with no sample, or
+    one the bench cannot describe truthfully (no build sha, no features snapshot), is not written; its reason is
+    returned in its place."""
+    series = [("frame_interval", "ms", [v for r in runs for v in r["intervals_ms"]]),
+              ("missed", "count", [r["missed"] for r in runs if isinstance(r["missed"], int)]),
+              ("scroll_frame", "ms", scrolls.get("scroll_frame") or []),
+              ("input_to_frame", "ms", scrolls.get("input_to_frame") or [])]
+    written = {}
+    for metric, unit, samples in series:
+        metric = f"{mode}.{metric}"
+        if not samples:
+            written[metric] = f"not recorded: {name} {mode} has no {metric} sample"
+            continue
+        try:
+            written[metric] = str(app.record(opts.story, metric, unit, samples, better="lower", engine=ENGINE))
+        except (RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+            print(f"result-v1 {metric}: not recorded: {error}", flush=True)
+    return written
 
 
 def set_modifier(app, value):
@@ -293,7 +350,7 @@ def measure(app, name, session, panes, report):
     if parsed["lost"]:
         report["problems"].append(f"{name}: log stream lost messages {parsed['lost']} time(s); input to frame is not a full sample")
     for mode in modes:
-        summarize(name, mode, runs[mode], report, parsed["intervals"])
+        summarize(app, name, mode, runs[mode], report, parsed["intervals"])
 
 
 def dry_run():
@@ -355,7 +412,10 @@ def main():
         return dry_run()
     os.makedirs(opts.out, exist_ok=True)
     report = {"runs": [], "summary": [], "problems": []}
-    app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
+    if opts.story:
+        report["results"] = {}
+    # perf_session is result-v1's session; with no --story nothing is recorded and it is never read.
+    app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000), perf_session=opts.sessions.split(",")[0])
     stress_module = load_stress()
     try:
         app.launch(timeout=180)
@@ -369,6 +429,10 @@ def main():
         report["problems"].append(f"{type(error).__name__}: {error}")
     finally:
         app.stop()
+        if opts.story and not any(path.endswith(".ndjson") for path in report["results"].values()):
+            # A story run that recorded nothing measured nothing for the lab.
+            report["problems"].append("result-v1: nothing recorded: "
+                                      + "; ".join(report["results"].values() or ["no series"]))
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)

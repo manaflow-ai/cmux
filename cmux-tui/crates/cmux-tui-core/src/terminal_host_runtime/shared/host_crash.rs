@@ -9,6 +9,7 @@
 //! as a flag in the tab's end. The owner removes the sidecar on every end of
 //! the host's incarnation.
 
+use cmux_threads::checked::fs as files;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -71,9 +72,9 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
         ));
         if let Ok(mut file) = sys::open_private(&temporary, PrivateOpen::CreateNewNoFollow) {
             if file.write_all(record.to_string().as_bytes()).is_ok() {
-                let _ = std::fs::rename(&temporary, &path);
+                let _ = files::rename(&temporary, &path);
             } else {
-                let _ = std::fs::remove_file(&temporary);
+                let _ = files::remove_file(&temporary);
             }
         }
         previous(info);
@@ -84,10 +85,8 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
 
 #[cfg(debug_assertions)]
 fn abort_once_for_test() {
-    use std::fs::OpenOptions;
-
     let Some(marker) = std::env::var_os(ABORT_ONCE_TEST_ENV) else { return };
-    if OpenOptions::new().write(true).create_new(true).open(&marker).is_err() {
+    if files::open_with(files::File::options().write(true).create_new(true), &marker).is_err() {
         return;
     }
     let mut trigger = marker;
@@ -95,7 +94,7 @@ fn abort_once_for_test() {
     let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(move || {
         // Opening a FIFO for reading blocks until the test opens it for
         // writing: the crash happens at the moment the test chose.
-        let _ = std::fs::File::open(&trigger);
+        let _ = files::open(&trigger);
         // crash-allow: a test-only injected crash (debug builds, explicit env).
         #[allow(clippy::panic, reason = "a test-only injected crash (debug builds, explicit env)")]
         let _ = std::panic::catch_unwind(|| panic!("test-injected host crash"));

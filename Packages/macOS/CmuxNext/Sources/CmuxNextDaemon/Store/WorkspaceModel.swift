@@ -56,7 +56,12 @@ public final class WorkspaceModel: Identifiable {
     /// its handle names no daemon workspace, so no command may target it yet.
     public var isProvisional: Bool { ProvisionalWorkspace.isProvisional(handle) }
     /// Its id in the store's list check: a stand-in's takeover by the daemon's workspace is a list change.
-    var listID: String { isProvisional ? id + "~" : id }
+    var listID: String { Self.listID(id: id, handle: handle) }
+
+    /// The list check's id of a workspace indexed under `id` and `handle` (``StoreIndex``).
+    static func listID(id: String, handle: WorkspaceHandle) -> String {
+        ProvisionalWorkspace.isProvisional(handle) ? id + "~" : id
+    }
 
     /// Custom title when set, else the name.
     public var displayName: String {
@@ -98,8 +103,8 @@ public final class WorkspaceModel: Identifiable {
     public private(set) var mirroredUnreadTabs = 0
     /// Its screens' unread count (``UnreadTally``), kept by ``recountUnread()``.
     @ObservationIgnored private(set) var unread = UnreadTally()
-    /// The store that sums this workspace.
-    @ObservationIgnored weak var unreadStore: DaemonStore?
+    /// The sum this workspace reports to while it is indexed (``UnreadLedger``).
+    @ObservationIgnored weak var unreadLedger: UnreadLedger?
 
     /// What this workspace adds to ``DaemonStore/unreadTotals``: its unread tabs (the daemon's
     /// rollup while its tree is not mirrored), or 1 when it has none and is marked unread by hand.
@@ -125,15 +130,16 @@ public final class WorkspaceModel: Identifiable {
         noteUnreadChange()
     }
 
-    /// The contribution the store last summed.
-    @ObservationIgnored private var summedContribution = UnreadTotals()
+    /// The contribution the ledger last summed (set by ``UnreadLedger/join(_:)``).
+    @ObservationIgnored var summedContribution = UnreadTotals()
 
-    /// Tells the store when what this workspace adds changed.
+    /// Tells the ledger when what this workspace adds changed.
     private func noteUnreadChange() {
         let contribution = unreadContribution
         guard contribution != summedContribution else { return }
+        let summed = summedContribution
         summedContribution = contribution
-        unreadStore?.recountUnread()
+        unreadLedger?.change(from: summed, to: contribution)
     }
 
     init(_ s: WorkspaceSnapshot) {

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// The one rule for app panels that take the keyboard (the palette, the tab
 /// group editor, the Page Info bubble).
@@ -12,6 +13,10 @@ public import AppKit
 /// keys, it calls ``onKeyElsewhere`` once another window of the app becomes
 /// key (a click or Cmd-Tab into the app), so the owner closes it the way a
 /// click outside closes a key panel.
+///
+/// The watch is one subscription on the app's ``AppEvents`` (one NotificationCenter observer per
+/// notice for the whole app, as Chromium's app controller observes NSApp notices once:
+/// chrome/browser/app_controller_mac.mm), held only while the panel is shown without the keys.
 open class ActiveAppKeyPanel: NSPanel {
     /// Whether the app is active (tests inject their own per panel).
     public var isAppActive: () -> Bool = { NSApp?.isActive ?? false }
@@ -19,7 +24,11 @@ open class ActiveAppKeyPanel: NSPanel {
     /// Another window of the app took the keys while this panel was shown
     /// without them.
     public var onKeyElsewhere: (() -> Void)?
-    private var keyElsewhereObserver: (any NSObjectProtocol)?
+    /// Where any window's key notice arrives: the composition root injects the app's one
+    /// (`AppServices.appEvents`); a panel it did not set up observes `NotificationCenter.default`
+    /// through its own.
+    public lazy var appEvents = AppEvents(center: .default)
+    private var keyElsewhere: EventSubscription?
 
     override open var canBecomeKey: Bool { isAppActive() }
 
@@ -47,23 +56,23 @@ open class ActiveAppKeyPanel: NSPanel {
     }
 
     private func watchKeyElsewhere() {
-        guard keyElsewhereObserver == nil else { return }
-        keyElsewhereObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
-                                                                      queue: .main) { [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window, window !== self, !self.isKeyWindow else { return }
-                self.stopWatching()
-                // Owners ignore it once the panel is closed.
-                self.onKeyElsewhere?()
-            }
+        guard keyElsewhere == nil else { return }
+        // This panel becoming key is a key notice too: it is key then, so only another window's passes.
+        keyElsewhere = appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: "ActiveAppKeyPanel") { [weak self] in
+            guard let self, !self.isKeyWindow else { return }
+            self.stopWatching()
+            // Owners ignore it once the panel is closed.
+            self.onKeyElsewhere?()
         }
     }
 
     private func stopWatching() {
-        keyElsewhereObserver.map(NotificationCenter.default.removeObserver)
-        keyElsewhereObserver = nil
+        keyElsewhere?.cancel()
+        keyElsewhere = nil
     }
+
+    /// Whether the panel waits for another window to take the keys (tests).
+    var isWatchingKeyElsewhere: Bool { keyElsewhere != nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {

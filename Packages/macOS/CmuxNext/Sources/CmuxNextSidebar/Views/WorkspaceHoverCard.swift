@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextResources
 import CmuxNextWakeups
@@ -41,7 +41,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     private var bodyID: HoverTargetID?
     /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
     /// idle while no live card shows, so a quiet sidebar wakes nothing.
-    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
+    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed") // timer-class-allow: the shown card's 1 s running-time tick (visible), armed only while a live card shows; no MainDeadlineScheduler reaches the sidebar's cards yet
     /// The user's customization (`cmux.hovercard/1`); the App injects it.
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
@@ -62,9 +62,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     static func targetID(_ id: GroupID) -> HoverTargetID { HoverTargetID("grp:\(id.rawValue)") }
 
-    private func groupID(_ id: HoverTargetID) -> GroupID? {
-        id.rawValue.hasPrefix("grp:") ? GroupID(String(id.rawValue.dropFirst(4))) : nil
-    }
+    private func groupID(_ id: HoverTargetID) -> GroupID? { GroupID(hoverCardTarget: id) }
 
     /// This list's group whose summary card shows now.
     var shownGroupID: GroupID? {
@@ -72,9 +70,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         return group
     }
 
-    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
-        id.rawValue.hasPrefix("ws:") ? WorkspaceID(String(id.rawValue.dropFirst(3))) : nil
-    }
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? { WorkspaceID(hoverCardTarget: id) }
 
     /// This list's workspace whose card shows now.
     var shownID: WorkspaceID? {
@@ -108,7 +104,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// gap between rows). The empty list below the last row bridges to nothing: the card goes
     /// there at once, as anywhere else off the row and the card (Leo 2026-10-20).
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
+        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor, // visibility-walk-allow: a hover card hit test at the pointer
               let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
         let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
@@ -229,7 +225,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
             return
         }
         guard !ticker.isScheduled else { return }
-        ticker.schedule(after: delay) { @MainActor [weak self] in self?.tickShownCard() }
+        ticker.scheduleOnMain(after: delay) { [weak self] in self?.tickShownCard() }
     }
 
     private func tickShownCard() {
@@ -273,6 +269,7 @@ final class WorkspaceHoverCardView: NSView {
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
+        // wall-clock: the shown running time counts from a model Date.
         return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
     }
 
@@ -281,7 +278,7 @@ final class WorkspaceHoverCardView: NSView {
     private let kindIcon = HoverCardIconView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    private let activity = StatusIndicatorView()
     private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")
@@ -622,5 +619,23 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
+    }
+}
+
+public extension WorkspaceID {
+    /// The workspace of a sidebar row's hover card target (`WorkspaceHoverCardController.targetID(_:)`); nil for
+    /// any other target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("ws:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("ws:".count)))
+    }
+}
+
+public extension GroupID {
+    /// The group of a sidebar group's hover card target (`WorkspaceHoverCardController.targetID(_:)`); nil for
+    /// any other target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("grp:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("grp:".count)))
     }
 }

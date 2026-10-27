@@ -1,3 +1,7 @@
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// Runs one encoded sidecar request (a `DiffRequest` JSON object) and returns
@@ -14,6 +18,8 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
     let cmux: URL
     let root: URL
     var limits = DiffSidecarProcess.Limits()
+    /// Spawns each child off the caller's actor; the diff a person opened shows its reply, so userVisible.
+    var launcher = ProcessLauncher(label: "com.cmuxterm.next.diff-sidecar", priority: .userVisible)
 
     /// The app bundle's `bin/cmux-diff-sidecar` and `bin/cmux`, nil when either
     /// is missing or not executable.
@@ -30,7 +36,7 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
     }
 
     func run(_ request: Data) async throws -> Data {
-        try await DiffSidecarProcess.run(executable: sidecar, arguments: arguments, request: request, limits: limits)
+        try await DiffSidecarProcess.run(executable: sidecar, arguments: arguments, request: request, launcher: launcher, limits: limits)
     }
 }
 
@@ -40,7 +46,7 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
 actor DiffSidecarPool: DiffSidecarRunning {
     private struct Waiter {
         let id: UUID
-        let continuation: CheckedContinuation<Bool, Never>
+        let continuation: OnceContinuation<Bool, OnceContinuationError>
     }
 
     private let runner: any DiffSidecarRunning
@@ -80,9 +86,10 @@ actor DiffSidecarPool: DiffSidecarRunning {
         guard waiters.count < queueLimit else { throw DiffSidecarError.busy }
         let id = UUID()
         let granted = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter was granted no slot: false, as a cancelled one answers.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                 waiters.append(Waiter(id: id, continuation: continuation))
-            }
+            }) ?? false
         } onCancel: {
             // task-owner: one hop onto the pool to drop this waiter; ends at once
             Task { await self.cancelWaiter(id) }
@@ -101,10 +108,7 @@ actor DiffSidecarPool: DiffSidecarRunning {
     }
 
     private func release() {
-        guard !waiters.isEmpty else {
-            active -= 1
-            return
-        }
+        guard !waiters.isEmpty else { active -= 1; return }
         // The slot passes to the next waiter: `active` stays the same.
         waiters.removeFirst().continuation.resume(returning: true)
     }

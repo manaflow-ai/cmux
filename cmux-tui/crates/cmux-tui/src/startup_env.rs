@@ -31,6 +31,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     // SAFETY: as above.
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
+    // SAFETY: as above.
+    unsafe { take_owner_app_pid() };
 }
 
 /// cmux-link and its token verifier exist only on unix; nothing to take.
@@ -50,6 +52,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { take_owner_app_pid() };
 }
 
 /// Read the Cloud template settings and remove them from this process's
@@ -108,6 +112,28 @@ unsafe fn take_launch_credential() {
 /// The launch credential this process was started with (see above).
 pub(crate) fn launch_credential() -> Option<String> {
     LAUNCH_CREDENTIAL.get().cloned().flatten()
+}
+
+/// The process id of the app that owns this owner (`server_lifecycle.rs`): the
+/// app sets it for the `server ensure` it runs, which hands it to the owner it
+/// spawns (`local_owner.rs`). Taken out of the environment at once, so no
+/// shell, agent or owner started from a terminal claims the app as its own.
+pub(crate) const OWNER_APP_PID_ENV: &str = "CMUX_TUI_OWNER_APP_PID";
+static OWNER_APP_PID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// # Safety
+///
+/// As [`take_link_token_from_env`]: no other thread may exist yet.
+unsafe fn take_owner_app_pid() {
+    let value = std::env::var(OWNER_APP_PID_ENV).ok().filter(|value| !value.is_empty());
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { std::env::remove_var(OWNER_APP_PID_ENV) };
+    let _ = OWNER_APP_PID.set(value);
+}
+
+/// The owning app's pid this process was started with (see above).
+pub(crate) fn owner_app_pid() -> Option<String> {
+    OWNER_APP_PID.get().cloned().flatten()
 }
 
 /// The brain tools socket this process was started with (see above).

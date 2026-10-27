@@ -190,6 +190,7 @@ pub(crate) fn move_members_into(
 
 impl Mux {
     /// Commit a raw tab group command (a local mutation that never replays).
+    #[track_caller]
     fn commit_tab_group_change<R>(
         self: &Arc<Self>,
         actor: &Actor,
@@ -205,12 +206,14 @@ impl Mux {
         output.context("tab group change committed no result")
     }
 
+    #[track_caller]
     pub(super) fn emit_tab_group_members(&self, members: &[SurfaceId], transaction: Option<&str>) {
         for surface in members {
             self.emit_tab_changed_for_transaction(*surface, transaction.map(Arc::from));
         }
     }
 
+    #[track_caller]
     pub(crate) fn tab_group_outcome(&self, group: &str) -> TabGroupOutcome {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
@@ -227,6 +230,7 @@ impl Mux {
     /// Create a group from tabs of one pane. The members become contiguous
     /// at the strip position of the first of them; tabs leave any group
     /// they were in. Pinned tabs cannot be grouped.
+    #[track_caller]
     pub fn create_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -255,6 +259,7 @@ impl Mux {
     /// The shared body of raw `create-tab-group` and v2 `tab_group.create`.
     /// `tabs` resolves the members against the locked state. `icon` is the
     /// group's icon (a closed record's reopen forms the group with it).
+    #[track_caller]
     pub(crate) fn tab_group_create(
         self: &Arc<Self>,
         request: StripRequest,
@@ -329,6 +334,7 @@ impl Mux {
     /// Rename, recolor, collapse, or set or clear the icon of a group
     /// (`icon`: `None` keeps it, `Some(None)` clears it). A linked saved
     /// group follows.
+    #[track_caller]
     pub fn update_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -349,6 +355,7 @@ impl Mux {
         Ok(self.tab_group_outcome(group))
     }
 
+    #[track_caller]
     pub(crate) fn tab_group_update(
         self: &Arc<Self>,
         request: StripRequest,
@@ -397,6 +404,7 @@ impl Mux {
 
     /// Add tabs to a group, at the end of its run. Tabs in other panes move
     /// into the group's pane in the same commit.
+    #[track_caller]
     pub fn add_tabs_to_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -417,6 +425,7 @@ impl Mux {
     }
 
     /// `index` is the position inside the group (default: the end).
+    #[track_caller]
     pub(crate) fn tab_group_add(
         self: &Arc<Self>,
         request: StripRequest,
@@ -476,6 +485,7 @@ impl Mux {
     }
 
     /// Remove tabs from their groups; each lands just after its old group.
+    #[track_caller]
     pub fn remove_tabs_from_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -491,6 +501,7 @@ impl Mux {
         Ok(touched.unwrap_or_default())
     }
 
+    #[track_caller]
     pub(crate) fn tab_group_remove(
         self: &Arc<Self>,
         request: StripRequest,
@@ -535,6 +546,7 @@ impl Mux {
     /// Move a whole group: within or across strips, into a new split or
     /// column, or into a new workspace. Members keep their order and stay
     /// grouped; the group is not layout-undoable.
+    #[track_caller]
     pub fn move_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -690,6 +702,7 @@ impl Mux {
     }
 
     /// Ungroup: the members stay in place without a group.
+    #[track_caller]
     pub fn ungroup_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -700,6 +713,7 @@ impl Mux {
         Ok(members)
     }
 
+    #[track_caller]
     pub(crate) fn tab_group_ungroup(
         self: &Arc<Self>,
         request: StripRequest,
@@ -728,6 +742,7 @@ impl Mux {
     /// Close a group: close every member placement in one commit. Terminal
     /// processes keep running (closing a view never ends a terminal);
     /// browsers close with their only tab. A linked saved group remains.
+    #[track_caller]
     pub fn close_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -738,6 +753,7 @@ impl Mux {
         closed.context("tab group close committed no result")
     }
 
+    #[track_caller]
     pub(crate) fn tab_group_close(
         self: &Arc<Self>,
         request: StripRequest,
@@ -782,6 +798,7 @@ impl Mux {
     /// v2 `tab_group.move` into a strip: `pane` (default: the group's own
     /// pane) at insertion index `index` among that pane's other tabs,
     /// clamped behind its pinned tabs.
+    #[track_caller]
     pub(crate) fn tab_group_move_to_strip(
         self: &Arc<Self>,
         request: StripRequest,
@@ -825,6 +842,7 @@ impl Mux {
 
     /// Add a new view of a running terminal to `pane`: its last tab, or at
     /// the strip index of a [`super::tab_strip::tab_slot::scoped`] creation in `pane`.
+    #[track_caller]
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         actor: &Actor,
@@ -867,6 +885,7 @@ impl Mux {
         .context("reattached terminal view is missing")
     }
 
+    #[track_caller]
     fn saved_member_descriptor(&self, state: &State, surface: SurfaceId) -> Option<SavedTabMember> {
         let runtime = state.surfaces.get(&surface)?;
         match runtime.kind() {
@@ -891,6 +910,7 @@ impl Mux {
 
     /// The refreshed saved record of a live group linked to one, built from
     /// `state` (the projected state of the change being committed).
+    #[track_caller]
     pub(crate) fn saved_record_for(
         &self,
         state: &State,
@@ -921,6 +941,7 @@ impl Mux {
     }
 
     /// Save (pin) a live group. Returns the saved record's id.
+    #[track_caller]
     pub fn save_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -933,6 +954,7 @@ impl Mux {
 
     /// Save a live group into `room` (default: its existing room, else
     /// `default`), or refresh the record it already links to.
+    #[track_caller]
     pub(crate) fn tab_group_save(
         self: &Arc<Self>,
         request: StripRequest,
@@ -964,6 +986,7 @@ impl Mux {
     }
 
     /// Unsave a live group: delete its saved record and keep the group.
+    #[track_caller]
     pub fn unsave_tab_group_as(&self, actor: &Actor, group: &str) -> anyhow::Result<bool> {
         let saved_id = self
             .presentation_snapshot()
@@ -978,6 +1001,7 @@ impl Mux {
     }
 
     /// Delete a saved group. A live group linked to it stays, unlinked.
+    #[track_caller]
     pub fn delete_saved_tab_group_as(&self, actor: &Actor, saved_id: &str) -> anyhow::Result<bool> {
         let commit = self.saved_tab_group_delete(
             &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
@@ -988,6 +1012,7 @@ impl Mux {
         Ok(commit.result["deleted"].as_bool().unwrap_or(false))
     }
 
+    #[track_caller]
     pub fn saved_tab_groups(&self) -> Vec<SavedTabGroupRecord> {
         self.presentation_snapshot().saved_tab_groups.clone()
     }

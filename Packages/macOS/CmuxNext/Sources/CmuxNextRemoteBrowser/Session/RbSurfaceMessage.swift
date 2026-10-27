@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
 public import CoreGraphics
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A popup surface message from the host (`rb.surface.*`, RT5): a date or
 /// color picker, an autofill list or a bubble that Chromium draws in its
 /// own widget. It streams on its own rd stream; `anchor` is where it sits

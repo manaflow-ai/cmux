@@ -153,7 +153,7 @@ struct HomeTableGrid {
 
     static func lineWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
-        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(text), nil, nil, nil)).rounded(.up)
+        return CGFloat(CTLineCreateWithAttributedString(text).typographicWidth).rounded(.up)
     }
 
     /// The height ``HomeCardDraw/text`` draws `text` in at `width`: the same lines, each rounded up.
@@ -306,7 +306,7 @@ struct HomePlanLayout {
 enum HomeCardDraw {
     static func background(_ ctx: CGContext, _ rect: CGRect) {
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 14, cornerHeight: 14, transform: nil))
+        ctx.addPath(CGPath.roundedRect(rect, cornerWidth: 14, cornerHeight: 14))
         ctx.setFillColor(Fixture.incoming.cgColor)
         ctx.fillPath()
         ctx.restoreGState()
@@ -335,12 +335,11 @@ enum HomeCardDraw {
         guard text.length > 0 else { return [] }
         let setter = CTFramesetterCreateWithAttributedString(text)
         let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0),
-                                             CGPath(rect: CGRect(x: 0, y: 0, width: max(1, width), height: 100_000), transform: nil), nil)
+                                             CGPath.rect(CGRect(x: 0, y: 0, width: max(1, width), height: 100_000)), nil)
         guard let lines = CTFrameGetLines(frame) as? [CTLine] else { return [] }
         return lines.map { line in
-            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            return Line(line: line, width: w, ascent: ascent, height: (ascent + descent + leading).rounded(.up))
+            let b = line.typographicBounds
+            return Line(line: line, width: CGFloat(b.width), ascent: b.ascent, height: (b.ascent + b.descent + b.leading).rounded(.up))
         }
     }
 
@@ -370,7 +369,7 @@ enum HomeCardDraw {
         let w = min(rect.width, HomeTableGrid.lineWidth(s) + 14)
         let pill = CGRect(x: trailing ? rect.maxX - w : rect.minX, y: rect.minY, width: w, height: rect.height)
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: pill, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil))
+        ctx.addPath(CGPath.roundedRect(pill, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2))
         ctx.setFillColor(fill.cgColor)
         ctx.fillPath()
         ctx.restoreGState()

@@ -26,8 +26,11 @@ struct BlockingSystemSeamTests {
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// Each seam runs its call through `blockingCall`, so its site also carries the call's wall time (the
+    /// injected clock measures every timed call as ``TickClock/tick``).
     @MainActor @Test func eachSeamOnTheMainThreadRecordsOneSiteAtItsCaller() async throws {
-        let table = BlockingViolationTable(mode: .record)
+        let clock = TickClock()
+        let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
         let expected = try BlockingViolationTable.$scoped.withValue(table) { try callEachSystemSeam() }
         await table.flush()
 
@@ -54,7 +57,8 @@ struct BlockingSystemSeamTests {
 private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     var expected: [BlockingSite] = []
     func seam(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ call: () -> Void) {
-        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1))
+        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1,
+                                     totalNanos: TickClock.tick, maxNanos: TickClock.tick))
         call()
     }
 
@@ -134,6 +138,19 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.ipcReply) { _ = try? blockingSMAppServiceRegister(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceUnregister(missingAgent) }
     return expected
+}
+
+/// A clock that moves ``tick`` nanoseconds per read, so each timed call (two reads) measures ``tick``.
+private nonisolated final class TickClock: Sendable {
+    static let tick: UInt64 = 1_000
+    private let now = Mutex(UInt64(0))
+
+    func read() -> UInt64 {
+        now.withLock { now in
+            now += Self.tick
+            return now
+        }
+    }
 }
 
 /// The same calls on a named serial queue, a context where blocking is allowed (not the cooperative pool

@@ -44,6 +44,8 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let key = key(request);
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;

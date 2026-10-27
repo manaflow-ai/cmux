@@ -15,6 +15,6 @@ extension AgentPaneView {
     public func pushDiffColors(_ colors: String) {
         guard colors != model.diffColors else { return }
         model.diffColors = colors
-        deliver([.diffColors(colors)], scripts: ["window.cmuxAcpmuxDiffColors?.(\(JSONValue.string(colors).compactText));"])
+        deliver([.diffColors(colors)])
     }
 }

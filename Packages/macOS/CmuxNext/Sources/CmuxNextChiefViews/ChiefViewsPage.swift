@@ -11,7 +11,10 @@ extension PageDescriptor {
     /// The Chief view gallery (webviews/src/pages/chief-views): experimental views beside the Chief,
     /// over the agents the app already mirrors, the CI fleet dashboard and the repository's PRs.
     static let chiefViews = PageDescriptor(
-        id: "cmux.chief-views", resource: "chief-views", namespaces: [ChiefViewsPageProvider.prefix])
+        id: "cmux.chief-views", resource: "chief-views", processGroup: .solo, namespaces: [ChiefViewsPageProvider.prefix],
+        // ChiefViewsPageProvider: `set_fleet_url` writes a default, `open` and `open_url` reveal a chat or open a link.
+        opTables: [PageOpTable(namespace: ChiefViewsPageProvider.prefix, read: ["agents", "agents_changed", "fleet", "landing"],
+                               act: ["set_fleet_url", "open", "open_url"])])
 }
 
 /// What the gallery needs from the app: where the agents are and how to show one. The app passes
@@ -61,15 +64,21 @@ public final class ChiefViewsPage {
     public nonisolated static var tunables: [TunableDescriptor] { ChiefViewsTunables.all }
 
     private let host: ChiefViewsHost
+    private let webUI: WebUIHost
 
-    public init(host: ChiefViewsHost) {
+    /// - Parameters:
+    ///   - host: The app's lanes, tabs and navigation the page reads and drives.
+    ///   - webUI: The app's page host (`AppServices.webUI`), which makes the page view.
+    public init(host: ChiefViewsHost, webUI: WebUIHost) {
         self.host = host
+        self.webUI = webUI
     }
 
     /// A new page view with its own provider; nil when the page's bundle is missing.
     public func makeView() -> PageWebView? {
         let provider = ChiefViewsPageProvider(host: .live(host))
-        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)])
+        return webUI.open(PageOpenRequest(descriptor: .chiefViews,
+                                          routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)]))
     }
 }
 

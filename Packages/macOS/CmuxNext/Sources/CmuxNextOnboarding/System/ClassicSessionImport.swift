@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Errors produced while reading a classic cmux session snapshot.
@@ -141,7 +142,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// scrollback always wins, as in classic's restore.
     public func decodeSnapshot(_ data: Data, checkpoints: URL?) throws -> ClassicSessionSnapshot {
         try Self.validateEncodedJSON(data, maximumBytes: Self.maximumSnapshotBytes)
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let root = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
             throw ClassicSessionImportError.notASnapshot
         }
         return try decodeSnapshot(root, checkpoints: checkpoints)
@@ -269,7 +270,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         } catch {
             return nil
         }
-        guard let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let record = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               (record["panelId"] as? String)?.uppercased() == name,
               let text = record["scrollback"] as? String, !text.isEmpty else { return nil }
         return text

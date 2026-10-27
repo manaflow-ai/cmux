@@ -38,11 +38,15 @@ public struct CodeSigningTeam {
 
     private static func read() -> String? {
         var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        // SAFETY (each Copy call below): Security stores at most one +1 object, which ARC then owns, into the
+        // optional local it is given, live for the call.
+        guard unsafe SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        // SAFETY: as above.
+        guard unsafe SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+        // SAFETY: as above.
+        guard unsafe SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
               let dictionary: [String: Any] = information as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
     }

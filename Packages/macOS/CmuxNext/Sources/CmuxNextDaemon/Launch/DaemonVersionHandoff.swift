@@ -2,6 +2,9 @@ import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What the app does with a running daemon of another build after an update
 /// (plans/cmux-next/durable-sessions.md section 3).
@@ -48,39 +51,30 @@ final class DaemonHandoffState: Sendable {
 
 /// Waits for a process to exit through the kernel's exit event (no polling).
 enum ProcessExit {
-    /// One wait's once-only completion and its deadline task.
-    private final class Once: Sendable {
-        let done = Mutex(false)
-        func first() -> Bool {
-            done.withLock { flag in
-                defer { flag = true }
-                return !flag
-            }
-        }
-    }
-
     /// True when `pid` exited within `timeout` (or was already gone).
     static func exitEvent(pid: Int32, within timeout: Duration, clock: any Clock<Duration>) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let once = Once()
+        // Abandoned (the source and the deadline dropped without an answer) is not an exit.
+        (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let deadline = DemandTimer(owner: "daemon.handoff.exit", clock: clock)
-            let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)")
-            nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)", qos: .userInitiated)
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            // Every answer runs on `queue`, the source's own: the first cancels the source, and a later one
+            // (a deadline or the gone-check queued before that) finds it cancelled.
             let finish: @Sendable (Bool) -> Void = { exited in
-                guard once.first() else { return }
+                guard !source.isCancelled else { return }
                 source.cancel()
                 deadline.cancel()
                 continuation.resume(returning: exited)
             }
             // A bounded deadline, not synchronization: a daemon that does
             // not exit is left to `ensure`, which reports it.
-            deadline.schedule(after: timeout) { finish(false) }
+            deadline.schedule(after: timeout) { queue.async { finish(false) } }
             source.setEventHandler { finish(true) }
             source.resume()
             // Registered before this check, so an exit between the two is
             // still seen; a process that is already gone gives no event.
-            if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
-        }
+            queue.async { if kill(pid, 0) != 0 && errno == ESRCH { finish(true) } }
+        }) ?? false
     }
 }
 

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Every stored decision of one profile: origin -> permission -> setting.
@@ -30,7 +31,7 @@ public actor FileSitePermissionPersistence: SitePermissionPersistence {
     public func load() async -> SitePermissionSnapshot {
         // concurrency-allow: runs on this actor's executor, never the main actor.
         guard let data = try? Data(contentsOf: fileURL),
-              let snapshot = try? JSONDecoder().decode(SitePermissionSnapshot.self, from: data) else {
+              let snapshot = try? JSONDecoder().blockingDecode(SitePermissionSnapshot.self, from: data) else {
             return SitePermissionSnapshot()
         }
         return snapshot

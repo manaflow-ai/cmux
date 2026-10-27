@@ -21,13 +21,22 @@ extension DaemonConnection {
               identity?.supports(DaemonCapability.stateResources.rawValue) == true else { return }
         let id = SessionEventsWire.newStreamID()
         sessionStream = id
+        var routed: LineTransport?
         do {
             _ = try await resourceRequest({ requestID in
                 ResourceRequestEnvelope(id: requestID, operation: "session.events",
                                         params: ["stream_id": .string(id)], idempotencyKey: nil)
-            }, as: SessionEventsWire.Opened.self)
+            }, as: SessionEventsWire.Opened.self, onTransport: { transport in
+                // A reconnect during the handoff wait: the new connection opens its own stream.
+                guard self.serial == serial else { throw DaemonError.notConnected }
+                // Its items ride the daemon's reply FIFO: they count in the event barrier
+                // of the transport that carries the request.
+                transport.routeOnControlSequence(streamID: id)
+                routed = transport
+            })
         } catch {
-            guard sessionStream == id else { return }
+            routed?.endControlSequence(streamID: id)
+            guard self.serial == serial, sessionStream == id else { return }
             sessionStream = nil
             // No stream: waiters for the first snapshot stop waiting.
             if let sequence = eventSequence() {

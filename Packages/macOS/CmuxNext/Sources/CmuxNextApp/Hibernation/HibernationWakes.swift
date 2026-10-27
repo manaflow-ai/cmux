@@ -25,11 +25,17 @@ nonisolated struct HibernationWakes {
         started[key] = (now, engine, snapshot)
     }
 
-    mutating func mounted(_ key: String, visible: Bool, at now: ContinuousClock.Instant = .now) {
-        guard let start = started[key] else { return }
+    /// Records that the page of `key` is back.
+    ///
+    /// - Returns: The time from the wake's start, nil when no wake of `key` started.
+    @discardableResult
+    mutating func mounted(_ key: String, visible: Bool, at now: ContinuousClock.Instant = .now) -> Duration? {
+        guard let start = started[key] else { return nil }
+        let latency = now - start.at
         records.append(Wake(tab: key, engine: start.engine, snapshot: start.snapshot,
-                            mountedMs: Self.milliseconds(now - start.at), visible: visible))
+                            mountedMs: Self.milliseconds(latency), visible: visible))
         if records.count > Self.limit { records.removeFirst(records.count - Self.limit) }
+        return latency
     }
 
     /// The woken page's load ended (`ended`), or did not in time.

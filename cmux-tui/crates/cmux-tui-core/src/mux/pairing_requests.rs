@@ -20,6 +20,7 @@ impl Mux {
         responded
     }
 
+    #[track_caller]
     pub(crate) fn resource_resolve_pairing_selected(
         &self,
         selectors: crate::ResourceSelectors,

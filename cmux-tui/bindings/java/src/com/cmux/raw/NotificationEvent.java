@@ -13,6 +13,8 @@ import java.util.Objects;
 /** Immutable notification event. Protocol v6; streams: subscribe, attach-byte, attach-browser. */
 public final class NotificationEvent implements WireValue, BrowserAttachEvent, ByteAttachEvent, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final String body;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Field<Boolean> desktop;
     private final NotificationLevel level;
     private final UInt64 notification;
@@ -24,6 +26,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     private NotificationEvent(Builder builder) {
         if (!builder.bodySet) throw new IllegalArgumentException("body is required");
         this.body = Wire.nonNull(builder.body, "body");
+        this.cause = builder.cause;
         this.desktop = builder.desktop;
         if (!builder.levelSet) throw new IllegalArgumentException("level is required");
         this.level = Wire.nonNull(builder.level, "level");
@@ -40,6 +43,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     public static Builder builder() { return new Builder(); }
 
     public String body() { return body; }
+    public Field<EventCause> cause() { return cause; }
     public Field<Boolean> desktop() { return desktop; }
     public NotificationLevel level() { return level; }
     public UInt64 notification() { return notification; }
@@ -55,6 +59,10 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         ProtocolSupport.literal(Wire.required(object, "event"), "notification", "NotificationEvent.event");
         Object rawBody = Wire.required(object, "body");
         builder.body(Wire.string(rawBody, "NotificationEvent.body"));
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawDesktop = Wire.optional(object, "desktop");
         if (!Wire.isMissing(rawDesktop)) {
             builder.desktop(Wire.bool(rawDesktop, "NotificationEvent.desktop"));
@@ -83,6 +91,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "notification");
         Wire.put(object, "body", body);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "desktop", desktop);
         Wire.put(object, "level", level);
         Wire.put(object, "notification", notification);
@@ -96,11 +105,11 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NotificationEvent that)) return false;
-        return Objects.equals(body, that.body) && Objects.equals(desktop, that.desktop) && Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(reply, that.reply) && Objects.equals(source, that.source) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
+        return Objects.equals(body, that.body) && Objects.equals(cause, that.cause) && Objects.equals(desktop, that.desktop) && Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(reply, that.reply) && Objects.equals(source, that.source) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(body, desktop, level, notification, reply, source, surface, title); }
+    public int hashCode() { return Objects.hash(body, cause, desktop, level, notification, reply, source, surface, title); }
 
     @Override
     public String toString() { return "NotificationEvent" + toWire(); }
@@ -108,6 +117,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     public static final class Builder {
         private String body;
         private boolean bodySet;
+        private Field<EventCause> cause = Field.omitted();
         private Field<Boolean> desktop = Field.omitted();
         private NotificationLevel level;
         private boolean levelSet;
@@ -123,6 +133,10 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         public Builder body(String value) {
             this.body = value;
             this.bodySet = true;
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder desktop(Boolean value) {

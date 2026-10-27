@@ -74,6 +74,7 @@ impl Mux {
     /// Put or delete the record `(install_id, window_id)`. `expected` is the
     /// record's own revision (0 = the record must not exist); a mismatch is
     /// `revision.conflict` and writes nothing.
+    #[track_caller]
     pub(crate) fn state_window_record(
         &self,
         mutation: &WorkspaceMutation,

@@ -88,7 +88,8 @@ cat "$work/launch"
 pid=$(grep -o 'pid=[0-9]*' "$work/launch" | head -1 | cut -d= -f2)
 # Recordings go outside the lease root, so the slot is released before the (slow) copy back.
 ssh "$host" "rm -rf $remote && mkdir -p $remote"
-scp -q "$here/perceived-speed.py" "$host:$remote/"
+# perceived-speed.py takes its medians from perf_stats.py (which loads pinpoint_thresholds.py) next to it.
+scp -q "$here/perceived-speed.py" "$here/../perf-lab/perf_stats.py" "$here/../perf-lab/pinpoint_thresholds.py" "$host:$remote/"
 # The launcher's socket= path is never created. Older DEV builds listen on their BUILD tag's debug
 # socket; newer ones at ~/.local/state/cmux/cmux-debug--<hash>.sock: match those by bundle id.
 want=/tmp/cmux-debug-$btag-capslot$slot.sock

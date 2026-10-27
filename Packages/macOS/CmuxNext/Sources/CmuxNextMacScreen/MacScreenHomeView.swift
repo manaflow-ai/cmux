@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
-import Observation
+import CmuxNextWakeups
 
 /// What the home page asks of its owner.
 public struct MacScreenHomeActions {
@@ -38,11 +38,14 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// What the page shows (`render(_:)` on a change).
+    private var watch: FrameObservation<MacScreenHomeSnapshot?>?
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
-    init(host: MacScreenShareHost, actions: MacScreenHomeActions, systemShortcuts: MacScreenSystemShortcuts? = nil,
-         devices: MacScreenHomeDevices? = nil) {
+    /// The page follows its models while `node` (the tab) is visible, on `mainWork`'s frames.
+    init(host: MacScreenShareHost, actions: MacScreenHomeActions, node: VisibilityNode, on mainWork: MainWorkScheduler,
+         systemShortcuts: MacScreenSystemShortcuts? = nil, devices: MacScreenHomeDevices? = nil) {
         self.host = host
         self.actions = actions
         self.systemShortcuts = systemShortcuts
@@ -66,7 +69,13 @@ final class MacScreenHomeView: MacScreenThemedView {
         ])
         scroll.frame = bounds
         addSubview(scroll)
-        render()
+        let watch = FrameObservation(owner: "mac-screen.home", delivery: .visible(node), on: mainWork) { [weak self] in
+            self.map(MacScreenHomeSnapshot.init(home:))
+        } onChange: { [weak self] snapshot in
+            if let snapshot { self?.render(snapshot) }
+        }
+        self.watch = watch
+        if let snapshot = watch.value { render(snapshot) }
     }
 
     override var isFlipped: Bool { true }
@@ -91,6 +100,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
         // Wrapping labels learn their width from one pass and report their height to the next.
         for _ in 0..<4 {
+            // sync-layout: fitLines below reads each wrapping label's laid-out width.
             column.layoutSubtreeIfNeeded()
             var changed = false
             for case let label as MacScreenText in views(under: column) where label.fitLines() { changed = true }
@@ -126,11 +136,8 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     // MARK: Drawing
 
-    /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
-    private func render() {
-        let snapshot = withObservationTracking { MacScreenHomeSnapshot(home: self) } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.render() }
-        }
+    /// Builds the rows when the page's state changed.
+    private func render(_ snapshot: MacScreenHomeSnapshot) {
         guard snapshot != shown else { return }
         let hadSharing = shown?.sharing != nil
         shown = snapshot

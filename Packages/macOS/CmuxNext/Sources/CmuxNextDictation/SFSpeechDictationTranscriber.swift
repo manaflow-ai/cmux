@@ -2,6 +2,7 @@ import AVFoundation
 public import Foundation
 import os
 import Speech
+import CmuxNextWakeups
 
 /// The fallback on-device engine, built on `SFSpeechRecognizer`, for a
 /// language SpeechAnalyzer has no model for (``OnDeviceDictationTranscriber``).
@@ -20,8 +21,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// callback that must append buffers inline — an actor hop would add
     /// suspension points to a real-time path. The lock guards one reference
     /// with short, non-blocking critical sections.
+    // crash-allow: SFSpeechAudioBufferRecognitionRequest is not Sendable, yet it is the Speech framework's cross-thread audio inbox (Apple's SpokenWord sample appends to it from the tap thread); every access here (replace, append, endAudio) runs under `lock`, and the actor only hands the same request to the recognizer.
     private final class RequestBox: @unchecked Sendable {
-        private let lock = OSAllocatedUnfairLock()
+        private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
         // Guarded by `lock`; only touched inside withLock-style sections.
         private var request: SFSpeechAudioBufferRecognitionRequest?
 
@@ -58,7 +60,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// Latest partial for the current cycle, promoted before a live retry.
     private var cyclePartial = ""
     private let retryClock: any Clock<Duration>
-    private let retryDelay: Duration
+    /// The wait before a cycle restarts after a recognizer error: one jittered step, so no table
+    /// state is shared between retries (``consecutiveErrorCycles`` caps them).
+    private let retryBackoff: Backoff
     private let levelMeter: DictationAudioLevelMeter?
 
     /// Keeps recognizer callbacks bounded when the insertion target is slow.
@@ -70,14 +74,14 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// - Parameter levelMeter: Receives input levels for the dictation meter.
     public init(levelMeter: DictationAudioLevelMeter? = nil) {
         retryClock = ContinuousClock()
-        retryDelay = .milliseconds(100)
+        retryBackoff = Backoff(steps: [.milliseconds(100)])
         self.levelMeter = levelMeter
     }
 
     /// Creates an engine with caller-supplied retry timing.
     init(retryClock: any Clock<Duration>, retryDelay: Duration) {
         self.retryClock = retryClock
-        self.retryDelay = retryDelay
+        retryBackoff = Backoff(steps: [retryDelay])
         levelMeter = nil
     }
 
@@ -268,11 +272,12 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private func scheduleRecognitionRetry(for cycleID: Int) {
         retryTask?.cancel()
         let clock = retryClock
-        let delay = retryDelay
+        let backoff = retryBackoff
         retryTask = Task { [weak self] in
+            var backoff = backoff
             do {
-                // wakeup-allow: one-shot 100 ms retry after a recognizer error, live sessions only, capped by consecutiveErrorCycles
-                try await clock.sleep(for: delay)
+                // concurrency-allow: Backoff.wait is an async clock sleep after a recognizer error, not a blocking wait.
+                try await backoff.wait(owner: "SFSpeechDictationTranscriber.retry", clock: clock)
             } catch {
                 return
             }

@@ -65,6 +65,8 @@ impl Surface {
             env,
         };
         let service = HolderService::for_root(&spawn.host_root)?;
+        // A round trip with the holder, which starts the process.
+        crate::request_path::note(crate::request_path::BlockingKind::HostWait);
         let terminal = service.spawn(&request, &spawn.seed)?;
         crate::debug_spans::mark("surface.holder_spawned");
         let launched = Self::run_on_holder(

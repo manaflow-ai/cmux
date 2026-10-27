@@ -180,6 +180,7 @@ fn result(mux: &Mux, commit: StateCommit) -> Result<Value, ResourceError> {
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 
+#[track_caller]
 pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,

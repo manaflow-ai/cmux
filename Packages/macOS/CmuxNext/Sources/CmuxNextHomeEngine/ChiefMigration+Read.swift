@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import SQLite3
@@ -22,10 +23,10 @@ extension ChiefMigration {
             textDir = exported
             let state = Dictionary(uniqueKeysWithValues: (readStoreRows(database, "SELECT key, value FROM state WHERE key LIKE 'host/%'") ?? [])
                 .compactMap { row in row.count == 2 ? (row[0], row[1]) : nil })
-            hostConversation = state["host/conversation"].flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8), options: .fragmentsAllowed) as? String }
+            hostConversation = state["host/conversation"].flatMap { try? JSONSerialization.blockingJSONObject(with: Data($0.utf8), options: .fragmentsAllowed) as? String }
             loggedSeq = state["host/logged_seq"].flatMap { UInt64($0) } ?? 0
         } else if let data = try? Data(contentsOf: optchat.appendingPathComponent("host.json")), // concurrency-allow: only ChiefMigration.run (@concurrent) reads sources, off the main actor
-                  let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                  let state = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] {
             hostConversation = state["conversation"] as? String
             loggedSeq = (state["logged_seq"] as? NSNumber)?.uint64Value ?? 0
         }
@@ -44,7 +45,7 @@ extension ChiefMigration {
             // concurrency-allow: only ChiefMigration.run (@concurrent) and tests read old logs, off the main actor
             guard let text = try? String(contentsOf: main.appendingPathComponent(name), encoding: .utf8) else { continue }
             for line in text.split(separator: "\n") {
-                guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                guard let object = try? JSONSerialization.blockingJSONObject(with: Data(line.utf8)) as? [String: Any],
                       let i = (object["i"] as? NSNumber)?.intValue, let kind = object["kind"] as? String,
                       let body = object["text"] as? String, let date = object["date"] as? String else { continue }
                 entries.append(.init(i: i, kind: kind, text: body, date: date))
@@ -101,7 +102,7 @@ extension ChiefMigration {
     }
 
     nonisolated static func message(fromJSON json: String) -> ChiefMigrationSource.Message? {
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)), case .object(let fields) = value,
+        guard let value = try? JSONDecoder().blockingDecode(JSONValue.self, from: Data(json.utf8)), case .object(let fields) = value,
               case .string(let id)? = fields["id"], case .number(let seq)? = fields["seq"], case .string(let author)? = fields["author"],
               case .string(let key)? = fields["client_msg_id"], case .string(let createdAt)? = fields["created_at"],
               case .array(let parts)? = fields["parts"] else { return nil }

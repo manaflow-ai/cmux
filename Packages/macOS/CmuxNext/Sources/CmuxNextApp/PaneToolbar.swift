@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWakeups
 import os
 
 /// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons), after
@@ -50,7 +51,7 @@ final class PaneToolbar {
     private(set) var pinned: [String] = []
     /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file.
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
-    private var observation: Task<Void, Never>?
+    private var observation: VisibleObservation<State?>?
 
     init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?,
          contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
@@ -59,12 +60,6 @@ final class PaneToolbar {
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
     }
 
     /// The pane's "…": follows its selected tab and the pane's zoom.
@@ -79,19 +74,19 @@ final class PaneToolbar {
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
             // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
+            // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); this task only starts it
             Task {
                 do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
-        // task-owner: lives as long as the pane's view; event-driven (Observation)
-        observation = Task { [weak self, weak pane] in
-            for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
-                guard let self, let state else { return }
-                if state.behind { continue }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
-            }
+        // Lives as long as the pane's view; a hidden pane's bar reads nothing and catches up on show.
+        observation = VisibleObservation(pane.visibilityNode, owner: "PaneToolbar.state", on: services.mainWork) { [weak pane] in
+            pane.map(Self.state)
+        } apply: { [weak self] state in
+            guard let self, let state, !state.behind else { return }
+            update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
         }
     }
 

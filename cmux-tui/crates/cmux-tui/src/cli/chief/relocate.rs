@@ -4,8 +4,8 @@
 //! home, so the CLI, the app and MCP share the drain, checkpoint, restore,
 //! verify and the moved marker.
 
+use cmux_process::Command;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::launch::brain_binary;
 use super::{GlobalArgs, Target};
@@ -48,7 +48,14 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         eprintln!("cmux: {}", m.move_no_brain);
         return 2;
     };
-    match Command::new(bin).arg("move").args(&rest).arg("--home").arg(&home.root).status() {
+    match Command::new(bin)
+        .arg("move")
+        .args(&rest)
+        .arg("--home")
+        .arg(&home.root)
+        .inherit_like_std()
+        .status()
+    {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {
             eprintln!("cmux: optchat-chief: {error}");

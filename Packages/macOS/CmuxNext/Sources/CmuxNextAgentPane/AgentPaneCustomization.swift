@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The user's agent pane customization: the files in the `agent-pane`
@@ -62,30 +63,17 @@ public nonisolated struct AgentPaneCustomization: Equatable, Sendable {
         configFile.deletingLastPathComponent().appending(path: "agent-pane", directoryHint: .isDirectory)
     }
 
-    /// `registry.js` in its own function scope, nil when there is none. Both hosts evaluate it
-    /// (evaluateJavaScript): the page's CSP allows no inline script, so the page cannot run it.
+    /// `registry.js` in its own function scope, so replaying it in the same page doesn't redeclare
+    /// its top-level `const`, `let` or `class`; nil when there is none. The page host evaluates it:
+    /// the page's CSP allows no inline script, so the page cannot run it.
     var registryScript: String? {
         guard let registryJS, !registryJS.isEmpty else { return nil }
         return "(function () {\n\(registryJS)\n})();"
     }
 
-    /// The scripts that apply this customization to the loaded page, each
-    /// evaluated on its own so a broken `registry.js` cannot stop the theme:
-    /// `registry.js` in its own function scope, so replaying it in the same
-    /// page doesn't redeclare its top-level `const`, `let` or `class`, then
-    /// `cmuxAcpmuxBridge.applyCustomization({themeCSS, layout})`. A missing
-    /// theme sends `""`, which clears the style a deleted `theme.css` left.
-    func scripts() -> [String] {
-        var scripts: [String] = []
-        if let registryScript { scripts.append(registryScript) }
-        let theme = (try? JSONEncoder().encode(themeCSS ?? "")).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-        scripts.append(#"window.cmuxAcpmuxBridge?.applyCustomization({"themeCSS":\#(theme),"layout":\#(layoutJSON ?? "{}")});"#)
-        return scripts
-    }
-
     /// `data` as sorted-key JSON when it holds a JSON object.
     private static func layoutObject(_ data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data), object is [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data), object is [String: Any],
               let normalized = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         else { return nil }
         return String(data: normalized, encoding: .utf8)

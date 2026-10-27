@@ -232,7 +232,9 @@ fn local_same_pair_alt_screen_roundtrip_forces_resolved_cursor_colors() {
     let colors = loop {
         assert!(Instant::now() < deadline, "local cursor activity was not published");
         match attach.stream.recv_timeout(Duration::from_millis(250)) {
-            Ok(AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(AttachFrame::Output(bytes) | AttachFrame::FlowOutput { output: bytes, .. }) => {
+                output.extend_from_slice(&bytes);
+            }
             Ok(AttachFrame::ColorsChanged(colors)) => break colors,
             Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {}
             Ok(AttachFrame::OutputWithColors { .. }) => {

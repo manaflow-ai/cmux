@@ -78,6 +78,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         writeCount += 1
         let token = writeCount
         pending[id] = (token, value)
+        // main-hop-allow: the row shows the value in this turn; commitPreview is SettingsController's own main-actor async write
         Task { [weak self] in
             do {
                 try await settings.commitPreview(descriptor, value)

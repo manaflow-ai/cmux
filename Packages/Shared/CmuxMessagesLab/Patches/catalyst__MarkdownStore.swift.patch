@@ -1,0 +1,105 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
+@@ -3,36 +3,55 @@
+ #else
+ import AppKit
+ #endif
++import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
+ 
+ /// Parsed documents and the per-message "Show Markdown Source" state.
+ /// Parse results are cached by text. A text that extends a cached text (a stream)
+ /// re-parses only from its previous last top-level block: every block before it is
+ /// final (CommonMark decides a block from the lines before it, except the open
+ /// one at the end), so finished blocks keep their identity and their cached layout.
+-final class MarkdownStore: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): the cache, the recent texts, the counters and the
++/// source set are one lock state (they were vars under an NSLock in an unchecked class); parsing runs
++/// outside the lock, as before.
++final class MarkdownStore: Sendable {
+     static let shared = MarkdownStore()
+-    private let lock = NSLock()
+-    private var docs: [String: MDDocument] = [:]
+-    /// Recent texts in insertion order (stream prefix lookup).
+-    private var recent: [String] = []
+-    private(set) var fullParses = 0, tailParses = 0
+-    /// Messages shown as source (main thread writes; the measure key reads).
+-    private var source = Set<ID>()
++    private struct State: Sendable {
++        var docs: [String: MDDocument] = [:]
++        /// Recent texts in insertion order (stream prefix lookup).
++        var recent: [String] = []
++        var fullParses = 0, tailParses = 0
++        /// Messages shown as source (main thread writes; the measure key reads).
++        var source = Set<ID>()
++    }
++    // Lock carve-out: the measure threads and main look up and store parsed documents; no parse under the lock.
++    private let state = Mutex(State())
++    var fullParses: Int { state.withLock { $0.fullParses } }
++    var tailParses: Int { state.withLock { $0.tailParses } }
+ 
+-    func showsSource(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return source.contains(id) }
+-    func setShowsSource(_ id: ID, _ on: Bool) { lock.lock(); if on { source.insert(id) } else { source.remove(id) }; lock.unlock() }
++    func showsSource(_ id: ID) -> Bool { state.withLock { $0.source.contains(id) } }
++    func setShowsSource(_ id: ID, _ on: Bool) {
++        state.withLock { s in
++            if on { _ = s.source.insert(id) } else { _ = s.source.remove(id) }
++        }
++    }
+ 
+     func document(_ text: String) -> MDDocument {
+-        lock.lock()
+-        if let d = docs[text] { lock.unlock(); return d }
+-        // The newest cached text that this text extends.
+-        var base: (String, MDDocument)?
+-        for t in recent.reversed() where t.utf8.count < text.utf8.count && text.hasPrefix(t) {
+-            if let d = docs[t] { base = (t, d); break }
++        enum Found: Sendable { case cached(MDDocument), extends(MDDocument?) }
++        let found = state.withLock { s -> Found in
++            if let d = s.docs[text] { return .cached(d) }
++            // The newest cached text that this text extends.
++            for t in s.recent.reversed() where t.utf8.count < text.utf8.count && text.hasPrefix(t) {
++                if let d = s.docs[t] { return .extends(d) }
++            }
++            return .extends(nil)
++        }
++        let base: MDDocument?
++        switch found {
++        case let .cached(d): return d
++        case let .extends(d): base = d
+         }
+-        lock.unlock()
+         let doc: MDDocument
+-        if let (_, old) = base, let last = old.blocks.last, !last.lines.isEmpty, !Self.hasDefinitions(text) {
++        if let old = base, let last = old.blocks.last, !last.lines.isEmpty, !Self.hasDefinitions(text) {
+             let lines = MDLines.split(text).map { MDLine($0) }
+             let from = last.lines.lowerBound
+             var refs = MDRefs()
+@@ -44,19 +63,19 @@
+             }
+             let blocks = Array(old.blocks.dropLast()) + tail
+             doc = MDDocument(blocks: blocks, isRich: blocks.contains { $0.rich })
+-            lock.lock(); tailParses += 1; lock.unlock()
++            state.withLock { $0.tailParses += 1 }
+         } else {
+             doc = Markdown.parse(text)
+-            lock.lock(); fullParses += 1; lock.unlock()
++            state.withLock { $0.fullParses += 1 }
+         }
+-        lock.lock()
+-        docs[text] = doc
+-        recent.append(text)
+-        if recent.count > 64 {
+-            let drop = recent.removeFirst()
+-            if !recent.contains(drop) { docs[drop] = nil }
++        state.withLock { s in
++            s.docs[text] = doc
++            s.recent.append(text)
++            if s.recent.count > 64 {
++                let drop = s.recent.removeFirst()
++                if !s.recent.contains(drop) { s.docs[drop] = nil }
++            }
+         }
+-        lock.unlock()
+         return doc
+     }
+ 

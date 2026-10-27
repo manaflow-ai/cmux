@@ -1,0 +1,19 @@
+{
+  "id": "open-panel",
+  "tier": "T1",
+  "description": "Click to file picker (open-panel-bench.py): the panel made ahead, a fresh NSOpenPanel and a separate panel window; the click's main-thread time, the first frame with the panel on screen and the longest frame, light session, the session's first open left out.",
+  "command": ["scripts/cmux-next/open-panel-bench.py", "--sessions", "light", "--rounds", "5"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "open_panel\\.light\\.(made|fresh|window)\\.(init|begin|sync|visible|frame_max)", "unit": "ms",
+     "better": "lower"},
+    {"name": "open_panel\\.light\\.(made|fresh|window)\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 60,
+  "needs": ["debug:debug.open_panel_bench"],
+  "owner": "Performance Lead",
+  "component": "Pickers>OpenPanel"
+}

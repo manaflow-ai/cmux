@@ -21,7 +21,14 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The oracle's turn observer counts a turn whose handler refused (the `intents` facet).
+        registry.willRunObservers.append { [turns = services.oracleTurns] _, _ in turns.runStarted() }
+        #endif
         registry.refusalObserver = { reason, quiet in
+            #if DEBUG || CMUX_BENCH_HOOKS
+            services.oracleTurns.noteRefusal()
+            #endif
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
@@ -215,8 +222,8 @@ extension AppActionContext {
             guard pane.stripModel.tab(id) != nil else { return refuse(RefusalStrings.noTab(id.rawValue)) }
             pane.select(id)
         }
-        // Content destroyed while its pane was off screen re-attaches now.
-        if pane.currentContent == nil { pane.showSelected() }
+        // Content destroyed while its pane was off screen, or held off screen at launch, attaches now.
+        if pane.currentContent == nil { pane.showSelectionNow() }
         guard let content = pane.currentContent else { return refuse(RefusalStrings.tabHasNoLiveContent(id.rawValue)) }
         return (pane, content)
     }

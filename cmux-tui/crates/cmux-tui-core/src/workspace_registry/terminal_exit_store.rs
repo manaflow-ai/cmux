@@ -110,6 +110,7 @@ impl WorkspaceRegistry {
     /// transaction. Re-observing the same incarnation is a no-op, so live
     /// delivery, sidecar recovery, and restart reconciliation produce exactly
     /// one durable session event.
+    #[track_caller]
     pub(crate) fn commit_terminal_exit(
         &mut self,
         terminal_id: &str,
@@ -134,6 +135,7 @@ impl WorkspaceRegistry {
     /// read the host loss from the receipt itself, whatever shutdown window
     /// they know. The receipt keeps the shape older daemons read. Replays
     /// (returns `true` last) when the stored receipt is not `recorded`.
+    #[track_caller]
     pub(crate) fn settle_terminal_exit(
         &mut self,
         terminal_id: &str,
@@ -154,6 +156,7 @@ impl WorkspaceRegistry {
         })
     }
 
+    #[track_caller]
     fn commit_terminal_exit_receipt(
         &mut self,
         terminal_id: &str,
@@ -388,6 +391,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn set_terminal_exit_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
             self.connection.get().execute_batch(

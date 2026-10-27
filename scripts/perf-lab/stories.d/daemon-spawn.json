@@ -1,0 +1,19 @@
+{
+  "id": "daemon-spawn",
+  "tier": "T2",
+  "description": "Daemon spawn and reap (bench_daemon_spawn.py): a headless daemon of the measured build's cmux-tui answers new-tab requests pipelined on one connection while a second connection reads list-workspaces; create and read latency per request, the time until every closed tab's terminal host is reaped, create errors, hosts left after the reap and hosts that outlive server stop.",
+  "command": ["scripts/cmux-next/bench_daemon_spawn.py", "--creates", "96", "--label", "lab"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "daemon_spawn\\.(create|read)", "unit": "ms", "better": "lower"},
+    {"name": "daemon_spawn\\.all_reaped", "unit": "s", "better": "lower"},
+    {"name": "daemon_spawn\\.(create_errors|hosts_left|hosts_leaked)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 90,
+  "needs": [],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}

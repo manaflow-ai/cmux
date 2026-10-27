@@ -81,7 +81,7 @@ public struct MotionDebug {
             "animations_enabled": policy.animationsEnabled,
             "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
-            "display_links": FrameScheduler.all.filter(\.hasLink).count,
+            "display_links": FrameScheduler.appDisplays.liveLinks,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),
             "spans": MotionTrace.spans.map { span -> [String: Any] in
                 ["name": span.name, "ms": (span.milliseconds * 10).rounded() / 10,

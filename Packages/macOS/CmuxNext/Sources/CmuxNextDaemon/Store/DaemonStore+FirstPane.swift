@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 extension DaemonStore {
@@ -7,17 +8,9 @@ extension DaemonStore {
     public func firstPane(mirroring key: WorkspaceKey, timeout: Duration = .seconds(10),
                           clock: any Clock<Duration> = ContinuousClock()) async -> PaneModel? {
         if let pane = firstPane(of: key) { return pane }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await self.appearance(ofPaneIn: key) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await clock.sleep(for: timeout)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
+        let mirrored = await Deadline(timeout, clock: clock).value("DaemonStore.firstPane") {
+            await self.appearance(ofPaneIn: key)
+        } ?? false
         return mirrored ? firstPane(of: key) : nil
     }
 

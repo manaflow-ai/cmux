@@ -49,8 +49,8 @@ extension NewTabPage {
         }
         handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump
-        handler.jump = { [weak services] target, id in
-            guard target == .here else { return jump(target, id) }
+        handler.jump = { [weak services] target, id, input in
+            guard target == .here else { return jump(target, id, input) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
         let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
@@ -103,18 +103,25 @@ extension NewTabPage {
     /// The pane showing tab `key` now.
     /// The pane that shows page `key` now (it may have moved since it opened).
     static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         services.locateTab(key).flatMap { services.paneController(for: $0.1) }
     }
 
     /// Moves the hidden page `key` to a new pane on `edge` of its pane once the store lists it,
-    /// then shows it there and focuses it. A failed move shows it where it is.
+    /// then shows it there and focuses it. A failed move shows it where it is. The wait is the
+    /// source store's keyed wait (StoreWaiters, at most ``NewTabSlot/listLimit``); a page the
+    /// store never lists lets the held keys go on.
     private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?, focuses: Bool) {
-        let services = source.services
-        services.registry.track(Task { @MainActor [weak source] in
-            if services.locateTab(key) == nil {
-                for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
+        let services = source.services, store = source.daemon.store
+        // main-hop-allow: the task only awaits the store's main-actor keyed wait; the move starts in its one resume
+        services.registry.track(Task { [weak source] in
+            let listed = await NewTabSlot.listed(key, in: store, limit: NewTabSlot.listLimit)
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
+            guard listed != nil, case let (tab, pane)? = services.locateTab(key) else {
+                source?.dockFinished(key)
+                services.keyRouter.newTabInputCoordinator.endIncoming(keys, pageMade: false)
+                return nil
             }
-            guard case let (tab, pane)? = services.locateTab(key) else { return nil }
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
@@ -132,6 +139,7 @@ extension NewTabPage {
     /// The Open Tabs list picked tab `id`: it moves into the page's pane, where the page was,
     /// and the page closes once it has.
     private static func moveHere(_ id: String, page key: String, services: AppServices) {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         guard case let (tab, _)? = services.locateTab(id), tab.id != key, case let (_, pane)? = services.locateTab(key),
               let host = services.paneController(for: pane) else { return }
         let index = pane.tabs.firstIndex { $0.id == key } ?? pane.tabs.count

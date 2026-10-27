@@ -61,7 +61,7 @@ pub(crate) struct BatchCloseRequest<'a> {
 /// group in the close's transaction; `result` is the request's result.
 /// `bare` are the space's workspaces with no tab: they close in the same plan.
 pub(crate) struct RoomClose<'a> {
-    pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
+    pub before_patch: crate::workspace_registry::RegistryTransactionWrite<'a>,
     pub result: Value,
     pub bare: Vec<WorkspaceId>,
 }
@@ -69,6 +69,7 @@ pub(crate) struct RoomClose<'a> {
 /// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
 /// An unknown value fails the request's deserialization (`bad request`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CloseReason {
     /// A browser session ended and closes the tabs it opened for itself.
@@ -124,6 +125,7 @@ impl BatchCloseOutcome {
 impl Mux {
     /// Plan, commit, and apply one batch close. Nothing changes unless the
     /// whole set commits; an unknown target changes nothing.
+    #[track_caller]
     pub(crate) fn commit_batch_close(
         &self,
         request: BatchCloseRequest<'_>,
@@ -330,6 +332,7 @@ impl Mux {
     /// plan keeps the permanent and pinned columns as the single close
     /// `rule` does (`dock_columns::close_keeping_permanent`), refused under
     /// the operation name `rule` carries.
+    #[track_caller]
     fn tabs_close_plan_locked(
         &self,
         surfaces: &[SurfaceId],
@@ -405,6 +408,7 @@ impl Mux {
     /// kept: drop its catalog runtime from the planned state and add its
     /// host to the plan's terminal batch.
     #[allow(clippy::type_complexity)]
+    #[track_caller]
     fn end_unplaced_terminals_locked(
         &self,
         plan: &mut ResourceClosePlan,
@@ -458,6 +462,7 @@ impl Mux {
 impl Mux {
     /// `close-tabs`: close these tab placements in one commit.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn close_tabs(
         &self,
         surfaces: Vec<SurfaceId>,
@@ -470,6 +475,7 @@ impl Mux {
     /// `close-tabs` with an optional `reason` (`close-reason-v1`): a
     /// `session_end` close commits the same way but is not recorded in the
     /// closed history. The reason is part of the request a key names.
+    #[track_caller]
     pub(crate) fn close_tabs_for(
         &self,
         surfaces: Vec<SurfaceId>,
@@ -508,6 +514,7 @@ impl Mux {
     /// workspaces with no tab) in the same transaction. `rule` is the single
     /// close it keeps: `WorkspaceClose` when whole workspaces close,
     /// `TabClose` for a tab stash.
+    #[track_caller]
     pub(crate) fn close_tabs_for_room_delete(
         &self,
         surfaces: Vec<SurfaceId>,
@@ -540,6 +547,7 @@ impl Mux {
     /// `result` is the request's result, stored for its replay. `rule` is
     /// the single close of the request's level.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn close_tabs_for_bulk(
         &self,
         surfaces: Vec<SurfaceId>,
@@ -570,6 +578,7 @@ impl Mux {
 
     /// `close-pane`, `close-screen`, or `close-tab-group` with
     /// `end_terminals`: the container and the terminals it ends, one commit.
+    #[track_caller]
     pub(crate) fn close_container_ending_terminals_as(
         &self,
         actor: &Actor,
@@ -615,6 +624,7 @@ impl Mux {
     /// `close-workspace` with `end_terminals`. Same selectors, guards, and
     /// replay as `close-workspace`, plus the ended terminals in the commit.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn close_workspace_ending_terminals(
         &self,
         target: Option<WorkspaceId>,
@@ -638,6 +648,7 @@ impl Mux {
     /// same way but is not recorded in the closed history. The reason is part of the request a
     /// key names.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn close_workspace_ending_terminals_for(
         &self,
         target: Option<WorkspaceId>,

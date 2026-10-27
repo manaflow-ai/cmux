@@ -75,6 +75,10 @@ an entry of a path-keyed baseline (crash allowlist, main-actor work, OWNERS.md, 
 REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git or
 move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open (only
 follow-renames' exit 1 with its findings header refuses; its exit 2, any failure, warns).
+Also local only: "p10 settings only through the lander" (apply-stability-settings.py --verify-commits, p10-stability-198):
+refuses a push whose own commits change a closure Package.swift's p10 settings (the generated block, the
+stabilitySwiftSettings literal, the tools version, a lander-only setting or a setting a stability-settings.json row
+names) outside a lander commit, or a lander commit that is not the rewrite of its rows. It fails open.
 Renames: the scanners check a renamed file at its old path in the base tree and the crash data that followed a
 rename needs no trailer, so a pure move adds none of their findings. The guardrails do not credit renames yet (they
 diff with --no-renames), so a moved file's existing guardrail debt still reads as new there.
@@ -1238,12 +1242,52 @@ def stale_baseline_paths(repo: Path, ranges: list, trusted_scripts: Path | None)
     return refused
 
 
+STABILITY_LANDER = "apply-stability-settings.py"
+STABILITY_LANDER_TIMEOUT = 60
+
+
+def stability_settings(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """apply-stability-settings.py --verify-commits on each pushed head's own commits that change a Package.swift;
+    True when one changes p10 settings outside a lander commit (p10-stability-198).
+
+    Rows the lander has not applied yet are the normal state between lander runs, so staleness is not judged. The
+    hook runs the installed copy, a manual run this checkout's. Local only; it fails open (exit 2 or a failure
+    warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / STABILITY_LANDER
+    if not script.is_file():
+        return False
+    refused = False
+    for own in ranges:
+        try:
+            changed = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", own.base, own.head, "--",
+                                      "*Package.swift"], capture_output=True, text=True, check=True).stdout.strip()
+            if not changed:
+                continue
+            spec = f"{own.base}..{own.head}" + "".join(f" ^{after}" for _, after in own.before)
+            done = subprocess.run([sys.executable, "-I", str(script), "--repo", str(repo), "--rev", own.head,
+                                   "--verify-commits", spec], capture_output=True, text=True,
+                                  timeout=STABILITY_LANDER_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as error:
+            log(f"prepush-gate: WARNING: {STABILITY_LANDER} --verify-commits did not run ({type(error).__name__}: "
+                f"{error}); not applied to this push.")
+            continue
+        if done.returncode == 1:
+            log(f"prepush-gate: at {own.head[:12]}, p10 Package.swift settings change outside the lander; add a row to "
+                f"scripts/cmux-next/stability-settings.json instead:\n{done.stderr.strip()}")
+            refused = True
+        elif done.returncode != 0:
+            log(f"prepush-gate: WARNING: {STABILITY_LANDER} --verify-commits failed (exit {done.returncode}: "
+                f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
+    return refused
+
+
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
-# source lines unlike CI's check-app-size.sh. push_range.py decides which commits are the push's own, for the
+# source lines unlike CI's check-app-size.sh. Its wakeup-ext rule loads wakeup-audit.py and, through it,
+# check-concurrency.sh (the Swift wakeup rules). push_range.py decides which commits are the push's own, for the
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py", "follow-renames.py")
+                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh")
 RULES_SUBDIR = "arch_rules"
 
 
@@ -1438,11 +1482,15 @@ def main(argv: list[str] | None = None) -> int:
         guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
+        t0 = time.monotonic()
+        guarded = stability_settings(repo, ranges, trusted_scripts) or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  p10 settings only through the lander")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print("prepush-gate: push refused by the guardrails, the perf cron tests, a stale baseline path or the compile "
-                  f"trailer ({elapsed:.1f}s)")
+            print("prepush-gate: push refused by the guardrails, the perf cron tests, a stale baseline path, the compile "
+                  f"trailer or a p10 setting outside the lander ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0

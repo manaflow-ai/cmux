@@ -12,12 +12,12 @@ import CmuxNextSidebar
 @MainActor
 enum RemoteGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh
-        CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
+        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        CloudHandlers.bind("remote.newGroup", registry, reason: { context.services.ssh.unavailableReason }) { invocation in
             let interactive = !registry.isCapturingRefusal
             let make = { (text: String) throws in
-                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
-                markWhenNamed(session)
+                let session = try context.services.ssh.connect(destination: text, session: nil, offerInstall: interactive)
+                markWhenNamed(session, services: context.services)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
@@ -84,19 +84,16 @@ enum RemoteGroupHandlers {
 
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up
     /// when the machine stops connecting.
-    static func markWhenNamed(_ session: SSHMachineSession) {
-        let daemon = session.daemon
-        // task-owner: ends when the daemon names its session or the machine stops connecting
-        Task { @MainActor in
-            for await (name, status) in ObservationStream({ (daemon.store.registryID, session.linkStatus) }) {
-                if let name {
-                    mark(session: name)
-                    return
-                }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+    static func markWhenNamed(_ session: SSHMachineSession, services: AppServices) {
+        let daemon = session.daemon, mainWork = services.mainWork, end = services.registry.completion(on: mainWork)
+        // Ends when the daemon names its session or the machine stops connecting: one ServiceObservation reads both
+        // again only when one changes; the mark (a sidebar section) is one task of the run's completion.
+        end.start {
+            await ObservedCondition(owner: "RemoteGroupHandlers.markWhenNamed", .visible, on: mainWork).until {
+                daemon.store.registryID != nil || RemoteHandlers.stoppedConnecting(session.linkStatus)
+            }
+            end.post(owner: "RemoteGroupHandlers.mark") {
+                if let name = daemon.store.registryID { mark(session: name) }
             }
         }
     }

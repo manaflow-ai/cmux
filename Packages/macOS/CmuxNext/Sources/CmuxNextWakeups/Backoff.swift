@@ -13,6 +13,9 @@ public struct Backoff: Sendable {
     /// Fraction of the delay drawn at random, in 0...1 (0.2: ±20%).
     public var jitter: Double
     public private(set) var attempt = 0
+    /// A retry table that is not geometric (5 s, 15 s, 60 s, ...), in order, the last step
+    /// repeating; nil grows `initial` by `multiplier` up to `maximum`.
+    public private(set) var steps: [Duration]?
     private var random: @Sendable () -> Double
 
     /// `random` returns a value in 0..<1 (tests inject a constant). Out-of-range
@@ -29,8 +32,27 @@ public struct Backoff: Sendable {
         self.random = random
     }
 
-    /// The delay before the next attempt; grows until `maximum`.
+    /// A backoff that walks a retry table: `steps[0]`, `steps[1]`, ..., then the last step again,
+    /// each spread by `jitter` as the geometric one is. An empty table waits zero, and a step below
+    /// zero is zero; `initial` and `maximum` are the table's first and largest steps.
+    public init(steps: [Duration], jitter: Double = 0.2,
+                random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
+        let table = steps.isEmpty ? [Duration.zero] : steps.map { max($0, .zero) }
+        initial = table[0]
+        maximum = table.max() ?? .zero
+        multiplier = 1
+        self.jitter = jitter.isNaN ? 0 : min(max(jitter, 0), 1)
+        self.steps = table
+        self.random = random
+    }
+
+    /// The delay before the next attempt; grows until `maximum` (or walks ``steps``).
     public mutating func next() -> Duration {
+        if let steps {
+            let base = steps[min(attempt, steps.count - 1)].inSeconds
+            attempt += 1
+            return .seconds(max(base + base * jitter * (random() * 2 - 1), 0))
+        }
         let base = min(initial.inSeconds * pow(multiplier, Double(min(attempt, 62))), maximum.inSeconds)
         attempt += 1
         let spread = base * jitter * (random() * 2 - 1)
@@ -40,12 +62,23 @@ public struct Backoff: Sendable {
     /// Call after a success: the next failure starts from `initial` again.
     public mutating func reset() { attempt = 0 }
 
-    /// Sleeps `next()` on `clock` and records the wait under `owner`.
-    /// Throws `CancellationError` when the task is cancelled.
+    /// The slack the system may add to a wait of `step`: max(8 ms, 10% of the
+    /// step). 8 ms is Chromium's `kDefaultLeeway` (base/task/task_features.h,
+    /// ``WakeLeeway/defaultAlignment``); 10% is the tolerance Apple's Energy
+    /// Efficiency Guide asks of a timer. Unlike ``WakeLeeway``, no 1 s cap: a
+    /// retry has no deadline a late fire breaks, so a 30 s step may slip 3 s.
+    /// The jitter stays; it spreads clients apart, the tolerance lets the kernel
+    /// coalesce each one's wake with others.
+    public static func tolerance(for step: Duration) -> Duration {
+        max(WakeLeeway.defaultAlignment, step / 10)
+    }
+
+    /// Sleeps `next()` on `clock` with ``tolerance(for:)`` and records the wait
+    /// under `owner`. Throws `CancellationError` when the task is cancelled.
     public mutating func wait(owner: String, clock: any Clock<Duration> = ContinuousClock(),
                               ledger: WakeupLedger = .shared) async throws {
         let delay = next()
-        try await clock.sleep(for: delay)
+        try await clock.sleep(for: delay, tolerance: Self.tolerance(for: delay))
         ledger.record(owner, reason: "backoff")
     }
 }

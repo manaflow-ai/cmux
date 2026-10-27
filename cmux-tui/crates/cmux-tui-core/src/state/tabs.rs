@@ -37,6 +37,7 @@ impl Mux {
     /// `tab.pin` / `tab.unpin`. A pinned tab leaves its group and moves to
     /// the end of its pane's pinned run; an unpinned tab moves to the start
     /// of the unpinned run.
+    #[track_caller]
     pub(crate) fn state_pin_tab(
         self: &Arc<Self>,
         request: StripRequest,
@@ -84,6 +85,7 @@ impl Mux {
     }
 
     /// `tab.update`: zoom and a browser tab's back/forward lists.
+    #[track_caller]
     pub(crate) fn state_update_tab(
         self: &Arc<Self>,
         request: StripRequest,
@@ -149,6 +151,7 @@ impl Mux {
     /// when the tab holds no such mark; otherwise a commit that decides again
     /// in its own transaction (a mark set on `page` meanwhile stays) and
     /// restates the tab when it cleared one.
+    #[track_caller]
     pub(crate) fn clear_attention_after_navigation(
         &self,
         actor: &Actor,
@@ -210,6 +213,7 @@ impl Mux {
     /// browser tab on its record, restating the tab on `session.events`.
     /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`
     /// writes the same column through the tab strip commit.
+    #[track_caller]
     pub(crate) fn commit_browser_owner(
         &self,
         actor: &Actor,
@@ -242,6 +246,7 @@ impl Mux {
     }
 
     /// `tab_group.create`.
+    #[track_caller]
     pub(crate) fn state_create_tab_group(
         self: &Arc<Self>,
         request: StripRequest,
@@ -260,6 +265,7 @@ impl Mux {
     }
 
     /// `tab_group.add_tabs`.
+    #[track_caller]
     pub(crate) fn state_add_tabs_to_group(
         self: &Arc<Self>,
         request: StripRequest,
@@ -271,6 +277,7 @@ impl Mux {
     }
 
     /// `tab_group.remove_tabs`.
+    #[track_caller]
     pub(crate) fn state_remove_tabs_from_groups(
         self: &Arc<Self>,
         request: StripRequest,
@@ -281,6 +288,7 @@ impl Mux {
     }
 
     /// `tab_group.move`. A pane id that names no live pane is not found.
+    #[track_caller]
     pub(crate) fn state_move_tab_group(
         self: &Arc<Self>,
         request: StripRequest,
@@ -293,6 +301,7 @@ impl Mux {
 
     /// `saved_tab_group.delete` (and raw `delete-saved-tab-group`): the
     /// record goes, and live groups linked to it stay, unlinked.
+    #[track_caller]
     pub(crate) fn saved_tab_group_delete(
         &self,
         mutation: &WorkspaceMutation,
@@ -342,6 +351,7 @@ impl Mux {
     /// the request's key guards the whole: a retry returns the recorded
     /// result, and a reopen whose saved group already has a live group
     /// returns that group.
+    #[track_caller]
     pub(crate) fn state_reopen_saved_tab_group(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,

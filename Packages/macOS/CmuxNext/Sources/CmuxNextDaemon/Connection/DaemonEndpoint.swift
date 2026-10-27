@@ -11,12 +11,30 @@ public struct DaemonEndpoint: Hashable, Sendable {
     /// (``DaemonBridge``: a paired server's owner session through `cmux link
     /// dial`). `socketPath` then only names what to watch for changes.
     public var bridge: DaemonBridge?
+    /// Where the connections opened to this endpoint count their traffic (``DaemonWireStats``):
+    /// the app's composition root puts its recorder on its daemon's endpoints, and every opener
+    /// passes it to its ``LineTransport``. Nil counts nothing (a release build). Not part of the
+    /// endpoint's identity (equality and hash).
+    public var wireStats: DaemonWireStats?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil,
+                wireStats: DaemonWireStats? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
         self.bridge = bridge
+        self.wireStats = wireStats
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.socketPath == rhs.socketPath && lhs.pid == rhs.pid && lhs.generation == rhs.generation && lhs.bridge == rhs.bridge
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(socketPath)
+        hasher.combine(pid)
+        hasher.combine(generation)
+        hasher.combine(bridge)
     }
 }
 
@@ -465,6 +483,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// `cause` on each `subscribe` event line (cmux-tui/spec/events.md, "Event cause"): what set
+    /// the event off, so the app schedules a person's changes first (``DaemonEvent/cause(wire:recorded:)``).
+    case eventCause = "event-cause-v1"
+    /// `energy.set` and `energy.status`: the app's Energy Saver override (`EnergySetRequest.capability`;
+    /// cmux-tui-core server/energy_op.rs).
+    case energy = "energy-v1"
+    /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
+    /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
+    case energyRule = "energy-v2"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -513,7 +540,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
+             .energyRule:
             return .optional
         }
     }
