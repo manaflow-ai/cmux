@@ -122,6 +122,36 @@ struct ChatComposer: View {
         }
     }
 
+    /// A copied image or file pasted into the field: attached as Photos or
+    /// Files would attach it. An image keeps the bytes the copying app gave
+    /// (a PNG screenshot stays PNG); a file is read like a picked one.
+    private func pasteAttachments() {
+        let board = UIPasteboard.general
+        if board.hasImages {
+            let stamp = Date().formatted(date: .omitted, time: .shortened)
+            for (index, data) in Self.pastedImageData(board).enumerated() {
+                let suffix = index > 0 ? " \(index + 1)" : ""
+                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: data))
+            }
+        } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
+            let (files, refused) = Self.readFiles(urls)
+            attachments += files
+            if let refused { store.clientError = refused }
+        }
+    }
+
+    /// Each pasteboard image as PNG or JPEG bytes: the copying app's own when
+    /// it gave them, else encoded here.
+    static func pastedImageData(_ board: UIPasteboard) -> [Data] {
+        let own: [Data] = (0..<board.numberOfItems).compactMap { index in
+            let item = IndexSet(integer: index)
+            return [UTType.png, UTType.jpeg].lazy.compactMap { type in
+                board.data(forPasteboardType: type.identifier, inItemSet: item)?.first as? Data
+            }.first
+        }
+        return own.isEmpty ? (board.images ?? []).compactMap { $0.pngData() } : own
+    }
+
     /// Picked files with their bytes (read through the picker's
     /// security-scoped URLs), and the reason when one can't be attached.
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
@@ -152,7 +182,8 @@ struct ChatComposer: View {
                 }
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
-                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard)
+                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
+                                  onPasteAttachments: pasteAttachments)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)

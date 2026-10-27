@@ -160,7 +160,8 @@ struct TerminalComposer: View {
                     model.controller?.inputFocusChanged()
                 },
                 onReturn: { model.send() },
-                shouldInsert: { model.composerShouldInsert($0) }
+                shouldInsert: { model.composerShouldInsert($0) },
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
         }
         .padding(.leading, 4)

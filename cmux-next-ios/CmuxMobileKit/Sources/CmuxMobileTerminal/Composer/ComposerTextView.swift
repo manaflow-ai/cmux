@@ -25,6 +25,9 @@ struct ComposerTextView: UIViewRepresentable {
     /// Asked before typed text is inserted; false: the key went elsewhere
     /// (the terminal, with the key bar's ctrl or alt on).
     var shouldInsert: (String) -> Bool = { _ in true }
+    /// A copied image or file pasted into the field (edit menu Paste or
+    /// Command-V): it becomes an attachment. Nil: the composer takes none.
+    var onPasteAttachments: (() -> Void)?
 
     static let maxLines = 6
     /// Read so a live text size change updates the view (Codex QA F10): the
@@ -82,6 +85,9 @@ struct ComposerTextView: UIViewRepresentable {
         }
         if view.text != text { view.text = text }
         view.placeholder = placeholder
+        view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onPasteAttachments?()
+        }
         if focusRequest != context.coordinator.lastFocusRequest {
             context.coordinator.lastFocusRequest = focusRequest
             view.becomeFirstResponder()

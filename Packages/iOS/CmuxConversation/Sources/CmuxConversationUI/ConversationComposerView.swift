@@ -269,6 +269,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             guard let self, self.hasContent, !self.holdsDraft else { return }
             self.delegate?.composerDidTapSend(self)
         }
+        // A copied image or file pasted into the field (edit menu Paste or
+        // Command-V) is attached as Photos or Files would attach it, while
+        // "+" takes attachments (Chief turns it off until it takes sends).
+        textView.acceptsAttachments = { [weak self] in self?.plusButton.isEnabled == true }
+        textView.onPasteAttachments = { [weak self] in self?.pasteAttachments() }
         textView.accessibilityIdentifier = "conversation.composer.text"
         // Messages: a text field labeled "Message" whose value is the placeholder while empty.
         textView.accessibilityLabel = String(localized: "conversation.ax.composerField", defaultValue: "Message", bundle: .module)
@@ -638,6 +643,39 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     // MARK: Attachments
 
+    /// The pasteboard's images (the copying app's PNG or JPEG bytes, else
+    /// PNG), or its copied files.
+    private func pasteAttachments() {
+        let board = UIPasteboard.general
+        guard board.hasImages else {
+            for url in board.urls?.filter(\.isFileURL) ?? [] {
+                Task { @MainActor [weak self] in
+                    guard let traits = self?.traitCollection,
+                          let attachment = await ConversationMediaDelegate.composerAttachment(for: url, traits: traits) else { return }
+                    self?.addAttachment(attachment)
+                }
+            }
+            return
+        }
+        var pasted: [ComposerAttachment] = []
+        for index in 0..<board.numberOfItems {
+            let item = IndexSet(integer: index)
+            for (type, mimeType) in [(UTType.png, "image/png"), (UTType.jpeg, "image/jpeg")] {
+                if let data = board.data(forPasteboardType: type.identifier, inItemSet: item)?.first as? Data,
+                   let image = UIImage(data: data) {
+                    pasted.append(ComposerAttachment(image: image, data: data, mimeType: mimeType))
+                    break
+                }
+            }
+        }
+        if pasted.isEmpty {
+            pasted = (board.images ?? []).compactMap { image in
+                image.pngData().map { ComposerAttachment(image: image, data: $0, mimeType: "image/png") }
+            }
+        }
+        pasted.forEach(addAttachment)
+    }
+
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
         let opening = attachments.count == 1
@@ -803,6 +841,9 @@ final class ComposerTextView: UITextView {
         if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) || action == #selector(toggleUnderline(_:)) {
             return isEditable
         }
+        if action == #selector(paste(_:)), pastesAttachments {
+            return isEditable
+        }
         return super.canPerformAction(action, withSender: sender)
     }
 
@@ -823,7 +864,25 @@ final class ComposerTextView: UITextView {
         set { super.accessibilityValue = newValue }
     }
 
+    /// Takes a pasted image or copied file. A plain text view offers no Paste
+    /// for an image; this one does while `acceptsAttachments`. The paste is
+    /// the person's own action, so reading the pasteboard asks nothing.
+    var onPasteAttachments: (() -> Void)?
+    var acceptsAttachments: () -> Bool = { false }
+
+    /// An image or a copied file on the pasteboard, and the composer takes
+    /// one now. Reading the types asks nothing.
+    private var pastesAttachments: Bool {
+        guard onPasteAttachments != nil, acceptsAttachments() else { return false }
+        let board = UIPasteboard.general
+        return board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier])
+    }
+
     override func paste(_ sender: Any?) {
+        if pastesAttachments, let onPasteAttachments {
+            onPasteAttachments()
+            return
+        }
         super.paste(sender)
         delegate?.textViewDidChange?(self)
     }
