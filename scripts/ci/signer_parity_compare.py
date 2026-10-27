@@ -8,14 +8,18 @@ The payload is every path of the bundle except what a code signature writes:
     detached signature files);
   - in each Mach-O slice, the LC_CODE_SIGNATURE blob and the 3 size fields
     that follow its size only (the __LINKEDIT vmsize and filesize and the
-    LC_CODE_SIGNATURE datasize); in a universal file, the fat header's slice
-    offsets and sizes, which move with the slice sizes. The slice list
-    (architectures, in order) and every byte before each signature are payload;
+    LC_CODE_SIGNATURE datasize). Every byte before and after the blob is payload;
+  - in a universal file, each slice's offset and size in the fat header (they
+    move with the slice sizes). The rest of the header (magic, count, CPU type
+    and subtype, alignment) is payload, a thin file never equals a fat one, and
+    the bytes between slices must be zero padding on both sides;
   - the sha256 checksums of signed Mach-O payloads in a cmux-tui-ssh
-    manifest.json (signing re-pins them): each must still be the sha256 of its
-    file in that tree, and the rest of the manifest is payload.
-Every other byte, every file mode and every symlink target is payload, and one
-differing byte fails the compare (exit 1).
+    manifest.json (signing re-pins them): each must be the sha256 of its file
+    in that tree and appear exactly once, and is replaced by a placeholder of
+    the same length; every other byte of the raw manifest is payload.
+Every other byte, every file mode (all 12 bits: setuid, setgid and sticky too)
+and every symlink target is payload, and one differing byte fails the compare
+(exit 1).
 
 The signature report lists, for every Mach-O slice, which CodeDirectory fields
 and signature blobs differ between A and B, and for every CodeResources which
@@ -40,6 +44,37 @@ BLOB = {0: "CodeDirectory", 2: "Requirements", 5: "Entitlements (XML)", 7: "Enti
         0x1000: "CodeDirectory (alternate)", 0x10000: "CMS signature"}
 SPECIAL = {1: "Info.plist hash", 2: "Requirements hash", 3: "CodeResources hash",
            5: "Entitlements (XML) hash", 7: "Entitlements (DER) hash"}
+
+
+def fat_header(data: bytes):
+    """The fat header with each slice's offset and size zeroed (they move with the
+    slice sizes), and whether every byte outside the slices is zero padding; None
+    for a thin file."""
+    magic = struct.unpack(">I", data[:4])[0]
+    if magic not in FAT_MAGICS:
+        return None
+    count = struct.unpack(">I", data[4:8])[0]
+    wide = FAT_MAGICS[magic]
+    width = 32 if wide else 20
+    head = bytearray(data[:8 + width * count])
+    covered = [(0, len(head))]
+    for i in range(count):
+        at = 8 + width * i
+        if wide:
+            _, _, off, size, _, _ = struct.unpack(">iiQQII", data[at:at + width])
+            head[at + 8:at + 24] = bytes(16)
+        else:
+            _, _, off, size, _ = struct.unpack(">iiIII", data[at:at + width])
+            head[at + 8:at + 16] = bytes(8)
+        covered.append((off, off + size))
+    padding_is_zero, pos = True, 0
+    for start, end in sorted(covered):
+        if start > pos and data[pos:start].strip(b"\0"):
+            padding_is_zero = False
+        pos = max(pos, end)
+    if data[pos:].strip(b"\0"):
+        padding_is_zero = False
+    return bytes(head), padding_is_zero
 
 
 def slices(data: bytes):
@@ -80,6 +115,8 @@ def payload(macho: bytes) -> bytes:
     """The slice bytes before its signature, with the 3 signature-size fields zeroed."""
     sig = signature_range(macho)
     out = bytearray(macho[:sig[0]] if sig else macho)
+    # Bytes after the signature blob (none in a well-formed file) stay payload.
+    trailer = macho[sig[0] + sig[1]:] if sig else b""
     ncmds = struct.unpack("<I", macho[16:20])[0]
     off = 32
     for _ in range(ncmds):
@@ -90,7 +127,7 @@ def payload(macho: bytes) -> bytes:
         if cmd == LC_CODE_SIGNATURE:
             out[off + 12:off + 16] = bytes(4)  # datasize
         off += size
-    return bytes(out)
+    return bytes(out) + b"\0TRAILER\0" + trailer
 
 
 def blobs(macho: bytes) -> dict:
@@ -154,20 +191,27 @@ def is_ssh_manifest(rel: str) -> bool:
 
 
 def manifest_payload(root: str, rel: str, data: bytes):
-    """The manifest with the checksums of its Mach-O payloads masked; each must match its file."""
+    """The manifest's raw bytes with the checksum of each signed Mach-O payload
+    replaced by a fixed placeholder of the same length (each must be the sha256
+    of its file and appear exactly once); every other byte is compared."""
     manifest = json.loads(data)
     folder = os.path.dirname(os.path.join(root, rel))
-    errors = []
+    errors, out = [], data
     for name, digest in sorted(manifest.get("binaries", {}).items()):
         path = os.path.join(folder, name)
         if os.path.isfile(path) and not os.path.islink(path):
             with open(path, "rb") as handle:
                 body = handle.read()
             if slices(body) is not None:
-                if hashlib.sha256(body).hexdigest() != str(digest).lower():
+                actual = hashlib.sha256(body).hexdigest()
+                if str(digest) != actual:
                     errors.append(f"{name}: manifest checksum is not the file's sha256")
-                manifest["binaries"][name] = "<signed payload>"
-    return json.dumps(manifest, sort_keys=True).encode(), errors
+                    continue
+                if out.count(actual.encode()) != 1:
+                    errors.append(f"{name}: its checksum appears {out.count(actual.encode())} times in the manifest")
+                    continue
+                out = out.replace(actual.encode(), b"S" * 64)
+    return out, errors
 
 
 def walk(root: str) -> dict:
@@ -188,13 +232,17 @@ def describe(root: str, rel: str, path: str) -> dict:
     if stat.S_ISLNK(st.st_mode):
         return {"kind": "symlink", "target": os.readlink(path)}
     if stat.S_ISDIR(st.st_mode):
-        return {"kind": "dir", "mode": oct(st.st_mode & 0o777)}
+        return {"kind": "dir", "mode": oct(stat.S_IMODE(st.st_mode))}
     with open(path, "rb") as handle:
         data = handle.read()
-    record = {"kind": "file", "mode": oct(st.st_mode & 0o777), "sha256": hashlib.sha256(data).hexdigest()}
+    record = {"kind": "file", "mode": oct(stat.S_IMODE(st.st_mode)), "sha256": hashlib.sha256(data).hexdigest()}
     parts = slices(data)
     if parts is not None:
         digest = hashlib.sha256()
+        fat = fat_header(data)
+        digest.update(b"thin\0" if fat is None else b"fat\0" + fat[0])
+        if fat is not None and not fat[1]:
+            record["padding_error"] = "bytes outside the fat slices are not zero padding"
         for arch, body in parts:
             digest.update(arch.encode() + b"\0" + payload(body))
         record.update(kind="macho", archs=[a for a, _ in parts], payload_sha256=digest.hexdigest(),
@@ -259,6 +307,8 @@ def main() -> int:
         keys = ("kind", "target", "mode", "archs", "payload_sha256")
         diff = [k for k in keys if ra.get(k) != rb.get(k)]
         for side, record in ((la, ra), (lb, rb)):
+            if record.get("padding_error"):
+                failures.append(f"{rel} ({side}): {record['padding_error']}")
             for error in record.get("manifest_errors", []):
                 failures.append(f"{rel} ({side}): {error}")
             if record["kind"] == "macho" and not record["signed"]:

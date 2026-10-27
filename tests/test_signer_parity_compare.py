@@ -135,6 +135,73 @@ class SignerParityCompareTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("Contents/extra.txt: only in rcodesign", result["payload_failures"])
 
+def fat(*thin_files: bytes, subtype: int = 0, align: int = 14, pad_byte: bytes = b"\0") -> bytes:
+    """A universal file around thin arm64 slices, each at a 2**align boundary."""
+    header = struct.pack(">II", 0xCAFEBABE, len(thin_files))
+    body, off, entries = b"", 1 << align, b""
+    for thin in thin_files:
+        entries += struct.pack(">iiIII", 0x0100000C, subtype, off, len(thin), align)
+        body += thin + pad_byte * ((-len(thin)) % (1 << align))
+        off += len(thin) + ((-len(thin)) % (1 << align))
+    head = header + entries
+    return head + pad_byte * ((1 << align) - len(head)) + body
+
+
+class ReviewFindingTests(unittest.TestCase):
+    """Each payload difference the first review named must fail."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def compare(self, a: Path, b: Path) -> tuple[int, list]:
+        out = self.root / "out.json"
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(b), str(out)],
+                              capture_output=True, text=True)
+        return proc.returncode, json.loads(out.read_text())["payload_failures"]
+
+    def test_manifest_whitespace_is_payload(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"d"))
+        manifest = b / "Contents/Resources/bin/cmux-tui-ssh/manifest.json"
+        manifest.write_text(json.dumps(json.loads(manifest.read_text()), indent=2))
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("manifest.json: payload differs" in f for f in failures), failures)
+
+    def test_fat_cpu_subtype_and_thin_versus_fat_are_payload(self):
+        thin = macho(b"T" * 32, b"c")
+        a = make_app(self.root / "a", tool=fat(thin))
+        b = make_app(self.root / "b", tool=fat(thin, subtype=2))
+        self.assertEqual(self.compare(a, b)[0], 1)
+        c = make_app(self.root / "c", tool=thin)
+        self.assertEqual(self.compare(a, c)[0], 1)
+        d = make_app(self.root / "d", tool=fat(macho(b"T" * 32, b"other-cms", 12, pad=8)))
+        self.assertEqual(self.compare(a, d)[0], 0)
+
+    def test_nonzero_fat_padding_fails(self):
+        thin = macho(b"T" * 32, b"c")
+        a = make_app(self.root / "a", tool=fat(thin))
+        b = make_app(self.root / "b", tool=fat(thin, pad_byte=b"X"))
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("not zero padding" in f for f in failures), failures)
+
+    def test_bytes_after_the_signature_are_payload(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c") + b"tail-a")
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c") + b"tail-b")
+        self.assertEqual(self.compare(a, b)[0], 1)
+
+    def test_setuid_bit_is_payload(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c"), mode=0o4755)
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("Contents/MacOS/Demo: payload differs (mode)" in f for f in failures), failures)
+
 
 if __name__ == "__main__":
     unittest.main()
