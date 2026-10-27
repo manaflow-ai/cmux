@@ -2,8 +2,8 @@
 // on first read, optionally refreshed while something is subscribed. No effects: the subscription
 // itself starts and stops the refresh.
 //
-// The inspector's API has no push, so a refresh rides the page's one clock (ui/pageClock.ts): it
-// wakes on the clock's aligned second or minute only while the page shows, and reads once on show
+// The inspector's API has no push, so a refresh rides the page's one minute clock (ui/pageClock.ts)
+// at 60 s or longer: it wakes on the aligned minute only while the page shows, and reads once on show
 // when a refresh fell due while hidden. A hidden inspector runs no timer (p14-energy-062a), as
 // Chrome stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
 
@@ -19,6 +19,9 @@ type Slot = {
   /** When the last listener left (0 while subscribed): idle slots are evicted oldest first. */
   idleSince: number;
 };
+
+/** The shortest refresh: one aligned minute wake, the page's poll floor (p14-energy-062a). */
+export const MIN_REFRESH_MS = clockPeriodMs("minute");
 
 /** Idle answers kept for a quick return (a turn's prompt can be 100 KB or more). */
 const KEEP_IDLE = 24;
@@ -103,14 +106,19 @@ export class ApiStore {
   }
 
   /**
-   * Subscribes to `url`; `every` ms refreshes it while subscribed and the page shows. Returns the
-   * unsubscribe.
+   * Subscribes to `url`; `every` ms (at least `MIN_REFRESH_MS`) refreshes it while subscribed and the
+   * page shows. A refresh that starts on an answer already held reads it again at once, so a view
+   * that asks for live data never shows one older than its start. Returns the unsubscribe.
    */
   subscribe(url: string, listener: () => void, every?: number): () => void {
+    const held = this.slots.has(url);
     const s = this.slot(url);
     s.listeners.add(listener);
     s.idleSince = 0;
-    if (every && !s.stopRefresh) s.stopRefresh = this.refreshEvery(url, every);
+    if (every && !s.stopRefresh) {
+      s.stopRefresh = this.refreshEvery(url, Math.max(every, MIN_REFRESH_MS));
+      if (held) void this.load(url);
+    }
     return () => {
       s.listeners.delete(listener);
       if (s.listeners.size === 0) {
@@ -123,16 +131,15 @@ export class ApiStore {
   }
 
   /**
-   * Reads `url` again on the first tick of the page's clock at least `every` ms after the last read
-   * it started: on the second clock below a minute, on the minute clock from a minute up. The clock
-   * ticks only while the page shows, and once on show when a tick was missed, which reads what fell
-   * due while hidden.
+   * Reads `url` again on the first minute tick of the page's clock at least `every` ms after the
+   * last read it started. The clock ticks only while the page shows, and once on show when a tick
+   * was missed, which reads what fell due while hidden.
    */
   private refreshEvery(url: string, every: number): () => void {
     this.clock ??= pageClockFor();
     const clock = this.clock;
     let due = clock.now() + every;
-    return clock.subscribe(every < clockPeriodMs("minute") ? "second" : "minute", () => {
+    return clock.subscribe("minute", () => {
       const now = clock.now();
       if (now < due) return;
       due = now + every;

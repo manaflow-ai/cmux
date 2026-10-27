@@ -2,7 +2,7 @@
 // the page shows, reads once on show for what fell due while hidden, and runs no timer while the
 // page is hidden or nothing subscribes.
 import { expect, test } from "bun:test";
-import { ApiStore } from "../src/optchat-inspector/store";
+import { ApiStore, MIN_REFRESH_MS } from "../src/optchat-inspector/store";
 import { fakePage } from "./support/fakePageClock";
 
 const START = 1_000_000_020_000; // on a minute boundary
@@ -19,15 +19,15 @@ function countingFetcher(): { fetcher: (url: string) => Promise<unknown>; reads:
   };
 }
 
-test("a refresh reads every period while the page shows, nothing and no timer while hidden, once on show", async () => {
+test("a refresh reads every minute while the page shows, nothing and no timer while hidden, once on show", async () => {
   const { doc, timers, clock } = fakePage(START);
   const { fetcher, reads } = countingFetcher();
   const store = new ApiStore(fetcher, clock);
-  const stop = store.subscribe("/api/status", () => undefined, 2000);
+  const stop = store.subscribe("/api/status", () => undefined, MIN_REFRESH_MS);
   expect(reads("/api/status")).toBe(1);
   expect(timers.live).toBe(1);
 
-  timers.advance(10_000);
+  timers.advance(5 * 60_000);
   expect(reads("/api/status")).toBe(6);
 
   doc.hide();
@@ -45,6 +45,35 @@ test("a refresh reads every period while the page shows, nothing and no timer wh
   timers.advance(60_000);
   expect(reads("/api/status")).toBe(7);
   await settle();
+});
+
+test("the Live tab's refresh wakes the page once a minute, and a shorter period is held to a minute", () => {
+  for (const every of [MIN_REFRESH_MS, 2000]) {
+    const { timers, clock } = fakePage(START);
+    const { fetcher, reads } = countingFetcher();
+    const store = new ApiStore(fetcher, clock);
+    store.subscribe("/api/status", () => undefined, every);
+    const armed = timers.armed;
+    timers.advance(10 * 60_000);
+    expect(timers.armed - armed).toBe(10);
+    expect(reads("/api/status")).toBe(11);
+  }
+});
+
+test("a refresh that starts on an answer already held reads it once at once", () => {
+  const { timers, clock } = fakePage(START);
+  const { fetcher, reads } = countingFetcher();
+  const store = new ApiStore(fetcher, clock);
+  const plain = store.subscribe("/api/status", () => undefined);
+  expect(reads("/api/status")).toBe(1);
+  timers.advance(30_000);
+  plain();
+  store.subscribe("/api/status", () => undefined, MIN_REFRESH_MS);
+  expect(reads("/api/status")).toBe(2);
+  timers.advance(30_000);
+  expect(reads("/api/status")).toBe(2);
+  timers.advance(60_000);
+  expect(reads("/api/status")).toBe(3);
 });
 
 test("a show before the next read is due reads nothing", () => {
