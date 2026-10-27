@@ -158,9 +158,9 @@ pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
 
 /// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
 /// `caller`, `current` or `focused`, which the CLI resolves against the
-/// caller (or the person's focus) before it sends the request, or when a
-/// person's terminal creates a tab with no place
-/// ([`fill_terminal_caller_place`]).
+/// caller (or the person's focus) before it sends the request, and a
+/// [`Resolve::CallerPlace`] when a person's terminal creates a tab with no
+/// place ([`terminal_caller_place`]).
 pub(super) fn with_caller_lookup(
     mut plan: super::CommandPlan,
     selectors: &std::collections::BTreeMap<&'static str, String>,
@@ -172,40 +172,35 @@ pub(super) fn with_caller_lookup(
     });
     if let super::CommandPlan::Protocol(plan) = &mut plan {
         let env = |key: &str| std::env::var(key).ok();
-        if fill_terminal_caller_place(plan, env) || named {
+        if terminal_caller_place(plan, env) {
+            plan.resolve.push(Resolve::CallerPlace);
+        }
+        if named {
             plan.resolve.push(Resolve::Caller);
         }
     }
     plan
 }
 
-/// A terminal tab created from a person's cmux terminal with no
-/// `--workspace`, `--screen` or `--pane` opens in that terminal's own pane,
-/// not the daemon's active one, which can be a workspace the person is not
-/// in (https://github.com/manaflow-ai/cmux/issues/25590). It names `current`
-/// for each, which [`Resolve::Caller`] turns into the caller's ids; a caller
-/// that cannot be found, or a request to another session or machine, keeps
-/// the daemon's default as before. An agent's goes beside its chat instead
-/// (beside.rs). Whether it filled them.
-fn fill_terminal_caller_place(
-    plan: &mut RequestPlan,
-    env: impl Fn(&str) -> Option<String>,
-) -> bool {
+/// Whether a terminal tab is created from a person's cmux terminal with no
+/// `--workspace`, `--screen` or `--pane`. It then opens in that terminal's
+/// own pane ([`Resolve::CallerPlace`]), not the daemon's active one, which
+/// can be a workspace the person is not in
+/// (https://github.com/manaflow-ai/cmux/issues/25590). A caller that cannot
+/// be found, or a request to another session or machine, keeps the daemon's
+/// default. An agent's goes beside its chat instead (beside.rs).
+fn terminal_caller_place(plan: &RequestPlan, env: impl Fn(&str) -> Option<String>) -> bool {
     let set = |key: &str| env(key).is_some_and(|value| !value.is_empty());
-    let person_terminal =
-        set("CMUX_TUI_TERMINAL_ID") && !set("CMUX_AGENT_SESSION") && !set("CMUX_CALLER_HOME_CHAT");
+    // The same agent and Chief turn tests as resolve.rs `caller_path`.
+    let person_terminal = set("CMUX_TUI_TERMINAL_ID")
+        && !set("CMUX_AGENT_SESSION")
+        && env("CMUX_CALLER_HOME_CHAT").as_deref() != Some("1");
     let creates_terminal =
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
-    let Some(params) = plan.params.as_object_mut() else { return false };
-    const PARENTS: [&str; 3] = ["workspace", "screen", "pane"];
-    if !person_terminal || !creates_terminal || PARENTS.iter().any(|key| params.contains_key(*key))
-    {
-        return false;
-    }
-    for key in PARENTS {
-        params.insert(key.into(), Value::String("current".into()));
-    }
-    true
+    let unplaced = plan.params.as_object().is_some_and(|params| {
+        !["workspace", "screen", "pane"].iter().any(|key| params.contains_key(*key))
+    });
+    person_terminal && creates_terminal && unplaced
 }
 
 #[cfg(test)]
@@ -253,34 +248,32 @@ mod tests {
     }
 
     #[test]
-    fn a_persons_terminal_tab_with_no_place_names_the_callers_place() {
+    fn a_persons_terminal_tab_with_no_place_asks_for_the_callers_place() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
             move |key: &str| {
                 pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned())
             }
         };
         let terminal = &[("CMUX_TUI_TERMINAL_ID", "term_a")];
-        let mut plan =
-            creation(ResourceOperation::TabCreateTerminal, json!({"machine": "current"}));
-        assert!(fill_terminal_caller_place(&mut plan, env(terminal)));
-        assert_eq!(plan.params["workspace"], "current");
-        assert_eq!(plan.params["screen"], "current");
-        assert_eq!(plan.params["pane"], "current");
+        let plan = creation(ResourceOperation::TabCreateTerminal, json!({"machine": "current"}));
+        assert!(terminal_caller_place(&plan, env(terminal)));
+        // A Chief turn names the Home chat only with "1", as resolve.rs reads it.
+        let off = &[("CMUX_TUI_TERMINAL_ID", "term_a"), ("CMUX_CALLER_HOME_CHAT", "0")];
+        assert!(terminal_caller_place(&plan, env(off)));
 
         // A named place, another operation, an agent, a Chief turn or no
-        // terminal: unchanged.
-        let mut named = creation(ResourceOperation::TabCreateTerminal, json!({"pane": "pane_x"}));
-        assert!(!fill_terminal_caller_place(&mut named, env(terminal)));
-        assert_eq!(named.params, json!({"pane": "pane_x"}));
-        let mut browser = creation(ResourceOperation::TabCreateBrowser, json!({}));
-        assert!(!fill_terminal_caller_place(&mut browser, env(terminal)));
+        // terminal: no lookup.
+        let named = creation(ResourceOperation::TabCreateTerminal, json!({"pane": "pane_x"}));
+        assert!(!terminal_caller_place(&named, env(terminal)));
+        let browser = creation(ResourceOperation::TabCreateBrowser, json!({}));
+        assert!(!terminal_caller_place(&browser, env(terminal)));
         for others in [
             &[("CMUX_TUI_TERMINAL_ID", "term_a"), ("CMUX_AGENT_SESSION", "s")][..],
             &[("CMUX_TUI_TERMINAL_ID", "term_a"), ("CMUX_CALLER_HOME_CHAT", "1")][..],
             &[][..],
         ] {
-            let mut plan = creation(ResourceOperation::TabCreateTerminal, json!({}));
-            assert!(!fill_terminal_caller_place(&mut plan, env(others)));
+            let plan = creation(ResourceOperation::TabCreateTerminal, json!({}));
+            assert!(!terminal_caller_place(&plan, env(others)));
         }
     }
 }

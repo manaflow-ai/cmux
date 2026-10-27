@@ -92,6 +92,25 @@ fn focused_is_the_pane_the_person_looks_at() {
 }
 
 #[test]
+fn focused_below_the_callers_current_workspace_is_that_workspaces_active_pane() {
+    // The caller's workspace is not the one the person looks at, so the
+    // focused pane is not in it: the pane is the workspace's active one.
+    let run = Run::new().app(App::Placed).terminal().cli(&[
+        "--json",
+        "tab",
+        "create",
+        "terminal",
+        "--workspace",
+        "current",
+        "--pane",
+        "focused",
+    ]);
+    let created = run.mutation("tab.create_terminal");
+    assert_eq!(created["workspace"], OWN_WS, "{}", run.stderr());
+    assert_eq!(created["pane"], "current");
+}
+
+#[test]
 fn another_machine_keeps_its_own_current() {
     let run =
         Run::new().terminal().cli(&["--json", "--machine", MACHINE, "pane", "current", "split"]);
@@ -196,7 +215,22 @@ fn focused_on_another_session_is_its_active_pane() {
 fn a_terminal_the_daemon_no_longer_shows_keeps_the_default_pane_for_a_new_tab() {
     let run = Run::new().stale_terminal().cli(&["--json", "tab", "create", "terminal"]);
     let created = run.mutation("tab.create_terminal");
-    assert_eq!(created["pane"], "current", "{}", run.stderr());
+    for scope in ["workspace", "screen", "pane"] {
+        assert!(created.get(scope).is_none_or(Value::is_null), "{scope}: {}", run.stderr());
+    }
+}
+
+#[test]
+fn a_tab_with_no_place_in_a_named_session_names_no_place() {
+    // The daemon's default can create a workspace in an empty session;
+    // `current` there would fail.
+    let run =
+        Run::new().terminal().cli(&["--json", "--socket", SOCKET, "tab", "create", "terminal"]);
+    let created = run.mutation("tab.create_terminal");
+    for scope in ["workspace", "screen", "pane"] {
+        assert!(created.get(scope).is_none_or(Value::is_null), "{scope}: {}", run.stderr());
+    }
+    assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
 }
 
 #[test]

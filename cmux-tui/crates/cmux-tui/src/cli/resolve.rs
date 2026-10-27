@@ -146,6 +146,19 @@ pub(super) fn apply(
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
                 focused_scopes(params, caller_route, socket);
             }
+            Resolve::CallerPlace => {
+                if caller_route
+                    && let Ok(Some(path)) = caller_path(reader, &route, socket)
+                    && let Some(place) = ["workspace", "screen", "pane"]
+                        .map(|scope| path.get(scope).and_then(Value::as_str).map(str::to_owned))
+                        .into_iter()
+                        .collect::<Option<Vec<_>>>()
+                {
+                    for (scope, id) in ["workspace", "screen", "pane"].into_iter().zip(place) {
+                        params.insert(scope.into(), Value::String(id));
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -390,7 +403,9 @@ fn caller_scopes(
     // daemon's, so the id is still checked against the focused parents.
     let selectors: Vec<Option<String>> =
         CALLER_SCOPES.iter().map(|scope| value(params, scope)).collect();
-    let keyword = |selector: &str| selector == "caller" || selector == "current";
+    // `focused` is resolved after this (`focused_scopes`), so it does not
+    // stop a `current` above it from following the caller.
+    let keyword = |selector: &str| matches!(selector, "caller" | "current" | FOCUSED);
     let deepest_named = selectors
         .iter()
         .rposition(|selector| selector.as_deref().is_some_and(|selector| !keyword(selector)))
