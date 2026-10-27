@@ -105,6 +105,17 @@ struct AgentChatsLaunchResumeTests {
         #expect(await host.warmed == [["retry"], ["retry"]])
     }
 
+    @Test func retryLeavesSuccessfulAndExplicitlyStoppedSessionsAlone() async {
+        let host = AgentChatsLaunchResumeRecordingHost(failures: 1, retrySessions: ["failed"])
+        let tabs = Self.tabs([
+            (key: "a", record: AgentSessionRef(host: Self.thisMac, session: "ready")),
+            (key: "b", record: AgentSessionRef(host: Self.thisMac, session: "stopped")),
+            (key: "c", record: AgentSessionRef(host: Self.thisMac, session: "failed")),
+        ], host: host)
+        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()))
+        #expect(await host.warmed == [["ready", "stopped", "failed"], ["failed"]])
+    }
+
     @Test func persistentWarmFailureHasABoundedNumberOfAttempts() async {
         let host = AgentChatsLaunchResumeRecordingHost(failures: 10)
         let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "retry"))], host: host)
@@ -148,7 +159,7 @@ struct AgentChatsLaunchResumeTests {
         let local = AgentChatsLaunchResumeRecordingHost(failures: 1)
         let chief = AgentChatsLaunchResumeRecordingHost()
         let router = AcpmuxChiefSessionRouter(local: local, chief: chief) { $0 == "chief" }
-        await #expect(throws: AgentPaneHostError.self) {
+        await #expect(throws: AgentPaneWarmFailure.self) {
             try await router.warm(sessionIds: ["local", "chief"])
         }
         #expect(await chief.warmed == [["chief"]])

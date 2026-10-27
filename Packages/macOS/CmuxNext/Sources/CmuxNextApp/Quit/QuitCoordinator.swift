@@ -197,6 +197,8 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
+                let retry = attempts.isRetry()
+                let olderHomes = await services.agentTabs.chiefHomes?.endLaunchSessions(waitForShutdown: retry) ?? []
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
@@ -208,7 +210,7 @@ final class QuitCoordinator {
                 }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
+                return olderHomes.flatMap(QuitAgents.failures) + (await QuitAgents.end(acpmux, keep: keep, waitForShutdown: retry))
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk

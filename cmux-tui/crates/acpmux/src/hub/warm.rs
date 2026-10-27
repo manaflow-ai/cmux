@@ -63,7 +63,11 @@ impl Hub {
             }
             match self.child_for(&session).await {
                 Ok(_) => warmed.push(json!({"sessionId": session.id, "cwd": cwd})),
-                Err(error) => failed.push(json!({"sessionId": session.id, "error": error})),
+                // Invalid params includes an explicit stop during startup. It must not be
+                // retried with a new stop generation, which would reopen the stopped session.
+                Err(error) => failed.push(json!({
+                    "sessionId": session.id, "retryable": error.code != -32602, "error": error
+                })),
             }
         }
         (warmed, failed)

@@ -118,15 +118,19 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
             if owned.contains(session) { chiefSessions.append(session) } else { localSessions.append(session) }
         }
         try Task.checkCancellation()
-        var failure: (any Error)?
+        var failed: [String] = []
         if !localSessions.isEmpty {
-            do { try await local.warm(sessionIds: localSessions) } catch { failure = error }
+            do { try await local.warm(sessionIds: localSessions) }
+            catch let error as AgentPaneWarmFailure { failed += error.sessionIds }
+            catch { failed += localSessions }
         }
         try Task.checkCancellation()
         if !chiefSessions.isEmpty {
-            do { try await chief.warm(sessionIds: chiefSessions) } catch { failure = error }
+            do { try await chief.warm(sessionIds: chiefSessions) }
+            catch let error as AgentPaneWarmFailure { failed += error.sessionIds }
+            catch { failed += chiefSessions }
         }
-        if let failure { throw failure }
+        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed) }
     }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or

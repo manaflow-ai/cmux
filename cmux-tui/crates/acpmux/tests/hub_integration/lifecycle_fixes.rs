@@ -561,3 +561,35 @@ async fn launch_warm_reports_success_without_failures() {
     assert_eq!(result["failed"], json!([]), "{result}");
     hub.shutdown_all().await;
 }
+
+/// A Stop racing launch must remain stopped; warming must not offer that refusal for retry.
+#[tokio::test]
+async fn launch_warm_does_not_retry_an_explicit_stop() {
+    let gate = std::env::temp_dir().join(format!("acpmux-warm-stop-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([("FAKE_LOAD_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut client) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let made = client
+        .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let warmer = {
+        let hub = hub.clone();
+        let id = id.clone();
+        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false).await })
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.dir == "out" && e.kind == method::SESSION_LOAD) {
+        assert!(std::time::Instant::now() < deadline, "warm load never started");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    hub.kill(&session, false).await.unwrap();
+    let (warmed, failed) = warmer.await.unwrap();
+    assert!(warmed.is_empty());
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["retryable"], false, "{failed:?}");
+    let _ = std::fs::remove_file(gate);
+    hub.shutdown_all().await;
+}

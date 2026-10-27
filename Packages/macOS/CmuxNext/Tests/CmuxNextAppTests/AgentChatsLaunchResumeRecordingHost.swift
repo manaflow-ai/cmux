@@ -9,10 +9,12 @@ actor AgentChatsLaunchResumeRecordingHost: AgentPaneHostProviding {
 
     private var failures: Int
     private let blocked: Bool
+    private let retrySessions: [String]?
 
-    init(failures: Int = 0, blocked: Bool = false) {
+    init(failures: Int = 0, blocked: Bool = false, retrySessions: [String]? = nil) {
         self.failures = failures
         self.blocked = blocked
+        self.retrySessions = retrySessions
         (resumed, continuation) = AsyncStream.makeStream()
     }
 
@@ -22,6 +24,7 @@ actor AgentChatsLaunchResumeRecordingHost: AgentPaneHostProviding {
         for session in sessionIds { continuation.yield(session) }
         if failures > 0 {
             failures -= 1
+            if let retrySessions { throw AgentPaneWarmFailure(sessionIds: retrySessions) }
             throw AgentPaneHostError.daemonRestarting
         }
         if blocked {

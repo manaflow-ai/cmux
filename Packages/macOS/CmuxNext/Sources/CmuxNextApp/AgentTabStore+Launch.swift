@@ -89,8 +89,9 @@ extension AgentTabStore {
             guard !Task.isCancelled else { return false }
             if pending.isEmpty { return true }
             let targets = pending
-            let failed = await withTaskGroup(of: Int?.self) { group in
-                var next = 0, failures: [Int] = []
+            let failed = await withTaskGroup(of: (Int, [String])?.self) { group in
+                var next = 0
+                var failures: [(Int, [String])] = []
                 func add(_ index: Int) {
                     let target = targets[index]
                     group.addTask {
@@ -102,7 +103,8 @@ extension AgentTabStore {
                             if !Task.isCancelled {
                                 Self.launchLogger.error("launch resume failed: \(String(describing: error), privacy: .public)")
                             }
-                            return index
+                            let retry = (error as? AgentPaneWarmFailure)?.sessionIds ?? target.sessions
+                            return (index, retry)
                         }
                     }
                 }
@@ -112,10 +114,10 @@ extension AgentTabStore {
                     guard !Task.isCancelled else { group.cancelAll(); continue }
                     if next < targets.count { add(next); next += 1 }
                 }
-                return failures.sorted()
+                return failures.sorted { $0.0 < $1.0 }
             }
             guard !Task.isCancelled else { return false }
-            pending = failed.map { targets[$0] }
+            pending = failed.map { (sessions: $0.1, host: targets[$0.0].host) }
             if pending.isEmpty { return true }
             guard attempt < 2 else { break }
             // concurrency-allow: bounded error backoff through an injected Clock; no readiness polling.

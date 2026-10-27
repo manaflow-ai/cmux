@@ -221,21 +221,20 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         _ = try await endpoint(startsDaemon: true)
         try Task.checkCancellation()
         guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
-        var failure: (any Error)?
+        var failedSessions: [String] = []
         for session in sessionIds {
             try Task.checkCancellation()
             let params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
             do {
                 let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
-                if let failed = result["failed"] as? [[String: Any]], !failed.isEmpty {
-                    throw AcpmuxStatusClient.Failure.rpc("agent launch failed for session \(session)")
-                }
+                if let failed = result["failed"] as? [[String: Any]],
+                   failed.contains(where: { $0["retryable"] as? Bool == true }) { failedSessions.append(session) }
             } catch {
                 try Task.checkCancellation()
-                failure = error
+                failedSessions.append(session)
             }
         }
-        if let failure { throw failure }
+        if !failedSessions.isEmpty { throw AgentPaneWarmFailure(sessionIds: failedSessions) }
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

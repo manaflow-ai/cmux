@@ -32,12 +32,15 @@ public actor ChiefHomeDirectory {
     /// per-build home, a tagged build that quit) has no owner: its daemon starts again for the tab,
     /// as NIGHTLY's own acpmux does after its move to the app's.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
+    private var launchHomes: Set<String> = []
+    private let endAgents: @Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult
     private var roots: [String: URL] = [:]
     private var lastScan: ContinuousClock.Instant?
     private var lookups: [String: Task<OwnAcpmux?, Never>] = [:]
 
     public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
                 environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
+                endAgents: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil,
                 ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding = {
                     AcpmuxHost(environment: $0, startsDaemons: $1)
                 }) {
@@ -46,6 +49,7 @@ public actor ChiefHomeDirectory {
         self.rescanInterval = rescanInterval
         self.environment = environment
         self.ownHost = ownHost
+        self.endAgents = endAgents ?? { await AcpmuxQuit.endAgents($0, keep: .nothing, waitForShutdown: $1) }
     }
 
     /// The directories that hold the Chief homes beside `home`: its parent, the Chief root and
@@ -66,6 +70,37 @@ public actor ChiefHomeDirectory {
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
                                         sessionsHome: home.acpmuxHome, parentTag: tag)
+    }
+
+    /// Warms an older home's chats, recording only homes whose daemon this app may start.
+    func warm(host: String, sessionIds: [String], fallback: any AgentPaneHostProviding) async throws {
+        guard let own = await ownAcpmux(of: host) else { return try await fallback.warm(sessionIds: sessionIds) }
+        let home = own.home
+        let owned = try await work.run(.userVisible, mayBlock: .files) { home.hostRuns }
+        try Task.checkCancellation()
+        if !owned { launchHomes.insert(host) }
+        let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
+        let router = AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting,
+                                              chiefEnvironment: own.environment, sessionsHome: home.acpmuxHome, parentTag: tag)
+        try await router.warm(sessionIds: sessionIds)
+    }
+
+    /// Ends only older homes warmed by this launch, and only while no other build owns the home.
+    /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
+    public func endLaunchSessions(waitForShutdown: Bool) async -> [AcpmuxQuit.EndResult] {
+        var results: [AcpmuxQuit.EndResult] = []
+        for host in launchHomes.sorted() {
+            guard let own = await ownAcpmux(of: host) else { continue }
+            let home = own.home
+            guard let owned = try? await work.run(.userVisible, mayBlock: .files, { home.hostRuns }), !owned else { continue }
+            let result = await endAgents(own.environment, waitForShutdown)
+            results.append(result)
+            switch result {
+            case .noDaemon, .ended: launchHomes.remove(host)
+            default: break
+            }
+        }
+        return results
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {
