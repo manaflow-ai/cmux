@@ -34,7 +34,7 @@ import Foundation
 /// Nobody waits on the read: the ``timer`` is a `background` ``MainDeadline`` on the app's deadline
 /// scheduler, aligned to the app's hidden wakes (whole seconds, then one a minute after 5 hidden
 /// minutes: Blink's hidden-page wake-up throttling, page_scheduler_impl.h), and the probe's answer
-/// comes back with its landing (``UpdaterService/probe(then:)``).
+/// comes back with its landing (``UpdaterService/probe(_:then:)``).
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -93,7 +93,7 @@ final class TipUpdateCheck {
 
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
-        task = updater.probe { [weak self, weak updater] failure in
+        task = updater.probe(.visible) { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.task = nil
             self.finish(failure: failure, updater: updater)

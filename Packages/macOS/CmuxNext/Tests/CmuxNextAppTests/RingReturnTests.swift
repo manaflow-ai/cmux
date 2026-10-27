@@ -98,7 +98,7 @@ import Testing
         updater.follow(ring: "dev")
         // The pick started the check itself; this only waits for it.
         #expect(updater.isProbing)
-        _ = await updater.probe().value
+        _ = await updater.probe(.visible).value
         guard case .updateAvailable(let item) = updater.lastProbe?.outcome else {
             Issue.record("\(String(describing: updater.lastProbe))")
             return

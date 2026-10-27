@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesignTokens
 @testable import CmuxNextUpdater
+import CmuxUpdater
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -66,7 +67,7 @@ import Testing
         let rig = MainDeadlineRig(), feed = Base.CountingFeed(xml: TipUpdateCheckTests.feed)
         let updater = Self.updater(rig, feed: feed)
         var answered: [String?] = []
-        let task = updater.probe { answered.append($0) }
+        let task = updater.probe(.visible) { answered.append($0) }
         try #require(await Self.eventually { rig.work.postedCount(.visible) > 0 }, "the read's result was never posted")
         #expect(feed.fetches == 1)
         #expect(updater.lastProbe == nil, "the read's result landed before its frame")
@@ -76,6 +77,20 @@ import Testing
         #expect(answered == [nil], "the waiter did not get the read's answer in the landing")
         _ = await task.value
         #expect(!updater.isProbing)
+    }
+
+    // MARK: Coalesced progress (the channel switch's phases)
+
+    /// A DMG download reports a phase per write: only the first of a burst asks for a main-thread apply, and the
+    /// apply takes the newest phase, so the switch costs one visible task per frame, not one per write.
+    @Test func aSwitchsDownloadProgressPostsOneApplyWithTheNewestPhase() {
+        let phases = SwitchPhaseMailbox()
+        #expect(phases.put(.downloading(fractionCompleted: nil)), "the first phase asked for no apply")
+        let extraApplies = (1...1_000).filter { phases.put(.downloading(fractionCompleted: Double($0) / 1_000)) }.count
+        #expect(extraApplies == 0, "a burst of progress posted \(extraApplies) more main-thread applies")
+        #expect(phases.take() == .downloading(fractionCompleted: 1), "the apply did not take the newest phase")
+        #expect(phases.take() == nil, "a phase was applied twice")
+        #expect(phases.put(.verifying), "a phase after the apply ran asked for no apply")
     }
 
     // MARK: MainDeadline background (the recovery draft's debounce)

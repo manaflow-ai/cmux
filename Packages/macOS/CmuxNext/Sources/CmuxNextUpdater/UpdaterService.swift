@@ -187,8 +187,7 @@ public final class UpdaterService {
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let switcher: AppChannelSwitcher
     /// The feed read and the channel switch in flight (UpdaterService+Probe.swift).
-    @ObservationIgnored var probeTask: Task<String?, Never>?
-    @ObservationIgnored var probeWaiters: [@MainActor (_ failure: String?) -> Void] = []
+    @ObservationIgnored var probeFlight: ProbeFlight?
     @ObservationIgnored var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
     /// A check the person asked for runs in Sparkle (cleared when the flow leaves checking).

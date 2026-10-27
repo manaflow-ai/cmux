@@ -170,7 +170,11 @@ struct NewTabPreloadTests {
             let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.request = {}
             pool.webKit.probe {}
-            await Self.turns { pool.webKit.state == .ready }
+            // The probe's answer is a background task: it lands in a frame of the rig.
+            await Self.turns {
+                rig.frame()
+                return pool.webKit.state == .ready
+            }
             try #require(pool.webKit.state == .ready)
             let window = Self.window()
             defer { window.close() }
@@ -234,7 +238,11 @@ struct NewTabPreloadTests {
             let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.request = {}
             pool.webKit.probe {}
-            await Self.turns { pool.webKit.state == .ready }
+            // The probe's answer is a background task: it lands in a frame of the rig.
+            await Self.turns {
+                rig.frame()
+                return pool.webKit.state == .ready
+            }
             try #require(pool.webKit.state == .ready)
             let first = Self.window(), second = Self.window()
             defer {

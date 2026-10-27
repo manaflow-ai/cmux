@@ -31,8 +31,8 @@ import Testing
         var count = 0
     }
 
-    static func make(newer: Bool, held: Bool = false) -> (Base.Harness, Installs) {
-        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held)
+    static func make(newer: Bool, held: Bool = false, rig: MainDeadlineRig = MainDeadlineRig(framed: false)) -> (Base.Harness, Installs) {
+        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held, rig: rig)
         let installs = Installs()
         h.updater.preflightOverride = { nil }
         h.updater.installStaged = { installs.count += 1 }
@@ -77,12 +77,30 @@ import Testing
     @Test func aSlowFeedDoesNotHoldTheClick() async throws {
         let (h, installs) = Self.make(newer: true, held: true)
         h.updater.installClicked()
-        for _ in 0..<40 where installs.count == 0 {
-            try await Task.sleep(for: .milliseconds(20))
-            h.clock.advance(by: .seconds(1))
-        }
-        #expect(installs.count == 1, "the click waits on a feed that never answers")
+        try #require(await eventually { h.feed.fetches == 1 }, "the click did not read the feed")
+        h.rig.advance(by: StagedUpdateRefresh.clickProbeDeadline)
+        h.rig.fireAtNow()
+        #expect(await eventually { installs.count == 1 }, "the click waits on a feed that never answers")
         #expect(h.sparkle.cancels == 0)
         h.feed.release()
+    }
+
+    /// The feed's answer reaches main before the click's deadline fires, and both wait for the same frame
+    /// (a583 again): the answer came first, so it decides the click and newer build 500 wins. The answer lands
+    /// in the click's class (userBlocking); landed as visible work, it ran after the deadline, which installed
+    /// stale build 300.
+    @Test func anAnswerQueuedBeforeTheClicksDeadlineDecidesTheClick() async throws {
+        let rig = MainDeadlineRig(runsTurns: false)
+        let (h, installs) = Self.make(newer: true, rig: rig)
+        rig.frame()
+        h.updater.installClicked()
+        try #require(h.updater.stagedRefresh.clickWaits, "the click did not wait for the feed")
+        try #require(await eventually { h.updater.probeFlight?.arrived != nil }, "the feed's answer never reached main")
+        #expect(h.sparkle.cancels == 0 && installs.count == 0, "the answer landed before its frame")
+        rig.advance(by: StagedUpdateRefresh.clickProbeDeadline)
+        rig.fireAtNow() // the deadline's task and the queued answer run in this one frame
+        #expect(h.sparkle.cancels == 1, "the click's deadline ran before the answer that came first: stale build 300 installed")
+        #expect(installs.count == 0)
+        #expect(!h.updater.stagedRefresh.clickWaits)
     }
 }

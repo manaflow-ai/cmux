@@ -30,7 +30,9 @@ import Foundation
 /// The scheduled probe is a `background` ``MainDeadline`` aligned to the app's hidden wakes (Blink's
 /// hidden-page wake-up throttling, page_scheduler_impl.h); the install click's deadline is
 /// `userBlocking` and never aligned: the person waits on it. Each probe's answer comes back with its
-/// landing (``UpdaterService/probe(then:)``), not through a main-actor task that waits for it.
+/// landing (``UpdaterService/probe(_:then:)``), not through a main-actor task that waits for it, in the
+/// class of its cause: `userBlocking` for the click and the person's check, so the click's deadline never
+/// runs before an answer that came first; `visible` for a scheduled probe.
 @MainActor
 final class StagedUpdateRefresh {
     /// Whether this app's driver holds the staged installer and found updates download by
@@ -87,7 +89,7 @@ final class StagedUpdateRefresh {
             guard let self, let updater else { return }
             self.settleClick(answered: false, updater: updater)
         }
-        updater.probe { [weak self, weak updater] failure in
+        updater.probe(.userBlocking) { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }
@@ -179,7 +181,10 @@ final class StagedUpdateRefresh {
     func run(reason: String, updater: UpdaterService) -> Task<String?, Never>? {
         let asked = reason != "scheduled check"
         if let task {
-            if asked { probing?.asked = true }
+            if asked {
+                probing?.asked = true
+                updater.probe(.userBlocking)  // the person now waits on the answer: it lands in their class
+            }
             return task
         }
         guard case .ready = updater.flow.phase, !installing, !updater.flow.installRequested, updater.disabledReason == nil,
@@ -187,7 +192,7 @@ final class StagedUpdateRefresh {
         timer.cancel()
         updater.log.append("\(reason) while build \(staged) waits: looking for a newer \(updater.ring.rawValue) build")
         probing = (ringPicks, asked)
-        let task = updater.probe { [weak self, weak updater] failure in
+        let task = updater.probe(asked ? .userBlocking : .visible) { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.finish(staged: staged, failure: failure, updater: updater)
         }

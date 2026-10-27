@@ -93,12 +93,11 @@ import CmuxNextWakeupsTestSupport
 
     /// A NIGHTLY on build 100 following `ring`, with build 300 staged ("Update Ready").
     static func make(ring: String, feed xml: String = feed(), held: Bool = false, replaceable: Bool = true,
-                     checkAutomatically: Bool = true) -> Harness {
+                     checkAutomatically: Bool = true, rig: MainDeadlineRig = MainDeadlineRig(framed: false)) -> Harness {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
         let defaults = UserDefaults(suiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
-        let rig = MainDeadlineRig(framed: false)
         let feed = CountingFeed(xml: xml, held: held)
         let sparkle = FakeSparkle()
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },

@@ -54,7 +54,7 @@ import Testing
         updater.announcementsFetch = false
         try updater.useTestFeed("http://127.0.0.1:8080/appcast.xml", pinned: false)
         updater.follow(ring: "canary")
-        #expect(await updater.probe().value == nil)
+        #expect(await updater.probe(.visible).value == nil)
         guard case .updateAvailable(let item) = updater.lastProbe?.outcome else {
             Issue.record("\(String(describing: updater.lastProbe))")
             return

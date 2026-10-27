@@ -19,14 +19,17 @@ final class MainDeadlineRig {
     /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
     /// - Parameter framed: Whether frames run (a kept frame client): posted work then runs at ``frame()``. False runs
     ///   it on the next main run loop turn, as an idle app does, for a test whose replies come back off main.
-    init(startup: StartupPhase = .settled(), framed: Bool = true) {
+    /// - Parameter runsTurns: Whether posted work's next-turn runs happen (the main run loop's). False drops them, so a
+    ///   framed rig runs posted work only at ``frame()``: a test queues work from two sources and runs it in one frame.
+    init(startup: StartupPhase = .settled(), framed: Bool = true, runsTurns: Bool = true) {
         let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0), budgetClock = RigUptime(1_000_000_000)
         self.timer = timer
         self.uptime = uptime
         self.budgetClock = budgetClock
         let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
+        let heldTurns: MainWorkScheduler.TurnPerformer? = runsTurns ? nil : { _ in }
         let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
-                                             startup: startup) { _ in RigLink() }
+                                             startup: startup, performTurn: heldTurns) { _ in RigLink() }
         self.queue = queue
         self.work = work
         deadlines = MainDeadlineScheduler(work: work, queue: queue)

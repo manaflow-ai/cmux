@@ -49,7 +49,7 @@ extension AppControl {
                 }
             },
             .mainActor("updates.check") { [work = mainWork] call in
-                let probe = updater.probe()
+                let probe = updater.probe(.automation)
                 // Answer inside the 2 s control deadline. A slower feed leaves
                 // the probe running: `pending: true`, then read `updates.status`.
                 let answerBy = call.deadline - .milliseconds(150)

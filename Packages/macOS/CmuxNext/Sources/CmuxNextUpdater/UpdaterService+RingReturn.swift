@@ -8,7 +8,7 @@ extension UpdaterService {
     /// What following `ring` does to the running build. Offline, or with the feed unreadable,
     /// it says nothing (``RingReturn/none``); a kept build a rollback would refuse waits.
     public func ringReturn(to ring: UpdateRing) async -> RingReturn {
-        // Sparkle's allowedChannels reads the baked feed, not a test feed: the same as ``probe()``.
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the same as ``probe(_:then:)``.
         let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var feedIdentity = identity
         if let testFeedURL { feedIdentity.infoFeedURL = testFeedURL }
