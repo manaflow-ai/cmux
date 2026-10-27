@@ -1,3 +1,5 @@
+import CmuxNextWakeups
+
 // The action pipeline (plans/cmux-next/zero-latency.md, "Native actions: the budget contract"): a
 // handler returns its synchronous change as an ``ActionEffect``; the registry, not the handler,
 // starts the remote work after the handler returned, tracks it, reconciles and rolls back.
@@ -52,10 +54,12 @@ extension ActionRegistry {
     public func settle(_ effect: ActionEffect, of id: ActionID, _ invocation: ActionInvocation) {
         switch effect.kind {
         case .done:
-            return
+            effectExpectsFrame()
         case .applied(let confirmation):
+            effectExpectsFrame()
             start(id, invocation, confirmation.send, rollback: confirmation.rollback)
         case .waiting(let reason, let work):
+            effectExpectsFrame()
             waitingRuns[canonicalID(for: id), default: [:]][reason, default: 0] += 1
             start(id, invocation, work, rollback: nil)
         case .refused(let reason, let quiet):
@@ -65,14 +69,36 @@ extension ActionRegistry {
 
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
     /// and, unless a capturing caller reports it itself, shows it.
+    ///
+    /// The completion (the rollback and notice, and for a run started in a person's input the
+    /// answer to that input) runs under the run's cause through ``mainWork``
+    /// (``MainWorkScheduler/reply(as:owner:file:line:_:)``). A person's run is the rest of the
+    /// person's action (Chrome `base::TaskPriority::USER_BLOCKING`, base/task/task_traits.h): its
+    /// remote half runs at ``WorkPriority/userBlocking`` and its completion as one
+    /// ``MainWorkClass/userBlocking`` task, ahead of visible work and not held by the input response
+    /// it answers; that task's commit closes the response (``MainFrameBudget/noteAnswered(_:)``).
     private func start(_ id: ActionID, _ invocation: ActionInvocation, _ send: @escaping @MainActor () async -> ActionWorkFailure?,
                        rollback: (@MainActor (ActionWorkFailure) -> Void)?) {
         let reported = isCapturingWork
         let title = title(for: id) ?? id.rawValue
-        let task: ActionWork = Task { [weak self] in
-            guard let failure = await send() else { return nil }
-            rollback?(failure)
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+        let cause = (ActionRunScope.current?.origin ?? invocation.origin).observationCause
+        let mainWork = self.mainWork
+        let answers = cause == .person ? mainWork?.budget.answerableInput : nil
+        let task: ActionWork = Task(priority: cause == .person ? WorkPriority.userBlocking.taskPriority : nil) { [weak self] in
+            let failure = await send()
+            guard failure != nil || answers != nil else { return nil }
+            let complete: @MainActor () -> Void = {
+                if let failure {
+                    rollback?(failure)
+                    if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+                }
+                if let answers { mainWork?.budget.noteAnswered(answers) }
+            }
+            if let mainWork {
+                await mainWork.reply(as: cause, owner: "ActionRegistry.completion") { complete() }
+            } else {
+                complete()
+            }
             return failure
         }
         track(task)

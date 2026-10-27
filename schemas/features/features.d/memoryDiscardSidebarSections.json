@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDiscardSidebarSections",
+  "owner": "PL-memory",
+  "description": "A right sidebar section or Home dock mode hidden past its timeout, or hidden at critical memory pressure, lets its view go and keeps a record of its scroll, expanded rows and query; showing it builds the section again as left. The shown section never goes.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["memory.discard.sidebarSections"]
+}

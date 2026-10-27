@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -19,7 +21,8 @@ import CmuxNextAgentPane
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
-    private var buffers: [Int: Entry] = [:]
+    /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
+    private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
     /// page render; past this the field (or whatever has focus) takes the keys directly.
     var holdLimit: Duration = .seconds(2)
@@ -28,13 +31,15 @@ final class NewTabInputCoordinator {
     var incomingHoldLimit: Duration = .seconds(4)
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
-    /// Runs `fire` once `limit` from now (a task by default; injected for tests).
-    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor () -> Void) -> Task<Void, Never> = { limit, fire in
-        Task { @MainActor in
-            // wakeup-allow: one-shot bound on a New Tab key hold; cancelled when the hold ends first
-            do { try await Task.sleep(for: limit) } catch { return }
-            fire()
-        }
+    /// Runs `fire` once `limit` from now and answers its timer, which the hold cancels when it ends first (injected
+    /// for tests). The person's keys wait on it, so it asks Chromium's flat 8 ms leeway (kDefaultLeeway,
+    /// base/task/task_features.h), not 10% of the limit.
+    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor @Sendable () -> Void) -> DemandTimer = { limit, fire in
+        // timer-class-allow: the person's held keys wait on this bound, so it keeps an explicit 8 ms tolerance; a
+        // MainDeadline's flexible window would let the 2 s and 4 s bounds slip 200 and 400 ms.
+        let timer = DemandTimer(owner: "NewTabInput.holdLimit")
+        timer.scheduleOnMain(after: limit, tolerance: WakeLeeway.defaultAlignment, fire)
+        return timer
     }
 
     private final class Entry {
@@ -46,7 +51,7 @@ final class NewTabInputCoordinator {
         weak var window: NSWindow?
         /// The open put the page's tab on screen (`didShow`).
         var shown = false
-        var deadline: Task<Void, Never>?
+        var deadline: DemandTimer?
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
         let incoming: IncomingPage?
@@ -67,7 +72,7 @@ final class NewTabInputCoordinator {
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
-            guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
+            guard let pane, pane.view.window === window, pane.view.isShownForInput else { return false }
             guard let key = pane.currentTabKey else { return !shown }
             if pane.services.agentTabs.isNewTabPage(key) { return true }
             return !shown && key == opened
@@ -120,7 +125,7 @@ final class NewTabInputCoordinator {
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
-                  !view.isHiddenOrHasHiddenAncestor else { return false }
+                  view.isShownForInput else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             // Never from another cmux window the person moved to since Cmd-T: their keys go there.
             // A Chromium page's own grant moves the keys to its page window: the shell does not take
@@ -144,7 +149,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return window.makeFirstResponder(view.webView)
+            return window.makeFirstResponder(view.focusTarget)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -167,7 +172,7 @@ final class NewTabInputCoordinator {
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
                   view.model.newTab != nil, let shown = view.window,
-                  shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
+                  shown === window || target.followsNewWindow, view.isShownForInput else { return false }
             // A Chromium page window or the old window may be key: the page's window takes it. A
             // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
             if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { shown.makeKey() }
@@ -176,7 +181,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return shown.makeFirstResponder(view.webView)
+            return shown.makeFirstResponder(view.focusTarget)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
@@ -269,7 +274,7 @@ final class NewTabInputCoordinator {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+            child.isVisible && chromiumAgentPane(under: child, in: window).map { $0.isShownForInput } == true
         }
     }
 

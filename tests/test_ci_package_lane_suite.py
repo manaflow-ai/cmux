@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE_SWIFT = """#!/bin/bash
 case "$1 ${2:-}" in "package resolve"|"--version "*) exit 0 ;; esac
 echo "swift $*" >> "$FAKE_SWIFT_LOG"
+echo "$1 strict=${LIBDISPATCH_COOPERATIVE_POOL_STRICT:-}" >> "${FAKE_SWIFT_ENV_LOG:-/dev/null}"
 case "$1" in
   build) echo "Build complete!" ;;
   test)
@@ -70,7 +71,8 @@ def main() -> int:
                "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp")}
         (scratch / "tmp").mkdir()
         for name in ("GITHUB_OUTPUT", "GITHUB_ACTIONS", "EVENT_NAME", "FULL_SUITE", "CMUX_SWIFT_TEST_DEBUG_INFO",
-                     "CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_SUITE_CONFIGURATION"):
+                     "CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_SUITE_CONFIGURATION", "CMUX_SWIFT_TEST_COOP_STRICT",
+                     "LIBDISPATCH_COOPERATIVE_POOL_STRICT"):
             env.pop(name, None)
 
         r = run(repo, env, "suite", "Packages/macOS/Pkg", "FooTests")
@@ -158,6 +160,25 @@ def main() -> int:
         r = run(repo, {**env, "CMUX_SWIFT_TEST_DEBUG_INFO": "line-tables"}, "suite", "Packages/macOS/Pkg", "ATests")
         if r.returncode != 2 or log.read_text() or "CMUX_SWIFT_TEST_DEBUG_INFO must be" not in r.stderr:
             failures.append(f"an unknown CMUX_SWIFT_TEST_DEBUG_INFO was not refused before swift (exit {r.returncode}): {r.stderr}")
+
+        # CMUX_SWIFT_TEST_COOP_STRICT=1 (sanitizer-sweep.sh coop-strict): only the `swift test` runs get
+        # LIBDISPATCH_COOPERATIVE_POOL_STRICT=1; the build, which has no watchdog, runs on the normal pool.
+        env_log = scratch / "swift-env.log"
+        log.write_text("")
+        r = run(repo, {**env, "CMUX_SWIFT_TEST_COOP_STRICT": "1", "FAKE_SWIFT_ENV_LOG": str(env_log)},
+                "suite", "Packages/macOS/Pkg", "ATests,BTests")
+        seen = env_log.read_text().splitlines() if env_log.exists() else []
+        if r.returncode != 0 or seen != ["build strict=", "test strict=1", "test strict=1"]:
+            failures.append(f"coop-strict reached the build or missed a suite (exit {r.returncode}): {seen!r} {r.stderr}")
+        env_log.unlink(missing_ok=True)
+        r = run(repo, {**env, "FAKE_SWIFT_ENV_LOG": str(env_log)}, "suite", "Packages/macOS/Pkg", "ATests")
+        seen = env_log.read_text().splitlines() if env_log.exists() else []
+        if seen != ["build strict=", "test strict="]:
+            failures.append(f"a suite without CMUX_SWIFT_TEST_COOP_STRICT ran on the strict pool: {seen!r}")
+        log.write_text("")
+        r = run(repo, {**env, "CMUX_SWIFT_TEST_COOP_STRICT": "yes"}, "suite", "Packages/macOS/Pkg", "ATests")
+        if r.returncode != 2 or log.read_text() or "CMUX_SWIFT_TEST_COOP_STRICT must be" not in r.stderr:
+            failures.append(f"an unknown CMUX_SWIFT_TEST_COOP_STRICT was not refused before swift (exit {r.returncode})")
 
         # Bad arguments are refused before any swift call.
         for args in (("suite", "Packages/macOS/Pkg"), ("suite", "../outside", "FooTests"),

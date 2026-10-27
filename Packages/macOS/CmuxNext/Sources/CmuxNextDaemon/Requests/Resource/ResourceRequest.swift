@@ -58,12 +58,17 @@ struct ResourceRequestEnvelope: Encodable {
     }
 
     /// Decodes `result` of an `ok:true` resource response.
-    static func decodeResult<R: Decodable>(_ type: R.Type, from line: Data) throws -> R {
+    static func decodeResult<R: Decodable>(_ type: R.Type, from line: Data, decoder: WireDecoder = WireCoding.decoder()) throws -> R {
         do {
-            return try JSONDecoder().decode(ResourceResponseEnvelope<R>.self, from: line).result
+            return try decoder.decode(ResourceResponseEnvelope<R>.self, from: line).result
         } catch {
             throw DaemonError.malformedResponse("\(R.self): \(error)")
         }
+    }
+
+    /// Decodes `result` of an `ok:true` resource response, counted on its connection.
+    static func decodeResult<R: Decodable>(_ type: R.Type, from response: LineTransport.Response) throws -> R {
+        try decodeResult(type, from: response.line, decoder: WireCoding.decoder(response.recorder))
     }
 }
 

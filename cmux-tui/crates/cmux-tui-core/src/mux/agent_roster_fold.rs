@@ -10,6 +10,7 @@ impl Mux {
     /// projection fails. The ingress path catches the projection error, stages
     /// a durable pending row, and still returns the journal receipt so callers
     /// can retain exactly-once semantics while the terminal becomes available.
+    #[track_caller]
     pub(super) fn apply_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
@@ -189,6 +190,7 @@ impl Mux {
     /// are its only writers, so the journal fully determines it. Best
     /// effort by design: a hook may outlive its terminal, and a journal
     /// append must never start failing because a view cannot update.
+    #[track_caller]
     pub(super) fn fold_agent_roster(
         &self,
         ingress: &crate::JournalIngress,
@@ -261,6 +263,7 @@ impl Mux {
     /// the daemon stopped. The roster is the canonical live view; the
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
+    #[track_caller]
     pub(super) fn reconcile_agent_roster_projections(&self) {
         let entries = self
             .agent_roster
@@ -278,6 +281,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn reconcile_agent_roster_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
@@ -296,6 +300,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn reconcile_agent_roster_projection_for_entry(
         &self,
         terminal_id: &TerminalPublicId,
@@ -342,6 +347,7 @@ impl Mux {
     /// commit and the agent-changed broadcast remote frontends converge on.
     /// A removal commits the done state (history keeps the exit; the roster
     /// already dropped the live entry).
+    #[track_caller]
     pub(super) fn apply_roster_delta(
         &self,
         delta: crate::journal_reducers::RosterDelta,
@@ -401,6 +407,7 @@ impl Mux {
     /// The event wears the agent-hook payload shape with a dedicated
     /// adapter, and the fold recognizes that adapter as an echo whose
     /// projection commit already happened.
+    #[track_caller]
     pub(super) fn append_agent_report_echo(
         &self,
         terminal_id: &TerminalPublicId,

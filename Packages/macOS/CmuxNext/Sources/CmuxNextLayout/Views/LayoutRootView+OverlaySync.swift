@@ -66,11 +66,32 @@ extension LayoutRootView: PaneCardSource {
         let visible = convert(bounds, to: nil)
         return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
-                let rect = host.cardInWindow.intersection(visible)
+                // A pan on the strip's motion container, or a row's or area's, shows the card moved by its translation.
+                let moved = screen.panTranslation(of: host)
+                let card = host.cardInWindow.offsetBy(dx: moved.dx, dy: moved.dy)
+                let rect = card.intersection(visible)
                 return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))
             }
         }
     }
 
     public func observePaneCards(_ block: @escaping () -> Void) -> AnyObject { observeOverlaySync(block) }
+}
+
+extension LayoutViewContext {
+    /// The screens' two ways to move `root`'s overlay: once before this turn's frame commits, after whatever
+    /// moved hosts (`setNeedsOverlaySync`), or now. Now is a render-server spring's start
+    /// (`SplitMotion.placeAtRest`): its hosts are at rest, and the plane places every ring and dim there so
+    /// each host's springs carry its chrome from that rest in one group (`PaneHostView.springToRest`); the
+    /// springs then run with no sync until they land, and the sync this turn scheduled finds every ring placed.
+    /// The plane's coordinates are the root's (`syncOverlay`), so a host's start converts there through the root.
+    func wireOverlaySync(to root: LayoutRootView) {
+        overlayNeedsSync = { [weak root] in root?.setNeedsOverlaySync() }
+        overlaySyncNow = { [weak root] in
+            guard let root else { return }
+            root.overlayIsStale = true
+            root.flushOverlaySync()
+        }
+        overlayPlaneRect = { [weak root] rect, view in root?.convert(rect, from: view) }
+    }
 }

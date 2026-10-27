@@ -38,7 +38,7 @@ Every rule that changes a value before the diff is written in the schema, next t
 | `x-oracle-decimal` | wire decimals | The wire sends this uint64 as a decimal string (`"42"`, cmux-tui/spec/bindings.md: "Decimal wire values remain strings"). The schema keeps the string, with pattern `^(0\|[1-9][0-9]*)$`, so a capture passes through unchanged. |
 | `x-oracle-volatile` | a field | `{reason, task}`. Normalize drops the field. The reason names the source of nondeterminism. |
 | `x-oracle-precision` | every number | Normalize rounds to this step. Ratios use 0.001, frame fractions and zoom use 0.01. `x-oracle-precision-default` (0.001) applies to numbers inside open objects. |
-| `x-oracle-rewrite` | path, URL and shell-title strings | `path`: the case root becomes `$ROOT`, the hermetic home becomes `$HOME`. `url`: the loopback fixture origin becomes `$WEB`. For a `derive: sha256` field the capture rewrites first, then hashes. |
+| `x-oracle-rewrite` | path, URL and shell-title strings | `path`: the case root becomes `$ROOT`, the hermetic home becomes `$HOME`. `url`: the loopback fixture origin becomes `$WEB`. For a `derive: sha256` field the capture rewrites first, then hashes: the runner passes the prefixes it gives normalize.py (`--root`, `--home`) as `paths: {root: [...], home: [...]}` to `debug.oracle.snapshot`, `debug.oracle.wait_for` and an arming `debug.oracle.recorder`, and the app applies `_Rewriter`'s rule (`OraclePaths`). |
 | `x-oracle-time` | time values | `{unit, epoch: fixture}`: a timestamp, changed to an offset from the fixture epoch of the virtual clock (task p15-oracle-185). Only timestamps: a duration is not a time (`clients[].connected_seconds` is volatile). |
 | `x-oracle-counter` | totals | `monotonic`: a total of person or script actions (`intents.totals`). The runner compares the delta between two checkpoints, not the value. |
 
@@ -107,6 +107,23 @@ tab and group names that a case step sets; page titles and URLs of the hermetic 
 strings (AX label keys, palette and dialog ids, sidebar row labels, which are workspace names); enum values.
 A new raw text field needs that reason in its `description`.
 
+### Case root and home
+
+A hash cannot be rewritten after the capture, so the app rewrites `x-oracle-rewrite: path` text itself
+before it hashes it (the `terminals` facet's `title` and `last24Sha256`). It must know the prefixes that
+normalize gets as `--root` and `--home`. The app driver (task p15-oracle-200) launches the app for each case
+with the variables that `normalize.py`'s `app_environment(Context)` gives for the same `Context`:
+
+| Variable | Value |
+| --- | --- |
+| `CMUX_NEXT_ORACLE_ROOT` | The case root and each alias a shell may report (`/tmp/o/<run6>/<case6>` and `/private/tmp/o/<run6>/<case6>` on macOS), separated by `:`: the `--root` values. The `CMUX_NEXT_` prefix is required: the app unsets every other inherited `CMUX*` variable at launch (`LaunchIdentity.inheritedKeys`). |
+| `HOME` | The hermetic home: the one `--home` value. |
+
+The app reads both once, at its composition root (`AppEnvironment`). When `CMUX_NEXT_ORACLE_ROOT` is not set
+and a hashed text still holds a path under `/tmp/o/`, the `terminals` facet answers not-comparable, never a
+hash of the raw path. `fixtures/path-rewrite.json` holds one environment and texts with their rewrites; the
+normalize selftest (`app_environment_rewrite_matches`) and `OracleTerminalsFacetTests` both check it.
+
 ## Source methods
 
 | Method | Owner | Gives |
@@ -117,6 +134,8 @@ A new raw text field needs that reason in its `description`.
 | `oracle-state` | cmux-tui `oracle_state.rs` (task 021) | `daemon.journalHead`, `daemon.oracle` |
 | `debug.oracle.snapshot` | `CmuxNextOracle` facet providers (task 030) | every other facet; its result is `{<facet>: <value>}` |
 | `terminal.screen.read` | cmux-tui resource API (`TerminalScreenResult.text`) | the input of `terminals.list[].last24Sha256` |
+| `cli` | the shipped `cmux` binary, run by `scripts/cmux-next/oracle/driver_cli.py` (task 048) | `cli`: a cli step's exit code, stdout (open) and typed error, in its settled checkpoint |
+| `mcp` | `cmux mcp serve --all-tools` over stdio, run by `scripts/cmux-next/oracle/driver_mcp.py` (task 209) | `mcp`: an mcp step's tool-error flag, result (open) and typed error, in its settled checkpoint |
 
 Facets that pass a method result through keep that method's wire keys and shape, so a pointer maps one to one:
 `topology` is the whole `snapshot.get` result (path `/`), `daemon.session` is `ResourceSnapshot`. The capture

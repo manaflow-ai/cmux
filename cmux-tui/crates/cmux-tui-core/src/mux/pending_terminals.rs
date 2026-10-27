@@ -95,6 +95,7 @@ impl Mux {
     /// its public id; the caller must not hold the registry or state lock.
     #[cfg(any(unix, windows))]
     /// Returns whether the marker was set (false: the public id is unknown).
+    #[track_caller]
     pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) -> bool {
         let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
         let Ok(Some(public_id)) = public_id else { return false };
@@ -140,6 +141,7 @@ impl Mux {
     /// Remember the typed end of an ended terminal from its durable receipt,
     /// for tabs that keep showing it without a runtime surface (R41).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn record_terminal_end(&self, terminal_id: &str) {
         let (terminal, public_id) = {
             let registry = self.workspace_registry.lock().unwrap();
@@ -166,6 +168,7 @@ impl Mux {
     /// exited, by itself or by a close), end the terminal with the host's
     /// exit sidecar when it left one, and remove its artifacts.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn watch_unadoptable_terminal_host(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -220,6 +223,7 @@ impl Mux {
     ///
     /// Returns whether the terminal is now unadoptable, so adoption must stop.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn refused_all<T>(
         self: &Arc<Self>,
         streak: &mut RefusalStreak,
@@ -264,6 +268,7 @@ impl Mux {
     /// its shell (a newer record version after a rollback). Never report that
     /// terminal ended: keep it visible as unadoptable and watch its host.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn mark_unadoptable_terminal_hosts(
         self: &Arc<Self>,
         options: &SurfaceOptions,

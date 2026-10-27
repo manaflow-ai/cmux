@@ -15,6 +15,7 @@ pub(crate) mod host_serve;
 pub(crate) mod host_shared;
 pub(crate) mod host_start;
 pub(crate) mod host_state;
+pub(crate) mod host_trace;
 pub(crate) mod metric_commits;
 pub(crate) mod program_status_codec;
 pub(crate) mod record_mirror;

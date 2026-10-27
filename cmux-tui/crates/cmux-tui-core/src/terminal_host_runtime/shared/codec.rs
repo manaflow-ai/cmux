@@ -499,11 +499,18 @@ pub(crate) fn decode_hex_array<const N: usize>(text: &str) -> anyhow::Result<[u8
     if text.len() != N.saturating_mul(2) {
         anyhow::bail!("terminal-host identity has the wrong length");
     }
-    let not_hex = || anyhow::anyhow!("terminal-host identity is not hexadecimal");
+    let nibble = |digit: u8| {
+        char::from(digit)
+            .to_digit(16)
+            .and_then(|value| u8::try_from(value).ok())
+            .ok_or_else(|| anyhow::anyhow!("terminal-host identity is not hexadecimal"))
+    };
     let mut bytes = [0u8; N];
     for (byte, pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
-        let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
-        *byte = u8::from_str_radix(pair, 16).map_err(|_| not_hex())?;
+        let [high, low] = pair else {
+            anyhow::bail!("terminal-host identity has the wrong length");
+        };
+        *byte = (nibble(*high)? << 4) | nibble(*low)?;
     }
     Ok(bytes)
 }
@@ -957,3 +964,6 @@ pub(crate) fn read_required_frame(reader: &mut impl Read, context: &str) -> anyh
     read_frame(reader, MAX_FRAME_PAYLOAD)?
         .ok_or_else(|| anyhow::anyhow!("terminal host closed before {context}"))
 }
+
+#[cfg(test)]
+mod tests;

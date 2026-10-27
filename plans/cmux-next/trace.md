@@ -18,7 +18,7 @@ slept during the recording) gives a `WARNING` in the summary.
 | Source | How it is recorded | Where it shows |
 |---|---|---|
 | Stack samples, every process | `xctrace record --all-processes`, Time Profiler with os_signpost and Points of Interest (System Trace with `--system-trace`) | Nested slices (a flame chart over time) on the real thread: app main thread, Ghostty renderer and IO threads, Chromium threads, daemon, holder, terminal hosts, acpmux, CLI processes, WindowServer |
-| cmux signposts | `log stream --signpost`, subsystem `com.cmuxterm.app.next`, every process | Tracks `signposts <category>` in the emitting process: `action.perform`, `action.commit`, `action.gate` (always on, also in Release), and the `stalls`, `tab-switch` and `pane-focus` debug timings |
+| cmux signposts | `log stream --signpost`, subsystem `com.cmuxterm.app.next`, every process | Tracks `signposts <category>` in the emitting process: `action.perform`, `action.commit`, `action.gate` (always on, also in Release), and the catalog spans of the debug timings: category `stall` (`stall.create_surface`, `stall.palette_open`, `stall.icon_picker_open`) and category `switch` (`switch.tab`, `switch.pane_focus`). A watchdog stall lists in its `during` line the ones it happened inside (`STALL_DURING_SPANS`), a `commit=missed` one labeled `missed` |
 | Main-thread stalls | The app watchdog (`debug.hangs`, threshold `--hang-ms`, default 8 ms), read every second by sequence number | Track `watchdog stalls` in the app: each stall with its CPU time and its main-thread stack sample (slice args) |
 | Daemon spans | `CMUX_TUI_DEBUG_SPANS=<file>` set on the app (the daemon inherits it), followed with `tail -F` | Tracks in the daemon: one slice per request, with one child slice per mark (the gap before a mark is the cost of that step) |
 | Chromium's own trace | CDP `Tracing.start` on the DevTools port that the Debug build opens with `CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=N` | The browser process (the app pid), the GPU process and the renderers. Thread ids are mapped to the OS threads of the time profile by name (`CrBrowserMain` is the app main thread) |
@@ -159,14 +159,21 @@ Turned on by `CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, which `trace.py record --
 inherited `CMUX*` variable that is not a `CMUX_NEXT_*` launch knob, so the daemon launch passes it on as
 `CMUX_TRACE_FLOWS` (`DaemonDiagnosticKnobs`, also `CMUX_NEXT_TUI_DEBUG_SPANS` as `CMUX_TUI_DEBUG_SPANS`); the
 terminal hosts and the holder inherit it from the daemon. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
-terminal host's `serve_terminal_host_process`, the holder's `serve`), which opens `<dir>/flows-<pid>.jsonl` and
-starts the writer thread, so no hop opens a file or starts a thread. A hop never allocates, locks or enters
-the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/tests/off.rs`); on, it reads the
-clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
-ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
-in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
-while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
-counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
+terminal host's `serve_terminal_host_process`, the holder's `serve`), which starts the process's black box and a
+recording of the `key` category in `<dir>` (`<role>-<pid>.recording.cmxtrace`, "Release trace ring v1"), so no
+hop opens a file or starts a thread. When the recording cannot be a file in `<dir>` (the process's `main` put its
+black box elsewhere, the file cannot be mapped, or the platform has no ring files yet: unix only until task
+p09-observability-132), `init` stops the recording it started, prints one stderr line and leaves flows off. A hop
+never allocates, locks or enters the kernel: off, it is one relaxed load (test `cmux-flow-trace/tests/off.rs`);
+on, it is a ring write (test `tests/records.rs` counts the caller's allocations). Hops write only while a
+recording runs: `key` is a black-box category, but after `trace.stop` no hop goes to the black box. A hop is one
+ring record in category `key` with arg0 the terminal key (the first 8 id bytes, big-endian). A hop with a flow id
+is a flow step, Chrome's `TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT`: a `f` record and then a `s`
+record with arg1 the flow id. Only the app's last hop ends the flow (`f` alone); a reader takes the `f` time as
+the hop's. A hop with no flow id is one `I` record with arg1 0. The marks in the terminal host and in the daemon's
+local-PTY path run before the runtime locks. The app's hops are `key.flow` signpost events. Until trace.py reads
+v1 rings (task p09-observability-023), `trace.py` stops with an error when `OUT/flows` holds only `.cmxtrace`
+files.
 
 | Hop | Process, thread | Carries |
 |---|---|---|
@@ -174,8 +181,8 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
-| `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `daemon.send.write`, `daemon.send.written` | daemon `mux-seq-control` pool worker (`cmd_terminal_io::send`) | flow id |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-seq-control` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
@@ -287,6 +294,8 @@ the next free bit here first, then in every writer in the same change.
 | 17 | `control` | no |
 | 18 | `ghostty` | no |
 | 19 | `resize` | no |
+| 20 | `webui` | no |
+| 21 | `log` | no |
 
 The black box records bits 0-8 from launch (section 3A of plans/cmux-next/chrome-parity/p09-observability.md);
 a `trace.start` recording turns on the others. The role (header byte 20) and phase (record byte 14) values are
@@ -300,12 +309,112 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   the daemon writes `start_uptime_ns`; trace.py already reads that field. Requested from cmux-b6
   (PL-daemon), 2026-10-23: a span for every request, with `start_uptime_ns`, `tid` and the marks
   `parsed`, `dispatched`, `reply.queued` and `reply.sent`, only when the variable is set.
-- The app has no signpost around its own daemon round trip (requested from PL-telemetry: category
-  `daemon`, `method=<name> id=<request id>`). `cef.pump` and `cef.create_browser` are reserved but
-  have no emitter (requested from PL-motion-cef). Without them, a Release trace attributes Chromium
-  main-thread time only through the stack samples.
-- The holder, the terminal hosts and acpmux have no spans. Only their sampled stacks show (requested
-  through the cmux-4f lead from PL-holder and PL-acpmux).
+- The app's own daemon round trip is the ring slice `daemon.request` (category `daemon`, closed by
+  p09-observability-025): an async slice from the send to the reply, the error or the timeout of every
+  request that waits for a reply (`LineTransport.request` and `pipeline`). The end is written when the
+  reply, error or timeout resolves the request, so a pipelined request ends at its own reply. Begin
+  arg0 is the method id the daemon's own `daemon.request` slice carries: callers pass a typed
+  `DaemonCommandName` (a request type's `static let commandName`), whose id comes from the daemon's
+  tables through `scripts/cmux-next/gen-daemon-command-names.py`. A name neither table has takes the
+  daemon's routed id: `agent-` and `access-request` 0x8005, `browser-` 0x8004, else 0x8007. The Rust
+  test `request_spans_generated_swift_*_match_the_daemon` fails when the Swift tables are stale. End
+  arg0 is the outcome: 0 reply, 1 error, 2 timeout. The async id is the wire request id in bits 0-39
+  and, in bits 40-63, a per-connection scope that the process never hands out again
+  (`TraceRuntime.nextAsyncScope`), so a reconnect cannot pair with an old connection's slice. At the
+  send a flow-out carries the flow `FNV-1a 64(app pid as 4 bytes LE, request id as 8 bytes LE)` in
+  arg1 and the async id in arg0; the daemon's flow-in from `LOCAL_PEERPID` is task 103. A request
+  sent without waiting (`sendNoReply`) has no slice.
+- `cef.pump` (category `cef`, closed by p09-observability-032) is one thread slice (B/E) per
+  `CefDoMessageLoopWork` pass of the in-process pump (`CEFMessagePump`). A writer records it only
+  while `task` (bit 12) is on as well as `cef`, so a recording has every pass and the black box has
+  none: passes run up to 100 times a second while a page loads and would push the black box's
+  action, key and switch records out. Begin arg0 is why the pass runs: 1 an immediate request,
+  2 CEF's delayed request, 3 a Chromium thread's request the gate kept, 4 the pass that runs a fire
+  a nested run loop deferred, 0 a pass no timer armed (the quit path's drain). End arg0 is 1 when
+  the pass used CEF's whole 10 ms time slice, else 0; end arg1 is the pass's elapsed time in us on
+  the pump's clock. With the Chromium host on, the host writes the same name and layout from its
+  own ring (task 104). The app emits no `cef.pump` then.
+- `task.post` and `task.run` (category `task`, recording only, closed by p09-observability-042) trace
+  posted work as Chrome's `TaskAnnotator` does (base/task/common/task_annotator.cc): every item posted
+  to a `BackgroundWork` lane and every request the control queue (`MainActorWorkQueue`) accepts. A
+  request the queue refuses as busy writes no `task.post`, so each `task.post` has its `task.run`.
+  `task.post` is a flow-out at the post: arg0 the post site (the interned `#fileID`'s id in bits 0-15,
+  the line in bits 16-47), arg1 the flow id (bit 63 set). The run's flow-in is the first record inside
+  its `task.run` slice (B/E): arg0 the post site, arg1 the flow id. A lane item's slice is the lane's
+  (below, "Blocking calls and lane jobs"); a control request's is written by `TaskTrace` on the main
+  thread, with the lane 3 (main) in B arg0 bits 8-15 and its `MainWorkClass` `rawValue` in bits 0-7, and
+  B arg1 the queue wait in us, or u64::MAX when unknown (the post was written before the recording started).
+- `control.request` (category `control`, closed for its queue part by p09-observability-042; task 115
+  owns the accept-to-reply part) is an async slice (AB/AE) per control request from its enqueue on
+  `MainActorWorkQueue` to the end of its run or its failure, keyed by an async id
+  (`TraceRuntime.nextAsyncScope`) in arg1 of both records. AB arg0 is the method's main task board
+  owner index in bits 0-31 (0 without a board) and the main work class (`MainWorkClass.rawValue`) in
+  bits 32-39. AE arg0 is the outcome: 0 ran, 1 expired while queued, 2 refused as
+  busy (it never queued).
+- `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
+  Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
+- `cef.geometry` (category `cef`, perf-hot `cef-geometry`, owner PL-motion-cef, closed by
+  p09-observability-038) is one thread slice (B/E) per parent window move or resize
+  (`WindowOverlayLayer.parentGeometryDidChange`, begin arg0 1) and per divider catcher sync
+  (`syncCatchers`, begin arg0 2). The slices never nest: catcher work inside a parent geometry
+  slice takes no slice of its own. End arg0 is the catcher panels shown, end arg1 the catcher panels
+  made or re-framed in the slice. Each `CEFHostView.postGeometryChange` is one `cef.geometry` instant
+  (arg0 0): the fork re-places one page window there, so a slice's instants are its page moves.
+  Recording only: the ring takes the slices and instants only while `motion` is on too (a live
+  resize writes one per tick), never in the black box, as `cef.pump` needs `task`.
+- `cef.host_input` (category `cef`, perf-hot `cef-host-input`, closed by p09-observability-038) is
+  one instant per input frame (3 mouse, 4 wheel, 5 key, 10 edit command) that
+  `ChromiumHostConnection.send` writes to the Chromium host; arg0 is the frame's wire kind.
+  Navigation, geometry, focus, ping, stats and quit frames record nothing. Recording only: the ring
+  takes it only while `input` is on too, never in the black box. While the keystroke-timing gate is
+  closed, a key or edit frame's instant is not recorded (the frame is still sent), in the log system
+  either. The black box upload drops every `cef.host_input`.
+- `key.omnibar_suggest` (perf-hot `omnibar-key`) and `key.palette_search` (perf-hot `palette-key`),
+  category `key`, closed by p09-observability-040, are one thread slice (B/E) per synchronous pass
+  of a typed key's search, as Chrome traces `AutocompleteController::Start` and `UpdateResult`
+  apart: begin arg0 the pass (1 the query: `OmnibarStep.refreshSuggestions`, `PaletteModel.search`;
+  2 the rows that landed; 3 the omnibar's later rows of the same query), end arg0 the rows the
+  popup or the palette page holds when the pass ends. The ranking off the main thread between the
+  two passes is not a slice. Neither is written, in the log or the ring, while the keystroke-timing
+  gate is closed.
+- The holder and the terminal hosts have `task` trace points (recording only, never the black
+  box), but a `cmux trace` capture does not show them yet. They record only after the process
+  opens its ring (p09-observability-095) and a recording is forwarded to it
+  (p09-observability-015, p09-observability-096). Until then only their sampled stacks show.
+  - Holder: `task.holder_poll` is one slice per poll turn's work, with no terminal (arg0 the ready
+    descriptors, arg1 the polled ones). The instants `task.holder_pty_read` and
+    `task.holder_pty_write` carry the terminal's `cmux_trace::terminal_hash` in arg0 and the bytes
+    read or written in arg1.
+  - Terminal host: every begin carries the terminal hash in arg0. `task.host_pty_read`: end arg0
+    the bytes read, end arg1 the outcome (0 published, 1 retry, 2 end of file, 3 read error,
+    4 parser gone). `task.host_parse`: arg1 the command kind in the high byte, an Output's bytes
+    below it. `task.host_input_write`: begin arg1 the payload bytes; end arg0 the bytes written to
+    the PTY, end arg1 the outcome (0 written, 1 dropped for lack of input-queue room, 2 write
+    failed).
+- Blocking calls and lane jobs (category `task`, closed by p02-threads-124; recording only, never the black
+  box). Off, a checked blocking call pays one acquiring load (the hook word `BlockingTraceHook`) and a lane item
+  one relaxed load at its post; Release keeps both.
+  - `task.blocking_call` (interned name) is one thread slice (B/E) per checked blocking call
+    (`blockingCall(kind, fileID, line)`, every seam of CmuxNextCompat/Threading, and
+    `cpuIntensiveCall(size:limit:)` with kind 12 at any size and on any thread), Chrome's `ScopedBlockingCall`
+    trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
+    (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
+    6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi, 19 xpc-reply) and the call's `#line` above them. Begin
+    arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
+    always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
+    `TraceRuntime.shared` routes them, while its `task` bit is on.
+  - `task.run` (catalog id 51) is one thread slice (B/E) per BackgroundWork lane item posted while `task` is
+    on, around the item's run on its slot thread (its hang scope included); Chrome's
+    `ThreadPool_RunTask` in `TaskTracker::RunTask` (base/task/thread_pool/task_tracker.cc). Begin arg0: the
+    lane in bits 8-15 (0 files, 1 system, 2 cpu, 0xFF a lane made without one) and the priority in bits 0-7
+    (0 idle, 1 best effort, 2 user visible, 3 user blocking). Begin arg1: the queue wait from the post to the
+    start in us; a `WorkSequence` item's post is its post to the sequence, so the wait includes the time behind
+    the items in front of it (Chrome stamps a sequenced task's queue time at its post,
+    base/task/thread_pool/sequence.cc). Whether an item records is decided at that post too. A `task.blocking_call` inside the item nests in its slice.
+    The item's `task.post` flow-in (p09-observability-042, above) is the first record inside the slice.
+- acpmux has no spans; only its sampled stacks show (requested through the cmux-4f lead from
+  PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for
   the reason (thread states with the blocking stack).
 - The Chromium trace needs a Debug build of a development bundle (`CMUX_NEXT_CEF_EXTRA_SWITCHES` is
@@ -624,10 +733,14 @@ one process have the same capacities.
 
 A file adds its header page and tables to the chunks: 64 bytes per name and per thread entry (App: 256 KiB of
 names and 128 KiB of threads), mostly untouched pages. `trace.start` caps the total bytes of the recording rings
-it would map and reports them in `trace.status`. Cleanup covers black-box files only: it deletes one whose pid is
-dead (`kill(pid, 0)` plus `process_start_unix_us`) and that is older than 3 days, then the oldest dead ones
-until the dead processes' black boxes take at most 16 MiB. It never deletes a live process's ring. Recording
-files are under the `trace.start` cap, not the cleanup cap.
+it would map and reports them in `trace.status`. Cleanup covers black-box files only: it deletes one whose pid has
+been dead (`kill(pid, 0)` plus `process_start_unix_us`) for more than 3 days, then the longest-dead ones until the
+dead processes' black boxes take at most 16 MiB. It never deletes a live process's ring. A ring's age is not its
+`start_unix_ns` or its mtime: the writer stores through a `MAP_SHARED` mapping, which does not reliably move the
+mtime, so a crashed 4-day session would read as 4 days old. The first cleanup that finds a ring's pid dead creates
+`<ring file name>.dead` with mtime = that cleanup's wall clock, and the age counts from that mtime (ties: the
+older `start_unix_ns` first). A marker whose ring is gone is deleted. Recording files are under the `trace.start`
+cap, not the cleanup cap.
 
 ### Versions
 

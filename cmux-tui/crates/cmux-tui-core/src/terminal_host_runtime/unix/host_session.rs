@@ -78,6 +78,7 @@ pub fn enter_terminal_host_process() -> anyhow::Result<()> {
     // SAFETY: getpid/getsid/setsid take no pointers; the host is still
     // single-threaded here.
     let own_session = unsafe { libc::getsid(0) == libc::getpid() };
+    // SAFETY: setsid takes no arguments; the host is still single-threaded.
     if !own_session && unsafe { libc::setsid() } < 0 {
         return Err(std::io::Error::last_os_error())
             .context("terminal host could not leave the daemon's session");

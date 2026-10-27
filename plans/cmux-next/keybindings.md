@@ -30,7 +30,7 @@ A key-down passes these owners in this order. Each row says who decides and wher
 
 | # | Owner | Where | What it takes |
 | --- | --- | --- | --- |
-| 0 | Input journal | `CmuxApplication.sendEvent` -> `inputObserver` | observes only |
+| 0 | Input journal | `CmuxApplication.sendEvent` -> `InputEventTap.deliverObserve` (the journal's observe subscription) | observes only |
 | 1 | Shortcut recorder of a Settings pane | `KeyRouter.interceptKeyDown` -> `settingsWindow.handlePaneRecorderKey` | every key while recording |
 | 2 | Popup panel (or its Chromium page) | `popups.interceptKeyDown` | Cmd-W closes the popup |
 | 3 | Link hints | `linkHints.interceptKeyDown` | letters, Backspace, Escape |

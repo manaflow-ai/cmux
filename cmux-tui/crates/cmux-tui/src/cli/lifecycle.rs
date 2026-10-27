@@ -1,6 +1,9 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
+use cmux_ipc::client::{
+    ClientRequest, IdentifyRequest, ReloadConfigRequest, ServerStatsRequest, ShutdownDaemonRequest,
+};
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
@@ -179,7 +182,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     let mut connection = BufReader::new(stream);
     let deadline = Instant::now() + Duration::from_secs(10);
-    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
+    let identity = match exchange(&mut connection, IdentifyRequest::default().line(1), deadline) {
         Ok(identity) => identity,
         // A timeout is a busy session, not a foreign one: say so, or the
         // reader restarts a healthy session with another build.
@@ -285,13 +288,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         ),
         ServerAction::Stats => {
-            let supports_stats = identity
-                .get("capabilities")
-                .and_then(Value::as_array)
-                .is_some_and(|capabilities| {
-                    capabilities.iter().any(|capability| capability == "server-stats-v1")
-                });
-            match exchange(&mut connection, json!({"id":2,"cmd":"server-stats"}), deadline) {
+            let supports_stats = ServerStatsRequest::CAPABILITY
+                .is_none_or(|capability| advertises(&identity, capability));
+            match exchange(&mut connection, ServerStatsRequest::default().line(2), deadline) {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
                     "server.stats_unsupported",
@@ -316,7 +315,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         ServerAction::ReloadConfig => {
             let result =
-                match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"}), deadline) {
+                match exchange(&mut connection, ReloadConfigRequest::default().line(2), deadline) {
                     Ok(result) => result,
                     Err(ExchangeError::Rejected(_)) => {
                         return local_error(
@@ -355,9 +354,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         ServerAction::Stop { force, end_terminals, .. } => {
             if end_terminals
-                && !identity["capabilities"]
-                    .as_array()
-                    .is_some_and(|values| values.iter().any(|value| value == "terminal-reap-v1"))
+                && !advertises(&identity, ShutdownDaemonRequest::END_TERMINALS_CAPABILITY)
             {
                 return local_error(
                     "server.end_terminals_unsupported",
@@ -373,11 +370,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // Ending hosts waits for each one to exit, so allow more time.
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
-            if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
-                    values.iter().any(|value| value == "daemon-handoff-force-v1")
-                })
-            {
+            if force && !advertises(&identity, ShutdownDaemonRequest::FORCE_CAPABILITY) {
                 return local_error(
                     "server.force_unsupported",
                     &refused_with_fix(
@@ -391,14 +384,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }
             let result = match exchange(
                 &mut connection,
-                json!({
-                    "id":2,
-                    "cmd":"shutdown-daemon",
-                    "pid":pid,
-                    "generation":generation,
-                    "force":force,
-                    "end_terminals":end_terminals,
-                }),
+                ShutdownDaemonRequest {
+                    pid,
+                    generation: generation.to_owned(),
+                    force: Some(force),
+                    end_terminals: Some(end_terminals),
+                    keep_layout: None,
+                }
+                .line(2),
                 deadline,
             ) {
                 Ok(result) => result,
@@ -542,7 +535,7 @@ impl StopWait<'_> {
             let mut id = 0_u64;
             loop {
                 id += 1;
-                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
+                let request = IdentifyRequest::default().line(format!("stop-wait-{id}"));
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());
                 if sent.is_err() {
@@ -853,6 +846,14 @@ enum ExchangeError {
     Closed,
     InvalidResponse,
     Rejected(String),
+}
+
+/// Whether the daemon's `identify` reply lists `capability`.
+fn advertises(identity: &Value, capability: &str) -> bool {
+    identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| capabilities.iter().any(|value| value == capability))
 }
 
 fn exchange(
@@ -1296,7 +1297,7 @@ mod tests {
         let mut connection = BufReader::new(stream);
         let error = exchange(
             &mut connection,
-            json!({"id":2,"cmd":"server-stats"}),
+            ServerStatsRequest::default().line(2),
             Instant::now() + Duration::from_secs(1),
         )
         .expect_err("rejected response");

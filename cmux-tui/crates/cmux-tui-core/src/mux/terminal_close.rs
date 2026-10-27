@@ -15,6 +15,7 @@ impl Mux {
     /// Clients such as the Mac app only ever hold public ids; validating them
     /// as host ids answered `invalid_terminal_id` and left a detached
     /// terminal unresolvable by construction (#12362).
+    #[track_caller]
     pub fn resolve_terminal(
         &self,
         terminal_id: &str,
@@ -40,6 +41,7 @@ impl Mux {
     /// terminal carries that identity. A UUIDv4-shaped value is tried as a host
     /// id first; about one public id in 64 has that shape by chance, so on a
     /// miss it is retried as a public id before being reported unknown.
+    #[track_caller]
     pub(super) fn resolve_terminal_host_id(
         registry: &WorkspaceRegistry,
         terminal_id: &str,
@@ -64,6 +66,7 @@ impl Mux {
     /// Tests only: production closes name their mutation (and actor) with
     /// [`Self::close_terminal_with_mutation`] (P8 landing 3b).
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn close_terminal(
         &self,
         terminal_id: &str,
@@ -78,6 +81,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub fn close_terminal_with_mutation(
         &self,
         terminal_id: &str,
@@ -99,6 +103,7 @@ impl Mux {
     /// Close a hosted terminal after checking `guard` under the registry
     /// lock, which serializes every placement commit. A failed guard returns
     /// [`TerminalCloseGuardFailed`] and changes nothing.
+    #[track_caller]
     pub(crate) fn close_terminal_guarded(
         &self,
         terminal_id: &str,
@@ -236,6 +241,7 @@ impl Mux {
     /// A host can become Running before its topology binding is built. Keep
     /// the durable lifecycle transition ahead of in-memory removal so a crash
     /// at any point cannot resurrect an unbound Running terminal on restart.
+    #[track_caller]
     pub(super) fn fail_hosted_terminal_attachment(
         &self,
         surface: &Arc<Surface>,
@@ -285,7 +291,12 @@ impl Mux {
             self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
-            terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
+            terminate_discovered_terminal_host_in(
+                &self.work_owner(),
+                &root,
+                terminal_id,
+                incarnation,
+            );
         }
         #[cfg(not(any(unix, windows)))]
         let _ = (terminal_id, incarnation);

@@ -1,20 +1,23 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").
 ///
 /// The chat hands the press over once it moves past the slop (``begin(_:screenPoint:)``); from
-/// then this session tracks the mouse itself with a local event monitor, like ``TabDragSession``,
-/// so the drag crosses pages drawn in child windows. Over a window's layout it asks the layout for
-/// the same drop zone a dragged tab gets (`LayoutRootView.updateTabDrag`, so the preview, its
-/// label and the split dwell are the tab drag's) and the release opens the link there
-/// (``LinkOpener/drop(_:plan:in:)``): a pane's center adds a tab, an edge makes a split. A release
-/// anywhere else, Escape, or the app going inactive ends it with nothing opened.
+/// then this session tracks the mouse itself with an input tap intercept that lives for the drag,
+/// like ``TabDragSession``, so the drag crosses pages drawn in child windows. Over a window's
+/// layout it asks the layout for the same drop zone a dragged tab gets (`LayoutRootView.updateTabDrag`,
+/// so the preview, its label and the split dwell are the tab drag's) and the release opens the link
+/// there (``LinkOpener/drop(_:plan:in:)``): a pane's center adds a tab, an edge makes a split. A
+/// release anywhere else, Escape, a press after a lost release, or the app going inactive ends it
+/// with nothing opened.
 @MainActor
 final class LinkDragSession {
     /// The layout's drag key for a link (it names no tab; a link drag never emits a tab drop).
@@ -27,8 +30,10 @@ final class LinkDragSession {
     private final class Drag {
         let item: LinkDragItem
         let ghost: LinkDragGhost
-        var monitor: Any?
-        var resign: MainActorObservation?
+        /// The drag's input tap intercept; cancelled when the drag ends.
+        var input: InputSubscription?
+        /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+        var resign: EventSubscription?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
@@ -50,10 +55,10 @@ final class LinkDragSession {
         guard let services, drag == nil, !services.dragSession.isDragging,
               let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled) else { return false }
         let drag = Drag(item: item, ghost: LinkDragGhost(title: item.title))
-        drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
-            self?.handle(event) ?? event
+        drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
+            self?.handle(event) ?? .pass
         }
-        drag.resign = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        drag.resign = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "LinkDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -62,24 +67,25 @@ final class LinkDragSession {
         return true
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    private func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
             update(TabDragSession.screenPoint(of: event))
-            return nil
+            return .consume
         case .leftMouseUp:
             update(TabDragSession.screenPoint(of: event))
             finish(commit: true)
-            return nil
+            return .consume
         case .leftMouseDown:
-            // A lost mouse-up (another tracking loop ate it): end with nothing opened.
+            // A lost mouse-up (a nested tracking loop dequeued it): end with nothing opened; the
+            // press goes on to what it hit.
             finish(commit: false)
-            return event
+            return .pass
         case .keyDown where event.keyCode == 53:
             finish(commit: false)
-            return nil
+            return .consume
         default:
-            return event
+            return .pass
         }
     }
 
@@ -116,7 +122,9 @@ final class LinkDragSession {
     private func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
-        if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
+        drag.input?.cancel()
+        drag.input = nil
+        drag.resign?.cancel()
         drag.resign = nil
         drag.ghost.close()
         let content = drag.window?.content

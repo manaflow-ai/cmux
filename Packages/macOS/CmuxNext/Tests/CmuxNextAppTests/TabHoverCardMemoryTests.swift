@@ -121,7 +121,7 @@ import Testing
     @Test func theStripRegistersOneConsumerThatGetsTheLimitAtOnce() throws {
         let registry = FakeRegistry()
         registry.limit = MemoryLimit(percent: 0)
-        let strip = TabStripView(model: TabStripModel())
+        let strip = TabStripView.testing(model: TabStripModel())
         strip.registerHoverCardMemory(with: registry)
         strip.registerHoverCardMemory(with: registry)
         #expect(registry.entries.count == 2)

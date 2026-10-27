@@ -7,6 +7,7 @@ impl Mux {
     /// commits are in the WAL when it answers; the registry's syncer makes
     /// them power-loss durable off this path (`wal_durability`).
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn resource_correlated_creation_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
@@ -191,6 +192,7 @@ impl Mux {
         ))
     }
 
+    #[track_caller]
     pub(super) fn settle_resource_creation(
         &self,
         recovery: ResourceCreationRecovery,
@@ -274,6 +276,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn rollback_interrupted_workspace_creation(
         &self,
         intent: &Value,
@@ -310,6 +313,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn persisted_creation_settlement(
         &self,
         recovery: &ResourceCreationRecovery,
@@ -336,6 +340,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(super) fn resource_creation_evidence(
         &self,
         recovery: &ResourceCreationRecovery,
@@ -394,6 +399,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(super) fn terminal_creation_evidence(
         &self,
         intent: &Value,

@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeups
 
 /// `browser.toolbarPosition` bottom in a pane (user, 2026-10-20: "move my OmniBar tabs to the
 /// bottom side"): the pane hands the setting to its browser, and with the tab bar on the same edge
@@ -19,8 +20,8 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
+                                           reveal: LaunchReveal(deadline: .zero))
             pane.barPosition = tabBar
             pane.barOrder = order
             pane.toolbarPosition = toolbar
@@ -28,7 +29,7 @@ import Testing
             window.contentView = pane
             window.orderFrontRegardless()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page)
+            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()
         }
@@ -95,8 +96,8 @@ import Testing
         let bar = NSView()
         bar.heightAnchor.constraint(equalToConstant: 40).isActive = true
         let content = NSView()
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("md"), title: "README.md")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("md"), title: "README.md")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         pane.toolbarPosition = .bottom
         pane.frame = window.contentLayoutRect
         window.contentView = pane

@@ -375,13 +375,20 @@ impl BrowserInputDispatcher {
             on_resize_failure,
             on_control_failure,
         )?;
-        Ok(Self {
+        Ok(Self::with_scheduler(scheduler, failed_resizes))
+    }
+
+    fn with_scheduler(
+        scheduler: Arc<BrowserInputScheduler>,
+        failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
+    ) -> Self {
+        Self {
             lanes: Mutex::new(HashMap::new()),
             scheduler: Some(scheduler),
             failed_resizes,
             #[cfg(test)]
             blocked_lane: None,
-        })
+        }
     }
 
     #[cfg(test)]
@@ -570,11 +577,17 @@ impl BrowserInputScheduler {
 
     fn run(self: Arc<Self>) {
         while let Some(lane) = self.next_lane() {
-            lane.process_one(&self);
-            lane.scheduled.store(false, Ordering::Release);
-            if lane.has_pending() {
-                self.schedule(lane);
-            }
+            self.run_lane(lane);
+        }
+    }
+
+    /// One worker turn: one event of `lane`, then the lane goes to the back
+    /// of the ready queue if it still has work (fair across surfaces).
+    fn run_lane(&self, lane: Arc<ScheduledSurfaceInputLane>) {
+        lane.process_one(self);
+        lane.scheduled.store(false, Ordering::Release);
+        if lane.has_pending() {
+            self.schedule(lane);
         }
     }
 
@@ -1148,6 +1161,9 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
         }
     }
 }
+
+#[cfg(feature = "fuzzing")]
+pub(crate) mod fuzz;
 
 #[cfg(test)]
 mod tests {

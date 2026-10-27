@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import os
 
 /// The off-main half of the per-action budget: folds every run an ``ActionBudgetMonitor`` hands
@@ -13,7 +14,8 @@ import os
 ///
 /// ```swift
 /// let reporter = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: ids),
-///                                     overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets(environment: env), logsRuns: isDebug)
+///                                     overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets(environment: env), logsRuns: isDebug,
+///                                     work: services.work)
 /// let fields = await reporter.counts().json
 /// ```
 public final class ActionBudgetReporter: Sendable {
@@ -32,8 +34,13 @@ public final class ActionBudgetReporter: Sendable {
     ///   - sampling: Whether the watchdog samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets(environment:)``).
     ///   - logsRuns: Write the Debug log line per over-budget run (Debug builds). It keeps the
     ///     real action id: the log stays on this Mac.
+    ///   - work: The app's blocking-work lanes: the Debug line's symbol map is read on its files lane at the
+    ///     first stack to resolve, never on this reporter's cooperative-pool task.
+    ///   - symbolMap: Reads the app's symbol map (``AppSymbolMap/loadMain()``, a file read and an inflate); runs
+    ///     on `work`'s files lane, once.
     @MainActor
-    public init(monitor: ActionBudgetMonitor, naming: ActionReportNaming, overBudget: HangLog?, sampling: Bool, logsRuns: Bool) {
+    public init(monitor: ActionBudgetMonitor, naming: ActionReportNaming, overBudget: HangLog?, sampling: Bool, logsRuns: Bool,
+                work: BackgroundWork, symbolMap: @escaping @Sendable () -> AppSymbolMap? = { AppSymbolMap.loadMain() }) {
         let ledger = ActionBudgetLedger(budgetMilliseconds: Double(monitor.budgetNanos) / 1_000_000, naming: naming)
         self.ledger = ledger
         self.monitor = monitor
@@ -45,10 +52,18 @@ public final class ActionBudgetReporter: Sendable {
             let slow = monitor.samples(everyRun: false)
             tasks.append(Task.detached(priority: .utility) {
                 let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "action.budget")
+                var symbolicator: StackSymbolicator?  // made at the first stack to resolve
                 for await sample in slow {
                     // The board ended the run's span (and the watchdog wrote its record) before the
                     // monitor handed the run over, both on the main actor: the record is in the log.
-                    let line = ActionBudgetLogLine(sample: sample, records: overBudget?.records() ?? [], sampling: sampling)
+                    let records = overBudget?.records() ?? []
+                    if symbolicator == nil, records.contains(where: { !$0.addresses.isEmpty }) {
+                        let map = try? await work.run(.bestEffort, mayBlock: .files) { symbolMap() }
+                        symbolicator = StackSymbolicator(map: map)
+                    }
+                    let resolver = symbolicator ?? StackSymbolicator(map: nil)
+                    let line = ActionBudgetLogLine(sample: sample, records: records, sampling: sampling,
+                                                   frames: { resolver.frames(for: $0.addresses) })
                     logger.notice("\(line.text, privacy: .public)")
                 }
             })
@@ -106,9 +121,9 @@ public final class ActionBudgetReporter: Sendable {
         .object([
             "effect_bound": JSONValue(registry.effectBoundCount),
             "untyped_bound": JSONValue(registry.legacyBoundCount),
-            "waiting_runs": .object(Dictionary(uniqueKeysWithValues: registry.waitingRuns.map { id, reasons in
-                (id.rawValue, JSONValue.object(Dictionary(uniqueKeysWithValues: reasons.map { ($0.key.rawValue, JSONValue($0.value)) })))
-            })),
+            "waiting_runs": .object(Dictionary(registry.waitingRuns.map { id, reasons in
+                (id.rawValue, JSONValue.object(Dictionary(reasons.map { ($0.key.rawValue, JSONValue($0.value)) }, uniquingKeysWith: { first, _ in first })))
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 }

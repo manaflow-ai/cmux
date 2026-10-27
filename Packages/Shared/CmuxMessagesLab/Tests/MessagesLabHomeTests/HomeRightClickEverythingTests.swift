@@ -131,6 +131,62 @@ import Testing
         #expect(shown.contains(CmuxStrings.removeAttachment), "\(shown)")
     }
 
+    /// The host's file actions, recorded.
+    @MainActor final class FileHost: HomeFileHost {
+        static let row = "Open in Right Pane"
+        var opened: [URL] = []
+        func open(_ file: URL) { opened.append(file) }
+        func menuItems(forFileNamed name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem] {
+            [MenuAction(title: Self.row) {}]
+        }
+    }
+
+    /// A picture's view in the pane's message box, its draft file at FILE.
+    private func draftPicture(in controller: ChatController, file: URL) throws -> (ComposeInlineAttachment, ComposeInlineAttachmentView) {
+        let a = MessagesLabHome.Attachment(id: "p1", kind: "image", fileName: "p1.png", mimeType: "image/png", byteSize: 1,
+                                           asset: nil, poster: nil, width: 40, height: 30, durationSeconds: nil, transfer: .done)
+        let attachment = ComposeInlineAttachment(a, scale: 2)
+        let view = ComposeInlineAttachmentView(attachment)
+        let field = try #require(controller.demo?.compose.textView.view)
+        field.draftAttachmentFile = { $0 == "p1" ? file : nil }
+        field.addSubview(view)
+        return (attachment, view)
+    }
+
+    private func run(_ title: String, in menu: NSMenu?) throws {
+        let row = try #require(menu?.items.first { ($0 as? MenuAction)?.label == title }, "\(titles(menu))")
+        let action = try #require(row.action)
+        NSApp.sendAction(action, to: row.target, from: row)
+    }
+
+    /// A picture in the message box has the pane's file menu (the host's rows), as a picture in the
+    /// transcript has: it offered Open in Default App, which skipped the host.
+    @Test func aPictureInTheMessageBoxHasTheHostsFileMenu() throws {
+        let (window, controller) = controller([item(1, Self.chief, [.text("Hi")])])
+        defer { window.close() }
+        let host = FileHost()
+        controller.fileHost = host
+        let (attachment, view) = try draftPicture(in: controller, file: URL(fileURLWithPath: "/tmp/cmux-test-missing/p1.png"))
+        defer { withExtendedLifetime((attachment, host)) {} }
+        let shown = titles(view.menu(for: rightClick()))
+        #expect(shown.contains(FileHost.row), "\(shown)")
+        #expect(!shown.contains(CmuxStrings.openInDefaultApp), "\(shown)")
+    }
+
+    /// Without a file host, Open in Default App on a message-box picture goes to the host's path-link
+    /// opener, as a transcript picture does; it called the system directly.
+    @Test func openingAPictureInTheMessageBoxGoesThroughTheHost() throws {
+        let (window, controller) = controller([item(1, Self.chief, [.text("Hi")])])
+        defer { window.close() }
+        var opened: [URL] = []
+        controller.onAppLink = { opened.append($0) }
+        let file = URL(fileURLWithPath: "/tmp/cmux-test-missing/p1.png")
+        let (attachment, view) = try draftPicture(in: controller, file: file)
+        defer { withExtendedLifetime(attachment) {} }
+        try run(CmuxStrings.openInDefaultApp, in: view.menu(for: rightClick()))
+        #expect(opened == [file])
+    }
+
     @Test func theReplyCardOnTheMessageBoxCopiesTheQuote() {
         let card = ReplyQuoteCardView()
         let shown = titles(card.menu(for: rightClick()))

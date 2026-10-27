@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Input and output of the layout engine for one workspace.
 ///
@@ -199,6 +200,13 @@ public final class LayoutModel {
     /// transaction is rejected.
     @ObservationIgnored private var daemonScreens: [LayoutScreen] = []
 
+    /// An automation burst's structural changes land with no spring (feature `automationBurstSnap`,
+    /// set by the App; ``takeAutomationSteps()``). Off: every change may animate.
+    @ObservationIgnored public var snapsAutomationBursts = false
+    /// Per screen, the panes that came or went in automation-caused structural changes the view has
+    /// not shown yet (at least 1 per change). A change by anyone else clears its screen's entry.
+    @ObservationIgnored private var automationSteps: [ScreenID: Int] = [:]
+
     public init(screens: [LayoutScreen] = [], activeScreenID: ScreenID? = nil, focusedPane: PaneID? = nil) {
         self.screens = screens
         daemonScreens = screens
@@ -211,7 +219,12 @@ public final class LayoutModel {
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
     /// active screen when they still exist. A closed focused pane falls back to
     /// its nearest surviving neighbor before it (else after it, else the first).
-    public func apply(screens newScreens: [LayoutScreen]) {
+    ///
+    /// - Parameters:
+    ///   - newScreens: The daemon's screens.
+    ///   - cause: Who caused the change: an automation burst's structural change lands with no
+    ///     spring (``snapsAutomationBursts``).
+    public func apply(screens newScreens: [LayoutScreen], cause: ObservationCause = .program) {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
         daemonScreens = newScreens
@@ -221,7 +234,10 @@ public final class LayoutModel {
         // Equal screens (the echo of this client's own gesture, a snapshot
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
-        if next != screens { screens = next }
+        if next != screens {
+            if snapsAutomationBursts { noteStructure(from: previous, to: newScreens, cause: cause) }
+            screens = next
+        }
         reconcileCanvases()
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
@@ -235,6 +251,31 @@ public final class LayoutModel {
         // camera toward it (Lawrence 2026-10-20, closing the last column).
         let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
         if focusedPane != fallback { focusedPane = fallback }
+    }
+
+    /// The automation-caused structural changes since the view's last sync, per screen: how many
+    /// panes came or went; resets them. The view reads it once per sync (`LayoutRootView`), so a
+    /// later change that is not part of a burst springs again.
+    func takeAutomationSteps() -> [ScreenID: Int] {
+        defer { automationSteps.removeAll(keepingCapacity: true) }
+        return automationSteps
+    }
+
+    /// Counts each screen's structural change by `cause`: an automation change adds the panes that
+    /// came or went (at least 1: a move counts too); anyone else's change ends the screen's burst.
+    /// O(panes) of the screens whose structure changed.
+    private func noteStructure(from old: [LayoutScreen], to new: [LayoutScreen], cause: ObservationCause) {
+        let olds = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for screen in new {
+            guard let before = olds[screen.id],
+                  before.zoomed != screen.zoomed || !before.layout.hasSameStructure(as: screen.layout) else { continue }
+            guard cause == .automation else {
+                automationSteps[screen.id] = nil
+                continue
+            }
+            let steps = Set(before.layout.panes).symmetricDifference(screen.layout.panes).count
+            automationSteps[screen.id, default: 0] += max(steps, 1)
+        }
     }
 
     /// The pane of `screen` nearest before `closed` in its old order (`old`), else the nearest

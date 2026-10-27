@@ -7,7 +7,9 @@ import CmuxNextDesign
 /// DevTools child window follows it (fork parent-view tracking) and keeps
 /// its frontend state (console, selection, open panel). Before, a move into
 /// or out of a window closed DevTools and opened a new one in Chromium's own
-/// top-level window.
+/// top-level window. In host mode the same view holds the DevTools'
+/// hosted page view, so the panel shows the host's DevTools context and the
+/// host itself shows no window (`CEFDevToolsController+Hosted.swift`).
 ///
 /// A panel, not a cmux window: it never joins cmux's window list, layout or
 /// session, and it closes with its page.
@@ -21,6 +23,7 @@ final class CEFDevToolsWindow: NSPanel {
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable],
                    backing: .buffered, defer: false)
         isReleasedWhenClosed = false
+        isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         isFloatingPanel = false
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
@@ -47,6 +50,14 @@ final class CEFDevToolsWindow: NSPanel {
 
     override func performClose(_ sender: Any?) {
         onClose?()
+    }
+
+    /// The fork adds the DevTools page window as a child ordered above
+    /// everything, the overlay host's panel (a context menu over DevTools)
+    /// included: the panel goes back above it in the same call.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     /// Where the window opens: over the cmux window, inset (AppKit screen

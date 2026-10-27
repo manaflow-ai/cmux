@@ -1,6 +1,7 @@
 public import AppKit
 import CoreImage
 import CmuxNextCompat
+public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// The one material behind a window's content (``WindowMaterial``) and the
@@ -43,8 +44,6 @@ public final class WindowMaterialView: NSView {
     /// The window's key tracker; it says whether the window looks inactive and calls
     /// ``updateInactiveTint()`` when that flips.
     private var keyFamily: WindowKeyFamily?
-    /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
-    public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family
@@ -71,6 +70,8 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
+    /// Whether a view is in a live window resize (`NSView.inLiveResize`; tests pass their own).
+    private let liveResize: @MainActor (NSView) -> Bool
     /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
     /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
     /// load shows.
@@ -92,8 +93,11 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
+    /// - Parameter liveResize: Whether a view is in a live window resize (`NSView.inLiveResize`).
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                liveResize: @escaping @MainActor (NSView) -> Bool = { $0.inLiveResize }) {
         self.images = images
+        self.liveResize = liveResize
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
@@ -188,17 +192,31 @@ public final class WindowMaterialView: NSView {
         updateInactiveTint()
     }
 
+    /// The art's place moves the pages lensing it (``noteGlassSourceChange()``) when its size is final: not per
+    /// frame of a live window resize or of a pane spring, whose ends tell them (``viewDidEndLiveResize()``,
+    /// `GlassBackdropFeed.landed()`).
+    override public func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized, !liveResize(self), !isInPaneMotion { noteGlassSourceChange() }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        noteGlassSourceChange()
+    }
+
+    /// Makes `window`'s key tracker (the inactive wash of its material views) observe through the
+    /// app's `events`: the composition root calls it before the window gets content. A later call
+    /// for the same window changes nothing.
+    public static func observeKeyFamily(of window: NSWindow, through events: AppEvents) {
+        _ = WindowKeyFamily.of(window, environment: WindowKeyEnvironment(events: events))
+    }
+
     /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through
     /// `owner` (a window's parent or sheet parent).
     static func family<W: AnyObject>(of window: W, holds key: W?, owner: (W) -> W?) -> Bool {
-        var next = key
-        // Window chains are a few levels deep; the bound guards a cycle.
-        for _ in 0..<32 {
-            guard let current = next else { return false }
-            if current === window { return true }
-            next = owner(current)
-        }
-        return false
+        WindowEvents.family(of: window, holds: key, owner: owner)
     }
 
     /// A window looks inactive only once its family held the keyboard and then lost it to another
@@ -286,6 +304,8 @@ public final class WindowMaterialView: NSView {
             showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
             if let shown, ready == nil {
                 let fades = artImage == nil
+                // main-hop-allow: the store's main-actor cache decodes off main (a detached task); this task only awaits it,
+                // and its one resume shows the art in this view, which the owner cancels on the next apply
                 artLoad = Task { [weak self, images] in
                     let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }

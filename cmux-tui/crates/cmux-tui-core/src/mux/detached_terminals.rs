@@ -24,6 +24,7 @@ pub(super) fn names_a_workspace(workspace_key: &str) -> bool {
 /// projection persists, instead of being given a placement in a workspace its
 /// sentinel key cannot name.
 #[cfg(any(unix, windows))]
+#[track_caller]
 pub(super) fn detached_adoption_binding(
     registry: &WorkspaceRegistry,
     terminal_id: &str,
@@ -57,6 +58,7 @@ impl Mux {
     /// other. The caller commits the resource projection, which gives it the
     /// resource-terminal row that a later attach or `terminal.project`
     /// selects by its public id.
+    #[track_caller]
     pub(crate) fn create_detached_terminal_with_mutation(
         self: &Arc<Self>,
         spawn: DetachedTerminalSpawn,
@@ -130,6 +132,7 @@ impl Mux {
     /// projection committed. Nothing else would end it (it is kept and has no
     /// tab), and the caller was told the creation failed. It has no resource
     /// row yet, so its exit commits to the terminal registry alone.
+    #[track_caller]
     pub(crate) fn end_unpublished_detached_terminal(
         &self,
         terminal_id: &str,
@@ -155,6 +158,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     fn detached_terminal_result(
         &self,
         terminal_id: &str,
@@ -202,6 +206,7 @@ impl Mux {
     /// died before the creating projection committed. A failure leaves it for
     /// the next projection to persist.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn publish_adopted_detached_terminal(&self, terminal_id: &str) {
         let unpublished = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

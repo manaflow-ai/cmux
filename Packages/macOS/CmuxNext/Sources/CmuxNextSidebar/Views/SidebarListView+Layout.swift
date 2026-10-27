@@ -61,6 +61,7 @@ extension SidebarListViewComponents {
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
         // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
         releaseRowHold()
+        reportListedRows()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
@@ -142,13 +143,14 @@ extension SidebarListViewComponents {
         // A space page never scrolls: the rows in its frame, no overscan.
         if enclosingScrollView == nil, let pageViewport { return pageViewport }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
-        return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        return visible.insetBy(dx: 0, dy: launchRows.holdsOffscreenRows ? 0 : -SidebarStyle.overscan) // p08-startup-064
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { watchRows(layoutChanged: true) } // once the rows are drawn: a stale row on screen is patched before the commit
         let old = displayed
         displayed = layout
         onApply?(layout)
@@ -239,6 +241,7 @@ extension SidebarListViewComponents {
             if key == hoveredKey {
                 hoveredKey = nil
                 view.clearHoverImmediately()
+                // sync-layout: the leaving row drops its hover controls now, before its fade or recycle reads it.
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
@@ -383,6 +386,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        watchRows(layoutChanged: false)
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

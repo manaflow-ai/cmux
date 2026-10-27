@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
 import Foundation
 
 extension AppServices {
@@ -13,7 +14,8 @@ extension AppServices {
     /// of another machine's workspace that runs here (cx-whr7: the page
     /// notice sits under a Chromium page's child window; the chip does not).
     func browserMachineBadge(key: String, url: URL?) -> (text: String, help: String)? {
-        if let tab = remoteLocalhost.tab(id: key) {
+        if let tab = machines.daemons.lazy.compactMap({ $0.store.tab(id: key) }).first,
+           machines.mayHaveLocalhostBadge(url, daemon: machines.daemon(forTab: tab)) {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             if let badge = remoteLocalhost.badge(for: tab, url: url, engine: engine) { return badge }
         }
@@ -22,6 +24,21 @@ extension AppServices {
               let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return nil }
         let name = machines.machineName(daemon.machineID) ?? daemon.machineID
         return (MachineBrowserStrings.thisMac, RemoteStrings.browserRunsOnThisMac(name))
+    }
+
+    /// The remote-localhost route of browser tab `tab`: `.thisMac` for a tab of this Mac's without
+    /// making the remote localhost, else its route.
+    func localhostRoute(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
+        RemoteLocalhostService.routesToThisMac(machines.daemon(forTab: tab)) ? .thisMac : remoteLocalhost.route(for: tab, engine: engine)
+    }
+
+    /// The store and navigation guard of browser tab `tab` at `url` (`TabContentCache.configureBrowser`):
+    /// a tab of this Mac's needs no remote localhost, so it makes none; another machine's asks it.
+    func localhostConfiguration(for tab: TabModel, url: URL?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration? {
+        if RemoteLocalhostService.routesToThisMac(machines.daemon(forTab: tab)) {
+            return RemoteLocalhostService.thisMacConfiguration(url: url, base: base)
+        }
+        return await remoteLocalhost.configuration(for: tab, url: url, base: base)
     }
 
     /// The daemon of browser tab `key`: its record's, else the pane that
@@ -71,12 +88,13 @@ extension AppServices {
         // Built now so it reads each machine's browser status when the machine connects.
         let hosts = machineBrowserHosts
         browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
-        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
-        let localhost = remoteLocalhost
-        browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
-            localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
+        // The remote localhost is made by the first remote route it gives, not here (p08-startup-021).
+        browserTabs.localhostRoute = { [weak self] daemon, pane, engine in
+            if RemoteLocalhostService.routesToThisMac(daemon) { return .thisMac }
+            return self?.remoteLocalhost.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
         }
-        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
+        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
+        machines.onDaemonRemoved = { [weak self] daemon in self?.madeRemoteLocalhost?.closeClient(of: daemon) }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

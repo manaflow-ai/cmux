@@ -3,6 +3,7 @@ import CmuxNextIcons
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The browser chrome draws Chrome's own icons (Lawrence 2026-10-19: "for all the back,
 /// forward, and refresh icons, and all the extension icons, and all the icons, ideally we can
@@ -72,7 +73,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = window.contentLayoutRect
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()

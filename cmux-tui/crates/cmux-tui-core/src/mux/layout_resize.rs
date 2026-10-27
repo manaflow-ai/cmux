@@ -4,6 +4,7 @@ use super::*;
 
 impl Mux {
     /// Set the deepest split ratio in `dir` on the path to `pane`.
+    #[track_caller]
     pub fn set_ratio_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -15,6 +16,7 @@ impl Mux {
     }
 
     /// Set a pane-addressed split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_ratio_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -39,11 +41,13 @@ impl Mux {
     }
 
     /// Set one split ratio by its stable split-tree node id.
+    #[track_caller]
     pub fn set_split_ratio_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32) -> bool {
         self.set_split_ratio_checked_as(actor, split, ratio).is_ok()
     }
 
     /// Set one split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_split_ratio_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -54,6 +58,7 @@ impl Mux {
     }
 
     /// Set one split ratio as part of a client-scoped resize transaction.
+    #[track_caller]
     pub fn set_split_ratio_in_transaction_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -67,6 +72,7 @@ impl Mux {
     }
 
     /// Set one transactional split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_split_ratio_in_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -86,6 +92,7 @@ impl Mux {
 
     /// Set one in-process transactional split ratio without sharing the
     /// control-client ownership namespace.
+    #[track_caller]
     pub fn set_split_ratio_in_process_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -103,6 +110,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn set_split_ratio_inner(
         self: &Arc<Self>,
         actor: &Actor,
@@ -217,6 +225,7 @@ impl Mux {
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
+    #[track_caller]
     pub fn set_viewport_pane_width_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -227,6 +236,7 @@ impl Mux {
     }
 
     /// Set a viewport column width while preserving rejection details.
+    #[track_caller]
     pub fn set_viewport_pane_width_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -237,6 +247,7 @@ impl Mux {
     }
 
     /// Set a viewport column width as part of a client-scoped resize transaction.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_transaction_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -256,6 +267,7 @@ impl Mux {
     }
 
     /// Set a transactional viewport width while preserving rejection details.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -274,6 +286,7 @@ impl Mux {
 
     /// Set one in-process transactional viewport width without sharing the
     /// control-client ownership namespace.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_process_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -290,6 +303,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn set_viewport_pane_width_inner(
         self: &Arc<Self>,
         actor: &Actor,

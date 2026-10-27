@@ -4,7 +4,9 @@ import AppKit
 /// the page inside the pane, resizable, or in its own window. The docked
 /// DevTools is a Chromium child window over `views.host`, a subview of the
 /// tab's content view, so it follows the pane's layout, clipping and moves
-/// like the page. DevTools browsers have their own shim client: they never
+/// like the page. In host mode it is a hosted context shown in a page view
+/// inside `views.host` instead (`CEFDevToolsController+Hosted.swift`).
+/// DevTools browsers have their own shim client: they never
 /// become tabs and never change the tab's URL or title.
 ///
 /// Owns the DevTools placement state (layout, views, window, open/close
@@ -30,6 +32,16 @@ final class CEFDevToolsController {
     /// toolbar, rulers, the panels) and the page sits in this area, as in
     /// Chrome's docked DevTools.
     private(set) var deviceModeBounds: CGRect?
+    /// Host mode: the view the DevTools page shows in, at the bottom of `views.host`. Kept while
+    /// the tab lives, so its wire token names the same view of the host at every open.
+    var hostedPage: ChromiumHostPageView?
+    /// Host mode: the inspected browser the host holds a standing placement for. Every DevTools of
+    /// it goes in ``hostedPage``, Chromium's own opens too; only a new browser of the tab places again.
+    var hostedPlacement: Int32?
+    /// Host mode: the opens and closes cmux sent the host that it has not answered yet.
+    var hostedRequests = CEFHostedDevToolsRequests()
+    /// Host mode: the open under way is the reopen of one that opened unplaced (``closeUnplaced``).
+    var reopeningUnplaced = false
 
     init(layout: CEFDevToolsLayout) {
         self.layout = layout
@@ -39,9 +51,13 @@ final class CEFDevToolsController {
 
     func perform(_ command: BrowserDevToolsCommand) {
         guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        if tab.host.isHostMode, Self.mayCreateDevTools(command) {
+            placeHosted(in: tab)
+            hostedOpenSent(command, browser: browserID)
+        }
         switch command {
         case .toggle:
-            perform(tab.devTools.isOpen ? .close : .show)
+            perform(isOpenOrRequested ? .close : .show)
         case .show:
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.show, 0, 0)
         case .console:
@@ -50,12 +66,24 @@ final class CEFDevToolsController {
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.inspect, 0, 0)
         case .close:
             afterClose = nil
+            reopeningUnplaced = false
+            if tab.host.isHostMode, isOpenOrRequested { hostedRequests.sent(.close, browser: browserID) }
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
         case .panel(let panel):
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
+    }
+
+    /// Whether DevTools is open once every change cmux sent is done: Cmd-Opt-I toggles from it. In host
+    /// mode that is the state the host reaches after answering the changes in flight
+    /// (``hostedRequests``), so a second press before the host's answer closes the DevTools the first
+    /// asked for; in process Chromium answers in the command's own turn.
+    var isOpenOrRequested: Bool {
+        guard let tab else { return false }
+        guard tab.host.isHostMode, let browser = tab.browserID else { return tab.devTools.isOpen }
+        return hostedRequests.expectsOpen(browser: browser) ?? tab.devTools.isOpen
     }
 
     func setFocused(_ focused: Bool) {
@@ -83,6 +111,7 @@ final class CEFDevToolsController {
         rememberLayout()
         guard tab.devTools.isOpen else {
             tab.devTools.dock = dock
+            refreshHostedPlacement(in: tab)
             return
         }
         if wasDocked == dock.isDocked {
@@ -103,6 +132,7 @@ final class CEFDevToolsController {
         // reverse): reopen DevTools in its new place.
         afterClose = .show
         if let browserID = tab.browserID {
+            if tab.host.isHostMode, isOpenOrRequested { hostedRequests.sent(.close, browser: browserID) }
             _ = tab.runtime.shim?.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         }
     }
@@ -146,10 +176,12 @@ final class CEFDevToolsController {
 
     /// Chromium is about to create DevTools for this page (any path:
     /// shortcut, Chromium command, context menu Inspect). Decides its place
-    /// now; the shim reads it when this returns.
+    /// now; the shim reads it when this returns. In host mode Chromium did
+    /// not wait: the place was given before (`placeHosted`).
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         opening = true
+        if tab.host.isHostMode { return hostedWillOpen(in: tab) }
         if tab.container.window != nil, tab.runtime.supportsEmbeddedDevTools {
             // Docked or in its own window, DevTools is a child of a cmux
             // view, so a later move keeps it alive.
@@ -160,7 +192,7 @@ final class CEFDevToolsController {
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
             let size = views.host.bounds.size
-            shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
+            shim.devToolsSetPlacement(browserID, CEFParentView(view: views.host), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
         } else {
             opening = false
@@ -185,15 +217,27 @@ final class CEFDevToolsController {
         guard let tab else { return }
         opening = false
         devToolsBrowserID = browser
+        if tab.host.isHostMode, let inspected = tab.browserID {
+            let answer = hostedRequests.opened(browser: inspected)
+            let reopened = reopeningUnplaced
+            reopeningUnplaced = false
+            // A close cmux sent after this open is on the wire: it closes this DevTools before it shows.
+            if answer.closing { return }
+            // `docked`: the shim had the placement's view when it made this DevTools (PrepareDevToolsPopup).
+            if !docked { return closeUnplaced(in: tab, reopen: reopened ? nil : answer.command ?? .show) }
+        }
         // `docked` = a child of a cmux view (the pane's DevTools host).
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
-        // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
-        // at the next open).
-        if docked {
-            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
+        // A docked DevTools is its own page window on its own host view: the feature `cefLayerHosting`
+        // keeps it in its own window (`CEFLayerHosting.Widget`) until p03-rendering-056 hosts it; only the
+        // benches' arm `cefLayerHostingEveryPage` hosts it now.
+        // In host mode it shows in the hosted page view, from the context the host gives.
+        if docked, tab.host.isHostMode {
+            showHostedContext(of: browser)
+        } else if docked {
+            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(runtime: tab.runtime))
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }
@@ -201,12 +245,16 @@ final class CEFDevToolsController {
     func closed(browser: Int32) {
         guard let tab, devToolsBrowserID == nil || devToolsBrowserID == browser else { return }
         opening = false
+        if tab.host.isHostMode, let inspected = tab.browserID { hostedRequests.closed(browser: inspected) }
         // The frontend's DevTools session ended with its emulation: cmux's own applies again.
         if deviceModeBounds != nil {
             deviceModeBounds = nil
             tab.devToolsDeviceModeEnded()
         }
         devToolsBrowserID = nil
+        // The placement stands for the next open (its size may have changed while this one was open).
+        hostedPage?.show(contextID: 0)
+        refreshHostedPlacement(in: tab)
         tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         removeViews()
         tab.container.layoutContent()
@@ -243,9 +291,9 @@ final class CEFDevToolsController {
     /// cmux's own emulation of the tab yields to the frontend's until it ends.
     func deviceModeChanged(on: Bool) {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        let bounds = on && shim.devToolsInspectedBounds(browserID, &x, &y, &width, &height) == 1
-            ? CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height)) : nil
+        let read = on ? shim.devToolsInspectedBounds(browserID) : CEFShimBounds()
+        let bounds = read.result == 1
+            ? CGRect(x: CGFloat(read.x), y: CGFloat(read.y), width: CGFloat(read.width), height: CGFloat(read.height)) : nil
         let wasOn = deviceModeBounds != nil
         guard bounds != deviceModeBounds else { return }
         deviceModeBounds = bounds
@@ -293,13 +341,21 @@ final class CEFDevToolsController {
         CEFDevToolsLayout.remember(layout)
     }
 
-    private func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
+    func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
         let host = CEFHostView()
+        // DevTools keeps its own window until its hosting is verified (p03-rendering-056).
+        host.layerHosting.widget = .devTools
+        if tab.host.isHostMode { installHostedPage(for: tab, in: host) }
         let divider = CEFDevToolsDivider()
         divider.devTools = self
+        divider.onMove = { [weak self] point in self?.dragDivider(to: point) }
+        divider.pointerFrames = tab.runtime.pointerFrames
         tab.container.addSubview(host)
         tab.container.addSubview(divider)
         views = (host, divider)
+        // Host mode: the DevTools frontend is a widget context filling this view, docked in the pane or
+        // in cmux's DevTools window, as the view moves (dockViews, undockViews).
+        if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: host) }
         return (host, divider)
     }
 
@@ -307,6 +363,7 @@ final class CEFDevToolsController {
         closeWindow()
         guard let views else { return }
         self.views = nil
+        if let tab, let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: nil) }
         views.host.layerHosting.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()

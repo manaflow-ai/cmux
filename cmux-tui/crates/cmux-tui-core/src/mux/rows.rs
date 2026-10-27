@@ -155,6 +155,7 @@ impl Mux {
     /// permille below the row of `target`. On a split screen the tree becomes
     /// the first row of one column. The screen's `screen-changed` delta after
     /// the commit echoes `transaction` (mutation-echo).
+    #[track_caller]
     pub fn new_row_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -196,6 +197,7 @@ impl Mux {
     /// `set-row-heights`: every row height of one column at once. The row
     /// set must be exactly the column's rows; `fit` requires a sum of 1000.
     /// `transaction` coalesces undo entries like viewport resizes.
+    #[track_caller]
     pub fn set_row_heights_as(
         self: &Arc<Self>,
         actor: &Actor,

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 nonisolated extension AcpmuxPaneMethods {
@@ -5,7 +6,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// its `_meta` held anything besides the ticket (R1: a redeeming frame may carry nothing else,
     /// except a session/prompt's `acpmux`, whose `promptId` the held-prompt ticket is bound to).
     static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
         let (stripped, ticket, otherMeta) = takeGestureTicket(object)
         guard ticket != nil, let data = try? JSONSerialization.data(withJSONObject: stripped, options: [.withoutEscapingSlashes]) else {
             return (text, ticket, otherMeta)

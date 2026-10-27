@@ -1,14 +1,24 @@
 import AppKit
 
-/// Tinted SF Symbol images, cached per name, tint, and scale.
+/// Tinted SF Symbol images, cached per name, tint, and scale: a memory consumer (`tab-symbol-images`,
+/// ``TabImageMemo``) the app registers through ``TabIconMemoryConsumers``.
 final class TabSymbolCache {
     static let shared = TabSymbolCache()
-    private var cache: [String: CGImage] = [:]
+    let images: TabImageMemo<CGImage>
+
+    /// - Parameter clock: Times how long a drawn symbol stays in use; tests pass their own.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        images = TabImageMemo(name: "tab-symbol-images", capacity: 256, bytes: TabImageMemo<CGImage>.pixelBytes(_:), clock: clock)
+    }
 
     func image(named name: String, tint: NSColor, pointSize: CGFloat, size: CGFloat, scale: CGFloat) -> CGImage? {
         let resolved = tint.usingColorSpace(.sRGB) ?? tint
         let key = "\(name)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(pointSize)|\(size)|\(scale)"
-        if let cached = cache[key] { return cached }
+        return images.value(for: key) { Self.draw(named: name, tint: resolved, pointSize: pointSize, size: size, scale: scale) }
+    }
+
+    /// `name` in `resolved` at `pointSize`, centered in a square of `size` points at `scale`.
+    static func draw(named name: String, tint resolved: NSColor, pointSize: CGFloat, size: CGFloat, scale: CGFloat) -> CGImage? {
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
             .applying(NSImage.SymbolConfiguration(paletteColors: [resolved]))
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
@@ -28,9 +38,6 @@ final class TabSymbolCache {
         let drawSize = CGSize(width: symbolSize.width * ratio, height: symbolSize.height * ratio)
         symbol.draw(in: CGRect(x: (size - drawSize.width) / 2, y: (size - drawSize.height) / 2, width: drawSize.width, height: drawSize.height))
         NSGraphicsContext.restoreGraphicsState()
-        let image = context.makeImage()
-        if cache.count > 256 { cache.removeAll() }
-        cache[key] = image
-        return image
+        return context.makeImage()
     }
 }

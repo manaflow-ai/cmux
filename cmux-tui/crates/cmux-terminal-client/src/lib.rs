@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
@@ -42,6 +44,9 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+/// Teardown moved off the caller's thread so AppKit never waits on it; no
+/// one waits for it to finish.
+const TEARDOWN_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const INVALID_OPENED: &str = "terminal service returned an invalid Opened acknowledgement";
 /// Service rejection code a daemon returns for unknown open metadata.
@@ -1497,6 +1502,8 @@ unsafe fn connect_terminal_client(
             return std::ptr::null_mut();
         }
     };
+    // SAFETY: the C contract makes `terminal_id` null or a NUL-terminated string readable for this
+    // call, which is what terminal_id_from_ffi requires.
     let terminal_id = match unsafe { terminal_id_from_ffi(terminal_id) } {
         Ok(terminal_id) => terminal_id,
         Err(error) => {
@@ -1653,10 +1660,14 @@ unsafe fn attach_terminal_client(
     error_capacity: usize,
     timeout: Option<StdDuration>,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         copy_utf8("terminal client is null", error_buffer, error_capacity);
         return false;
     };
+    // SAFETY: the C contract makes `terminal_id` null or a NUL-terminated string readable for this
+    // call, which is what terminal_id_from_ffi requires.
     let terminal_id = match unsafe { terminal_id_from_ffi(terminal_id) } {
         Ok(terminal_id) => terminal_id,
         Err(error) => {
@@ -1681,6 +1692,8 @@ unsafe fn attach_terminal_client(
 /// [`cmux_terminal_client_connect`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_detach(client: *mut CmuxTerminalClient) {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return;
     };
@@ -1703,6 +1716,8 @@ pub unsafe extern "C" fn cmux_terminal_client_set_update_callback(
     callback: Option<TerminalUpdateCallback>,
     context: *mut c_void,
 ) {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return;
     };
@@ -1728,7 +1743,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
-    let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
+    let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
         let terminal = client.terminal.lock().unwrap().take();
         client.runtime.block_on(async {
             if let Some(terminal) = terminal {
@@ -1793,6 +1808,8 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     chord: *const c_char,
     repeat: bool,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
@@ -1861,6 +1878,8 @@ pub unsafe extern "C" fn cmux_terminal_client_resize(
     cols: u16,
     rows: u16,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
@@ -1880,6 +1899,8 @@ pub unsafe extern "C" fn cmux_terminal_client_resize_with_request_id(
     rows: u16,
     request_id: *mut u64,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
@@ -1928,6 +1949,8 @@ pub unsafe extern "C" fn cmux_terminal_client_last_resize_ack(
     rows: *mut u16,
     canonical_changed: *mut bool,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
@@ -1964,6 +1987,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
@@ -1990,6 +2015,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     buffer: *mut u16,
     capacity: usize,
 ) -> usize {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
@@ -2001,6 +2028,9 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     if buffer.is_null() || capacity < required {
         return required;
     }
+    // SAFETY: `buffer` is non-null and the C contract gives it `capacity` writable u16s; capacity
+    // >= required here, and the source is a live Vec of `required` rows that cannot overlap the
+    // caller buffer.
     unsafe {
         std::ptr::copy_nonoverlapping(state.frame_dirty_rows.as_ptr(), buffer, required);
     }
@@ -2018,6 +2048,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
 pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     client: *const CmuxTerminalClient,
 ) -> usize {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
@@ -2045,6 +2077,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
@@ -2070,6 +2104,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
@@ -2087,6 +2123,8 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
 pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     client: *const CmuxTerminalClient,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
@@ -2606,9 +2644,13 @@ pub unsafe extern "C" fn cmux_wireguard_net_route_is_allowed(
         copy_utf8(&error, error_buffer, error_capacity);
         false
     };
+    // SAFETY: the C contract makes `net` null or a live tunnel handle, not freed during this call;
+    // as_ref maps null to None.
     let Some(net) = (unsafe { net.as_ref() }) else {
         return fail("wireguard tunnel is null".into());
     };
+    // SAFETY: the C contract makes `route` null or a NUL-terminated string readable for this call,
+    // which is what required_str_from_ffi requires.
     let route = match unsafe { required_str_from_ffi(route, "route") } {
         Ok(route) => route,
         Err(error) => return fail(error),
@@ -2638,7 +2680,7 @@ pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
     let net = unsafe { Box::from_raw(net) };
     // The driver task lives on this runtime; drop it off the caller's thread so
     // an AppKit or UIKit caller never blocks on socket teardown.
-    let _ = std::thread::Builder::new().name("cmux-wireguard-free".into()).spawn(move || drop(net));
+    let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
 }
 
 /// Installs the raw output callback, or clears it with NULL.
@@ -2683,6 +2725,8 @@ pub unsafe extern "C" fn cmux_terminal_client_set_viewer_size_priority(
     client: *mut CmuxTerminalClient,
     preferred: bool,
 ) -> bool {
+    // SAFETY: the C contract makes `client` null or a live handle from
+    // cmux_terminal_client_connect, not freed during this call; as_ref maps null to None.
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };

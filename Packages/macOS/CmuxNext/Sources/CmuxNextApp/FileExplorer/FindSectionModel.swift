@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The right sidebar's Find section and the Find pane (classic's project-wide
 /// find): ripgrep over a folder (``RipgrepSearch``, the flags classic ran),
@@ -51,12 +52,14 @@ final class FindSectionModel {
     func type(_ text: String) {
         pendingSearch?.cancel()
         query = text
-        let clock = clock
-        pendingSearch = Task { [weak self] in
+        let clock = clock, pause = Self.debounce, tolerance = WakeLeeway.window(delay: Self.debounce).tolerance
+        // The pause waits off main; the search it starts runs in the same task, so the next keystroke cancels either.
+        pendingSearch = Task { @concurrent [weak self] in
             do {
                 // concurrency-allow: a bounded, cancellable typing pause (injected clock); the next keystroke cancels it.
-                // wakeup-allow: runs only after a keystroke in the Find field, never while idle.
-                try await clock.sleep(for: Self.debounce, tolerance: nil)
+                // wakeup-allow: deadline the typing pause after a keystroke in the Find field, never while idle.
+                // timer-class-allow: off main, the pause and the ripgrep run are one cancellable task; a MainDeadline could not cancel the run
+                try await clock.sleep(for: pause, tolerance: tolerance)
             } catch {
                 return
             }

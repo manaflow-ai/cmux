@@ -1,23 +1,28 @@
 import AppKit
+public import CmuxNextCompat
 public import Foundation
 public import UniformTypeIdentifiers
 
 /// The real registry: `NSWorkspace.setDefaultApplication(at:...)`, which
-/// shows macOS's own confirmation for the web browser.
+/// shows macOS's own confirmation for the web browser. The current handlers
+/// are asked of Launch Services on the system lane, never kept: a claim
+/// changes them.
 public final class SystemDefaultApps: DefaultAppRegistering {
     public let appBundleURL: URL
+    private let runner: any MayBlockRunner
 
-    public init(appBundleURL: URL = Bundle.main.bundleURL) {
+    public init(appBundleURL: URL = Bundle.main.bundleURL, runner: any MayBlockRunner) {
         self.appBundleURL = appBundleURL
+        self.runner = runner
     }
 
-    public func handler(forScheme scheme: String) -> URL? {
+    public func handler(forScheme scheme: String) async -> URL? {
         guard let probe = URL(string: "\(scheme)://example") else { return nil }
-        return NSWorkspace.shared.urlForApplication(toOpen: probe)
+        return (try? await runner.runSystem(.userBlocking) { SystemWorkspaceQuerying().defaultApplication(toOpen: probe) }) ?? nil
     }
 
-    public func handler(forContentType type: UTType) -> URL? {
-        NSWorkspace.shared.urlForApplication(toOpen: type)
+    public func handler(forContentType type: UTType) async -> URL? {
+        (try? await runner.runSystem(.userBlocking) { SystemWorkspaceQuerying().defaultApplication(toOpen: type) }) ?? nil
     }
 
     public func setDefault(forScheme scheme: String) async throws {

@@ -31,11 +31,20 @@ import CmuxNextSettings
 /// `hover: false` leaves the synthesized pointer as it is, so a perf
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
-/// clicks Chromium's page view instead (`DebugMouse+Page`).
+/// clicks Chromium's page view instead, or scrolls or moves the pointer over
+/// it, and in host mode clicks it with the `middle`, `back` or `forward`
+/// button, pinches it (`pinch`, `scale`) or smart-magnifies it
+/// (`smart_magnify`) (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
-            return params["action"]?.stringValue == "scroll" ? scrollPage(params, services: services) : clickPage(params, services: services)
+            switch params["action"]?.stringValue ?? "click" {
+            case "scroll": return scrollPage(params, services: services)
+            case "move": return movePage(params, services: services)
+            case "pinch", "smart_magnify": return gesturePage(params, services: services)
+            case "click" where pageButtons[params["button"]?.stringValue ?? ""] != nil: return buttonPage(params, services: services)
+            default: return clickPage(params, services: services)
+            }
         }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
@@ -94,15 +103,18 @@ enum DebugMouse {
             // A real scroll first meets the layout's event monitor (strip and
             // row scrolls); a windowless synthesized one skips monitors, so
             // the layout under the point gets it first, then the view. Both run
-            // inside the app's input dispatch context, as sendEvent's do, so the
-            // scroll is timed to its frame the same way (`key.scroll_frame`).
+            // inside the app's input dispatch context with a latency slot, as
+            // sendEvent's do, so the scroll is timed to its frame the same way
+            // (`key.scroll_frame`, `input.latency` as automation).
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
+            let latencySlot = services.inputLatency.willDeliver(event, in: window, to: target)
             let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
                 if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
                 target.scrollWheel(with: event)
                 return false
             }
+            if let latencySlot { services.inputLatency.didDispatch(latencySlot, layoutTookScroll: layoutTook) }
             if layoutTook {
                 if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),

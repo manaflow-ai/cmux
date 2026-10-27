@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// `events.stream`: the one streaming method. The connection writes an
@@ -22,23 +23,51 @@ extension ControlRouter {
         emit(subscription.ack.compactText)
         for event in subscription.replay { emit(event.compactText) }
         let bus = events
-        // concurrency-allow: heartbeat loop, not a deadline race; every child ends on cancellation
+        let keepalive: EventStreamKeepalive? = heartbeats
+            ? EventStreamKeepalive(clock: clock, beat: { emit(bus.heartbeat(subscription: subscription).compactText) })
+            : nil
+        keepalive?.wrote()
+        // concurrency-allow: the live events and the hangup race; every child ends on cancellation
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                for await event in subscription.events { emit(event.compactText) }
-            }
-            if heartbeats {
-                group.addTask {
-                    // wakeup-allow: client-requested keepalive (include_heartbeats, 15 s) only while an events.stream client is connected; ends on hangup
-                    while !Task.isCancelled {
-                        do { try await clock.sleep(for: .seconds(ControlEventBus.heartbeatIntervalSeconds)) } catch { return } // wakeup-allow: keepalive period above
-                        emit(bus.heartbeat(subscription: subscription).compactText)
-                    }
+                for await event in subscription.events {
+                    keepalive?.wrote()
+                    emit(event.compactText)
                 }
             }
             group.addTask { await hangup() }
             _ = await group.next()
             group.cancelAll()
         }
+        keepalive?.stop()
+    }
+}
+
+/// `events.stream`'s heartbeat (`include_heartbeats`, on by default): one line after
+/// ``ControlEventBus/heartbeatIntervalSeconds`` of silence, so a client can tell a quiet stream from a dead
+/// one. A one-shot ``DemandTimer`` that every written line moves on, as a keepalive that traffic resets
+/// (Chromium's `base::RetainingOneShotTimer::Reset()`, base/timer/timer.h): a stream with events writes no
+/// heartbeat, and a silent one wakes once per interval while its client stays connected.
+private final class EventStreamKeepalive: Sendable {
+    private let timer: DemandTimer
+    private let interval = Duration.seconds(ControlEventBus.heartbeatIntervalSeconds)
+    private let beat: @Sendable () -> Void
+
+    init(clock: any Clock<Duration>, beat: @escaping @Sendable () -> Void) {
+        timer = DemandTimer(owner: "ControlEventBus.heartbeat", clock: clock)
+        self.beat = beat
+    }
+
+    /// The stream is about to write a line: the heartbeat moves to a whole interval from now.
+    func wrote() {
+        timer.schedule(after: interval) { [weak self] in self?.fire() }
+    }
+
+    /// The client hung up.
+    func stop() { timer.cancel() }
+
+    private func fire() {
+        wrote()
+        beat()
     }
 }

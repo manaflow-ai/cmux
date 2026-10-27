@@ -30,6 +30,8 @@ final class ScreenshotsPageTab: BrowserTab {
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
     /// Runs when the tab closes (the service stops following settings for it).
     @ObservationIgnored var onClose: (() -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, model: ScreenshotsModel, cache: ThumbnailCache,
          workspace: any ScreenshotsWorkspace, files: any FileOperating) {
@@ -50,6 +52,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func reload() {
         // task-owner: one relist the page's model owns; it ends when every folder is listed
+        // main-hop-allow: Reload starts the model's own main-actor rescans (ScreenshotsModel.refresh schedules each folder's read, which lists off main); this task only awaits them
         Task { [model] in await model.refresh() }
     }
 
@@ -64,6 +67,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         view.isHidden = !visible
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -87,7 +91,31 @@ final class ScreenshotsPageTab: BrowserTab {
     func showDevTools() {}
 
     func close() {
+        scrollRestore.cancel()
         model.stop()
         onClose?()
+    }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the file name filter
+/// and the grid's scroll go with the tab; its watches and reads stop with `close()`.
+extension ScreenshotsPageTab: BrowserAppPage {
+    var pageAddress: URL { state.url ?? ScreenshotsPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: view.grid.tilesScrollView), search: model.query,
+                            selection: model.selectedSourceID)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let search = saved.search { model.query = search }
+        model.selectedSourceID = saved.selection
+        scrollRestore.restore(saved.scroll)
+    }
+
+    /// A saved scroll goes back once the grid holds it; the files are listed after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.view.grid.tilesScrollView }, hasRows: { [model] in !model.visibleItems.isEmpty })
     }
 }

@@ -643,6 +643,10 @@ pub struct State {
     pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
+    /// Signaled under this lock when a terminal enters `terminal_catalog`
+    /// (the cold-scrollback worker's wake, mux/cold_scrollback.rs). Shared by
+    /// every clone, so a projected state installed later keeps it.
+    pub(crate) catalog_insert_wake: Arc<std::sync::OnceLock<crate::mux::ColdScrollbackWake>>,
 }
 
 impl State {

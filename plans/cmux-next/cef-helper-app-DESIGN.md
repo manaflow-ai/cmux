@@ -29,17 +29,25 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 ### 3.1 Processes
 
 ```
-cmux (app)                          <App> Chromium Host.app (new)              Chromium helpers (as today)
+cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host  Chromium helpers (as today)
   UI, layout, key router,             Chromium browser process                 Renderer, GPU, Utility, Plugin, Alerts
   tab model, omnibar, prompts,        CefInitialize + CefRunMessageLoop         children of the host
   CALayerHost per page        <-wire-> on ITS main thread                       sandboxed (helper_main.mm)
   supervisor (restart, restore)       page windows: input-less, no pixels
 ```
 
-- The host is a small app in `Contents/Frameworks/<Product> Chromium Host.app` with `LSUIElement`, its own bundle id
-  (`<app id>.chromium-host`) and `NSPrincipalClass ChromiumHostApplication` (the `CefAppProtocol` app). It loads the
-  app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one thread, so no zone race.
-  It uses the same five helper apps as today (`browser_subprocess_path`). Prototype: `shim/browser_host_main.mm`,
+- The host is a second executable of the app, `Contents/MacOS/<Product> Chromium Host` (changed 2026-10-24 from
+  `Contents/Frameworks/<Product> Chromium Host.app`): Chromium sandboxes its helpers with read access to the browser
+  process's main bundle (`content/browser/sandbox_parameters_mac.mm`: bundle-path = `base::apple::MainBundlePath()` =
+  `NSBundle.mainBundle`; CEF's `main_bundle_path` sets only the outer and framework bundles), and only the outer app
+  holds the framework and the helpers. As its own app every GPU, network and renderer helper failed to load the
+  framework (`cef_load_library: dlopen ...` in the helpers' stderr), and the host aborted ("GPU process isn't usable",
+  SIGABRT) on cmuxs-Mac-mini, cmuxs-Mac-mini-3 and cmux9s (macOS 27, CEF cmux.33); with `--no-sandbox` the same host
+  showed its page (step bbb82eeee4d6bf5d0b84dfe3). So the host shares the app's bundle id and Info.plist (it makes
+  itself an accessory app in code; `ChromiumHostApplication` is created before `NSApp`), and with them its code
+  identity for TCC and the keychain (decision 3, Lawrence 2026-10-25: this layout, no fork patch). It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
+  thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
+  bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
   bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
@@ -57,12 +65,18 @@ cmux (app)                          <App> Chromium Host.app (new)              C
   `POSIX_SPAWN_CLOEXEC_DEFAULT`; prototype `S/ChromiumHost/ChromiumHostLauncher.swift`). `CefInitialize` runs in the
   host, off cmux's launch path. The host sends `ready` (fork API, pid).
 - Quit: cmux sends `quit`; the host closes its browsers, `CefShutdown`s and exits. cmux does not wait for it longer than
-  its quit deadline. If cmux dies, the host reads EOF on the wire and quits (prototype: `ReadWire` -> `CloseHost`).
+  its quit deadline (prototype: `ChromiumHostSession.close` SIGKILLs a host still running `ChromiumHostFrame.quitLimit`,
+  15 s, later). If cmux dies, the host reads EOF on the wire and quits (prototype: `ReadWire` -> `CloseHost`); the
+  wire is read from before `CefInitialize`, and a host still running 15 s after EOF or `quit` `_exit`s, so a hung UI
+  thread never leaves an orphan. All four wire descriptors are close-on-exec from creation, so no other child of cmux
+  holds a wire end that would hide the EOF.
 - Crash: a thread blocked in `waitid(WEXITED | WNOWAIT)` reports the exit with its signal (SIGTRAP is a CHECK). The supervisor
   (prototype: `ChromiumHostSession`) clears every page's context (no stale pixels), restarts the host and reloads each
   page from the saved session: today's `cmux_shim_tab_navigation_state` / `tab_restore_navigation` (fork v7) per tab,
-  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). The app's safe-restart rule
-  applies (`ChromiumHostRestartPolicy`): a host that ends again within 60 s stays ended; pages show "Reload".
+  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). Chrome's GPU crash budget
+  applies (`ChromiumHostRestartPolicy`, `GpuProcessHost::RecordProcessCrash`): each 5 min forgives one crash, the 3rd
+  recent crash leaves the host ended and pages show "Reload"; quit, logout and updates spend nothing; a host that dies
+  before its `ready` cannot start (exit code and code-signature check) and is not retried.
 - The exit is read with `waitid(WNOWAIT)`: the host's pid stays a zombie until the supervisor reaps it, so a SIGKILL
   that cmux sends to a broken host (a bad frame, a flood, a full send buffer) can never reach a reused pid.
 
@@ -70,12 +84,15 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 
 Two channels per host:
 
-1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`shim/chromium_host_wire.h`,
+1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`ChromiumHost/src/chromium_host_wire.h`,
    `S/ChromiumHost/ChromiumHostFrame.swift`, one golden frame tested on both sides). cmux writes non-blocking from the
    main thread (one `write` on an `O_NONBLOCK` descriptor, a few us) and reads on a thread of its own, blocking on the
    other pair (macOS ignores `MSG_DONTWAIT` on Unix sockets, and file status flags are shared by every descriptor of
    a socket, so one socket cannot be both); the host reads on a thread of its own and posts each frame to its UI thread.
-   Bounded both ways (256 KB send buffer, 4,096 frames backlog); an overflow ends the host, never blocks cmux.
+   Bounded both ways (256 KB send buffer, 4,096 frames backlog). In the host, frames wait for the UI thread in one
+   queue (`cmux_host::FrameQueue`, one posted task per batch): a newer pointer move replaces a waiting one, wheel
+   deltas add up and a newer geometry replaces a waiting one, each only at the queue's tail, so order is kept; keys and
+   clicks are never dropped. More than 4,096 waiting frames ends the host, never blocks cmux.
 2. **Control: XPC over an anonymous listener endpoint** sent on channel 1 at start (production, not in the
    prototype). It carries what needs Mach ports or replies: CA fence ports for resize sync, file and folder access,
    request/response calls (navigation entries, extension actions, prefs, site settings: today's 9 string-returning
@@ -91,7 +108,7 @@ What crosses, and how:
 | Mouse, wheel, hover | WindowServer routes to the page window | cmux's page view (`ChromiumHostPageView`) gets the events and forwards them (`SendMouse*Event`) | no (prototype works on stock windowed CEF) |
 | Keys | `OnPreKeyEvent` calls cmux's `KeyRouter` synchronously with an `NSEvent*` (`S/CEFRuntime+Events.swift:29-41,152`) | cmux's `KeyRouter` already runs first in `CmuxApplication.sendEvent` (`A/CmuxApplication.swift:107`); keys it does not take go to the host (`SendKeyEvent`), the page's unhandled keys come back as today's `KEY_UNHANDLED` event, async | no for keys; text input below |
 | IME, dead keys, emoji, dictation | `RenderWidgetHostViewCocoa` in the page window is the `NSTextInputClient` | cmux's page view implements `NSTextInputClient`; marked text and commits go to the host (`ImeSetComposition`, `ImeCommitText`); the host pushes the composition range and caret rects after each change, so `firstRectForCharacterRange` answers locally | yes: windowed `Ime*` are `DCHECK(false)` (`fork:libcef/browser/browser_platform_delegate.cc:411-432`). PL-cef-layer: the fork's remote-presentation path (API 19, `cmux_rp_*`) already has Chrome-style IME; the host can reuse it instead of patching the windowed path |
-| Page screenshots for agents | `Page.captureScreenshot` over DevTools, answered on cmux's main thread | the host runs the capture (fork API `cmux_browser_capture`, planned by PL-cef-layer for cmux.34: `CopyFromSurface` readback, encode on Chromium's thread pool, callback off main) and sends the PNG over the control channel; cmux's main thread never waits | planned (PL-cef-layer) |
+| Page screenshots for agents | `Page.captureScreenshot` over DevTools, answered on cmux's main thread | the host runs the capture (fork export `cmux_browser_capture`: `CopyFromSurface` readback, encode on Chromium's thread pool, callback off main) and sends the PNG over the control channel (shim `cmux_shim_tab_copy_surface`, an `async` host op answered by a `CMUX_SHIM_REPLY` under the caller's reply id, p13-webui 078); cmux's main thread never waits | yes: the one export for agent screenshots and page snapshots, written by p13-webui 077 (manaflow-ai/cef `cp/p13-webui-077`, not built yet; [webui-DESIGN.md](webui-DESIGN.md)), numbered by the fork train (p13-webui 086); PL-cef-layer reuses it and adds no second capture export |
 | Focus, key and active state | page window is key; fork "active while the parent is key" | cmux's view is first responder and sends focus; the host's windows are never key | yes: `cmux_browser_set_embedder_active(id, bool)` replaces the key-window observers |
 | Cursor | Chromium's view sets it in its own window | `CefDisplayHandler::OnCursorChange` -> wire -> cmux sets the cursor over its view | no |
 | Accessibility | page window's AX tree; `CmuxApplication` maps the window (`A/CmuxApplication.swift:153`) | the host gives the page's remote AX token (`NSAccessibilityRemoteUIElement`, the app-shim mechanism); cmux's page view returns a remote element child with it | yes: export the token |
@@ -155,30 +172,54 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind the feature `cefHelperHost`, default off; the host app is in Debug builds only)
 
-- Host: `shim/browser_host_main.mm` (built by `scripts/cmux-next/build-cef-shim.sh` as `cmux-chromium-host`, bundled by
-  `embed-cef.sh` as `<Product> Chromium Host.app`, Debug only, signed by `sign-cef.sh`). One Chrome-style page per host.
+- Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
+  as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host`, Debug only,
+  signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
-  `cmux_browser_set_layer_hosting` (API 26) and sends the context id. It refuses forks below API 26.
-  The host window must stay ordered in and visible: the fork's tracker hides the page when its parent window is not
-  visible, and observes the parent's occlusion state (a covered window throttles the renderer), so the prototype puts
-  it at the floating level, click-through, with no pixels. The page window is an `addChildWindow` child of the host's
-  window, never of cmux's. It is never key (the host is not the active app), so keys reach the page only through
-  forwarding (PL-cef-layer, 2026-10-23).
-- cmux: `S/ChromiumHost/` (`ChromiumHostFrame`, `ChromiumHostConnection`, `ChromiumHostLauncher`, `ChromiumHostSession`,
+  `cmux_browser_set_layer_hosting` (API 26) and sends the context id. It refuses forks below API 27 (layer hosting and
+  the resize sync; exit 66), so cmux always starts it with the API 27 switch set. Exits 64-67 mean the host could not
+  start (no wire, no framework, an old fork, `CefInitialize`): cmux does not restart such a host. The parent view has
+  alpha 0 for the host's whole life, so the floating window never shows Chromium's pixels over other apps (the page's
+  layers live in the context). Frames wait for the host's UI thread in one bounded queue (`FrameQueue`: moves, wheel
+  deltas and geometry coalesce at its tail, keys and clicks are kept, one posted task per batch); more than 4,096
+  waiting frames and the host stops reading and ends, so a hung UI thread ends the host instead of queueing every
+  frame. The fork's exports are bound from the framework's own image (`dlopen(RTLD_NOLOAD)` + `dlsym`):
+  `cef_load_library` opens it `RTLD_LOCAL`, so `RTLD_DEFAULT` found nothing and every host exited 66. Chromium's log
+  goes to `<root cache>/chromium-host.log` (warnings and fatal messages; `debug.chromium_host` `log_file`).
+  Fork API 30 (`cmux_browser_set_detached_hosting`, `cmux_browser_set_embedder_active`, bound when the fork exports
+  them): once layer hosting has taken the page, the host calls `cmux_browser_set_detached_hosting(id, 1)`. The page
+  window then leaves the host's window and never orders in, so no window of the host can become key, and the page's
+  focus is `cmux_browser_set_embedder_active(id, 0|1)` on each `focus` frame: Chromium sees its page window become or
+  resign key (Views focus on the web contents, so keys reach the page, with the caret, focus rings and
+  `document.hasFocus()`), while no AppKit window becomes key. A focus that came before the page was detached went
+  through focus emulation (below); the first focus change after detaching turns that emulation off.
+  Below API 30 (or when the fork refuses detaching) the host window must stay ordered in and visible: the fork's
+  tracker hides the page when its parent window is not visible, and observes the parent's occlusion state (a covered
+  window throttles the renderer), so the prototype puts it at the floating level, click-through, with no pixels. The
+  page window is then an `addChildWindow` child of the host's window, never of cmux's. It is never key (the host is
+  not the active app), so keys reach the page only through forwarding (PL-cef-layer, 2026-10-23), and the page's
+  focus is DevTools focus emulation (`Emulation.setFocusEmulationEnabled`).
+- cmux: `S/ChromiumHost/` (`ChromiumHostFrame`, `ChromiumHostConnection`, `ChromiumHostWireState` (the connection's
+  descriptors under one `Mutex`, held by its reader thread), `ChromiumHostLauncher`, `ChromiumHostSession`,
   `ChromiumHostPageView`, `ChromiumHostRestartPolicy`, `ChromiumHostConfiguration`, `ChromiumHostPrototype`), and
   `debug.chromium_host` / `debug.chromium_host.measure` (wired in `A/AppDelegate.swift`, DEBUG).
 - Forwarded: mouse (move, down, up, exit, buttons, click count), wheel (pixel deltas), keys (down, up, flags changed,
   character and unmodified character), focus, Edit menu (copy, cut, paste, select all, undo, redo). Not forwarded: IME,
   cursor, accessibility, drag and drop, Chromium's bubbles and popups (section 3.3 rows with a fork patch).
-- Tests: `ChromiumHostFrameTests` (golden frame, also `scripts/cmux-next/test-chromium-host-wire-cpp.sh`),
+- Tests: `ChromiumHostFrameTests` (golden frame, also `scripts/cmux-next/tests/chromium-host-wire.test.sh`; neither runs in CI),
   `ChromiumHostProcessTests` (a real child process: round trip, SIGKILL reported with its signal, the pid not reused
   before reap, a host that stops reading ends the connection without blocking the sender; this test found that macOS
   ignores `MSG_DONTWAIT` on Unix sockets), `ChromiumHostSessionTests` (a host that ends restarts
-  with the last committed URL and shows no stale context; a second quick end stays ended; a host closed on purpose
-  does not restart).
+  with the last committed URL and shows no stale context, also with frames of the dead host still buffered; a second
+  quick end stays ended; a host that could not start stays ended; a host closed on purpose does not restart and frees
+  its reader thread and descriptors), `ChromiumHostDefaultOffTests` (the toggle is off by default and no host starts
+  while it is off).
+  `ChromiumHostPrototype` closes the session when the page view leaves its window (its pane closed) and when the
+  tunable goes off.
 - Bench: `scripts/cmux-next/chromium-host-bench.py` (same probe page in process and in the host; key and click to the
   page's next animation frame, frame pacing, wire round trips, the host's input hop, SIGKILL check).
 
@@ -187,6 +228,28 @@ emulation in process is not a substitute: the page view then has no text input c
 Tests: the three suites passed on aws-m4pro-2/4/5/6/7 (macOS 27.0.1), 5 runs in all. The bench numbers (Debug build,
 macOS 27 measure hosts cmux-austin-mini-0, cmuxs-Mac-mini-3, cmux20-bench; the CEF cmux.33 pin, API 27) are pending
 in the measure queue and go into perf-lead.md section 5 when they arrive.
+
+### Default and prototype gaps (lead, 2026-10-24)
+
+The host stays off by default (the bench-only feature `cefHelperHost`, with Debug Settings `browserHost.helper` as
+its local override, p12-perf-process-101; `ChromiumHostDefaultOffTests`, `ChromiumHostSwitchTests`): every
+Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
+with the toggle on; `features.list` reports the toggle as `cefHelperHost` with source `local`, and benches set it
+through their tunables file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`: a launched app strips an inherited `CMUX_ENABLE_FEATURES`).
+It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
+The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
+(`Emulation.setFocusEmulationEnabled`) only below API 30 or before the page is detached; never
+`CefBrowserHost::SetFocus`, which activates the host's window and app (cmux's bundle id). The `addChildWindow` layout
+with an ordered-in, floating host window likewise applies only below API 30.
+
+| Gap in the prototype | Slice that fixes it |
+|---|---|
+| IME, dead keys, emoji, dictation: `ChromiumHostPageView` has no `NSTextInputClient`; windowed `Ime*` are `DCHECK(false)` in CEF | 2 (input: the rp-path IME, composition rects pushed ahead) |
+| Find (Cmd-F) and the find bar | 3 (the shim behind the wire: `find`, `stop_finding`, results as events) |
+| Drag and drop in and out | 4 (`DragTarget*` / drag source to the embedder, fork items) |
+| Permission prompts (camera, microphone, location, notifications) | 4 (native UI from data: `OnShowPermissionPrompt`, cmux draws) |
+| Context menu, `<select>`, autofill, JS dialogs, file picker: Chromium's own UI in the host process (rows of `chromium-host-bench.py` input; each must never activate the host) | 4 (native UI from data, cmux draws and answers by token) |
+| Cursor, accessibility | 2 (cursor), 4 (remote AX token) |
 
 ## 5. Remaining work and estimate
 
@@ -238,7 +301,7 @@ token, drag source, WebAuthn delegate, capture) as one CEF release.
 
 | Slice | Who | What | Done when |
 |---|---|---|---|
-| 0 | PL-cef-helper | Design + prototype behind `browserHost.helperPrototype` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
+| 0 | PL-cef-helper | Design + prototype behind `browserHost.helper` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
 | 1 | PL-cef-helper | Numbers: pump-share baseline (cmux20-bench, cmuxs-Mac-mini-3), prototype latency and pacing, stall test 9a, typing across a kill 9e | about 2026-10-26 (measure queue) |
 | 2 | PL-cef-helper | Input ring, coalescing per frame, wheel phase, user-input queue, IME, cursor; proof 9b, 9d; then the resize fence and 9c | about 2026-11-07 (needs fork items 1-3) |
 | 3 | helper agent A | The shim behind the wire (132 calls: host side over the shim sources, cmux side in Swift), supervisor for every tab, crash page, CDP proxy, launch and spare page | about 2026-11-07 |
@@ -258,5 +321,12 @@ build is about 1.6 h, packaging and the pin about a day); the fleet measure queu
 
 1. One host for every profile (a crash reloads every Chromium page; least memory), or one host per profile (a crash
    stays in one profile; about 60-90 MB more per extra profile).
-2. Release keychain: share an access group between cmux and the host (needs a provisioning change), or migrate
-   "Chromium Safe Storage" to the host once at first start.
+2. Release keychain: moot since decision 3 (2026-10-25): the host is cmux for the keychain, so it reads the same
+   "Chromium Safe Storage" item through fork API 25 with no access group and no migration.
+3. Host identity. DECIDED 2026-10-25 (Lawrence): second executable. The host is `Contents/MacOS/<Product> Chromium
+   Host` with cmux's bundle id and code identity: TCC prompts and the keychain are cmux's (decision 2 is moot), no fork
+   patch. Signing: nested code of cmux.app; `sign-cef.sh` signs it inside the app before the app's own signature, and
+   notarization covers it with the app. Risks it keeps, each checked by `chromium-host-bench.py` (identity and input
+   rows): two processes with one bundle id for LaunchServices and `NSRunningApplication` (the host stays UIElement,
+   never frontmost, never the target of `open -b` or a Quit AppleEvent), one shared defaults domain (the defaults row).
+   The rejected option was a fork patch so the sandbox's bundle-path is the outer bundle and the host stays its own app.

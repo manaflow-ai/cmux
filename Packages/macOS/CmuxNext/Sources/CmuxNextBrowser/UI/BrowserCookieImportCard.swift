@@ -87,7 +87,7 @@ final class BrowserCookieImportCard: NSView {
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding * 3 / 4, right: padding * 3 / 4)
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
-        density.start()
+        density.start(in: self)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(offer.title)
@@ -114,6 +114,7 @@ final class BrowserCookieImportCard: NSView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    // visibility-walk-allow: three color stores and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

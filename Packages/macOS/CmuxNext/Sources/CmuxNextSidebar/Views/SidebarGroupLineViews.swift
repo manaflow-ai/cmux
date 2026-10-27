@@ -20,6 +20,7 @@ final class SidebarGroupLineViews {
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
+    // memory: fixed not a cache: one entry per open group whose line is on screen now (`views`, set by `update`).
     /// Each shown line (not one fading out) by group: its frame and opacity.
     var shown: [GroupID: (frame: CGRect, alpha: CGFloat)] {
         views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }
@@ -151,6 +152,7 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only; the shape is layout's
         layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
         layer?.masksToBounds = true
         railShape.fillColor = NSColor.black.cgColor
@@ -164,9 +166,16 @@ final class GroupLineView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
     }
 
     override func layout() {
@@ -175,7 +184,7 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        let look = observedLook()
+        let look = Self.look
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
@@ -183,7 +192,6 @@ final class GroupLineView: NSView {
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
-        updateShape()
     }
 
     private func updateShape() {
@@ -192,19 +200,15 @@ final class GroupLineView: NSView {
         railShape.path = SidebarGroupLineShape.line(width: bounds.width, height: height)
     }
 
-    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
-    /// observation at a time.
-    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
-        guard !observesPalette else { return read() }
-        observesPalette = true
-        return withObservationTracking(read) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesPalette = false
-                self?.needsDisplay = true
-            }
-        }
+    /// `sidebar.groupHeader` and `sidebar.groupColors`; the sidebar's look watch repaints the line when
+    /// either changes (`sidebarLookChanged`).
+    private static var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+        (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
     }
+}
 
-    private var observesPalette = false
+extension GroupLineView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        needsDisplay = true
+    }
 }

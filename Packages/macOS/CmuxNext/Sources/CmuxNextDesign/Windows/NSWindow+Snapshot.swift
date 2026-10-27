@@ -1,7 +1,8 @@
 public import AppKit
+public import CmuxNextCompat
 import Darwin
 
-/// How ``NSWindow/snapshotImage()`` captured a window.
+/// How ``NSWindow/snapshotImage(on:)`` captured a window.
 public nonisolated enum WindowSnapshotMethod: String, Sendable {
     /// The window server's composited image of the window (vibrancy,
     /// Liquid Glass and Metal layers as on screen).
@@ -55,23 +56,24 @@ extension NSWindow {
     /// page), so a Chromium page window comes out as its background; the
     /// caller paints the engine's own page image over it.
     ///
-    /// `CGWindowListCreateImage` and `CGWindowListCreateImageFromArray` are
+    /// The window-list image calls (``blockingWindowListCreateImage(_:_:_:_:fileID:line:)``) are
     /// deprecated (ScreenCaptureKit replaces them, but needs the grant even
     /// for an app's own windows) and unavailable to Swift in the current
     /// SDK, so they are looked up at run time; a later macOS without the
-    /// symbols falls back to AppKit drawing.
-    public func compositedSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
-        compositedSnapshot(adding: [], includeChild: includeChild)
+    /// symbols falls back to AppKit drawing. They wait for the window server,
+    /// so they run on `lanes`' system lane; main reads only the window
+    /// numbers and the frame (``compositedCapturePlan(adding:includeChild:)``).
+    ///
+    /// - Parameter extra: More windows to composite: an app's panels over
+    ///   this window that are not its children (a panel opened with no key
+    ///   window to attach to).
+    public func compositedImage(on lanes: any MayBlockRunner, adding extra: [NSWindow] = [],
+                                includeChild: (NSWindow) -> Bool = { _ in true }) async -> CGImage? {
+        guard let plan = compositedCapturePlan(adding: extra, includeChild: includeChild) else { return nil }
+        return try? await lanes.runSystem(.userVisible) { NSWindow.capture(plan) }
     }
 
-    /// `compositedSnapshot(includeChild:)` with `extra` windows composited
-    /// too: an app's panels over this window that are not its children (a
-    /// panel opened with no key window to attach to).
-    public func compositedSnapshot(adding extra: [NSWindow], includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
-        compositedCapturePlan(adding: extra, includeChild: includeChild).flatMap(Self.capture)
-    }
-
-    /// What ``compositedSnapshot(adding:includeChild:)`` captures, read from AppKit on the main
+    /// What ``compositedImage(on:adding:includeChild:)`` captures, read from AppKit on the main
     /// actor: the window numbers and the frame. ``capture(_:)`` runs the window server calls,
     /// which need no AppKit state, on any thread (an agent's screenshot off the main thread).
     public func compositedCapturePlan(adding extra: [NSWindow] = [], includeChild: (NSWindow) -> Bool = { _ in true }) -> WindowCapturePlan? {
@@ -99,31 +101,21 @@ extension NSWindow {
     /// Only the visible child windows `includeChild` accepts, as the window
     /// server composited them, on a transparent image the size of this
     /// window (cropped to its frame), or nil without one. Painted over a base
-    /// image that has no child windows, or over page images.
-    public func childWindowsSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
-        childWindowsCapturePlan(includeChild: includeChild).flatMap(Self.capture)
-    }
-
-    /// ``childWindowsSnapshot(includeChild:)`` with the window server calls (the composite of
-    /// the child windows and the blank check) off the main actor; main reads only the window
-    /// numbers and the frame. For an agent's screenshot, which must not stall the person's typing.
-    public func childWindowsImage(includeChild: (NSWindow) -> Bool = { _ in true }) async -> CGImage? {
+    /// image that has no child windows, or over page images. The window server
+    /// calls (the composite and the blank check) run on `lanes`' system lane;
+    /// main reads only the window numbers and the frame, so an agent's
+    /// screenshot never stalls the person's typing.
+    public func childWindowsImage(on lanes: any MayBlockRunner, includeChild: (NSWindow) -> Bool = { _ in true }) async -> CGImage? {
         guard let plan = childWindowsCapturePlan(includeChild: includeChild) else { return nil }
-        return await Self.capturedOffMain(plan)
+        return try? await lanes.runSystem(.userVisible) { NSWindow.capture(plan) }
     }
 
-    /// What ``childWindowsSnapshot(includeChild:)`` captures: the accepted visible child
+    /// What ``childWindowsImage(on:includeChild:)`` captures: the accepted visible child
     /// windows, cropped to this window's frame (global display coordinates).
     func childWindowsCapturePlan(includeChild: (NSWindow) -> Bool) -> WindowCapturePlan? {
         let children = visibleChildWindows.filter(includeChild)
         guard !children.isEmpty, windowNumber > 0, let primary = NSScreen.screens.first else { return nil }
         return WindowCapturePlan(numbers: children.map(\.windowNumber), frame: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY))
-    }
-
-    /// ``capture(_:)`` off the main actor.
-    @concurrent
-    nonisolated static func capturedOffMain(_ plan: WindowCapturePlan) async -> CGImage? {
-        capture(plan)
     }
 
     /// This app's windows the window server shows above this window and over its frame that
@@ -132,19 +124,20 @@ extension NSWindow {
     /// transparent image the size of this window, with their count; nil without one. A snapshot
     /// of the window then shows them as on screen. Menus are not in AppKit's window list, so
     /// the window server's list chooses (``ownWindows(above:pid:region:layer:skipping:ordinary:)``).
-    public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
-        floatingWindowsCapturePlan().flatMap(Self.capture)
-    }
-
-    /// ``floatingWindowsSnapshot()`` with the window server calls (its window list, the
-    /// composite and the blank check) off the main actor; main reads only this window's number,
-    /// frame and level and the app's own window trees.
-    public func floatingWindowsImage() async -> (image: CGImage, count: Int)? {
+    /// The window server calls (its window list, the composite and the blank check) run on
+    /// `lanes`' system lane; main reads only this window's number, frame and level and the app's
+    /// own window trees.
+    public func floatingWindows(on lanes: any MayBlockRunner) async -> (image: CGImage, count: Int)? {
         guard let plan = floatingWindowsCapturePlan() else { return nil }
-        return await Self.capturedOffMain(plan)
+        return try? await lanes.runSystem(.userVisible) { NSWindow.capture(plan) }
     }
 
-    /// What ``floatingWindowsSnapshot()`` captures, read from AppKit on the main actor.
+    /// ``floatingWindows(on:)`` without the count.
+    public func floatingWindowsImage(on lanes: any MayBlockRunner) async -> CGImage? {
+        await floatingWindows(on: lanes)?.image
+    }
+
+    /// What ``floatingWindows(on:)`` captures, read from AppKit on the main actor.
     func floatingWindowsCapturePlan() -> FloatingWindowsCapturePlan? {
         guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
         return FloatingWindowsCapturePlan(window: windowNumber, pid: getpid(),
@@ -156,19 +149,13 @@ extension NSWindow {
     /// The window server's image of the windows `plan` finds above its window, with their
     /// count; nil without one or when it is blank. Any thread.
     nonisolated static func capture(_ plan: FloatingWindowsCapturePlan) -> (image: CGImage, count: Int)? {
-        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(plan.window)) as? [[String: Any]] ?? [])
+        let above = (blockingWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(plan.window)) as? [[String: Any]] ?? [])
             .compactMap(ListedWindow.init)
         let numbers = ownWindows(above: above, pid: plan.pid, region: plan.region, layer: plan.layer, skipping: plan.skipping,
                                  ordinary: plan.ordinary)
         guard !numbers.isEmpty, let image = windowServerImage(ofNumbers: numbers, rect: plan.region),
               image.width > 0, image.height > 0, !image.isFullyTransparent else { return nil }
         return (image, numbers.count)
-    }
-
-    /// The floating-window capture of `plan` off the main actor.
-    @concurrent
-    nonisolated static func capturedOffMain(_ plan: FloatingWindowsCapturePlan) async -> (image: CGImage, count: Int)? {
-        capture(plan)
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
@@ -226,29 +213,18 @@ extension NSWindow {
         }
     }
 
-    // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
-    private nonisolated static let imageOptions: UInt32 = (1 << 0) | (1 << 3)
+    private nonisolated static let imageOptions: CGWindowImageOption = [.boundsIgnoreFraming, .bestResolution]
 
-    /// One window's image (`CGWindowListCreateImage`, kCGWindowListOptionIncludingWindow).
+    /// One window's image (kCGWindowListOptionIncludingWindow).
     private nonisolated static func windowServerImage(of windowNumber: Int) -> CGImage? {
-        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard windowNumber > 0, let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else {
-            return nil
-        }
-        let create = unsafeBitCast(symbol, to: CreateImage.self)
-        return create(.null, 1 << 3, UInt32(windowNumber), imageOptions)?.takeRetainedValue()
+        guard windowNumber > 0 else { return nil }
+        return blockingWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(windowNumber), imageOptions)
     }
 
     /// The windows `numbers` (topmost first) composited together, cropped to `rect` (global
     /// display coordinates). Any thread.
     private nonisolated static func windowServerImage(ofNumbers numbers: [Int], rect: CGRect) -> CGImage? {
-        typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
-        let create = unsafeBitCast(symbol, to: CreateImage.self)
-        // The array holds CGWindowID values (not CFNumbers), topmost first.
-        var ids: [UnsafeRawPointer?] = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
-        guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-        return create(rect, array, imageOptions)?.takeRetainedValue()
+        blockingWindowListCreateImageFromArray(rect, numbers.map { CGWindowID($0) }, imageOptions)
     }
 
     /// `numbers` topmost first, as the window server orders them on screen.
@@ -256,19 +232,18 @@ extension NSWindow {
     /// (each child after its parent is above it, so reversed).
     private nonisolated static func frontToBack(_ numbers: [Int]) -> [Int] {
         let wanted = Set(numbers)
-        let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+        let onScreen = (blockingWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
             .filter { wanted.contains($0) }
         let listed = Set(onScreen)
         return onScreen + numbers.reversed().filter { !listed.contains($0) }
     }
 
-    /// Captures the window image: composited when the window server gives one,
-    /// else AppKit drawing. The capture itself must stay on the main actor
-    /// because it reads AppKit state. Callers that already have an async
-    /// boundary should encode the returned image away from the main actor.
-    public func snapshotImage() throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        if let image = compositedSnapshot() {
+    /// Captures the window image: composited when the window server gives one
+    /// (its calls on `lanes`' system lane), else AppKit drawing on the main
+    /// actor. Encode the returned image away from the main actor.
+    public func snapshotImage(on lanes: any MayBlockRunner) async throws -> (image: CGImage, method: WindowSnapshotMethod) {
+        if let image = await compositedImage(on: lanes) {
             return (image, .composited)
         }
         if let image = renderSnapshot()?.cgImage {
@@ -278,7 +253,7 @@ extension NSWindow {
     }
 }
 
-/// A window as the window server lists it (`CGWindowListCopyWindowInfo`): menus included,
+/// A window as the window server lists it (``blockingWindowListCopyWindowInfo(_:_:fileID:line:)``): menus included,
 /// which AppKit's window list leaves out. `bounds` is in global display coordinates (origin at
 /// the primary screen's top left).
 nonisolated struct ListedWindow: Equatable, Sendable {

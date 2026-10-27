@@ -1,6 +1,9 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextInput
+import CmuxNextInputCore
+public import CmuxNextWakeups
 
 /// The Chief pet: a small pixel character over a glass rail, floating over every app and every
 /// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
@@ -38,9 +41,13 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     private var screenObserver: MainActorObservation?
 
     /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
+    /// `pointerFrames`: the windows' frame-aligned pointer input (feature `pointerFrameDrags`); nil: a drag
+    /// moves the panel on every event.
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default,
+                pointerFrames: FrameInputCoalescers? = nil) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
+        pet.pointerFrames = pointerFrames
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.petSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -147,6 +154,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     }
 
     static func screenUnderPointer() -> NSScreen? {
+        // global-input-allow: not in a handler; the pet shows over other apps, and only the real cursor knows the screen there.
         let point = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
     }
@@ -162,8 +170,6 @@ final class ChiefPetView: NSView {
     var onDragEnded: (() -> Void)?
     /// The right-click menu (the panel's `contextMenu()`).
     var contextMenu: (() -> NSMenu?)?
-    /// The pointer in screen points; tests drive their own.
-    var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
     private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
@@ -173,6 +179,12 @@ final class ChiefPetView: NSView {
     private var dragging = false
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the panel moves on a frame
+    /// interval's first drag event and once more at its frame, to the latest point, as Chromium delivers
+    /// rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag event moves it.
+    var pointerFrames: FrameInputCoalescers?
+    /// This press's consumer of the panel's coalescer, from mouse-down to mouse-up.
+    private(set) var frameDrag: PointerFrameConsumer?
 
     init(image: NSImage?) {
         super.init(frame: .zero)
@@ -240,25 +252,48 @@ final class ChiefPetView: NSView {
             press = nil
             return NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
-        let local = convert(event.locationInWindow, from: nil)
-        press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
+        let start = event.screenLocation
+        // The hit test reads the same point as the drag's start.
+        let local = convert(window?.convertPoint(fromScreen: start) ?? start, from: nil)
+        press = (start, window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
+        frameDrag?.cancel()
+        frameDrag = window.flatMap { pointerFrames?.coalescer(for: $0) }?.consumer(owner: "ChiefPetDrag") { [weak self] input in
+            self?.drag(to: CGPoint(x: input.latest.screenLocation.x, y: input.latest.screenLocation.y))
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard press != nil, window != nil else { return }
+        // The event's own screen point: the panel moves under the pointer, so its window point would read
+        // against a frame that moved since the event was made.
+        let point = event.screenLocation
+        if let frameDrag, let type = InputEventType(event.type) {
+            var record = InputEventRecord(event, type: type)
+            record.screenLocation = InputPoint(x: point.x, y: point.y)
+            frameDrag.post(record)
+            return
+        }
+        drag(to: point)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // The frame's pending point lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        frameDrag = nil
+        defer { press = nil; dragging = false }
+        guard let press else { return }
+        if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
+    }
+
+    /// The panel follows the press to `point` on screen once it passes the drag slop.
+    private func drag(to point: CGPoint) {
         guard let press, let window else { return }
-        let point = pointer()
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
         window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
         onDragMoved?()
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        defer { press = nil; dragging = false }
-        guard let press else { return }
-        if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
     }
 
     /// Where the character sits in the view.

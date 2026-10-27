@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub fn apply_layout_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -173,6 +174,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn instantiate_layout(
         self: &Arc<Self>,
         actor: &Actor,
@@ -272,6 +274,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn discard_spawned(&self, actor: &Actor, spawned: Vec<Arc<Surface>>) {
         if spawned.is_empty() {
             return;

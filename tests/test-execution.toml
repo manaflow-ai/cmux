@@ -394,6 +394,11 @@ path = "tests/test_cmux_next_web_bundle_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_bundle_key_shared.py"
+lane = "manual"
+reason = "web-bundle-key.py --shared regression checks run by the agent that changes them (no new CI tests, Lawrence 2026-10-23); build-web-bundles.sh runs --shared on every build."
+
+[[test]]
 path = "tests/test_nightly_builder.py"
 lane = "linux-guard"
 
@@ -1793,6 +1798,16 @@ path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_concurrency_display_links.py"
+lane = "manual"
+reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_display_links."
+
+[[test]]
+path = "tests/test_check_concurrency_workspace_opens.py"
+lane = "manual"
+reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_workspace_opens."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
@@ -1893,3 +1908,43 @@ reason = "Lawrence 2026-10-23: no new CI tests. p06_queue.py is a local planning
 path = "tests/test_ipc_census.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. ipc-census.py is the p05-ipc queue report, not a gate; run python3 -I tests/test_ipc_census.py yourself after changing ipc-census.py or plans/cmux-next/ipc-targets.json (about 10 s, git only, no build)."
+
+[[test]]
+path = "tests/test_bench_webui.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench-webui.py is the p13-webui fleet bench, not a gate; run python3 -I tests/test_bench_webui.py yourself after changing bench-webui.py or scripts/measure/webui-bench.sh (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_bench_renderer_sharing.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench_renderer_sharing.py is the p07-memory fleet bench, not a gate; run python3 -I tests/test_bench_renderer_sharing.py yourself after changing the bench or scripts/measure/renderer-sharing.sh (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_bench_daemon_latency.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench or its runtime.Q16 record (about 1 s, no daemon, no build)."
+
+[[test]]
+path = "tests/test_render_done_checks.py"
+lane = "manual"
+reason = "fleet and local tool; Lawrence 2026-10-23 no new CI tests. render-done-checks.py is the rendering push's done-check and machine-queue report, run at the branch tip; run python3 -I tests/test_render_done_checks.py yourself after changing it (about 1 s, rg and git only, no build)."
+
+[[test]]
+path = "tests/test_blocking_probe_report.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. blocking-probe-report.py is the fleet blocking probe's report, not a gate; run python3 -I tests/test_blocking_probe_report.py yourself after changing scripts/measure/blocking-probe* (about 3 s; git and cc for the probe's match rules, skipped without cc; no app, no build)."
+
+[[test]]
+path = "tests/test_script_storm_bench.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. script-storm-bench.py --hidden N is a fleet measurement, not a gate; run python3 -I tests/test_script_storm_bench.py yourself after changing the bench (about 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_bench_idle.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench_idle.py and bench_launch.py order are fleet benches, not gates; run python3 -I tests/test_bench_idle.py yourself after changing bench_idle.py, the launch order check or DebugLayoutCounters' hidden counters (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_perf_signposts_presented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. perf-signposts.py is a fleet and local report; run python3 -I tests/test_perf_signposts_presented.py yourself after changing it (under 1 s, no app, no build)."

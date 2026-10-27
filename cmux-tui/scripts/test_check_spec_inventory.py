@@ -45,6 +45,214 @@ enum Command {
                     {"ping", "tuple-value", "struct-value", "bare-final"},
                 )
 
+    def test_command_names_include_module_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text("enum Command {\n    Ping,\n}\n")
+            apps = server.parent / "server/apps.rs"
+            apps.parent.mkdir()
+            apps.write_text(
+                """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+    /// Doc.
+    #[serde(rename = "apps-unmount")]
+    Unmount { mount_id: String },
+}
+fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
+"""
+            )
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.command_names(),
+                    {"ping", "apps-list", "apps-unmount", "cancel-request"},
+                )
+            apps.write_text(
+                "enum Command {\n    List,\n}\nfn f() { \"cancel-request\" }\n"
+            )
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_names()
+            self.assertIn("needs #[serde(rename", errors.getvalue())
+
+    def test_command_names_include_literal_only_modules(self) -> None:
+        table = {
+            "connection_frame/machine_catalog": {
+                "literals": {
+                    "machine-catalog-publish": {"handler": "try_handle"}
+                },
+                "authority": "local-admin",
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text("enum Command {\n    Ping,\n}\n")
+            frame = server.parent / "server/connection_frame/machine_catalog.rs"
+            frame.parent.mkdir(parents=True)
+            frame.write_text(
+                "fn try_handle(mux: &Mux, client: u64, m: &str) -> bool {\n"
+                "    if !mux.control_clients.is_unix(client) { return false; }\n"
+                '    m == "machine-catalog-publish"\n}\n'
+            )
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "module_commands", lambda: table),
+            ):
+                self.assertEqual(CHECKER.command_names(), {"ping", "machine-catalog-publish"})
+                self.assertEqual(
+                    CHECKER.module_command_profiles(), {"machine-catalog-publish": "local-admin"}
+                )
+            frame.write_text("fn try_handle(m: &str) -> bool { false }\n")
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "module_commands", lambda: table),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_names()
+            self.assertIn("no longer matches 'machine-catalog-publish'", errors.getvalue())
+
+    def test_hello_gate_transport_check_is_a_non_unix_refusal(self) -> None:
+        source = (
+            CHECKER.TUI / "crates/cmux-tui-core/src/server/client_hello.rs"
+        ).read_text()
+        body = CHECKER.rust_function_body(CHECKER.strip_rust_comments(source), "observe")
+        self.assertRegex(body, CHECKER.NON_UNIX_REFUSAL)
+        self.assertNotRegex("_ if matches!(self.transport, ClientTransport::Unix)", CHECKER.NON_UNIX_REFUSAL)
+
+    def test_module_local_admin_needs_the_guard_in_every_handler(self) -> None:
+        guarded = """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+}
+fn cancel_request(mux: &Mux, client: u64) -> bool {
+    if !mux.control_clients.is_unix(client) { return false; }
+    true
+}
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        # A Unix guard in a helper does not cover the unguarded literal handler.
+        unguarded = """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+}
+fn helper(mux: &Mux, client: u64) -> bool { if !mux.control_clients.is_unix(client) { return false; } true }
+fn cancel_request(mux: &Mux, client: u64) -> bool { true }
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            apps = tui / "crates/cmux-tui-core/src/server/apps.rs"
+            apps.parent.mkdir(parents=True)
+            apps.write_text(guarded)
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.module_command_profiles(),
+                    {"apps-list": "local-admin", "cancel-request": "local-admin"},
+                )
+            apps.write_text(unguarded)
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.module_command_profiles()
+            self.assertIn("cancel_request does not refuse non-Unix connections", errors.getvalue())
+
+    def test_literal_only_module_needs_its_guard_and_a_production_literal(self) -> None:
+        guarded = """\
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd != "agent-session-observe" { return None; }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        unguarded = guarded.replace("    if !mux.control_clients.is_unix(client) { return Some(false); }\n", "")
+        test_only = """\
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    const CMD: &str = "agent-session-observe";
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            observe = tui / "crates/cmux-tui-core/src/server/agent_session_observe.rs"
+            observe.parent.mkdir(parents=True)
+            observe.write_text(guarded)
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.module_command_profiles(),
+                    {"agent-session-observe": "local-admin"},
+                )
+            for source, message in (
+                (unguarded, "handle does not refuse non-Unix connections"),
+                (test_only, "no longer matches 'agent-session-observe'"),
+            ):
+                observe.write_text(source)
+                errors = io.StringIO()
+                with (
+                    patch.object(CHECKER, "TUI", tui),
+                    redirect_stderr(errors),
+                    self.assertRaises(SystemExit),
+                ):
+                    CHECKER.module_command_profiles()
+                self.assertIn(message, errors.getvalue())
+
+    def test_sniffed_command_names_come_from_handler_modules_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tui = Path(temporary) / "cmux-tui"
+            server = tui / "crates/cmux-tui-core/src/server"
+            server.mkdir(parents=True)
+            tagged = (
+                '#[derive(Deserialize)]\n#[serde(tag = "cmd")]\nenum Command {{\n'
+                '    #[serde(rename = "{0}")]\n    Served,\n}}\n'
+            )
+            (server / "handler.rs").write_text(
+                tagged.format("served-cmd")
+                + "pub(super) fn try_handle() {\n"
+                '    let _ = "literal-cmd";\n'
+                "}\n"
+                "#[cfg(test)]\nmod tests {\n" + tagged.format("test-cmd") + "}\n"
+            )
+            (server / "helper.rs").write_text(tagged.format("helper-cmd"))
+            (server / "handler_tests.rs").write_text(
+                tagged.format("tests-file-cmd") + "fn try_handle() {}\n"
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.sniffed_command_names(
+                        {"served-cmd", "literal-cmd", "test-cmd", "helper-cmd", "tests-file-cmd"}
+                    ),
+                    {"served-cmd"},
+                )
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

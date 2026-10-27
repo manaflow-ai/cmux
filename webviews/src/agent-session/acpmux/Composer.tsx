@@ -63,6 +63,7 @@ import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
+import { usePageDraft } from "./pageKeep";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
@@ -85,6 +86,8 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
+import { contributeOracleState, noteOracleStateChanged } from "../../protocol/oracle-state";
+import { composerOracleReading } from "./composerOracle";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -406,6 +409,19 @@ export function Composer({
     },
     [prompt],
   );
+  // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts): the chat
+  // the composer belongs to (its durable session id) as the selection, and the prompt's text only as
+  // its SHA-256. Each prompt or chat change tells the host, so a wait on the draft wakes.
+  const oracleSession = useRef(sessionId);
+  oracleSession.current = sessionId;
+  useEffect(
+    () =>
+      contributeOracleState(() =>
+        composerOracleReading(oracleSession.current, field.current?.value() ?? textRef.current),
+      ),
+    [],
+  );
+  useEffect(() => noteOracleStateChanged(), [text, sessionId]);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
@@ -638,6 +654,8 @@ export function Composer({
   }, [sessionId, text, draft]);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  // An unsent prompt, shell command or chip keeps the hidden page from being discarded (pageKeep.ts).
+  usePageDraft(Boolean(text.trim() || shellText.trim() || attachments.length || pending.length));
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).

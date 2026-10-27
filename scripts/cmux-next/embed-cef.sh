@@ -5,6 +5,10 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
+#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug and bench builds only, prototype;
+#                                                                build-chromium-host.sh)
+#   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
+#                                                                cmux loads in host mode)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -52,12 +56,23 @@ rm -f "$phase_stamp"
 # unless CMUX_NEXT_REQUIRE_UBLOCK=1.
 "$SCRIPT_DIR/bundle-ublock.sh"
 
+# The dSYMs of the binaries this phase embeds go beside the app, outside the
+# bundle and its signature, where Xcode puts the app's own: the nightly uploads
+# that folder to Sentry and keeps its *.dSYM for 90 days. Chromium's own dSYM
+# (step 1c) is gigabytes, so it goes one level up, in CEF-dSYMs/<arch>, which
+# nightly.yml uploads by name.
+embedded_dsyms=(libcmux_cef_shim.dylib cmux-cef-helper cmux-chromium-host libcmux_cef_shim_remote.dylib)
+cef_dsyms="$(dirname "$TARGET_BUILD_DIR")/CEF-dSYMs"
+
 # Remove the complete CEF payload when this build explicitly has no CEF. A
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
-  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
-  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
+  local binary
+  for binary in "${embedded_dsyms[@]}"; do rm -rf "$TARGET_BUILD_DIR/$binary.dSYM"; done
+  rm -rf "$cef_dsyms"
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"
+  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
   return 0
@@ -121,22 +136,136 @@ identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 shim_for() { # <arch> <dist>
   CMUX_CEF_ARCH="$1" "$SCRIPT_DIR/build-cef-shim.sh" "$2" "$cache_root/shim" | tail -n 1
 }
+# The single-arch shim builds and their artifacts, which the Chromium host
+# builds against (1b).
+arch_shims=()
+arch_dists=()
 if (( ${#shim_archs[@]} == 2 )); then
   arm_shim="$(shim_for arm64 "$arm_dir")"
   x86_shim="$(shim_for x86_64 "$x86_dir")"
+  arch_shims=("$arm_shim" "$x86_shim")
+  arch_dists=("$arm_dir" "$x86_dir")
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
   if [[ ! -f "$shim_out/.build-key" ]]; then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
-    lipo -create "$arm_shim/cmux-chromium-host" "$x86_shim/cmux-chromium-host" -output "$shim_tmp/cmux-chromium-host"
-    chmod +x "$shim_tmp/cmux-cef-helper" "$shim_tmp/cmux-chromium-host"
+    for binary in libcmux_cef_shim.dylib cmux-cef-helper; do
+      "$SCRIPT_DIR/lipo-dsym.sh" "$shim_tmp/$binary.dSYM" "$arm_shim/$binary.dSYM" "$x86_shim/$binary.dSYM"
+    done
+    chmod +x "$shim_tmp/cmux-cef-helper"
     printf '%s' "$universal_key" > "$shim_tmp/.build-key"
     /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
   fi
 else
   shim_out="$(shim_for "${shim_archs[0]}" "$cef_dir")"
+  arch_shims=("$shim_out")
+  arch_dists=("$cef_dir")
+fi
+
+# 1b. The Chromium host's executable (Debug and bench builds only; see 3b), cached by
+# build-chromium-host.sh apart from the shim, so a host edit changes neither
+# the shim's key nor the runtime pack's.
+#
+# The host is a prototype that is off by default (browserHost.helper).
+# A host that does not build costs this Debug or bench build the host app only: a
+# warning, and the app then reports that it has none. It never fails the
+# build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
+# makes it a build failure (the prototype's own verification builds).
+host_out=""
+host_key=""
+# Sets host_out and host_key; non-zero when a host build fails. Called as an
+# `if` condition, where `set -e` does not apply, so every step checks itself.
+build_chromium_host() {
+  local dirs=() dir i tmp key
+  for i in "${!arch_shims[@]}"; do
+    dir="$(CMUX_CEF_ARCH="${shim_archs[$i]}" "$SCRIPT_DIR/build-chromium-host.sh" \
+      "${arch_dists[$i]}" "${arch_shims[$i]}" "$cache_root/chromium-host" | tail -n 1)" || return 1
+    [[ -x "$dir/cmux-chromium-host" && -f "$dir/libcmux_cef_shim_remote.dylib" && -f "$dir/.build-key" ]] || return 1
+    dirs+=("$dir")
+  done
+  if (( ${#dirs[@]} == 2 )); then
+    key="$(printf '%s %s' "$(cat "${dirs[0]}/.build-key")" "$(cat "${dirs[1]}/.build-key")" | shasum -a 256 | awk '{print $1}')" || return 1
+    dir="$cache_root/chromium-host/universal-${key:0:16}"
+    if [[ ! -f "$dir/.build-key" ]]; then
+      tmp="$(mktemp -d "$cache_root/chromium-host/.universal.XXXXXX")" || return 1
+      lipo -create "${dirs[0]}/cmux-chromium-host" "${dirs[1]}/cmux-chromium-host" -output "$tmp/cmux-chromium-host" || { rm -rf "$tmp"; return 1; }
+      lipo -create "${dirs[0]}/libcmux_cef_shim_remote.dylib" "${dirs[1]}/libcmux_cef_shim_remote.dylib" \
+        -output "$tmp/libcmux_cef_shim_remote.dylib" || { rm -rf "$tmp"; return 1; }
+      for binary in cmux-chromium-host libcmux_cef_shim_remote.dylib; do
+        "$SCRIPT_DIR/lipo-dsym.sh" "$tmp/$binary.dSYM" "${dirs[0]}/$binary.dSYM" "${dirs[1]}/$binary.dSYM"
+      done
+      chmod +x "$tmp/cmux-chromium-host"
+      printf '%s' "$key" > "$tmp/.build-key"
+      /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$tmp" "$dir" 2>/dev/null || rm -rf "$tmp"
+    fi
+    [[ -x "$dir/cmux-chromium-host" && -f "$dir/libcmux_cef_shim_remote.dylib" ]] || return 1
+  else
+    dir="${dirs[0]}"
+    key="$(cat "$dir/.build-key")" || return 1
+  fi
+  host_out="$dir"
+  host_key="$key"
+}
+# A bench build (reload.sh --config bench: Release with -DCMUX_BENCH_HOOKS) compiles the host's
+# Swift side and `debug.chromium_host` in, so chromium-host-bench.py measures it there too.
+host_build=0
+if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]]; then
+  host_build=1
+fi
+if (( host_build )) && ! build_chromium_host; then
+  host_out=""
+  host_key=""
+  if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
+    echo "error: the Chromium host app did not build (build-chromium-host.sh)" >&2
+    exit 1
+  fi
+  echo "warning: the Chromium host app did not build (build-chromium-host.sh); this build has none"
+fi
+
+# 1c. Chromium's own dSYM, when the pinned artifact has one (cef-manifest.json
+# "debug_symbols" names an archive inside each arch's dist), in Release builds:
+# unpacked once per artifact into the CEF cache, then cloned to CEF-dSYMs/<arch>.
+# lipo keeps each slice's UUID, so the arch dSYMs match the merged framework.
+keep_cef_dsym() { # <arch> <dist> <manifest key path>
+  local arch="$1" dist="$2" archive unpacked tmp
+  archive="$(/usr/bin/python3 -c '
+import json, sys
+value = json.load(open(sys.argv[1]))
+for part in sys.argv[2].split("."):
+    value = value.get(part) if isinstance(value, dict) else None
+print(value if isinstance(value, str) else "")' "$SCRIPT_DIR/cef-manifest.json" "$3" 2>/dev/null)" || archive=""
+  if [[ -z "$archive" || ! -f "$dist/$archive" ]]; then
+    echo "note: CEF $(basename "$dist") has no dSYM archive; Chromium frames of its crashes stay unsymbolicated"
+    return 0
+  fi
+  unpacked="$cache_root/dsym/$(basename "$dist")"
+  if [[ ! -d "$unpacked" ]]; then
+    mkdir -p "$cache_root/dsym"
+    tmp="$(mktemp -d "$cache_root/dsym/.unpacking.XXXXXX")" || return 0
+    if ! tar -xf "$dist/$archive" -C "$tmp"; then
+      echo "warning: could not unpack $archive of CEF $(basename "$dist"); this build keeps no Chromium dSYM"
+      rm -rf "$tmp"
+      return 0
+    fi
+    # Atomic publish, as the shim cache: another build may have unpacked it meanwhile.
+    /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$tmp" "$unpacked" 2>/dev/null || rm -rf "$tmp"
+  fi
+  [[ -d "$unpacked" ]] || { echo "warning: no unpacked Chromium dSYM at $unpacked"; return 0; }
+  touch "$unpacked"
+  mkdir -p "$cef_dsyms"
+  # clonefile(2) on APFS: no second copy of gigabytes.
+  cp -cR "$unpacked" "$cef_dsyms/$arch" 2>/dev/null ||
+    { rm -rf "$cef_dsyms/$arch"; cp -R "$unpacked" "$cef_dsyms/$arch"; } ||
+    { echo "warning: could not copy the Chromium dSYM to $cef_dsyms/$arch"; rm -rf "$cef_dsyms/$arch"; }
+}
+rm -rf "$cef_dsyms"
+if [[ "${CONFIGURATION:-}" == "Release" ]]; then
+  if [[ -n "$arm_dir" ]]; then keep_cef_dsym arm64 "$arm_dir" debug_symbols; fi
+  if [[ -n "$x86_dir" ]]; then keep_cef_dsym x86_64 "$x86_dir" x86_64.debug_symbols; fi
+  # Unpacked dSYMs of artifacts no build used for two weeks, and crashed unpacks.
+  find "$cache_root/dsym" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null || true
 fi
 
 # 2. Framework and shim.
@@ -265,48 +394,52 @@ for existing in "$frameworks"/*" Helper"*.app; do
   (( keep )) || rm -rf "$existing"
 done
 
-# 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
-# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
-# app of its own, which uses the helpers above for its child processes. Debug
-# builds only, so Release, RC and NIGHTLY bundles do not change.
-host_app="$frameworks/$product Chromium Host.app"
-if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
-  host_name="$product Chromium Host"
-  mkdir -p "$host_app/Contents/MacOS"
-  copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
-  tmp_plist="$(mktemp)"
-  cat > "$tmp_plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleDisplayName</key><string>$host_name</string>
-  <key>CFBundleExecutable</key><string>$host_name</string>
-  <key>CFBundleIdentifier</key><string>$bundle_id.chromium-host</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>$host_name</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION:-1.0}</string>
-  <key>CFBundleVersion</key><string>${CURRENT_PROJECT_VERSION:-1}</string>
-  <key>LSEnvironment</key><dict><key>MallocNanoZone</key><string>0</string></dict>
-  <key>LSMinimumSystemVersion</key><string>$min_os</string>
-  <key>LSUIElement</key><string>1</string>
-  <key>NSPrincipalClass</key><string>ChromiumHostApplication</string>
-  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-</dict>
-</plist>
-PLIST
-  if ! cmp -s "$tmp_plist" "$host_app/Contents/Info.plist"; then mv "$tmp_plist" "$host_app/Contents/Info.plist"; else rm -f "$tmp_plist"; fi
+# 3b. The Chromium host (prototype behind browserHost.helper,
+# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process as a
+# second executable of this app, Contents/MacOS/<Product> Chromium Host, which
+# uses the helpers above for its child processes. Not an app of its own:
+# Chromium sandboxes those helpers with read access to the browser process's
+# main bundle (sandbox_parameters_mac.mm, bundle-path = NSBundle.mainBundle,
+# which CEF's main_bundle_path does not change), and only the outer app holds
+# the framework and the helpers. From its own Frameworks/<Product> Chromium
+# Host.app every helper failed to load the framework and the host aborted
+# (2026-10-24). Debug and bench builds only, so Release, RC and NIGHTLY bundles do not
+# change.
+rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
+# The remote shim goes with it: the shim ABI cmux loads instead of
+# libcmux_cef_shim.dylib in host mode (p01-process.md 3.2), from the same build.
+host_binary="$app/Contents/MacOS/$product Chromium Host"
+remote_shim="$frameworks/libcmux_cef_shim_remote.dylib"
+if [[ -n "$host_out" ]]; then
+  host_stamp="$stamp_dir/chromium-host"
+  mkdir -p "$app/Contents/MacOS"
+  # Signing rewrites the binaries: compare the host build key, not the bytes.
+  if [[ ! -f "$host_binary" || ! -f "$remote_shim" || ! -f "$host_stamp" ||
+    "$(cat "$host_stamp")" != "$host_key $product" ]]; then
+    rm -f "$host_binary" "$remote_shim"  # never overwrite a signed Mach-O in place
+    cp "$host_out/cmux-chromium-host" "$host_binary"
+    cp "$host_out/libcmux_cef_shim_remote.dylib" "$remote_shim"
+    printf '%s' "$host_key $product" > "$host_stamp"
+  fi
 else
-  rm -rf "$host_app"
+  rm -f "$host_binary" "$remote_shim"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
 
+# The dSYMs of the binaries embedded above (build-cef-shim.sh and
+# build-chromium-host.sh write them; lipo-dsym.sh copies, and removes one this
+# build has no binary for).
+for binary in libcmux_cef_shim.dylib cmux-cef-helper; do
+  "$SCRIPT_DIR/lipo-dsym.sh" "$TARGET_BUILD_DIR/$binary.dSYM" "$shim_out/$binary.dSYM"
+done
+for binary in cmux-chromium-host libcmux_cef_shim_remote.dylib; do
+  "$SCRIPT_DIR/lipo-dsym.sh" "$TARGET_BUILD_DIR/$binary.dSYM" ${host_out:+"$host_out/$binary.dSYM"}
+done
+
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

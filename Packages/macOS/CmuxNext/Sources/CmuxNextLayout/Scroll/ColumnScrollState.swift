@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextInputCore
 
 /// Scroll state of one columns screen: the spring the view presents, the
 /// strip it was computed for, the focus it follows, and a live trackpad
@@ -22,11 +23,23 @@ public nonisolated struct ColumnScrollState: Hashable, Sendable {
     public var remembered: [ColumnID: PaneID] = [:]
     /// A sync skipped its reveal (live resize drag); the next one reveals.
     public var revealDeferred = false
+    /// A remount's saved offset (`LayoutScreenScroll`, p07-memory-033): the first sync with a real
+    /// viewport lands on it instead of placing the focused column (`restoreCamera`).
+    public var pendingRestore: CGFloat?
+    /// A gesture that begins now presents its pan resampled at each display frame's time
+    /// (``framePan(at:)``, feature `stripPanResampling`); the snap and fling still read the real samples.
+    public var resamplesPan = false
 
     public struct Gesture: Hashable, Sendable {
         /// Unbanded offset accumulated from the deltas.
         public var raw: CGFloat
         public var samples: [Sample] = []
+        /// The raw offsets with their event times, moved to a frame's time (nil: not resampled).
+        var resampler: InputResampler?
+        /// A pan event came after the last frame's ``framePan(at:)``.
+        var framePending = false
+        /// The unbanded offset the last frame showed (``ColumnScrollState/presentedPan``); nil before one did.
+        var shownRaw: CGFloat?
     }
 
     public struct Sample: Hashable, Sendable {

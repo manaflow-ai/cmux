@@ -3,7 +3,7 @@
 #   1. Release (what users get): the detector is compiled out. No object of the CmuxNextApp scheme's Release
 #      build defines or references a detector symbol, and the inlinable check is a bare return.
 #   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml passes on the
-#      nightly-next track and bench builds pass): it compiles, and the detector is in it (the flag reaches
+#      nightly-next track and `reload.sh --config bench-checks` passes): it compiles, and the detector is in it (the flag reaches
 #      the package targets).
 #   3. Nightly's tests and cost: CmuxNextCompat and its blocking tests in a scratch package built
 #      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records, never traps, and a clean checked call
@@ -225,20 +225,49 @@ cp -R Packages/macOS/CmuxNext/Sources/CmuxNextCompat "$pkg/Sources/"
 cp Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/BlockingCheck*.swift "$pkg/Tests/CmuxNextCompatTests/"
 revision="$(python3 -c "import json,sys;print(next(p['state']['revision'] for p in json.load(open(sys.argv[1]))['pins'] if p['identity']=='swift-atomics'))" Packages/macOS/CmuxNext/Package.resolved)"
 # The real package's settings, read from its manifest: CmuxNextCompat builds with daemonSwiftSettings and its
-# tests with uiSwiftSettings, as in Packages/macOS/CmuxNext/Package.swift.
-settings_swift="$(python3 - Packages/macOS/CmuxNext/Package.swift <<'PY'
-import re, sys
-text = open(sys.argv[1]).read()
-for name in ("uiSwiftSettings", "daemonSwiftSettings"):
-    block = re.search(r"^let " + name + r": \[SwiftSetting\] = \[.*?^\]$", text, re.S | re.M)
-    if not block:
-        sys.exit(f"blocking-checks: no `let {name}` in the manifest")
-    print(block.group(0))
-PY
-)" || { fail "nightly tests: could not read the package's Swift settings"; settings_swift=""; }
+# tests with uiSwiftSettings, as in Packages/macOS/CmuxNext/Package.swift. A `let NAME: [SwiftSetting]` statement
+# runs to the next column-0 line that does not continue it (`] + stabilitySwiftSettings` continues it), and the
+# settings constants it names come first, so the scratch manifest declares each one once.
 compat_settings="$(grep -A3 'name: "CmuxNextCompat",' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
 tests_settings="$(grep -A3 'name: "CmuxNextCompatTests"' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
 note "nightly tests: CmuxNextCompat uses ${compat_settings:-?}, its tests ${tests_settings:-?} (from the manifest)"
+settings_swift="$(python3 - Packages/macOS/CmuxNext/Package.swift "${compat_settings:-daemonSwiftSettings}" \
+  "${tests_settings:-uiSwiftSettings}" <<'PY'
+import re, sys
+lines = open(sys.argv[1]).read().split("\n")
+starts = {m.group(1): i for i, line in enumerate(lines) if (m := re.match(r"let (\w+): \[SwiftSetting\] = ", line))}
+
+
+def statement(name):
+    first = last = starts[name]
+    for index in range(first + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line[0].isspace() and line[0] not in "])}+.":
+            break
+        if line.strip():
+            last = index
+    return "\n".join(lines[first:last + 1])
+
+
+emitted = []
+
+
+def emit(name, chain):
+    if name in emitted:
+        return
+    if name not in starts:
+        sys.exit(f"blocking-checks: {' -> '.join(chain + [name])}: no `let {name}: [SwiftSetting]` in the manifest")
+    for used in re.findall(r"\b\w+SwiftSettings\b", statement(name).split("=", 1)[1]):
+        if used not in chain + [name]:
+            emit(used, chain + [name])
+    emitted.append(name)
+
+
+for name in dict.fromkeys(sys.argv[2:]):
+    emit(name, [])
+print("\n".join(statement(name) for name in emitted))
+PY
+)" || { fail "nightly tests: could not read the package's Swift settings"; settings_swift=""; }
 cat >"$pkg/Package.swift" <<SWIFT
 // swift-tools-version: 6.2
 import PackageDescription
@@ -255,6 +284,10 @@ let package = Package(
     ]
 )
 SWIFT
+# The scratch manifest parses before the build, so a settings edit in the real manifest that this copy does not
+# follow fails here by name, not as a compile failure of the tests.
+swift package dump-package --package-path "$pkg" >"$OUT/nightly-tests-manifest.json" 2>"$OUT/nightly-tests-manifest.log" \
+  || fail "nightly tests: the scratch Package.swift does not parse (see nightly-tests-manifest.log)"
 flags=(-c release -Xswiftc -enable-testing -Xswiftc -DCMUX_BLOCKING_CHECKS)
 # The tests use the probe-free table seams (@testable); a Nightly-configuration test run proves the record-only
 # path, the clean-path cost (< 50 ns per checked call) and that a Nightly never traps.

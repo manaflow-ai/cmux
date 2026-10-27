@@ -1,4 +1,5 @@
 import CmuxNextActions
+@testable import CmuxNextCompat
 import CmuxNextWakeups
 import CoreFoundation
 @testable import CmuxNextControl
@@ -140,4 +141,30 @@ import Testing
         #expect(line.text.contains("watchdog over_budget"), "\(line.text)")
         #expect(board.running == nil)
     }
+
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// p02-threads-122: the Debug line's symbol map (a file read and an inflate through the checked seam) is
+    /// read on the files lane, never on the reporter's cooperative-pool task, where it is a pool violation.
+    @MainActor
+    @Test func theSymbolMapIsReadOnTheFilesLaneNotThePool() async throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        let board = MainTaskBoard()
+        watchdog.start()
+        defer { watchdog.stop() }
+        watchdog.attach(board: board, recordTaskBudgets: true)
+        let monitor = ActionBudgetMonitor(budget: .milliseconds(10), board: board)
+        let registry = ActionRegistry(catalog: [], runTiming: SignpostActionRunTiming(monitor: monitor))
+        registry.register(Action(id: "test.slow", title: "Slow") { spinForTestAction(milliseconds: 40) })
+        let (reads, read) = AsyncStream<BlockingContext>.makeStream()
+        let reporter = ActionBudgetReporter(monitor: monitor, naming: ActionReportNaming(catalog: ["test.slow"]),
+                                            overBudget: watchdog.overBudget, sampling: true, logsRuns: true,
+                                            work: BackgroundWork(label: "test.action-budget.symbols"),
+                                            symbolMap: { read.yield(BlockingContext.current()); return nil })
+        Self.runSlowActionTurn(registry)
+        var contexts = reads.makeAsyncIterator()
+        let context = try #require(await contexts.next(), "the slow run's line read no symbol map")
+        #expect(context == .lane, "the symbol map was read on \(context), not a files-lane slot")
+        withExtendedLifetime(reporter) {}
+    }
+    #endif
 }

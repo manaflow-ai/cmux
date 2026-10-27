@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 
@@ -45,16 +46,30 @@ public struct DaemonEventEnvelope: Sendable, Hashable {
     public var connectionSerial: UInt64 { sequence >> 40 }
     public let sequence: UInt64
     public let event: DaemonEvent
+    /// Who caused the event (p06-scheduler-031, ``DaemonEvent/cause(wire:recorded:)``): person for the
+    /// echo of the app's own person-scope mutation, else the daemon's envelope `cause`; program for
+    /// synthetic events and when the daemon sent none. The drain applies the event with it as the
+    /// current cause (``ObservationCauses``). Scheduling only: authorization never reads it.
+    public let cause: ObservationCause
 
     /// Preserves an event's original ordering and source identity.
     /// - Parameters:
     ///   - sequence: The connection serial and event index encoded by the transport.
     ///   - event: The decoded native event.
     ///   - sourceID: The emitting connection instance; nil for legacy or synthetic events.
-    public init(sequence: UInt64, event: DaemonEvent, sourceID: UUID? = nil) {
+    ///   - cause: Who caused it; ``ObservationCause/program`` when the daemon names no cause.
+    public init(sequence: UInt64, event: DaemonEvent, sourceID: UUID? = nil, cause: ObservationCause = .program) {
         self.sourceID = sourceID
         self.sequence = sequence
         self.event = event
+        self.cause = cause
+    }
+
+    /// This envelope with its cause raised to `other` when that is higher: what an inbox merge or a
+    /// collapse keeps for the events it stands for.
+    public func raisingCause(to other: ObservationCause) -> DaemonEventEnvelope {
+        guard other > cause else { return self }
+        return DaemonEventEnvelope(sequence: sequence, event: event, sourceID: sourceID, cause: other)
     }
 
     static let lastIndex: UInt64 = (1 << 40) - 1

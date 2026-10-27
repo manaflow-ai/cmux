@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// The keys of one window's pending creations or awaited surface, in typing order.
 @MainActor
@@ -99,8 +100,10 @@ public final class CreationInputBuffer {
     public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
         // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
         Task { @MainActor [weak self] in
-            // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
-            try? await Task.sleep(for: limit)
+            // wakeup-allow: deadline of a key hold; not a DemandTimer, since each call (the hold's start, each reply)
+            // is a bound of its own that a replacing timer would drop. The person's keys wait on it: Chromium's flat
+            // 8 ms kDefaultLeeway (base/task/task_features.h), as KeyRouter's New Tab bound (019a).
+            try? await Task.sleep(for: limit, tolerance: WakeLeeway.defaultAlignment)
             guard let self, !hasPendingCreation else { return }
             expired(self)
         }

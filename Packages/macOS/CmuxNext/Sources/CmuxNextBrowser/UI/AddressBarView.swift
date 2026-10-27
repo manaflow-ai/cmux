@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The omnibar, drawn by `OmnibarStyle`: a gray
 /// 8 pt pill with a page-info chip, the compact URL with the host at full
@@ -32,8 +34,8 @@ public final class AddressBarView: NSView {
     }
 
     let pill = OmnibarPillView()
-    private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let backdrop = OmnibarCardTopView()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
@@ -41,12 +43,23 @@ public final class AddressBarView: NSView {
     /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
     let focusModeBadgeView = FocusModeBadgeView()
     private var focusModeBadgeWanted = false
-    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
-    // Built on first use in init (no IUO).
-    private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
+    private(set) lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
+    /// The bar's token sizes (read in the density binding, so a change lays out again).
+    private(set) var barHeight: CGFloat = 0, chipSide: CGFloat = 0
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
+    /// The app's one main-thread scheduler: the bar's setting follows apply on it.
+    let mainWork: MainWorkScheduler
+    /// The node the bar's repaints wait on (R-appear): its tab's, set by the chrome, or a root that stays
+    /// visible for a bar in no tab (a popup's toolbar, the Markdown bar), whose repaints run at once.
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.standalone", own: .visible) {
+        didSet {
+            pill.visibilityNode = visibilityNode
+            field.visibilityNode = visibilityNode
+        }
+    }
+    /// The suggestion engine's "Always show full URLs" (``followDisplay()``).
+    var displayWatch: FrameObservation<Bool>?
 
     private var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
@@ -92,7 +105,8 @@ public final class AddressBarView: NSView {
             request.tabKey = tabKey
             request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
-        }
+        },
+        mainWork: mainWork
     )
 
     /// A bar that shows the page's address but never edits it: a system
@@ -153,10 +167,10 @@ public final class AddressBarView: NSView {
         return resolver
     }
 
-    public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
+    public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler) {
         self.suggestionEngine = suggestionEngine
+        self.mainWork = mainWork
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
 
@@ -174,14 +188,8 @@ public final class AddressBarView: NSView {
         field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
         field.extraMenuItems = { [weak self] in self?.omnibarMenuItems() ?? [] }
         field.setAccessibilityLabel(Strings.omnibarPlaceholder)
-        // A long URL truncates; it never widens the toolbar or the pane
-        // (BrowserToolbarLayout decides the omnibar's width).
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        for view in [backdrop, pill, chip, field] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-        }
+        // A long URL truncates; it never widens the toolbar or the pane: the bar
+        // frames the field (`AddressBarLayout`), BrowserToolbarLayout decides the omnibar's width.
         backdrop.isHidden = true
         addSubview(backdrop)
         addSubview(pill)
@@ -193,31 +201,7 @@ public final class AddressBarView: NSView {
         starButton.isHidden = true
         badges.orientation = .horizontal
         badges.spacing = 4
-        badges.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badges)
-        NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
-            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
-            pill.topAnchor.constraint(equalTo: topAnchor),
-            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -OmnibarStyle.cardSideOutset),
-            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: OmnibarStyle.cardSideOutset),
-            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
-            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
-            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
-            density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
-
-            field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
-            fieldToEdge,
-            field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
-            badges.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
         panel.onPick = { [weak self] row, flags in
             self?.commitMarkedText()
             self?.controller.send(.rowClick(row: row, .init(flags)))
@@ -225,12 +209,18 @@ public final class AddressBarView: NSView {
         panel.onHover = { [weak self] row, pointer in self?.controller.send(.rowHover(row: row, pointer: pointer)) }
         density.update { [weak self] in
             guard let self else { return }
+            let bar = OmnibarStyle.barHeight, chipSize = OmnibarStyle.chipSize
+            if bar != barHeight { barHeight = bar; invalidateIntrinsicContentSize() }
+            chipSide = chipSize
+            // invalidate: a token changed (the binding runs once per change): the chip, the field's font.
+            needsLayout = true
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
-        density.start()
+        density.start(in: self)
+        pill.followLook(on: mainWork)
         followDisplay()
     }
 
@@ -267,6 +257,8 @@ public final class AddressBarView: NSView {
     /// profile, or an incognito tab).
     public func setProfileBadge(_ badge: BrowserProfileBadge?) {
         if let badge { profileBadgeView.show(badge) }
+        // The avatar has one size: only showing or hiding it moves the field.
+        guard profileBadgeView.isHidden != (badge == nil) else { return }
         profileBadgeView.isHidden = badge == nil
         updateBadgeSpace()
     }
@@ -290,7 +282,10 @@ public final class AddressBarView: NSView {
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
     /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
     public func setFocusModeBadge(armed: Bool?) {
+        let text = focusModeBadgeView.shownText
         if let armed { focusModeBadgeView.show(armed: armed) }
+        // The shown badge's new text has another width.
+        if focusModeBadgeWanted, focusModeBadgeView.shownText != text { updateBadgeSpace() }
         let shown = armed != nil
         guard focusModeBadgeWanted != shown else { return }
         focusModeBadgeWanted = shown
@@ -321,11 +316,10 @@ public final class AddressBarView: NSView {
     /// The focus mode badge's text (tests, diagnostics).
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
+    /// A badge showed, hid or changed its text: the badges and the field get new frames.
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
-        guard fieldToBadge.isActive != visible else { return }
-        fieldToEdge.isActive = !visible
-        fieldToBadge.isActive = visible
+        // invalidate: called only on a badge change (each caller skips an unchanged badge).
+        needsLayout = true
     }
 
     /// Shows the page's URL again after a commit that loaded nothing in
@@ -418,7 +412,8 @@ public final class AddressBarView: NSView {
     // MARK: Events in
 
     private func fieldDidFocus() {
-        controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
+        let pressed = isMouseDownInField((window as? InputTapHosting)?.inputTap?.lastDispatched)
+        controller.send(.focusGained(pendingFocusSource ?? (pressed ? .mouse : .programmatic)))
         if pendingSearch {
             pendingSearch = false
             controller.send(.key(.searchWithDefaultEngine))
@@ -428,9 +423,11 @@ public final class AddressBarView: NSView {
     /// A press in the bar focused it (not a click elsewhere, such as a
     /// new-tab button, that moved focus here). The bar around the text
     /// forwards its presses to the field (`mouseDown(with:)`).
-    private func isMouseDownInField(_ event: NSEvent?) -> Bool {
-        guard let event, [.leftMouseDown, .rightMouseDown].contains(event.type), event.window === window else { return false }
-        return bounds.contains(convert(event.locationInWindow, from: nil))
+    /// `event`: the tap's last dispatched event, the press whose dispatch moves the focus here.
+    private func isMouseDownInField(_ event: InputEventRecord?) -> Bool {
+        guard let event, event.type == .leftMouseDown || event.type == .rightMouseDown,
+              let window, event.windowNumber == window.windowNumber else { return false }
+        return bounds.contains(convert(NSPoint(x: event.location.x, y: event.location.y), from: nil))
     }
 
     /// Reports what the field editor holds now. The applier's own writes
@@ -534,13 +531,6 @@ public final class AddressBarView: NSView {
         field.rightMouseDown(with: event)
     }
 
-    /// The press landed on the bar itself inside the text area, not on a
-    /// chip, badge or star that passed it up the responder chain.
-    private func isBarHit(_ event: NSEvent) -> Bool {
-        guard let superview, hitTest(superview.convert(event.locationInWindow, from: nil)) === self else { return false }
-        return textArea.contains(convert(event.locationInWindow, from: nil))
-    }
-
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         field.acceptsFirstMouse(for: event)
     }
@@ -558,6 +548,7 @@ public final class AddressBarView: NSView {
 
     public override func layout() {
         super.layout()
+        applyBarLayout()
         if textArea != cursorTextArea { window?.invalidateCursorRects(for: self) }
     }
 
@@ -575,7 +566,11 @@ public final class AddressBarView: NSView {
         backdrop.isHidden = !state.isPopupOpen
         if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
         let site = PageInfoSite(url: state.pageURL, security: security)
-        chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
+        let indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
+        if indicator != chip.indicator {
+            chip.indicator = indicator
+            needsLayout = true // the chip's label ("Search Google", "Not Secure") sets its width
+        }
         updateStarVisibility()
     }
 
@@ -584,10 +579,18 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The URL's styled text is written again in the new look once the bar shows: a hidden tab's bar
+    /// measures and lays out no text (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        if !field.isFieldEditorActive {
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
-        }
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.restyleField() }
+    }
+
+    /// The ``visibilityNode`` key of the bar's deferred repaint.
+    static let appearanceKey = "AddressBarView.appearance"
+
+    private func restyleField() {
+        guard !field.isFieldEditorActive else { return }
+        field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
     }
 }

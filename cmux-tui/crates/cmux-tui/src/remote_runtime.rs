@@ -209,12 +209,10 @@ fn remote_runtime_worker_count() -> usize {
 }
 
 fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(remote_runtime_worker_count())
-        .thread_name(thread_name)
-        .enable_all()
-        .build()
-        .context("could not start remote Tokio runtime")
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.worker_threads(remote_runtime_worker_count()).thread_name(thread_name).enable_all();
+    crate::owner_start::poll_watch_lab::instrument(&mut builder);
+    builder.build().context("could not start remote Tokio runtime")
 }
 
 fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {

@@ -81,13 +81,13 @@ final class HomeHeaderButton: NSButton {
         let name = isOn ? (onSymbol ?? symbol) : symbol
         let tint = performWithTheme { isOn ? Palette.litGlyph : Palette.textSecondary }
         guard image == nil || size != glyphSize || name != glyphName || tint != glyphTint else { return }
+        needsDisplay = true
         glyphSize = size
         glyphName = name
         glyphTint = tint
         image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
         contentTintColor = tint
-        needsDisplay = true
     }
 
     /// The glyph's colour in the view's theme scope (also on a theme or appearance change): the

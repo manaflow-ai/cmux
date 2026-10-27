@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ struct AgentChatPullRequestTests {
     /// Checks sum to the worst: a failure beats one still running; skipped ones count as passed.
     @Test func readsThePullRequestAndSumsItsChecks() async throws {
         let rig = try Self.rig()
-        let read = try #require(await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder))
+        let read = try #require(await AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()).read(in: rig.folder))
         #expect(read.url == "https://github.com/o/r/pull/7")
         #expect(read.number == 7)
         #expect(read.state == "open")
@@ -59,7 +60,7 @@ struct AgentChatPullRequestTests {
     /// a folder with no pull request (gh fails) shows none.
     @Test func theHeaderAsksOnceAndShowsTheAnswer() async throws {
         let rig = try Self.rig()
-        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh))
+        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()))
         #expect(pullRequests.badge(cwd: rig.folder) == nil)
         for _ in 0..<200 where pullRequests.badge(cwd: rig.folder) == nil {
             try await Task.sleep(for: .milliseconds(20))
@@ -77,7 +78,7 @@ struct AgentChatPullRequestTests {
     /// when they finish even if nothing else changes the header.
     @Test func pendingChecksAreAskedAgain() async throws {
         let rig = try Self.rig(view: #"{"url":"https://github.com/o/r/pull/8","number":8,"state":"OPEN","isDraft":false,"statusCheckRollup":[{"status":"IN_PROGRESS","conclusion":""}]}"#)
-        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh), freshness: .milliseconds(100))
+        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()), freshness: .milliseconds(100))
         _ = pullRequests.badge(cwd: rig.folder)
         for _ in 0..<200 where Self.calls(rig.gh) < 3 {
             try await Task.sleep(for: .milliseconds(20))

@@ -12,6 +12,7 @@
 //! The journal keeps the attempt, so a retry after a timeout finishes what
 //! the first run started.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,6 +48,8 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let key = key(request);
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
@@ -236,10 +239,10 @@ fn registered(git: &UserGit<'_>, root: &Path) -> Result<Option<String>, Resource
 
 /// `path` with symlinks resolved, through its parent once it is gone.
 fn resolved(path: &Path) -> PathBuf {
-    if let Ok(path) = std::fs::canonicalize(path) {
+    if let Ok(path) = files::canonicalize(path) {
         return path;
     }
-    match (path.parent().and_then(|parent| std::fs::canonicalize(parent).ok()), path.file_name()) {
+    match (path.parent().and_then(|parent| files::canonicalize(parent).ok()), path.file_name()) {
         (Some(parent), Some(name)) => parent.join(name),
         _ => path.to_path_buf(),
     }

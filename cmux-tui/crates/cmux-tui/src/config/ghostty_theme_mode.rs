@@ -1,6 +1,8 @@
 //! System appearance (light or dark) detection for conditional Ghostty themes: macOS appearance, desktop portals, GNOME, KDE and GTK settings.
 
 use super::*;
+#[cfg(not(target_os = "macos"))]
+use cmux_process::Command;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum GhosttyThemeMode {

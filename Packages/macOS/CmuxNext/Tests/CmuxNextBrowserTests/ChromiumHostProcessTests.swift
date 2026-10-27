@@ -1,4 +1,7 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import Darwin
 import Foundation
 import Testing
@@ -13,7 +16,7 @@ import Testing
 
     @Test func framesRoundTripThroughAChildProcess() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
+        let handle = try await launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         var ping = ChromiumHostFrame(.ping, t0: 42)
         ping.seq = 7
@@ -32,7 +35,7 @@ import Testing
 
     @Test func aKilledHostReportsItsSignalAndEndsTheWire() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
+        let handle = try await launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         #expect(kill(handle.pid, SIGKILL) == 0)
         let exit = await launcher.exit(of: handle.pid)
@@ -49,26 +52,112 @@ import Testing
 
     @Test func anExitStatusIsReported() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: ["-c", "exit 3"])
+        let handle = try await launcher.launch(executable: Self.echo, arguments: ["-c", "exit 3"])
         let exit = await launcher.exit(of: handle.pid)
         #expect(exit == ChromiumHostExit(signal: nil, status: 3))
         launcher.reap(handle.pid)
         ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD).close()
     }
 
-    @Test func aHostThatStopsReadingEndsTheConnection() async throws {
+    // Before the fix the host got the spawning thread's signal mask: the shell's
+    // SIGUSR1 to itself stayed pending, and it printed "alive" and exited 0.
+    @Test func aHostStartsWithNoBlockedSignals() async throws {
+        let launcher = ChromiumHostLauncher()
+        var blocked = sigset_t()
+        sigemptyset(&blocked)
+        sigaddset(&blocked, SIGUSR1)
+        var previous = sigset_t()
+        // posix_spawn gives the child the calling thread's mask unless told otherwise.
+        // No await until the mask is restored, so this thread runs nothing else meanwhile.
+        pthread_sigmask(SIG_BLOCK, &blocked, &previous)
+        // The spawn queue's seam, called on this thread, so the mask under test is the spawning thread's.
+        let launched = Result { () throws(ChromiumHostLauncher.LaunchError) in
+            try ChromiumHostLauncher.spawn(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"], priority: .userBlocking)
+        }
+        pthread_sigmask(SIG_SETMASK, &previous, nil)
+        let handle = try launched.get()
+        let exit = await launcher.exit(of: handle.pid)
+        launcher.reap(handle.pid)
+        var output = [UInt8](repeating: 0, count: 64)
+        let count = read(handle.readFD, &output, output.count)
+        [handle.readFD, handle.writeFD].forEach { _ = Darwin.close($0) }
+        #expect(exit == ChromiumHostExit(signal: SIGUSR1, status: nil))
+        #expect(count == 0)  // EOF: the shell ended at the signal, before it printed
+    }
+
+    @Test func aConnectionDroppedWithoutCloseEndsTheWire() async throws {
+        var pair: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        var back: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &back) == 0)
+        defer { [pair[1], back[0]].forEach { _ = Darwin.close($0) } }
+        // cmux's end reads back[1] and writes pair[0]; the test plays the host on pair[1] and back[0].
+        do {
+            let connection = ChromiumHostConnection(readFD: back[1], writeFD: pair[0])
+            #expect(connection.send(ChromiumHostFrame(.ping)))
+        }
+        // The connection is gone (its reader thread does not keep it): the host reads its frame, then EOF.
+        var byte = [UInt8](repeating: 0, count: ChromiumHostFrame.headerSize)
+        #expect(read(pair[1], &byte, byte.count) == ChromiumHostFrame.headerSize)
+        var poller = pollfd(fd: pair[1], events: Int16(POLLIN), revents: 0)
+        // Bound of a test wait: EOF arrives at once after the fix; before it the connection never ended.
+        let readable = poll(&poller, 1, 10_000)
+        #expect(readable == 1)
+        if readable == 1 { #expect(read(pair[1], &byte, byte.count) == 0) }
+    }
+
+    // Before the fix the host made its own small bundle Chromium's main bundle: the helpers it starts
+    // live outside it, the page's renderer ended at once and the host aborted (SIGABRT, macOS 27).
+    @Test func theHostRunsChromiumWithTheAppAsItsMainBundle() {
+        let app = URL(filePath: "/Applications/cmux DEV t.app")
+        let frameworks = app.appending(path: "Contents/Frameworks")
+        let layout = CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: app,
+                                      helperApp: frameworks.appending(path: "cmux DEV t Helper.app"))
+        let root = URL(filePath: "/tmp/host-root")
+        let arguments = ChromiumHostConfiguration.arguments(layout: layout, rootCache: root, bundleIdentifier: "com.cmuxterm.app.debug.t",
+                                                            environment: [:])
+        #expect(arguments.contains("--main-bundle=\(app.path)"))
+        #expect(arguments.contains("--subprocess=\(frameworks.path)/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper"))
+        let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: arguments)
+        #expect(configuration.logFile == "/tmp/host-root/chromium-host.log")
+        let diagnosed = ChromiumHostConfiguration.arguments(layout: layout, rootCache: root, bundleIdentifier: "com.cmuxterm.app.debug.t",
+                                                            environment: ["CMUX_NEXT_CHROMIUM_HOST_SWITCHES": "enable-logging=stderr,v=1"])
+        #expect(diagnosed.suffix(2) == ["--cef-switch=enable-logging=stderr", "--cef-switch=v=1"])
+    }
+
+    // Before the fix the host was Frameworks/<Product> Chromium Host.app: its NSBundle.mainBundle (the sandbox's
+    // bundle-path) did not hold the framework, and every sandboxed helper failed to load it.
+    @Test func theBundledHostIsASecondExecutableOfTheApp() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "chromium-host-layout-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appending(path: "cmux DEV t.app")
+        let frameworks = app.appending(path: "Contents/Frameworks")
+        let layout = CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: app,
+                                      helperApp: frameworks.appending(path: "cmux DEV t Helper.app"))
+        let host = app.appending(path: "Contents/MacOS/cmux DEV t Chromium Host")
+        try FileManager.default.createDirectory(at: host.deletingLastPathComponent(), withIntermediateDirectories: true)
+        #expect(ChromiumHostConfiguration.bundled(in: layout, rootCache: root, bundleIdentifier: "t", environment: [:]) == nil)
+        #expect(FileManager.default.createFile(atPath: host.path, contents: Data(), attributes: [.posixPermissions: 0o755]))
+        let configuration = try #require(ChromiumHostConfiguration.bundled(in: layout, rootCache: root, bundleIdentifier: "t",
+                                                                           environment: [:]))
+        #expect(configuration.executable.standardizedFileURL == host.standardizedFileURL)
+    }
+
+    @Test func aHostThatStopsReadingEndsTheConnectionOnceItsDiscreteQueueIsFull() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.
-        let handle = try launcher.launch(executable: Self.echo, arguments: ["-c", "exec /bin/sleep 30"])
+        let handle = try await launcher.launch(executable: Self.echo, arguments: ["-c", "exec /bin/sleep 30"])
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
-        let frame = ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0])
+        // A click: discrete, so it is never folded into another frame.
+        let frame = ChromiumHostFrame(.mouse, v: [1, 2, 1, 0, 1, 1])
         var sent = 0
-        // Bounded: the send buffer holds about sendBuffer / 64 frames, and the
-        // socket's receive side a little more.
-        // Never blocks: a write that would wait fails instead (cmux calls this on its main thread).
+        // Bounded: the send buffer holds about sendBuffer / 64 frames, the
+        // socket's receive side a little more, then the outbox discreteLimit.
+        // Never blocks: a write that would wait queues instead (cmux calls this on its main thread).
         let started = ContinuousClock.now
         while sent < 100_000, connection.send(frame) { sent += 1 }
         #expect(sent < 100_000)
+        #expect(sent > ChromiumHostInputOutbox.discreteLimit)
         #expect(ContinuousClock.now - started < .seconds(5))
         #expect(!connection.send(frame))
         #expect(connection.endedByProtocolError)
@@ -77,3 +166,4 @@ import Testing
         launcher.reap(handle.pid)
     }
 }
+#endif

@@ -1,6 +1,7 @@
 public import Foundation
 import os
 public import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -92,6 +93,9 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// The app's one ``BackgroundWork``: `ensure`'s state-directory create runs on its files lane, never on
+    /// the caller's thread (the launch's first connect and every reconnect await `ensure`).
+    public let work: BackgroundWork
     /// `configuration.rememberedSocket` until the first endpoint request of
     /// any provider of this launcher takes it: the startup loop's retries
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
@@ -108,14 +112,21 @@ public struct DaemonLauncher: Sendable {
     /// longer than that bound plus the time to reach the owner.
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
+    /// Put on every endpoint this launcher hands out (``DaemonEndpoint/wireStats``), so the
+    /// connections to its daemon count there; its socket probe counts there too. Nil counts nothing.
+    public let wireStats: DaemonWireStats?
 
     public init(
+        work: BackgroundWork,
         configuration: Configuration,
         environment: @escaping @Sendable () async -> [String: String],
         ensureTimeout: Duration = .seconds(20),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        wireStats: DaemonWireStats? = nil
     ) {
+        self.work = work
         self.configuration = configuration
+        self.wireStats = wireStats
         rememberedSocket = RememberedSocket(configuration.rememberedSocket)
         self.environmentProvider = environment
         self.ensureTimeout = ensureTimeout
@@ -128,14 +139,19 @@ public struct DaemonLauncher: Sendable {
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
     /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
+    /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
+    /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
     public static func forApp(
+        work: BackgroundWork,
         build: BuildIdentity,
         terminalEnvironment: [String: String],
+        resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
-        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
+        wireStats: DaemonWireStats? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -150,8 +166,10 @@ public struct DaemonLauncher: Sendable {
         // A terminal the daemon starts with no caller env gets this env; its
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
-        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides,
+                                         resolved: resolvedTerminalEnvironment, cli: cli)
+        return DaemonLauncher(work: work, configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
+                              wireStats: wireStats)
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -161,6 +179,7 @@ public struct DaemonLauncher: Sendable {
     /// without any app or terminal identity, and it is never handed off to a
     /// connecting build's binary.
     public static func forChief(
+        work: BackgroundWork,
         session: String,
         stateDirectory: URL,
         bundle: Bundle = .main,
@@ -175,7 +194,7 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(work: work, configuration: configuration, environment: { environment })
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
@@ -190,8 +209,8 @@ public struct DaemonLauncher: Sendable {
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,
-    /// else the app's own), filtered, plus the app's identity keys and
-    /// `overrides`, then `cli` (the bundled `cmux` first on `PATH`). It
+    /// else the app's own, and only then the capture starts at once), filtered, plus the app's identity keys and
+    /// `overrides` and the `resolved` ones over them, then `cli` (the bundled `cmux` first on `PATH`). It
     /// never waits for `$SHELL -l -i`, which takes 5-17 s on some setups;
     /// the app's terminals do not depend on it, because each carries its
     /// own login `env` (`TerminalEnvironment.shared`).
@@ -199,13 +218,16 @@ public struct DaemonLauncher: Sendable {
         cache: LoginEnvironmentCache,
         base: [String: String],
         overrides: [String: String],
+        resolved: (@Sendable () async -> [String: String])? = nil,
         cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.immediate()
             DaemonLaunchTimings.shared.mark("daemon.login_env_end")
-            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            let late = await resolved?() ?? [:]
+            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base,
+                                                                        overrides: overrides.merging(late) { _, resolved in resolved })
             return cli?.apply(to: environment) ?? environment
         }
     }
@@ -277,10 +299,12 @@ public struct DaemonLauncher: Sendable {
     /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
     /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
     public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
+        // SAFETY: with a nil buffer and length 0, confstr only returns the size it needs.
+        let length = unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
         if length > 0 {
             var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
+            // SAFETY: confstr writes at most `length` bytes, the array's size, into its storage, lent for the call.
+            if unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
                 let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
                 if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
             }
@@ -308,8 +332,10 @@ public struct DaemonLauncher: Sendable {
     /// (`appEnvironment`) never waits for the login shell.
     public func ensure() async throws -> EnsureResult {
         if let stateDirectory = configuration.stateDirectory {
-            try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o700])
+            try await work.run(.userBlocking, mayBlock: .files) {
+                try FileManager.checked.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+            }
         }
         if let running = await runningOwner() { return running }
         // The probe runs while the environment is gathered.
@@ -367,14 +393,6 @@ public struct DaemonLauncher: Sendable {
         return parsed
     }
 
-    /// Starts capturing the login environment now, so the first terminals
-    /// have it as early as possible and the next launch remembers it. Call
-    /// at the top of `main`; the capture runs off the main thread.
-    public static func prewarmLoginEnvironment() {
-        // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
-        Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
-    }
-
     static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {
         // The JSON object is the last non-empty stdout line.
         let lines = String(decoding: result.stdout, as: UTF8.self)
@@ -402,10 +420,15 @@ public struct DaemonLauncher: Sendable {
 
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
-    public var endpointProvider: DaemonConnection.EndpointProvider {
+    public var endpointProvider: DaemonConnection.EndpointProvider { spawnObservingEndpointProvider(onSpawned: nil) }
+
+    /// ``endpointProvider`` that also calls `onSpawned` after each `ensure` that started a daemon (status
+    /// `started`, never a running owner or a remembered socket): the launch's `daemon.spawned` milestone.
+    public func spawnObservingEndpointProvider(onSpawned: (@Sendable () -> Void)?) -> DaemonConnection.EndpointProvider {
         let remembered = rememberedSocket
         let handoff = handoff
         let clock = clock
+        let wireStats = wireStats
         return {
             // A daemon exiting for a version handoff still answers `server
             // status` for a moment: start its successor only once it is gone.
@@ -414,12 +437,16 @@ public struct DaemonLauncher: Sendable {
                 handoff.cancel(pid: exiting)
             }
             if let path = remembered.take() {
-                if DaemonSocketMemory.acceptsConnections(path) {
+                if DaemonSocketMemory.acceptsConnections(path, wireStats: wireStats) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
-                    return DaemonEndpoint(socketPath: path)
+                    return DaemonEndpoint(socketPath: path, wireStats: wireStats)
                 }
             }
-            return try await ensureRecordingOutcome().endpoint
+            let ensured = try await ensureRecordingOutcome()
+            if ensured.status == "started" { onSpawned?() }
+            var endpoint = ensured.endpoint
+            endpoint.wireStats = wireStats
+            return endpoint
         }
     }
 

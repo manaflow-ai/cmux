@@ -3,8 +3,9 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Most jobs admitted at once (queued plus running), and most worker threads.
@@ -18,7 +19,6 @@ pub(super) struct DeadlineFanoutState {
     jobs: VecDeque<DeadlineFanoutJob>,
     worker_count: usize,
     pub(super) admitted_jobs: usize,
-    next_worker: u64,
     shutdown: bool,
 }
 
@@ -59,12 +59,11 @@ impl DeadlineFanoutPool {
         if state.jobs.len() + 1 > available_workers
             && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
         {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
+            // The pool's workers share one name; server.threads counts them.
             if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
+                .name("mux-deadline".into())
                 .spawn(move || deadline_fanout_worker(inner))
                 .is_err()
             {
@@ -112,12 +111,16 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                 inner.changed.notify_all();
                 return;
             }
-            let (mut state, _) = inner
-                .changed
-                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
-                    !state.shutdown && state.jobs.is_empty()
-                })
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let idle_until = Instant::now() + DEADLINE_FANOUT_IDLE_TIMEOUT;
+            while !state.shutdown && state.jobs.is_empty() {
+                let Some(remaining) = idle_until.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                // wakeup-allow: deadline the idle worker's one exit deadline (idle_until); a job ends the wait first
+                state = cmux_threads::checked::sync::wait_timeout(&inner.changed, state, remaining)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0;
+            }
             if state.shutdown || state.jobs.is_empty() {
                 state.worker_count = state.worker_count.saturating_sub(1);
                 inner.changed.notify_all();
@@ -162,6 +165,8 @@ pub(super) enum DeadlineMapResult<R> {
     Unscheduled,
 }
 
+/// Its wait for the items is a checked `recv` at the caller's line.
+#[track_caller]
 pub(super) fn bounded_deadline_map<T, R, F>(
     pool: &DeadlineFanoutPool,
     items: &[T],
@@ -209,7 +214,7 @@ where
         if remaining.is_zero() {
             break;
         }
-        match receiver.recv_timeout(remaining) {
+        match cmux_threads::checked::sync::recv_timeout(&receiver, remaining) {
             Ok(index) => {
                 let pending =
                     std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);

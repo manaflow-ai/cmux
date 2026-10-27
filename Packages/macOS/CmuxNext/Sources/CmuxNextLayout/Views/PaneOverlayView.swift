@@ -57,14 +57,17 @@ final class PaneOverlayView: NSView {
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
     private var attentionAgentChat = false
-    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
-    private var attentionLook = AttentionHighlightLook.tunable.defaultValue
-    /// One observation of the look is registered at a time.
-    private var observesAttentionLook = false
+    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo): read when the overlay is
+    /// made, then set by the layout root's one look watch (``setAttentionLook(_:)``).
+    private(set) var attentionLook = AttentionHighlightLook.tunable.value
     private var borderStyle = Border(shows: false)
     private var dimFill = DimFill.pane
-    private var excluded: [CGRect] = []
-    private var excludedBounds: CGRect = .zero
+    /// The rects the overlay hides inside and the bounds they were cut for (`PaneOverlayView+Mask`).
+    var excluded: [CGRect] = []
+    var excludedBounds: CGRect = .zero
+    /// What the exclusion mask covers while this overlay rides its host's spring (``rideMask(from:velocity:)``),
+    /// in this view's coordinates: its rest bounds and its bounds where the ride starts. Nil at rest.
+    var maskRideOuter: CGRect?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -142,71 +145,49 @@ final class PaneOverlayView: NSView {
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
 
-    private func layoutLayers() {
-        var style = LayoutStyle()
-        style.panePadding = padding
-        style.paneCornerRadius = cornerRadius
-        let padded = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
-        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight, footerHeight: footerHeight)
-        let radius = PaneChromeGeometry.cornerRadius(for: rect, style: style)
-        let ringRadius = focusRing.cornerRadius.map { min($0, min(rect.width, rect.height) / 2) } ?? radius
+    /// Where the chrome sublayers rest on a cell of `size`, from this overlay's shape: the pane motion
+    /// plan's sublayer frames (`PaneMotionPlan.ChromeFrames`), so a spring's start and its rest are laid
+    /// out by the same function.
+    func chromeFrames(cellSize size: CGSize) -> PaneMotionPlan.ChromeFrames {
+        PaneMotionPlan.ChromeFrames(cellSize: size,
+                                    shape: PaneMotionPlan.ChromeShape(padding: padding, cornerRadius: cornerRadius,
+                                                                      ringCornerRadius: focusRing.cornerRadius),
+                                    bands: PaneMotionPlan.ChromeBands(header: headerHeight, footer: footerHeight))
+    }
+
+    /// Each chrome sublayer with its frame in `frames`, in its superlayer's coordinates: the dim on the
+    /// padded rect, the border and the rings on the rounded one, the glow filling its clip.
+    func sublayerFrames(_ frames: PaneMotionPlan.ChromeFrames) -> [(CALayer, CGRect)] {
+        [(dimLayer, frames.padded), (border, frames.rounded), (attention, frames.rounded), (ring, frames.rounded),
+         (glowClip, frames.rounded), (focusFlash, frames.rounded), (glow, CGRect(origin: .zero, size: frames.rounded.size))]
+    }
+
+    func layoutLayers() {
+        let frames = chromeFrames(cellSize: bounds.size)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [border, attention] {
-            sublayer.frame = rect
-            sublayer.cornerRadius = radius
-        }
-        for sublayer in [ring, glowClip, focusFlash] {
-            sublayer.frame = rect
-            sublayer.cornerRadius = ringRadius
-        }
-        dimLayer.frame = padded
-        dimLayer.cornerRadius = radius
+        for (sublayer, frame) in sublayerFrames(frames) { sublayer.frame = frame }
+        for sublayer in [border, attention, dimLayer] { sublayer.cornerRadius = frames.cornerRadius }
+        for sublayer in [ring, glowClip, focusFlash, glow] { sublayer.cornerRadius = frames.ringCornerRadius }
         // The dim covers the whole padded rect: only the corners the content
         // area shares with it round (a header squares the top ones, a footer
         // the bottom ones). The view is flipped, so maxY is the bottom.
         var corners: CACornerMask = []
-        if headerHeight <= 0 { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
-        if footerHeight <= 0 { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+        if frames.dimRoundsTop { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+        if frames.dimRoundsBottom { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
         dimLayer.maskedCorners = corners
-        glow.frame = glowClip.bounds
-        glow.cornerRadius = ringRadius
         border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = focusRing.width
         focusFlash.borderWidth = max(focusRing.width, Self.flashMinimumWidth)
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
-        attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
+        attention.shadowPath = Self.ringOutline(size: frames.rounded.size, radius: frames.cornerRadius, width: attentionSettings.width)
         CATransaction.commit()
     }
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    /// Hides the overlay inside `rects` (its own coordinates): a docked
-    /// column covering this strip pane, a pane in front of it. Empty removes the mask.
-    func setExcluded(_ rects: [CGRect]) {
-        let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
-        guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
-        excluded = rects
-        excludedBounds = bounds
-        guard let layer else { return }
-        guard !rects.isEmpty else {
-            layer.mask = nil
-            return
-        }
-        let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-        // Subtracted, not even-odd: a docked column and a pane in front can overlap.
-        let path = rects.reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(CGPath(rect: $1, transform: nil)) }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        mask.fillRule = .nonZero
-        mask.frame = bounds
-        mask.path = path
-        CATransaction.commit()
-        if layer.mask !== mask { layer.mask = mask }
-    }
-
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
@@ -278,21 +259,10 @@ final class PaneOverlayView: NSView {
     /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
     static let flashMinimumWidth: CGFloat = 2
 
-    /// Reads the highlight look and applies a Debug Settings change once,
-    /// without replaying the ring's animation (no polling).
-    private func observedAttentionLook() -> AttentionHighlightLook {
-        guard !observesAttentionLook else { return attentionLook }
-        observesAttentionLook = true
-        return withObservationTracking {
-            AttentionHighlightLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.attentionLookChanged() }
-        }
-    }
-
-    private func attentionLookChanged() {
-        observesAttentionLook = false
-        attentionLook = observedAttentionLook()
+    /// Applies a Debug Settings change of the highlight look without replaying the ring's animation.
+    func setAttentionLook(_ look: AttentionHighlightLook) {
+        guard look != attentionLook else { return }
+        attentionLook = look
         if attentionMark != nil, attentionSettings.drawsRing {
             Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
@@ -306,7 +276,6 @@ final class PaneOverlayView: NSView {
     private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
-        attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.drawsRing else {
             attention.removeAnimation(forKey: "attention")
             // The look turned off (none) mid-flash: the flash and its glow go with it.

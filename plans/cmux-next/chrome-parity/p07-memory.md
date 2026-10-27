@@ -86,7 +86,8 @@ Each item cites the Chromium source that the design copies.
 12. **Measurement.** `docs/memory/key_concepts.md` (vmmap is the Darwin reference);
     `base/trace_event/memory_dump_provider.h` (each subsystem reports its own bytes);
     `process_memory_metrics_emitter.cc` (PMF UMA histograms); the Task Manager; the Memory Saver chip.
-13. **Spares and discardable memory.** `SpareRenderProcessHostManager` keeps no spare under pressure.
+13. **Spares and discardable memory.** `SpareRenderProcessHostManager` makes no new spare under pressure
+    and keeps an existing one (`kKillSpareRenderOnMemoryPressure` is off by default; p13-webui.md section 1).
     Decoded image caches live in discardable memory, so the kernel takes pages back with no browser
     wakeup. `sql::Database::TrimMemory()` calls `sqlite3_db_release_memory` per connection.
     Low-memory devices turn the back-forward cache off (`BackForwardCacheMemoryControls`).
@@ -312,9 +313,39 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
 - New ghostty-next API `ghostty_surface_set_gpu_resident`. A hidden paused surface outside the
   keep-alive band releases its swap chain and drawables; a terminal in a window off screen for 30 s
   does the same. Show sets it back before the first draw; the last frame covers the gap. A
-  GPU-released surface stops its renderer thread.
+  GPU-released surface parks its renderer thread: the thread stays, blocked in its event loop, with
+  no frame, blink, display-link or animation work. It does not exit, because rebuilding the event
+  loop, mailbox and Metal objects on every show would add thread creation to a show that must land
+  in 10 ms. Chromium also keeps the renderer's compositor thread for hidden tabs and frees only
+  their GPU resources (content/renderer/render_thread_impl.cc compositor thread,
+  cc LayerTreeHostImpl::SetVisible).
 - The warm set grows only in the commit that turns GPU release on.
 - App-side scrollback paging is PL-ghostty's (F11); p07 depends on it.
+- Fork state (task 036): ghostty-next branch `cp/p07-memory-036` (commits `bcc291d1e` and
+  `6c6f34e53` on `723c4ab93`, the current pin), draft pull request
+  https://github.com/manaflow-ai/ghostty-next/pull/56. Rules 037 builds on: the layer is empty from
+  the release call on (cover the view with the app's last frame); the renderer thread parks; as
+  for a hidden surface, output wakes it only until its scrollback compression timer is armed, and
+  that timer and the release retry (16 ms doubling to 1 s) still run; a restore decodes a
+  background image from bytes kept at load (no file I/O); `ghostty_surface_render_counters` gains
+  `gpu_releases` (only releases that freed something) and `gpu_restores` at its end.
+- Pin bump (task 036a): the `ghostty-next` gitlink and the GhosttyNextKit pin
+  (`Packages/Shared/CmuxGhosttyKit/Package.swift`) stay at `723c4ab93` until pull request 56 is on
+  ghostty-next `main` and a GhosttyNextKit release of that commit is published. Then one commit
+  moves both. 037 depends on 036a and calls `ghostty_surface_set_gpu_resident` directly; it does
+  not probe for the symbol. The library is linked statically, and the pinned `ghostty.h` does not
+  declare the function, so a check at run time or compile time cannot work before the bump.
+- Test gap (036): the Zig tests check what a release frees and a restore rebuilds on the CPU side
+  (Kitty image state and placements, the background image, the residency epoch). Only the fleet
+  iOS smoke check `gpu` (glyphs and a Kitty image, identical IOSurface bytes) checks drawn pixels,
+  because no headless GraphicsAPI exists. That smoke has not run yet.
+- Conflict surface for later ghostty-next work: `include/ghostty.h` (render counters struct, the
+  new export), `src/apprt/embedded.zig`, `src/Surface.zig`, `src/renderer.zig`,
+  `src/renderer/{Residency,Thread,generic,Metal,message,mailbox}.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig`, `next/ios-smoke/main.swift`,
+  `next/ios-render-smoke.sh`, `NEXT.md`. Keep: draws, display passes and the display link check the
+  residency before the draw lock; a release never waits for the GPU under the draw lock; the main
+  thread clears the layer in the call and the main-queue present drops frames after a release.
 
 ### E. Chromium and WebKit processes
 
@@ -325,6 +356,11 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
   browser tabs share a process above the renderer limit.
 - No page renderer before first show; overlay pages released 5 min after close.
 - Spares key on pressure level (no spare at warning or critical); at most one Chromium-side spare.
+  PL-memory hand-off from p13-webui-047: every web object is a coordinator consumer (WebUIHost's preload
+  slot is the spare `webui-preload`; no `memoryPressure.observe` is left in the p13 D7 scope).
+  `SpareMemoryConsumer.Closing` says when untaken spares close: page pools at any pressure, Chromium's spare
+  windows only at critical (warning keeps them and refuses new ones, Chrome's default, see section 1.13).
+  Critical then runs BrowserHibernation's one ranked pass on the next release slice.
 - Hidden Chromium pages flush BFCache at freeze and at warning; Page lifecycle hide in occluded
   windows at once.
 - With F2 the Chromium host exits 5 min after its last live page.
@@ -402,8 +438,12 @@ at the end; the hour-0 baseline (075) gives every "today" value.
   `rg -l '_dispatch_source_type_memorypressure' cmux-tui/crates` lists only
   cmux-memory/src/pressure_macos.rs. `rg -n --pcre2 '^(?!\s*///).*memoryPressure\.observe'
   Packages/macOS/CmuxNext/Sources --type swift` hits only CmuxNextMemory (today 3). The in-process
-  Chromium platform voter is the one accepted second source in the app and gets cmux's level through
-  the cmux voter (051).
+  Chromium platform voter (`SystemMemoryPressureEvaluatorMac`, started by
+  content/browser/browser_main_loop.cc `CreateMemoryPressureMonitor`) is the one accepted second
+  source in the app; no search above counts it, as it lives in the Chromium framework. cmux reaches
+  Chromium's `MultiSourceMemoryPressureMonitor` only through its own voter (051: fork
+  `cmux_memory_pressure_vote`, `CEFMemoryPressureVote`), which votes the debug override and the cmux
+  level (section 3.A; Chromium's aggregator takes the max); nothing in cmux calls `NotifyMemoryPressure`.
 - **DC3 budgets from RAM.** `rg -n 'physicalMemory' Packages/macOS/CmuxNext/Sources` hits only
   CmuxNextMemory/SubsystemBudget.swift and CmuxNextHangReports/HardwareClass.swift. MQ-CAPS has 0 hits
   outside SubsystemBudget.swift (today 34). MQ-RUST-CAPS literals live only in
@@ -426,8 +466,10 @@ at the end; the hour-0 baseline (075) gives every "today" value.
   target after F2 and the shared pin: whole tree <= 250 MB, app <= 120 MB (today 793 / 361).
 - **DC8 heavy session.** perf-stress-session.py 60 ws STRESS and budgets-heavy 150 ws, 35 min idle,
   all discard toggles on: cmux-owned footprint (shells and agent harnesses excluded) <= 600 MB (today
-  3,538 MB whole tree). Threads <= 300: daemon share from task 095 together with PL-daemon; app share
-  from task 078.
+  3,538 MB whole tree). Threads <= 300, each share with its owner (bench_memory.py prints them as
+  "threads by owner (DC8)"): daemon, terminal hosts and holders from task 095 with PL-daemon; the app
+  (Ghostty's renderer and IO thread per surface included) from task 078, PL-memory; Chromium helpers
+  PL-cefhost; acpmux PL-acpmux; WebKit processes PL-webui.
 - **DC9 renderer limit.** `bench_renderer_sharing.py --tabs 100 --sites 20` (hibernation off):
   renderers <= max(SubsystemBudget.chromiumRendererLimit, distinct site locks), reported next to the
   site-lock count; <= 2 same-site main frames per renderer below the limit. `--engine webkit` gives the
@@ -593,8 +635,10 @@ review task "leaf Rust crate" is merged into 042; review task "kernel pressure t
 | 034 | Unmounted workspace leaves no objects | M | normal | 032, 015 | MQ-LEAK |
 | 035 | Terminal last frames: volatile at warm count, 0 non-volatile | S | normal | 003, 004 | MQ-CAPS |
 | 036 | ghostty_surface_set_gpu_resident | L | normal | - | |
-| 037 | Hidden surfaces drop GPU residency; warm set gated | M | normal | 036, 035, 096 | |
+| 036a | ghostty-next pin bump for set_gpu_resident | S | normal | 036 | |
+| 037 | Hidden surfaces drop GPU residency; warm set gated | M | normal | 036a, 035, 096 | |
 | 039 | Glyph atlas sharing measurement | S | low | 014 | MQ-UNATTRIBUTED |
+| 039a | Shared glyph atlas texture in ghostty-next | M | normal | 039 | MQ-UNATTRIBUTED |
 | 040 | Cold-scrollback codec (gated) | L | normal | 112 | |
 | 041 | Compress cold scrollback (gated) | M | normal | 040, 072 | |
 | 042 | cmux-memory leaf crate: registry, macOS and Linux sources | M | normal | - | MQ-PRESSURE |
@@ -972,12 +1016,20 @@ All IDs below are `p07-memory-NNN`.
 ### 036 ghostty_surface_set_gpu_resident
 - Files: ghostty-next include/ghostty.h, src/apprt/embedded.zig, src/renderer/Metal.zig,
   src/renderer/metal/*, src/renderer/Thread.zig; parent submodule pointer and fork notes.
-- Change: false releases swap chain, drawable pool, per-surface buffers and stops the renderer thread;
-  keeps state and the shared atlas; true recreates before the next frame; release after the in-flight
-  frame's completion handler; idempotent.
+- Change: false releases swap chain, drawable pool, per-surface buffers and parks the renderer thread
+  (section D says why it does not exit); keeps state and the shared atlas; true recreates before the
+  next frame; release after the in-flight frame's completion handler; idempotent.
 - Acceptance: cmux-ghostty skill followed (fork branch pushed first); Zig test false-then-true renders
   identical cells; no shortcut change.
 - Test: fleet GhosttyKit build, ghostty unit test, `cmux-ci build cmux --ref SHA`.
+
+### 036a ghostty-next pin bump for set_gpu_resident
+- Files: `ghostty-next` gitlink, Packages/Shared/CmuxGhosttyKit/Package.swift (URL and checksum).
+- Change: after ghostty-next pull request 56 merges and its GhosttyNextKit release is published, move
+  the gitlink and the pin to that commit in one commit (cmux-ghostty skill: commit on main first).
+- Acceptance: gitlink and pin name the same commit, reachable from ghostty-next main; the pinned
+  ghostty.h declares ghostty_surface_set_gpu_resident.
+- Test: fleet `cmux-ci build cmux --ref SHA`; next/ios-render-smoke.sh check gpu on the fleet.
 
 ### 037 Hidden surfaces drop GPU residency
 - Files: CmuxNextTerminal/TerminalSurfaceView.swift, TerminalSession.swift, CmuxNextBridge/WarmSetBudget.swift,
@@ -987,7 +1039,7 @@ All IDs below are `p07-memory-NNN`.
   gpuResidentAvailable; capacity rises only in this commit. Warm-set pressure path becomes the sliced
   consumer (096).
 - Acceptance: fake seam: hidden paused gives false, show gives true before render, keep-alive never
-  called; old formula on forks without the API.
+  called. Lands after the pin bump (036a); no symbol probe.
 - Test: fleet swift test 'TerminalSurface|WarmSet'; bench_memory per terminal; bench-tab-switch.
 
 ### 039 Glyph atlas sharing
@@ -995,6 +1047,53 @@ All IDs below are `p07-memory-NNN`.
 - Change: IOAccelerator/IOSurface bytes per added visible terminal; fix per-surface atlas if found.
 - Acceptance: atlas_bytes_per_extra_terminal recorded in memory-DESIGN.md.
 - Test: fleet exclusive.
+- Status: open, waiting on the fleet run. The measurement tool is in (`memory-report.py`), but the
+  acceptance is not met: no fleet `ATLAS` line is recorded yet, and memory-DESIGN.md (task 007) is not
+  on perf/chrome-parity. The fork fix is task 039a below, opened now from the source evidence.
+- Measurement: `memory-report.py --phases home,atlas` (fleet: `scripts/measure/memory-report.sh
+  --arg=--phases=home,atlas`; never in the same launch as `stress`, which the tool refuses: the grown
+  atlas stays grown and would inflate every STRESS terminal) prints `ATLAS ...
+  atlas_bytes_per_extra_terminal=N verdict=...`. It samples the GPU groups at 1..4 visible terminals
+  tiling the STRESS window in a 2 x 2 grid, then shows a sheet of CJK glyphs in each, then samples again
+  while the panes close (each close is checked in the topology before its sample). N is the change in
+  GPU bytes per extra terminal that the atlas growth caused: 0 when shared, `unknown` when the verdict
+  is `unmeasured` (the raw slope change is then only in `gpu_slope_change_bytes`).
+- Sheet size: the STRESS virtual display is 1x (`scripts/ci/frame-pacing/vdisplay.m` sets
+  `settings.hiDPI = 0`). At 1x and the default font a two-cell CJK glyph takes about 16 x 17 px with
+  padding (about 340 px). The tool reads the window's backing scale (`debug.pane_chrome`
+  windows[].scale) and sizes the sheet to 2 M px at that scale: 6,169 glyphs at 1x, 1,543 at 2x. That
+  passes 1024 x 1024 (1 M px) and stays inside 2048 x 2048 (4 M px), so the grayscale atlas doubles
+  twice, 512 -> 1024 -> 2048 R8, at either scale. The "did not grow" threshold is 512 KiB on one
+  terminal: two thirds of the smallest real growth of a shared texture (one doubling, 1024 x 1024 -
+  512 x 512 R8 = 768 KiB).
+- Expected from the ghostty-next source at 723c4ab9 (no fleet number yet): per surface. The CPU atlas
+  is shared: one grayscale and one color atlas per font configuration, both starting at 512 x 512
+  (`src/font/SharedGridSet.zig`, `src/font/SharedGrid.zig:92`). But each surface's swap chain has
+  `swap_chain_count = 3` frames (`src/renderer/Metal.zig:40`), and each frame has its own grayscale
+  and color `MTLTexture` copied from that atlas (`FrameState` and `syncAtlasTexture` in
+  `src/renderer/generic.zig`). So every visible terminal holds 3 copies. With the sheet above the atlas
+  grows to 2048 x 2048 R8 at 1x, and the predicted value is 3 x (4 MiB - 256 KiB) = 11.25 MiB more per
+  extra visible terminal. Hidden surfaces free their swap chain (`setVisible(false)`,
+  `generic.zig:1321`), so the cost applies only to visible terminals. Chrome uses one glyph atlas in the
+  GPU process for all renderers. Skia's `GrDrawOpAtlas`
+  (third_party/skia/src/gpu/ganesh/GrDrawOpAtlas.cpp) tracks the last use of each plot with a token, so
+  an upload never overwrites a region that a frame in flight still reads.
+- Record: copy the fleet `ATLAS` line (host, SHA, step ID) to memory-DESIGN.md section 7. If task 007
+  has not landed then, create the section 7 stub in memory-DESIGN.md with that line. Then mark 039 done.
+
+### 039a Shared glyph atlas texture in ghostty-next (opened from 039's source evidence)
+- Files: ghostty-next `src/renderer/generic.zig` (FrameState, syncAtlasTexture), `src/renderer/Metal.zig`,
+  `src/font/SharedGrid.zig`; the ghostty-next submodule pointer in cmux.
+- Change: one grayscale and one color atlas `MTLTexture` per atlas per device, shared by every surface,
+  in place of the per-frame copies in each surface's 3-frame swap chain. Uploads track use the way
+  Skia's `GrDrawOpAtlas` does: each region records the token of the last frame that drew from it, and a
+  frame in flight never sees a region overwritten (a grow makes a new texture; the old one is freed when
+  the last frame that read it completes).
+- Acceptance: the fleet `ATLAS` line reads `verdict=shared` with `atlas_bytes_per_extra_terminal` near
+  0, against about 11.25 MiB before; no glyph corruption with 4 visible terminals drawing the 039 sheet.
+- Test: ghostty-next renderer tests for the use tokens; fleet exclusive `memory-report.sh
+  --arg=--phases=home,atlas` before and after.
+- Depends on: 039's fleet run confirming `verdict=per_surface` (the source already predicts it).
 
 ### 040 Cold-scrollback codec (gated by 112)
 - Files: cmux-tui/crates/ghostty-vt/src/cold_pages.rs, lib.rs, tests/cold_pages.rs.
@@ -1002,6 +1101,25 @@ All IDs below are `p07-memory-NNN`.
   in deps and restore exactly.
 - Acceptance: round trip on terminal_corpus and kitty fixtures; ratio >= 8x; SAFETY notes.
 - Test: fleet cargo test -p ghostty-vt cold_pages.
+- Measured against libghostty-vt's own page compression (`ghostty_terminal_compress`, FULL; LZ4 per
+  history page, restored on access), filled 10 MB scrollback at 120x40, release build on Linux
+  (`cold_pages_compare_with_native_page_compression`, 2026-10-26):
+
+  | Content | Live resident | Native resident (compressed part) | Codec held | Codec over native |
+  | --- | --- | --- | --- | --- |
+  | terminal corpus text | 9.67 MB | 1.01 MB (0.61 MB) | 0.21 MB | 4.9x |
+  | varied log lines | 9.63 MB | 2.18 MB (1.78 MB) | 0.39 MB | 5.6x |
+
+  Native: compress 5-9 ms, viewport read 30-40 us, full history read 11-13 ms. Codec: freeze
+  50-90 ms, thaw 9-10 ms, and nothing reads the terminal while cold. The codec passes the 2x bar over
+  native, so it stays; 112 must still show it against WKdm. Native compression keeps the terminal
+  live (no thaw, tracked points and instance kept, no Kitty refusals), so 041 should run it at the idle
+  step and freeze with this codec only at the cold deadline.
+- Kitty limit: libghostty-vt reads only the active screen's Kitty state and its replay encoder sends
+  only placements that show, so the codec refuses an image on the inactive screen, a placement only
+  in scrollback and an image without a placement (cheap checks before any encode). Removing these
+  refusals needs a ghostty-next change: an encoder mode that sends every image with pixels and every
+  placement (scrollback pins included) and counts what it dropped. Follow-up, not done in 040.
 
 ### 041 Compress cold scrollback (gated by 112)
 - Files: cmux-tui-core/src/surface.rs, mux cold policy module, surface/tests/cold_scrollback.rs.
@@ -1056,6 +1174,21 @@ All IDs below are `p07-memory-NNN`.
 - Acceptance: debug.memory at Home idle shows Chromium renderers and WebKit WebContent equal to visible
   pages; a test per change asserts no PageWebView before the show event.
 - Test: fleet bench_memory Home row; swift test PageLaziness.
+- As built (differs from the change above): the PageWebView is made at open, as before; what
+  waits for the first show is its renderer. Until then the view makes no engine call: no load, no
+  script, no function call or picture, so WebKit launches no WebContent process and no Chromium page
+  is asked for. This is Chrome's split for a tab that has not shown: the WebContents exists, its
+  renderer starts at `WasShown` (`NavigationControllerImpl::SetNeedsReload`, `LoadIfNecessary`).
+  A stand-in would give the 23 MQ-PAGEVIEW callers, which set routes, handlers and appearance on
+  the returned view at once, a type that is not the page. "Shown" is the page's node in the
+  visibility tree: its tab's node once a pane shows it (tab, pane, workspace, window, app), else
+  its window's node (occlusion and minimize included); a page with no tab node counts by its
+  window and its own `isHidden`, not by a walk of its ancestors. The acceptance test is therefore "no
+  renderer, no engine call before the show event" (PageLazinessTests: no load, no script at the
+  bridge, `_webProcessIdentifier` 0, no Chromium page). The in-app cost of an unstarted
+  PageWebView (WKWebView with no process, its configuration and user scripts, router, bridge) is
+  not measured yet; the fleet bench_memory Home row with and without `pageRendererAtFirstShow`
+  measures it.
 
 ### 049 One Chromium renderer for cmux pages
 - Files: cef-cmux fork (ShouldUseProcessPerSite for the page scheme behind
@@ -1245,10 +1378,22 @@ All IDs below are `p07-memory-NNN`.
 
 ### 078 App threads per hidden surface
 - Files: scripts/cmux-next/bench_memory.py, CmuxNextTerminal/TerminalSurfaceView.swift.
-- Change: report app threads per hidden terminal; check the renderer thread stops with GPU release (036).
-- Acceptance: bench reports threads per hidden terminal before and after; GPU-released surfaces add 0
-  renderer threads.
+- Change: report app threads per hidden terminal; check that a GPU-released surface's renderer thread
+  parks (036): it stays, with no wakeups while idle.
+- Acceptance: bench reports threads per hidden terminal before and after; a GPU-released surface's
+  renderer thread has 0 wakeups while idle once its compression timer is armed.
 - Test: fleet exclusive bench_memory --workspaces 60.
+- Status: bench side in. Every sample counts threads per process kind and owner; each --workspaces count
+  gives app threads per added terminal; `--hidden-workspaces N --gpu-release off|on` gives app threads per
+  hidden terminal after --settle and after the grace, and how many hidden renderer and IO threads woke in
+  `--thread-window` idle seconds (a thread whose CPU time grew woke). A hidden terminal is told apart from
+  a shown one by thread identity: its threads are the ones new since the phase's base read, a handle
+  counting as the same thread only under the same name (a thread handle is a pthread address that a
+  later thread can reuse). `--gpu-release` sets the debug tunable `memory.discard.terminalGPURelease` in
+  a tunables file named by `CMUX_NEXT_DEBUG_TUNABLES_FILE`, so the run needs a bench build of a .dev or
+  .debug bundle. Swift: a parked terminal no longer takes scale and display calls on a backing change
+  (they wake its renderer thread); it applies them when shown. Open: the fleet run, which needs the 036a
+  pin for the "on" half.
 
 ### 079 Widen the static queues
 - Files: scripts/cmux-next/memory-queues.sh, plans/cmux-next/memory-DESIGN.md.
@@ -1293,6 +1438,9 @@ All IDs below are `p07-memory-NNN`.
 - Change: launch frames and images dropped after LaunchSettle; GlassBackdropImages and ReleaseMediaStore
   register; image-storage-limit from kittyImageBytesPerSurface, lowered at warning.
 - Acceptance: 0 images after LaunchSettle; MQ-CAPS 0 in GhosttyRuntime+ImageStorage.swift; bytes reported.
+  The Ghostty image budget is not a consumer, so "bytes reported" does not apply to it: libghostty reports
+  no image bytes, and the budget is a cap Ghostty enforces, not a store cmux releases. It follows the
+  coordinator's level (`GhosttyImageStorageBudget`) and rises only after `limitRiseDelay` at normal.
 - Test: fleet swift test 'TerminalLaunchFrames|GlassBackdrop|ReleaseMedia'.
 
 ### 084 cmux page browser tabs discardable
@@ -1386,11 +1534,33 @@ All IDs below are `p07-memory-NNN`.
 - Test: fleet cargo test -p cmux-holder; holder_terminals on macOS 26 and 27.
 
 ### 095 Daemon threads per terminal
-- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, mux/terminal_work.rs.
-- Change: PTY reads on the kqueue TerminalWorkPool; one EVFILT_PROC watcher for child waits; the host
-  thread joins the pool. Check the threading and PL-daemon queues first.
-- Acceptance: 50 terminals add <= 2 threads; idle_wakeups green; output order unchanged.
-- Test: fleet cargo test -p cmux-tui-core surface; perf-10x-idle.sh counts=100 thread column.
+- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, surface/local_reader.rs, surface/local_output.rs,
+  mux/terminal_work.rs, mux/terminal_work/read_loop.rs, read_poller.rs.
+- Change: daemon-local PTY reads on the owner's one read loop (kqueue/epoll, TerminalWorkPool); registry
+  publication (directory, progress, exit) on the pool. Narrowed: the child wait (`-wait`) is p02-threads-237's
+  reaper, and the hosted reader (`-host`, `-host-frames`) is 095b.
+- Acceptance: 50 daemon-local terminals add <= 2 threads at idle, plus the 50 `-wait` threads p02-threads-237
+  owns until it lands; no read worker slot is lost to a panicking or blocked source; idle_wakeups green;
+  output order unchanged.
+- Test: fleet cargo test -p cmux-tui-core surface read_loop; perf-10x-idle.sh counts=100 thread column.
+- Status: reader in. Daemon-local PTYs read on the owner's one read loop (`mux/terminal_work/read_loop.rs`:
+  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once): no
+  `surface-<id>-reader`, and the loop adds 2 threads at idle. Each terminal still has its `surface-<id>-wait`
+  thread until p02-threads-237's `mux-reaper` lands, so today 50 terminals add 2 + 50 threads
+  (`surface::tests::read_loop::fifty_idle_local_terminals_add_only_the_loop_threads` asserts exactly that
+  bound). Registry publication (directory, progress, the exit) runs on the terminal work pool, and a query
+  response write that can wait runs in `read_loop::will_block`, which frees the worker's slot (Chrome's
+  `ScopedBlockingCall` WILL_BLOCK), so a blocked or panicking terminal never stops the others. Holder
+  terminals' readers are p01-process-120.
+
+### 095b Hosted terminals on the read loop
+- Files: cmux-tui-core/src/surface.rs, surface/hosted_reader.rs, surface/hosted_reader/reconnect.rs,
+  mux/terminal_work/read_loop.rs.
+- Change: the reconnect of an adopted or opt-out host becomes a pool work item; the host socket then reads as a
+  ReadSource on the owner's read loop, so `surface-<id>-host` and `-host-frames` go.
+- Acceptance: 50 adopted hosted terminals add <= 2 threads at idle; reconnect and resync keep output order.
+- Test: cargo test -p cmux-tui-core surface::tests::hosted read_loop.
+- Depends on: 095, p01-process-138.
 
 ### 096 Sliced release of parked workspaces and warm set
 - Files: Windows/WindowController+Parking.swift, AppServices+Hibernation.swift, TabContentCache.swift, tests.
@@ -1523,6 +1693,9 @@ All IDs below are `p07-memory-NNN`.
   compressed); go for 040/041 only if deflate gains >= 2x over WKdm.
 - Acceptance: bytes per cold terminal and the go/no-go decision recorded.
 - Test: fleet exclusive.
+- Also record libghostty-vt's page compression (`ghostty_terminal_compress`) in the same table: 040
+  measured that the codec holds 4.9-5.6x less than it (see 040), so the comparison that gates 041
+  is the codec vs WKdm vs native page compression.
 
 ### 113 One Chromium-side spare
 - Files: CEF/CEFSwitches.swift, CEF/CEFSpareWindow.swift, Control/DebugMemoryControl.swift.

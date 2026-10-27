@@ -31,7 +31,7 @@ extension UpdaterService {
 
     private func scheduleInstallTick() {
         // A one-second deadline while an install runs: the card's seconds, then the give-up.
-        installTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.installTicked() }
+        installTimer.scheduleOnMain(after: .seconds(1)) { [weak self] in self?.installTicked() }
     }
 
     private func installTicked() {

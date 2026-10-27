@@ -1,5 +1,8 @@
 public import AppKit
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
     /// Translates shim events into `BrowserNavigationEvent`s.
@@ -9,7 +12,10 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
-        defer { CEFAgentURLGuard.check(self, after: event) }
+        defer {
+            CEFAgentURLGuard.check(self, after: event)
+            agentRelay.documentStateChanged()
+        }
         if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
             // A title that waited goes before this event, so the state sees them in order.
             titleTimer.cancel()
@@ -41,11 +47,13 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            noteAudible()
             restored.navigationCommitted(url: URL(string: url))
             restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            isDiscardedInPlace = false
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -57,6 +65,8 @@ extension CEFTab {
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
+            // A document with no contentful paint (an empty body) shows as it is now.
+            firstContentFrame.contentShown()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
@@ -66,9 +76,11 @@ extension CEFTab {
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
+            isDiscardedInPlace = false
             guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption { firstContentFrame.contentShown() } // the error page or the base shows now
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's
                 // omnibox shows it), even when Chromium sends no address
@@ -94,14 +106,11 @@ extension CEFTab {
             let faviconURL = URL(string: url)
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
-        case .progress(_, let value):
-            machine.apply(.progress(value))
-        case .fullscreen(_, let entering):
-            machine.apply(.contentFullscreenChanged(entering))
-        case .findResult(_, let count, let active, let isFinal):
-            findRequests.result(count: count, active: active, isFinal: isFinal)
-        case .closeRequested:
-            emit(.close)
+        case .progress(_, let value): machine.apply(.progress(value))
+        case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
+        case .findResult(_, let findID, let count, let active, let isFinal):
+            findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
+        case .closeRequested: emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
         case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
@@ -113,14 +122,13 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _):
+        case .renderTerminated(_, let status, let code, _, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
-        case .devToolsMessage(_, let json):
-            agentRelay.deliver(json)
+        case .devToolsMessage(_, let json): agentRelay.deliver(json)
         default:
             break
         }
@@ -214,7 +222,7 @@ extension CEFTab {
         case .apply(let update):
             machine.apply(.titleChanged(update.title))
         case .later(let until):
-            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+            titleTimer.scheduleOnMainIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
                 self.machine.apply(.titleChanged(update.title))
@@ -232,11 +240,26 @@ extension CEFTab {
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: nil)
+    }
+
+    /// ``BrowserFindUpdating``: Chromium's FIND_RESULT events of this search go to `update` too.
+    public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                     update: @escaping (BrowserFindResult) -> Void) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: update)
+    }
+
+    /// One `find` op (in host mode it goes over the wire): a new find id, whose FIND_RESULT
+    /// events answer the request (``CEFFindRequests``).
+    private func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                      deliveringTo update: ((BrowserFindResult) -> Void)?) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        return await withCheckedContinuation { continuation in
-            let findID = findRequests.begin(continuation)
+        // A request dropped unanswered (abandoned: the tab went away) found nothing.
+        let result = try? await withOnceContinuation { (continuation: OnceContinuation<BrowserFindResult, OnceContinuationError>) in
+            let findID = findRequests.begin(answer: { continuation.resume(returning: $0) }, update: update)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
+        return result ?? BrowserFindResult.none
     }
 
     public func clearFind() {
@@ -248,7 +271,7 @@ extension CEFTab {
 
     func refreshExtensionActions() {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= 1 else { return }
-        let json = shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]"
+        let json = shim.extActions(browserID, CEFExtensionAction.iconPixels) ?? "[]"
         let actions = CEFExtensionAction.decodeList(json)
         if actions != extensionActions { extensionActions = actions }
     }
@@ -294,3 +317,5 @@ extension CEFTab {
         capturesTitleBeforeCommit = false
     }
 }
+
+extension CEFTab: BrowserFindUpdating {}

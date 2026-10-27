@@ -1,8 +1,9 @@
 //! `git.diff`: one scope's changed files, with line counts and, on request,
 //! each file's patch cut to a byte budget.
 
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -86,6 +87,8 @@ pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
@@ -331,14 +334,14 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
 
 /// Opens a regular file without following a link or waiting on a FIFO.
 fn open_regular(path: &Path) -> Option<File> {
-    let mut options = OpenOptions::new();
+    let mut options = File::options();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
-    let handle = options.open(path).ok()?;
+    let handle = files::open_with(&options, path).ok()?;
     let metadata = handle.metadata().ok()?;
     (metadata.is_file() && metadata.len() <= MAX_UNTRACKED_FILE_BYTES).then_some(handle)
 }

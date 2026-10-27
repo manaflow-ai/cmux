@@ -64,7 +64,7 @@ private nonisolated extension String {
 final class ChiefMemoryPageService: InternalPageProvider {
     private weak var services: AppServices?
     private var routes: [String: ChiefMemoryRoute] = [:]
-    /// The route the next new tab shows (set right before it opens).
+    /// The route of the open running now, for a view it makes in the same turn.
     private var nextRoute: ChiefMemoryRoute?
 
     init(services: AppServices) {
@@ -93,8 +93,10 @@ final class ChiefMemoryPageService: InternalPageProvider {
         }
         nextRoute = route
         defer { nextRoute = nil }
-        guard services.pages.openNew(.chiefMemory, in: window, focus: focus) != nil else { return nil }
-        return routes.first { $0.value == route }?.key
+        guard let view = services.pages.openNew(.chiefMemory, in: window, focus: focus) else { return nil }
+        // The new tab shows `route` from now, whether its view was made or waits for its first show.
+        routes[view.key] = routes[view.key] ?? route
+        return view.key
     }
 
     /// Whether the workspace `window` names shows a Memory Inspector tab (the Home header's
@@ -157,7 +159,7 @@ final class ChiefMemoryPageService: InternalPageProvider {
             let scope: CmuxDialogScope = if let view = anchor.view { .tab(view) } else { .app }
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
-        let view = NSHostingView(rootView: ChiefMemoryInspectorView(model: model))
+        let view = VisibilityGatedHostingView(owner: "ChiefMemoryPage") { ChiefMemoryInspectorView(model: model) }
         anchor.view = view
         return view
     }

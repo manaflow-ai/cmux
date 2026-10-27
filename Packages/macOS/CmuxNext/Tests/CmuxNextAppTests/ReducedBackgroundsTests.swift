@@ -12,6 +12,9 @@ import Testing
 /// (`TerminalThemeSetting` on the scope windows inherit from). Off restores exactly what the
 /// person chose, because their `appearance.*` values never change.
 @MainActor @Suite(.serialized) struct ReducedBackgroundsTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     static let work = "van-gogh-starry-night"
     static let pinned = BackdropSelection.art(.munchScream)
 
@@ -39,7 +42,7 @@ import Testing
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(Self.pinned))
-        let terminal = TerminalThemeSetting(backdropScope: room)
+        let terminal = TerminalThemeSetting.testing(backdropScope: room, center: center)
         terminal.reload = {}
         terminal.repaint = {}
         terminal.follow(settings)

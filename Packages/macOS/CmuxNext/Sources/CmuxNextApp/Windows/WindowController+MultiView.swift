@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextSidebar
 
 // Debug Settings `sidebar.multiView` (Leo 2026-10-21, item D): the window shows the workspaces of
@@ -17,8 +18,11 @@ extension WindowController {
 
     /// Puts `state.viewSet` on screen around `content` and tells the sidebar which workspaces are on screen. The set
     /// drops workspaces that closed or left the window, and ends (nil) once `content` is not in it or one is left.
-    /// Runs in the turn that shows a workspace or a page, so no frame shows the old arrangement.
+    /// Runs in the turn that shows a workspace or a page, so no frame shows the old arrangement. It then tells the
+    /// parked budget, so a workspace that left the screen or a page's cover is hidden from now
+    /// (``WindowController/keepsParkedWorkspace(_:)``).
     func arrangeOnScreen() {
+        defer { services.parkedWorkspaceBudget.keepingDidChange(in: self) }
         guard SidebarTunables.multiView.value else { return leaveMultiView() }
         guard let content else {
             // A top page or the connecting view fills the content area: no workspace is on screen.
@@ -96,6 +100,7 @@ extension WindowController {
         guard SidebarTunables.multiView.value, let set = state.viewSet, let shown = content?.workspace.id,
               let hit = window?.contentView?.hitTest(windowPoint) else { return }
         for id in set.ids where id != shown {
+            // visibility-walk-allow: hit-test, the press goes to the view AppKit shows under it
             guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor, hit.isDescendant(of: view) else { continue }
             services.windows.show(workspaceID: id, in: state)
             return
@@ -142,8 +147,11 @@ extension WindowController {
     private func companion(_ id: String) -> WorkspaceContentController? {
         guard let (workspace, daemon) = services.machines.workspace(id: id) else { return nil }
         if let kept = parked[id], kept.workspace === workspace, kept.daemon === daemon { return kept }
+        let unmounted = unmountedViews.removeValue(forKey: id)
+        let record = parked[id]?.viewRecord() ?? unmounted
         parked[id]?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true,
+                                                    restoring: record)
         park(controller)
         return controller
     }

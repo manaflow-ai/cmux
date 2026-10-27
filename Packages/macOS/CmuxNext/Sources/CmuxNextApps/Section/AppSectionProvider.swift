@@ -45,8 +45,9 @@ public final class AppSectionProvider {
         // The sidebar's section header row draws the title and owns collapse.
         let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? name?.name.resolved() ?? app, symbol: section.symbol,
                                    icon: name?.icon, bundleDirectory: mount.bundleDirectory, showsHeader: false) {
-            AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory)
+            AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory, bundleImages: client.bundleImages)
         }
+        .environment(\.appBundleImages, client.bundleImages)
         let view = AppSectionHostingView(rootView: root)
         view.onSizeChange = { [weak self] in self?.onContentChange?() }
         mounts[contribution] = (mount, view)
@@ -93,6 +94,7 @@ public final class AppSectionProvider {
 }
 
 /// Hosts an `AppSectionFrame` with theme-resolved colors and measures it.
+// hosting-gate: opt-out a sidebar section, not tab content: it shows while the sidebar does, and the sidebar measures it by intrinsic size.
 final class AppSectionHostingView: NSHostingView<AnyView> {
     private let sceneAppearance = AppSceneAppearance()
     private let measurer: NSHostingController<AnyView>

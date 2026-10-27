@@ -18,6 +18,7 @@ pub struct BookmarksChange {
 
 impl Mux {
     /// The `bookmarks_revision` and every node of one profile's tree.
+    #[track_caller]
     pub fn list_bookmarks(
         &self,
         browser_profile_id: &str,

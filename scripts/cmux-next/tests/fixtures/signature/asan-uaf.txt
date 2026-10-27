@@ -1,0 +1,20 @@
+=================================================================
+==4242==ERROR: AddressSanitizer: heap-use-after-free on address 0x60300000eff0 at pc 0x000104a1b2c4 bp 0x00016fdfe8a0 sp 0x00016fdfe898
+READ of size 8 at 0x60300000eff0 thread T0
+    #0 0x104a1b2c4 in cmux_pty::reader::Reader::drain::h0a1b2c3d4e5f6a7b reader.rs:144
+    #1 0x104a1c000 in cmux_pty::reader::Reader::poll::{{closure}}::h1b2c3d4e5f6a7b8c reader.rs:98
+    #2 0x104a1d000 in std::sys::backtrace::__rust_begin_short_backtrace::h2c3d4e5f6a7b8c9d backtrace.rs:152
+    #3 0x18f2a2f90 in _pthread_start+0x84 (libsystem_pthread.dylib:arm64e+0x6f90)
+
+0x60300000eff0 is located 0 bytes inside of 24-byte region [0x60300000eff0,0x60300000f008)
+freed by thread T0 here:
+    #0 0x1050d1234 in free+0x98 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x55234)
+    #1 0x104a19000 in cmux_pty::reader::Reader::reset::h3d4e5f6a7b8c9d0e reader.rs:60
+
+previously allocated by thread T0 here:
+    #0 0x1050d0000 in malloc+0x9c (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x54000)
+
+SUMMARY: AddressSanitizer: heap-use-after-free reader.rs:144 in cmux_pty::reader::Reader::drain
+Shadow bytes around the buggy address:
+  0x60300000ed00: fa fa fd fd fd fa fa fa fd fd fd fa fa fa fd fd
+==4242==ABORTING

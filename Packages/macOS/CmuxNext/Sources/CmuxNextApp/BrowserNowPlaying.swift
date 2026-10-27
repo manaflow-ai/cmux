@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextNowPlaying
 import CmuxNextSidebar
+import CmuxNextWakeups
 import MediaPlayer
 
 /// The playing Chromium tab in macOS Now Playing (Control Center, the lock
@@ -24,14 +25,16 @@ final class BrowserNowPlaying {
     typealias Session = NowPlayingSession
 
     private weak var services: AppServices?
-    private var observation: Task<Void, Never>?
+    /// Follows the playing tabs, the music player and `labs.previewFeatures` while it follows a services.
+    private var observation: ServiceObservation<([Session], SidebarNowPlaying?, Bool)>?
     private var registered = false
     /// The tab Now Playing shows.
     private(set) var current: Session?
     /// The music player's state, and whether it holds Now Playing over `current`.
     private var music: SidebarNowPlaying?
-    /// The music player's artwork as decoded for Now Playing.
-    private var musicArtwork: (data: Data, artwork: MPMediaItemArtwork)?
+    /// The music player's artwork as decoded for Now Playing; nil artwork while its decode runs (or when the data
+    /// is no image).
+    private var musicArtwork: (data: Data, artwork: MPMediaItemArtwork?)?
     private var musicHolds: Bool { NowPlayingSources.playerHolds(music, tabPlaying: current?.media.isPlaying == true) }
     /// The current tab's artwork, once loaded.
     private var artwork: (url: URL, artwork: MPMediaItemArtwork?)?
@@ -44,15 +47,16 @@ final class BrowserNowPlaying {
             publish()
             return
         }
-        register()
-        observation = Task { [weak self, weak services] in
-            for await (sessions, music, preview) in ObservationStream({ [weak services] in
-                services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
-                    ?? ([], nil, false)
-            }) {
-                if !preview, music != nil { services?.cache.pageRequests.music.stop() }
-                self?.update(sessions, music: preview ? music : nil)
-            }
+        register(on: services.mainWork)
+        // `background`: Control Center and the lock screen are outside cmux's frames; it runs while every window is
+        // hidden, and a person's play or pause flushes before its frame by its cause.
+        observation = ServiceObservation(.background, owner: "BrowserNowPlaying.sessions", on: services.mainWork) { [weak services] in
+            services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
+                ?? ([], nil, false)
+        } apply: { [weak self, weak services] value in
+            let (sessions, music, preview) = value
+            if !preview, music != nil { services?.cache.pageRequests.music.stop() }
+            self?.update(sessions, music: preview ? music : nil)
         }
     }
 
@@ -77,6 +81,7 @@ final class BrowserNowPlaying {
         case .next: .nextTrack
         case .previous: .previousTrack
         }
+        // main-hop-allow: the tab's media command is its own main-actor async call (a page script); this task only starts it
         Task { await tab.media(media) }
         return true
     }
@@ -143,12 +148,10 @@ final class BrowserNowPlaying {
         if !music.artist.isEmpty { info[MPMediaItemPropertyArtist] = music.artist }
         if let duration = music.duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
         if let position = music.position(at: Date()) { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = position }
-        if let data = music.artwork, musicArtwork?.data != data, let image = NSImage(data: data) {
-            // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw.
-            nonisolated(unsafe) let shown = image
-            musicArtwork = (data, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })
+        if let data = music.artwork, musicArtwork?.data != data { loadMusicArtwork(data) }
+        if let data = music.artwork, let cached = musicArtwork, cached.data == data, let artwork = cached.artwork {
+            info[MPMediaItemPropertyArtwork] = artwork
         }
-        if let data = music.artwork, let cached = musicArtwork, cached.data == data { info[MPMediaItemPropertyArtwork] = cached.artwork }
         center.nowPlayingInfo = info
         center.playbackState = music.isPlaying ? .playing : .paused
         for command in [commands.playCommand, commands.pauseCommand, commands.togglePlayPauseCommand, commands.previousTrackCommand] {
@@ -156,6 +159,23 @@ final class BrowserNowPlaying {
         }
         commands.nextTrackCommand.isEnabled = music.canNext
         artwork = nil
+    }
+
+    /// Decodes the music player's artwork (an album cover is often over a thousand pixels a side) on the `.cpu`
+    /// lane, never on the main thread, then publishes it; a newer song's artwork wins. Chrome decodes images off its
+    /// UI thread (services/data_decoder/public/cpp/decode_image.h).
+    private func loadMusicArtwork(_ data: Data) {
+        musicArtwork = (data, nil)
+        guard let services else { return }
+        services.work.run(.userVisible, mayBlock: .cpu) { blockingImageDecode(data) }
+            .reply(on: services.mainWork, class: .visible, owner: "nowPlaying.artwork") { [weak self] decoded in
+                guard let self, self.musicArtwork?.data == data, let image = decoded else { return }
+                let size = NSSize(width: image.width, height: image.height)
+                // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw, off the main thread.
+                nonisolated(unsafe) let shown = NSImage(cgImage: image, size: size)
+                self.musicArtwork = (data, MPMediaItemArtwork(boundsSize: size) { @Sendable _ in shown })
+                self.publish()
+            }
     }
 
     /// Loads the page's artwork through its tab (its cookies, its proxy).
@@ -166,6 +186,7 @@ final class BrowserNowPlaying {
             return
         }
         artwork = (url, nil)
+        // main-hop-allow: the tab's favicon fetch is main-actor async (its cookies, its proxy); the artwork applies in its resume
         Task { [weak self] in
             let image = await tab.fetchFavicon(url)
             guard let self, self.artwork?.url == url else { return }
@@ -183,8 +204,8 @@ final class BrowserNowPlaying {
     }
 
     /// The media keys and Control Center's buttons. MediaPlayer may call
-    /// the handlers off the main thread; they hop to it.
-    private func register() {
+    /// the handlers off the main thread; each press is a `visible` task on `mainWork`.
+    private func register(on mainWork: MainWorkScheduler) {
         guard !registered else { return }
         registered = true
         let commands = MPRemoteCommandCenter.shared()
@@ -196,7 +217,7 @@ final class BrowserNowPlaying {
             remote.isEnabled = false
             remote.addTarget { @Sendable [weak self] _ in
                 let owner = self
-                Task { @MainActor in owner?.perform(command) }
+                mainWork.postFromAnyThread(.visible, owner: "BrowserNowPlaying.command") { owner?.perform(command) }
                 return .success
             }
         }

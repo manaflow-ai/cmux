@@ -4,8 +4,8 @@
 //! canonical endpoint, the lease probe, private opens, the no-replace
 //! rename, durable syncs) go through the `sys` seams.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
-use std::fs;
 use std::io as std_io;
 use std::io::Write;
 use std::sync::Arc;
@@ -56,6 +56,8 @@ pub fn validate_terminal_host_record(
             || record.supports_pty_custody
             || record.supports_program_status
             || record.supports_shell_activity
+            || record.supports_trace_control
+            || record.supports_input_flow
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -85,6 +87,12 @@ pub fn validate_terminal_host_record(
         if record.record_version < HOST_RECORD_VERSION && record.supports_shell_activity {
             anyhow::bail!("pre-v4 terminal-host record advertises shell activity");
         }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_trace_control {
+            anyhow::bail!("pre-v4 terminal-host record advertises trace control");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_input_flow {
+            anyhow::bail!("pre-v4 terminal-host record advertises input flows");
+        }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
             "process-start nonce",
@@ -112,7 +120,7 @@ pub fn validate_terminal_host_record(
     if !expected.iter().any(|endpoint| Path::new(&record.endpoint) == endpoint) {
         anyhow::bail!("terminal-host endpoint is not canonical");
     }
-    if let Ok(metadata) = fs::symlink_metadata(record_path)
+    if let Ok(metadata) = files::symlink_metadata(record_path)
         && !sys::is_private_file(&metadata, uid)
     {
         anyhow::bail!("terminal-host record permissions or ownership are unsafe");
@@ -215,7 +223,7 @@ pub fn remove_stale_terminal_host_record(
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
         return Ok(false);
     }
-    let current: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path)?)?;
+    let current: TerminalHostRecord = serde_json::from_slice(&files::read(record_path)?)?;
     validate_terminal_host_record(record_path, &current)?;
     if current.terminal_id != expected.terminal_id
         || current.incarnation != expected.incarnation
@@ -225,12 +233,12 @@ pub fn remove_stale_terminal_host_record(
     }
     let proof = liveness_path(record_path, &current);
     let endpoint = PathBuf::from(&current.endpoint);
-    fs::remove_file(record_path)?;
-    let _ = fs::remove_file(proof);
+    files::remove_file(record_path)?;
+    let _ = files::remove_file(proof);
     sys::remove_terminal_loss_signals(record_path);
     sys::remove_released_pty_lock(record_path, &current.terminal_id, &current.incarnation);
-    if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
-        let _ = fs::remove_file(endpoint);
+    if files::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
+        let _ = files::remove_file(endpoint);
     }
     Ok(true)
 }
@@ -253,7 +261,7 @@ pub(crate) fn load_terminal_host_records_with_policy(
 ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
     let mut records = Vec::new();
     let mut identities = HashSet::new();
-    let entries = match fs::read_dir(root) {
+    let entries = match files::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
         Err(error) => return Err(error.into()),
@@ -264,7 +272,7 @@ pub(crate) fn load_terminal_host_records_with_policy(
         if path.extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
         }
-        let bytes = match fs::read(&path) {
+        let bytes = match files::read(&path) {
             Ok(bytes) => bytes,
             Err(_) if !fail_closed => continue,
             Err(error) => {
@@ -322,7 +330,7 @@ pub fn validate_terminal_host_exit_record(
     if record_path != parent.join(format!("{}.exit", record.terminal_id)) {
         anyhow::bail!("terminal-host exit record filename is not canonical");
     }
-    let metadata = fs::symlink_metadata(record_path)?;
+    let metadata = files::symlink_metadata(record_path)?;
     let expected_uid = sys::file_owner(parent)?;
     if !sys::is_private_file(&metadata, expected_uid) || !sys::has_single_link(&metadata) {
         anyhow::bail!("terminal-host exit record permissions or ownership are unsafe");
@@ -335,7 +343,7 @@ pub fn load_terminal_host_exit_records(
 ) -> anyhow::Result<Vec<(PathBuf, TerminalHostExitRecord)>> {
     let mut records = Vec::new();
     let mut identities = HashSet::new();
-    let entries = match fs::read_dir(root) {
+    let entries = match files::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
         Err(error) => return Err(error.into()),
@@ -346,7 +354,7 @@ pub fn load_terminal_host_exit_records(
         if path.extension().and_then(|value| value.to_str()) != Some("exit") {
             continue;
         }
-        let bytes = match fs::read(&path) {
+        let bytes = match files::read(&path) {
             Ok(bytes) => bytes,
             Err(_) => continue,
         };
@@ -368,7 +376,7 @@ pub fn terminal_host_exit_record(
     host_record_path: &Path,
 ) -> anyhow::Result<Option<(PathBuf, TerminalHostExitRecord)>> {
     let path = host_record_path.with_extension("exit");
-    let bytes = match fs::read(&path) {
+    let bytes = match files::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -385,7 +393,7 @@ pub fn acknowledge_terminal_host_exit_record(
     record_path: &Path,
     expected: &TerminalHostExitRecord,
 ) -> anyhow::Result<bool> {
-    let bytes = match fs::read(record_path) {
+    let bytes = match files::read(record_path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
@@ -395,7 +403,7 @@ pub fn acknowledge_terminal_host_exit_record(
     if &current != expected {
         return Ok(false);
     }
-    fs::remove_file(record_path)?;
+    files::remove_file(record_path)?;
     // The terminal ended with a recorded exit: its signal breadcrumbs
     // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
     sys::remove_terminal_loss_signals(record_path);
@@ -428,7 +436,7 @@ pub(crate) fn write_exit_record(
     let result = (|| -> anyhow::Result<bool> {
         let mut file = sys::open_private(&temporary, PrivateOpen::CreateNewNoFollow)?;
         file.write_all(&bytes)?;
-        file.sync_all()?;
+        files::sync_all(&file)?;
         match sys::rename_no_replace(&temporary, path) {
             Ok(()) => {
                 if let Some(parent) = path.parent() {
@@ -441,12 +449,12 @@ pub(crate) fn write_exit_record(
         }
     })();
     if temporary.exists() {
-        let _ = fs::remove_file(&temporary);
+        let _ = files::remove_file(&temporary);
     }
     if result? {
         return validate_terminal_host_exit_record(path, record);
     }
-    let current: TerminalHostExitRecord = serde_json::from_slice(&fs::read(path)?)?;
+    let current: TerminalHostExitRecord = serde_json::from_slice(&files::read(path)?)?;
     validate_terminal_host_exit_record(path, &current)?;
     anyhow::ensure!(
         current == *record,
@@ -473,11 +481,11 @@ pub(crate) fn write_exit_persistence_diagnostic(
     );
     let mut file = sys::open_private(&path, PrivateOpen::TruncateNoFollow)?;
     file.write_all(message.as_bytes())?;
-    file.sync_all()
+    files::sync_all(&file)
 }
 
 pub(crate) fn clear_exit_persistence_diagnostic(exit_record_path: &Path) {
-    match fs::remove_file(exit_persistence_diagnostic_path(exit_record_path)) {
+    match files::remove_file(exit_persistence_diagnostic_path(exit_record_path)) {
         Ok(()) => {}
         Err(error) if error.kind() == std_io::ErrorKind::NotFound => {}
         Err(_) => {}
@@ -523,14 +531,14 @@ fn write_json_record_syncing_dir(
         let mut file = sys::open_private(&temporary, PrivateOpen::CreateNew)?;
         file.write_all(&bytes)?;
         sys::barrier_sync(&file)?;
-        fs::rename(&temporary, path)?;
+        files::rename(&temporary, path)?;
         if sync_dir && let Some(parent) = path.parent() {
             sys::barrier_sync_dir(parent)?;
         }
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = files::remove_file(&temporary);
     }
     result
 }
@@ -557,7 +565,7 @@ impl Drop for UnpublishedHostGuard {
             if self.shared.adopted_session.is_none() {
                 self.shared.terminate_and_wait();
             }
-            let _ = fs::remove_file(&self.endpoint);
+            let _ = files::remove_file(&self.endpoint);
         }
     }
 }
@@ -574,7 +582,7 @@ impl Drop for HostServiceGuard {
             return;
         }
         let owns_record = !self.published
-            || fs::read(&self.record_path)
+            || files::read(&self.record_path)
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<TerminalHostRecord>(&bytes).ok())
                 .is_some_and(|current| {
@@ -584,7 +592,7 @@ impl Drop for HostServiceGuard {
                 });
         let released_lease_path = if owns_record {
             self.lease.take().map(|lease| {
-                let _ = lease.file.sync_all();
+                let _ = files::sync_all(&lease.file);
                 let path = lease.path.clone();
                 // Unlock the process-incarnation proof before removing its
                 // discovery record. Observers can never see an absent
@@ -596,10 +604,10 @@ impl Drop for HostServiceGuard {
             None
         };
         let removed_record =
-            !self.published || (owns_record && fs::remove_file(&self.record_path).is_ok());
-        let _ = fs::remove_file(&self.endpoint);
+            !self.published || (owns_record && files::remove_file(&self.record_path).is_ok());
+        let _ = files::remove_file(&self.endpoint);
         if removed_record && let Some(path) = released_lease_path {
-            let _ = fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
     }
 }
@@ -615,7 +623,8 @@ pub(crate) fn live_successor_record(
     record_path: &Path,
     dead: &TerminalHostRecord,
 ) -> Option<TerminalHostRecord> {
-    let record: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path).ok()?).ok()?;
+    let record: TerminalHostRecord =
+        serde_json::from_slice(&files::read(record_path).ok()?).ok()?;
     let successor = record.terminal_id == dead.terminal_id
         && record.incarnation == dead.incarnation
         && record.owner_token == dead.owner_token

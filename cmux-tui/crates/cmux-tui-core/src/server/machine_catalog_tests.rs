@@ -45,15 +45,26 @@ impl Publisher {
     }
 
     fn frame(&self, mux: &Arc<Mux>, frame: Value) -> Value {
-        assert!(handle_connection_message(
-            mux,
-            self.client,
-            &frame.to_string(),
-            &self.writer,
-            &self.scheduler
-        ));
+        self.line(mux, &frame.to_string())
+    }
+
+    fn line(&self, mux: &Arc<Mux>, line: &str) -> Value {
+        assert!(handle_connection_message(mux, self.client, line, &self.writer, &self.scheduler));
         serde_json::from_str(&self.outbound.try_pop().expect("one synchronous publication reply"))
             .unwrap()
+    }
+
+    /// The reply to `line` and the JSON parses its way to the reply took.
+    fn line_counted(&self, mux: &Arc<Mux>, line: &str) -> (Value, u64) {
+        let stats = crate::diagnostics::IpcStats::default();
+        let reply = {
+            let _scope = crate::diagnostics::JsonParseScope::enter(
+                &stats,
+                crate::diagnostics::IpcTransport::Lines,
+            );
+            self.line(mux, line)
+        };
+        (reply, stats.snapshot().parses.lines.json_parses)
     }
 }
 
@@ -108,6 +119,40 @@ fn cmux_next_machine_catalog_publishes_into_the_existing_machine_api() {
     assert_eq!(dispatch(&mux, ResourceOperation::MachineGet, Some("current")).unwrap(), listed[0]);
 }
 
+/// The route finds `machine-catalog-publish` by the decoded `cmd`, never a
+/// substring of the line (p05-ipc-069): an escaped name publishes as its
+/// plain spelling, and an accepted or a refused line takes two parses, the
+/// head and the handler's one decode.
+#[test]
+fn cmux_next_machine_catalog_publish_is_routed_by_its_decoded_cmd_and_decoded_once() {
+    let mux = mux();
+    let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
+    let publish = json!({"id":1,"cmd":"machine-catalog-publish",
+        "expected_machine_id":mux.machine_public_id,"sequence":1,"machines":[remote()]})
+    .to_string();
+    let escaped = publish.replace("machine-catalog-publish", r"machine-catalog\u002dpublish");
+    let (reply, parses) = publisher.line_counted(&mux, &escaped);
+    assert_eq!(reply["ok"], true, "{escaped}: {reply}");
+    assert_eq!(reply["id"], 1);
+    assert_eq!(parses, 2, "the head and the route's decode");
+
+    let stale = json!({"id":2,"cmd":"machine-catalog-publish",
+        "expected_machine_id":mux.machine_public_id,"sequence":1,"machines":[]})
+    .to_string();
+    let (refused, parses) = publisher.line_counted(&mux, &stale);
+    assert_eq!(refused["error_code"], "machine_catalog.stale", "{refused}");
+    assert_eq!(refused["id"], 2, "a refusal takes its id from the same decode");
+    assert_eq!(parses, 2);
+
+    let anonymous = publisher.frame(
+        &mux,
+        json!({"cmd":"machine-catalog-publish","expected_machine_id":mux.machine_public_id,
+            "sequence":2,"machines":[remote()]}),
+    );
+    assert_eq!(anonymous["ok"], true, "{anonymous}");
+    assert!(anonymous.get("id").is_none(), "{anonymous}");
+}
+
 #[test]
 fn cmux_next_machine_catalog_refuses_stale_replacements_and_local_impersonation() {
     let mux = mux();
@@ -134,6 +179,30 @@ fn cmux_next_machine_catalog_refuses_stale_replacements_and_local_impersonation(
         dispatch(&mux, ResourceOperation::MachineList, None).unwrap().as_array().unwrap().len(),
         1
     );
+}
+
+/// The owner fence is typed like spec/sdk-schema.json says: a required
+/// string. A missing, null or non-string owner is refused before the
+/// publication is read, and nothing is published.
+#[test]
+fn cmux_next_machine_catalog_owner_fence_must_be_a_string() {
+    let mux = mux();
+    let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
+    let before = dispatch(&mux, ResourceOperation::MachineList, None).unwrap();
+    for owner in [None, Some(Value::Null), Some(json!(7)), Some(json!([mux.machine_public_id]))] {
+        let mut frame =
+            json!({"id":1,"cmd":"machine-catalog-publish","sequence":1,"machines":[remote()]});
+        if let Some(owner) = owner {
+            frame["expected_machine_id"] = owner;
+        }
+        assert_eq!(
+            publisher.frame(&mux, frame.clone())["error_code"],
+            "machine_catalog.bad_request",
+            "{frame}"
+        );
+    }
+    assert_eq!(dispatch(&mux, ResourceOperation::MachineList, None).unwrap(), before);
+    assert_eq!(publisher.send(&mux, 1, json!([remote()]))["ok"], true);
 }
 
 #[test]

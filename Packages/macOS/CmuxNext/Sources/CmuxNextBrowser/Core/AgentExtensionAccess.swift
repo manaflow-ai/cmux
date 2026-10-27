@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Which enabled extensions of a profile can reach a page, from their
@@ -18,16 +19,31 @@ public import Foundation
 /// not count; a copy the person installed does.
 public nonisolated struct AgentExtensionAccess {
     let manifest: (String) -> [String: Any]?
+    /// The app's pinned built-in uBlock Origin folder; nil trusts no extension.
+    let trustedBuiltInFolder: String?
 
-    /// `manifest` reads an extension folder's parsed manifest.json.
-    public init(manifest: @escaping (String) -> [String: Any]?) { self.manifest = manifest }
+    /// `manifest` reads an extension folder's parsed manifest.json; `trustedBuiltInFolder` is the
+    /// cmux-shipped uBlock Origin's folder (``CEFBuiltInExtensions/trustedAdBlockerFolder(resources:)``).
+    public init(manifest: @escaping (String) -> [String: Any]?, trustedBuiltInFolder: String? = nil) {
+        self.manifest = manifest
+        self.trustedBuiltInFolder = trustedBuiltInFolder
+    }
 
-    /// Reads `<extension path>/manifest.json` from disk.
-    public static var fromDisk: AgentExtensionAccess {
-        AgentExtensionAccess { path in
+    /// Reads `<extension path>/manifest.json` from disk. `trustedBuiltInFolder` is the owner's preloaded
+    /// ``readTrustedBuiltInFolder(resources:)``: the pinned manifest is read and hashed once, on the files
+    /// lane, never again per tab or per prompt.
+    public static func fromDisk(trustedBuiltInFolder: String?) -> AgentExtensionAccess {
+        AgentExtensionAccess(manifest: { path in
             guard let data = FileManager.default.contents(atPath: (path as NSString).appendingPathComponent("manifest.json")) else { return nil }
-            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        }
+            return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
+        }, trustedBuiltInFolder: trustedBuiltInFolder)
+    }
+
+    /// The running app's built-in uBlock Origin folder when its manifest matches the pin, else nil
+    /// (``CEFBuiltInExtensions/trustedAdBlockerFolder(resources:)``). A file read and a hash: the owner
+    /// reads it once on the files lane (a `PreloadedValue`) and hands it to ``fromDisk(trustedBuiltInFolder:)``.
+    public static func readTrustedBuiltInFolder(resources: URL? = Bundle.main.resourceURL) -> String? {
+        CEFBuiltInExtensions.trustedAdBlockerFolder(resources: resources)
     }
 
     /// The enabled extensions that can reach `url`. A page that is not a web
@@ -37,7 +53,7 @@ public nonisolated struct AgentExtensionAccess {
         return extensions.filter { info in
             // The cmux-shipped, pinned uBlock Origin is part of cmux, not a
             // third-party extension (CEFBuiltInExtensions.isTrustedBuiltIn).
-            guard info.isEnabled, !CEFBuiltInExtensions.isTrustedBuiltIn(info) else { return false }
+            guard info.isEnabled, !CEFBuiltInExtensions.isTrustedBuiltIn(info, trustedFolder: trustedBuiltInFolder) else { return false }
             guard let manifest = manifest(info.path) else { return true }
             return Self.patterns(manifest).contains { matches($0, url) }
         }

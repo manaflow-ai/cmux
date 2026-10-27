@@ -1,0 +1,21 @@
+{
+  "id": "typing-terminal",
+  "tier": "T0",
+  "description": "Terminal key to frame, light session, idle: one debug.key at a time into a zsh -f prompt, the client's send time to the frame whose layer contents show the echo (typing-frame-bench.py, terminal surface only); the T0 cut of the typing story and the key-frame target's light row.",
+  "command": ["scripts/cmux-next/typing-frame-bench.py", "--story", "typing-terminal", "--sessions", "light",
+              "--surfaces", "terminal", "--phases", "idle", "--rounds", "1", "--samples", "60"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "terminal\\.key_to_frame", "unit": "ms", "better": "lower",
+     "target_ref": {"target": "key-frame.light"}}
+  ],
+  "repeats": 1,
+  "seconds": 30,
+  "needs": ["debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs", "debug:debug.timings",
+            "debug:debug.view_churn", "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["terminal-key", "key-dispatch"],
+  "owner": "PL-typing",
+  "component": "Terminal>Typing"
+}

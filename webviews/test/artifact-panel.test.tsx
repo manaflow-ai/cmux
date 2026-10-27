@@ -124,7 +124,7 @@ test("HTML on a page without the render frame shows its source only", async () =
   act(() =>
     root!.render(<ArtifactPanel artifact={{ kind: "html", lang: "html", code: "<p>Hello</p>" }} onClose={() => {}} />),
   );
-  // The test page is not the bundled pane (`cmux-agent:`), so nothing can frame the HTML.
+  // The test page is not the agent page on the page host's WebKit, so nothing can frame the HTML.
   expect(button("Preview")).toBeUndefined();
   expect(host.querySelector("iframe")).toBeNull();
 });

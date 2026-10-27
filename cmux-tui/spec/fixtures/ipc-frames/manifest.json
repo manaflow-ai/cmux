@@ -1,0 +1,336 @@
+{
+  "_doc": "Golden cmux-ipc frames (cmux-tui/spec/transports.md, Binary frames). Rewrite with CMUX_IPC_BLESS=1 cargo test -p cmux-ipc golden.",
+  "header_len": 16,
+  "max_frame_payload": 33554432,
+  "max_json_line": 16777216,
+  "vectors": [
+    {
+      "file": "output.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x0123456789abcdef"
+            },
+            "kind": "output",
+            "kind_wire": 1,
+            "payload_hex": "6f75747075742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "grid.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x02468acf13579bde"
+            },
+            "kind": "grid",
+            "kind_wire": 2,
+            "payload_hex": "677269642d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "event.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x048d159e26af37bc"
+            },
+            "kind": "event",
+            "kind_wire": 3,
+            "payload_hex": "6576656e742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "snapshot.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x091a2b3c4d5e6f78"
+            },
+            "kind": "snapshot",
+            "kind_wire": 4,
+            "payload_hex": "736e617073686f742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "snapshot_more.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x123456789abcdef0"
+            },
+            "kind": "snapshot_more",
+            "kind_wire": 5,
+            "payload_hex": "736e617073686f745f6d6f72652d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "replay.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x2468acf13579bde0"
+            },
+            "kind": "replay",
+            "kind_wire": 6,
+            "payload_hex": "7265706c61792d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "ring.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x48d159e26af37bc0"
+            },
+            "kind": "ring",
+            "kind_wire": 7,
+            "payload_hex": "72696e672d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "ring_advance.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x91a2b3c4d5e6f780"
+            },
+            "kind": "ring_advance",
+            "kind_wire": 8,
+            "payload_hex": "72696e675f616476616e63652d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "input.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flow_id": "0x23456789abcdef01"
+            },
+            "kind": "input",
+            "kind_wire": 9,
+            "payload_hex": "696e7075742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "shared_buffer.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "shared_buffer_size": "0x468acf13579bde02"
+            },
+            "kind": "shared_buffer",
+            "kind_wire": 10,
+            "payload_hex": "7368617265645f6275666665722d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "ring_ack.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x8d159e26af37bc04"
+            },
+            "kind": "ring_ack",
+            "kind_wire": 11,
+            "payload_hex": "72696e675f61636b2d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "file": "request.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flags": 17,
+              "method_id": "0x600b",
+              "priority": 3,
+              "request_id": 4294967284
+            },
+            "kind": "request",
+            "kind_wire": 16,
+            "payload_hex": "726571756573742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "reply.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flags": 17,
+              "method_id": "0x600c",
+              "priority": 0,
+              "request_id": 4294967283
+            },
+            "kind": "reply",
+            "kind_wire": 17,
+            "payload_hex": "7265706c792d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "error.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flags": 17,
+              "method_id": "0x600d",
+              "priority": 1,
+              "request_id": 4294967282
+            },
+            "kind": "error",
+            "kind_wire": 18,
+            "payload_hex": "6572726f722d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "typed_event.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flags": 17,
+              "method_id": "0x600e",
+              "priority": 2,
+              "request_id": 4294967281
+            },
+            "kind": "typed_event",
+            "kind_wire": 19,
+            "payload_hex": "74797065645f6576656e742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "cancel.bin",
+      "messages": [
+        {
+          "frame": {
+            "aux": {
+              "flags": 17,
+              "method_id": "0x600f",
+              "priority": 3,
+              "request_id": 4294967280
+            },
+            "kind": "cancel",
+            "kind_wire": 20,
+            "payload_hex": "63616e63656c2d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "mixed-lines-and-frames.bin",
+      "messages": [
+        {
+          "json": "{\"cmd\":\"identify\",\"id\":1}"
+        },
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x0123456789abcdef"
+            },
+            "kind": "output",
+            "kind_wire": 1,
+            "payload_hex": "6f75747075742d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        },
+        {
+          "json": ""
+        },
+        {
+          "frame": {
+            "aux": {
+              "offset": "0x02468acf13579bde"
+            },
+            "kind": "grid",
+            "kind_wire": 2,
+            "payload_hex": "677269642d7061796c6f61640a776974682061206e65776c696e65",
+            "stream": 3
+          }
+        }
+      ]
+    },
+    {
+      "bad_message": "unknown_kind",
+      "file": "bad-unknown-kind.bin"
+    },
+    {
+      "bad_message": "oversize",
+      "file": "bad-oversize.bin"
+    },
+    {
+      "bad_message": "data_on_control_stream",
+      "file": "bad-output-on-stream-0.bin"
+    },
+    {
+      "bad_message": "unknown_flags",
+      "file": "bad-unknown-flags.bin"
+    },
+    {
+      "bad_message": "unknown_priority",
+      "file": "bad-unknown-priority.bin"
+    },
+    {
+      "bad_message": "truncated",
+      "file": "bad-truncated.bin"
+    }
+  ]
+}

@@ -1,9 +1,13 @@
 import AppKit
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The omnibar text field. It uses its own field editor
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
 /// applier writes it, nothing else does.
 final class AddressField: ChromeTextField, OmnibarFieldSurface {
+    /// The node the field's restyle waits on (R-appear): its bar's (``AddressBarView/visibilityNode``).
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.field.standalone", own: .visible)
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
@@ -68,7 +72,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         probe?("field.tracked")
-        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
+        // The release the tracking loop took is newer than the dispatched press.
+        if event.omnibarDragged(to: (window as? InputTapHosting)?.inputTap?.trackedEvent()) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
         probe?("field.mouseUpDone")
     }
@@ -115,9 +120,17 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     var hasMarkedText: Bool { (currentEditor() as? NSTextView)?.hasMarkedText() ?? false }
 
     /// A theme change recolors the text in place: the field editor keeps
-    /// its text and selection, the resting text is written again.
+    /// its text and selection, the resting text is written again, once the
+    /// field shows (a field editor is up only while the bar has the keys).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.recolorText() }
+    }
+
+    /// The ``visibilityNode`` key of the field's deferred restyle.
+    static let appearanceKey = "AddressField.appearance"
+
+    private func recolorText() {
         if let editor = currentEditor() as? NSTextView {
             performWithTheme {
                 let color = OmnibarStyle.textPrimary

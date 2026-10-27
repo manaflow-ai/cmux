@@ -25,7 +25,7 @@ extension TabStripView {
         if let next = model.click(id, click), next != model.selectedID { model.send(.select(next)) }
     }
 
-    /// Shows the model's multi-selection on the cells, and listens for Esc while there is one.
+    /// Shows the model's multi-selection on the cells, and holds `selectionEscape` while there is one.
     func applyMultiSelection() {
         let selection = model.multiSelection
         for (id, cell) in cells { cell.isMultiSelected = selection.contains(id) }
@@ -59,28 +59,5 @@ extension TabStripView {
         sync(fromModel: false)
         model.send(.reorderTabs(order))
         relayout(animated: !reduceMotion)
-    }
-}
-
-/// Esc ends a tab multi-selection (Chrome). The key goes on to whatever has focus (a terminal still
-/// gets it). Installed while the strip has a multi-selection.
-@MainActor final class TabSelectionEscapeMonitor {
-    private weak var strip: TabStripView?
-    private var monitor: Any?
-
-    init(strip: TabStripView) { self.strip = strip }
-
-    func install() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, let strip = self?.strip, event.window === strip.window, !strip.isHiddenOrHasHiddenAncestor, strip.drag == nil else { return event }
-            strip.model.clearMultiSelection()
-            return event
-        }
-    }
-
-    func remove() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
     }
 }

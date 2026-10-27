@@ -13,6 +13,7 @@ use super::*;
 const LAYOUT_UNDO_COMMIT_ATTEMPTS: u32 = 3;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn commit_confirmed_layout_undo(
         self: &Arc<Self>,
         actor: &Actor,

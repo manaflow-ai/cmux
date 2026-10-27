@@ -1,6 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `debug.text_weight` (DEBUG; text-weight-e2e.py, cx-8w027.12): the glyph coverage of
 /// ``ChromeLabel`` and ``ChromeTextLayer`` next to a stock `NSTextField` with the same text, font
@@ -12,8 +16,13 @@ import CmuxNextWakeups
 /// row's, so 1 is the stock weight.
 public struct TextWeightProbe {
     public let dark: Bool
+    /// The app's lanes: each read of the window server's image runs on their system lane.
+    public let lanes: any MayBlockRunner
 
-    public init(dark: Bool) { self.dark = dark }
+    public init(dark: Bool, lanes: any MayBlockRunner) {
+        self.dark = dark
+        self.lanes = lanes
+    }
 
     private static let text = "Workspace notes 0123 quick brown fox"
     private static let fonts: [(String, NSFont)] = [
@@ -90,7 +99,7 @@ public struct TextWeightProbe {
         var shown: CGImage?
         for _ in 0..<20 {
             await Self.frames(3, of: window)
-            let next = window.compositedSnapshot() // perf-gate-ok: debug.text_weight probe window
+            let next = await window.compositedImage(on: lanes) // perf-gate-ok: debug.text_weight probe window
             if let next, let previous = shown, Self.same(previous, next) { break }
             shown = next
         }
@@ -160,13 +169,14 @@ public struct TextWeightProbe {
 extension TextWeightProbe {
     /// Resumes after `count` frames of `window`'s FrameScheduler (a stalled link still ticks).
     fileprivate static func frames(_ count: Int, of window: NSWindow) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A client dropped before its last frame returns early.
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             var remaining = count
             // The scheduler holds the active client; it drops it after the last frame.
             let client = FrameClient(owner: "debug.text_weight", isAnimation: false, on: FrameScheduler.forWindow(window)) { _ in
                 remaining -= 1
                 guard remaining <= 0 else { return true }
-                continuation.resume()
+                continuation.resume(returning: ())
                 return false
             }
             client.activate()

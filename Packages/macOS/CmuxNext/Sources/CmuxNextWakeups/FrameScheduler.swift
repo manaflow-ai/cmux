@@ -7,72 +7,59 @@ import CmuxNextCompat
 public protocol FrameLink: AnyObject {
     var isPaused: Bool { get set }
     func invalidate()
+    /// Asks the link to fire at `range` (``DisplayClock``'s rate decision).
+    func requestFrameRate(_ range: CAFrameRateRange)
 }
 
-extension CADisplayLink: FrameLink {}
+extension FrameLink {
+    /// A link with no rate of its own (a test fake that is fired by hand) ignores the request.
+    public func requestFrameRate(_ range: CAFrameRateRange) {}
+}
 
-/// The one display link of a window (architecture.md 3 and 5): it runs only
-/// while at least one ``FrameClient`` is active and pauses itself when the
-/// last one goes idle (dropping the link), so an idle window has no frame
-/// wakeups.
+extension CADisplayLink: FrameLink {
+    @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
+}
+
+/// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link
+/// on the shared ``DisplayClock`` only while at least one ``FrameClient`` is active, and leaves when
+/// the last one goes idle (or is parked, ``FrameClient/visibleOnly``), so an idle window has no frame wakeups.
 ///
-/// Every animation, drag autoscroll, resize settle and per-frame batch in
-/// CmuxNext is a client of its window's scheduler; window-less frame work
-/// uses ``app``, bound to the main screen. Budgeted batches (the daemon store
-/// drain, the control work queue) tick on the app's one ``MainWorkScheduler``,
-/// the only scheduler that holds a ``MainFrameBudget``. No other code may
-/// create a display link (`scripts/cmux-next/check-concurrency.sh`).
-///
-/// A display link stops firing while the displays sleep, when its screen
-/// goes away, and for some occluded windows, yet clients such as the daemon
-/// mirror must keep moving. So while any client is active a one-shot stall
-/// deadline runs: when no frame came in time the clients tick anyway, and
-/// after repeated stalls the link is rebuilt. Frames do not touch the
-/// deadline (a new timer task per frame cost two cooperative-pool wakes a
-/// frame): when it fires after a frame came, it is armed again for the rest
-/// of the timeout from that frame, about ten arms a second while ticking.
+/// Every animation, drag autoscroll, resize settle and per-frame batch in CmuxNext is a client of
+/// its window's scheduler; window-less frame work uses ``app``, on the main display. Budgeted
+/// batches (the daemon store drain, the control work queue) tick on the app's one
+/// ``MainWorkScheduler``, the only scheduler that holds a ``MainFrameBudget``. All of them share one
+/// link per display (``DisplayClock``, the only code that creates one, as
+/// `scripts/cmux-next/check-concurrency.sh` enforces), which also runs the display's stall deadline.
+/// The composition root builds that clock, installs it here (``install(displays:energy:)``) and passes it to
+/// its ``MainWorkScheduler``. Every scheduler follows the app's Energy Saver policy (FrameScheduler+Energy.swift).
 @MainActor
 public final class FrameScheduler: NSObject {
+    /// Makes a test scheduler's fake link (``testing(clock:ledger:mediaTime:makeLink:)``).
     public typealias LinkFactory = @MainActor (FrameScheduler) -> (any FrameLink)?
 
     /// Longest wait for a frame while clients are active.
-    public static let stallTimeout: Duration = .milliseconds(100)
+    public static let stallTimeout: Duration = DisplayClock.stallTimeout
     /// Consecutive stalls after which the link is replaced.
-    public static let stallsBeforeRebuild = 3
+    public static let stallsBeforeRebuild = DisplayClock.stallsBeforeRebuild
 
-    /// The scheduler for window-less frame work, on the main screen (no budget: budgeted batches
-    /// tick on the injected ``MainWorkScheduler``).
-    public static let app = FrameScheduler(name: "app", host: .screen, budget: nil)
+    /// The scheduler for window-less frame work, on the main display (no budget: budgeted batches
+    /// tick on the injected ``MainWorkScheduler``), on the clock the composition root installed
+    /// (``install(displays:energy:)``; a clock of its own before that, in tests).
+    public private(set) static var app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
 
-    private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
+    /// The display clock ``app`` and the window schedulers subscribe to.
+    public static var appDisplays: DisplayClock { app.displayClock }
 
-    /// `window`'s scheduler, created on first use and dropped with the window.
-    public static func forWindow(_ window: NSWindow) -> FrameScheduler {
-        let key = ObjectIdentifier(window)
-        if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
-        windows = windows.filter { $0.value.value?.window != nil }
-        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), budget: nil)
-        windows[key] = WeakScheduler(value: scheduler)
-        // The window keeps its scheduler alive.
-        objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        // The link retains its target: break the cycle when the window closes.
-        scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
-            scheduler?.invalidate()
+    /// Puts ``app`` and the window schedulers made from now on onto `displays`, the composition root's
+    /// one clock, under `energy`, the app's one Energy Saver policy (`MainWorkScheduler.energy`), which
+    /// the window schedulers follow too. Called once at launch, before any window has a scheduler.
+    public static func install(displays: DisplayClock, energy: EnergyPolicySource) {
+        if displays !== appDisplays {
+            app.invalidate()
+            app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil)
         }
-        return scheduler
+        app.follow(energy)
     }
-
-    /// The scheduler of `view`'s window, or ``app`` while it has none.
-    public static func forView(_ view: NSView) -> FrameScheduler {
-        view.window.map(forWindow) ?? app
-    }
-
-    /// Every live scheduler (debug.wakeups).
-    public static var all: [FrameScheduler] {
-        [app] + windows.values.compactMap(\.value)
-    }
-
-    private static var associationKey: UInt8 = 0
 
     enum Host {
         case screen
@@ -81,46 +68,99 @@ public final class FrameScheduler: NSObject {
 
     public let name: String
     public private(set) weak var window: NSWindow?
-    private let isScreenHost: Bool
-    private var clients: [ObjectIdentifier: FrameClient] = [:]
+    /// The scheduler serves window-less work on a display (``app``, the ``MainWorkScheduler``'s).
+    let isScreenHost: Bool
+    private(set) var clients: [ObjectIdentifier: FrameClient] = [:]
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
     private var budgetedOrder: [ObjectIdentifier] = []
-    private var link: (any FrameLink)? {
-        didSet { if (oldValue == nil) != (link == nil) { onLinkChange?(link != nil) } }
+    /// The clock this scheduler subscribes to.
+    public let displayClock: DisplayClock
+    /// The display this scheduler last subscribed to (kept after it leaves, for its stall stats);
+    /// ``isSubscribed`` says whether it ticks on that display now.
+    private var displayID: CGDirectDisplayID?
+    private var isSubscribed = false
+    /// Its display has a link now (a headless one ticks on the stall deadline only); the clock says
+    /// when the link comes or goes (``displayLinkDidChange(exists:)``).
+    private var ticksOnLink = false {
+        didSet {
+            guard oldValue != ticksOnLink else { return }
+            if reportsUnbudgeted { displayClock.unbudgetedLinks.linkChanged(exists: ticksOnLink) }
+            onLinkChange?(ticksOnLink)
+        }
     }
-    /// Told when the display link comes and goes (the ``MainWorkScheduler``: its link's ticks own
-    /// the budget's window, and render passes are timed only while it runs).
+    /// ``app`` and the window schedulers report to their clock's ``DisplayClock/unbudgetedLinks``;
+    /// the budgeted one does not.
+    private let reportsUnbudgeted: Bool
+    /// Told when the scheduler starts and stops ticking on its display's link (the
+    /// ``MainWorkScheduler``: its ticks own the budget's window, and render passes are timed only
+    /// while they come).
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
-    private let makeLinkOverride: LinkFactory?
+    /// Told after each of its display-link frames with its timestamp and refresh period (the
+    /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
+    /// millisecond before the next vsync). Stall-deadline ticks have no vsync and are not reported.
+    var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
+    /// The link frame this scheduler ticks in now, reported when its part of the frame ends.
+    private var linkFrame: (timestamp: CFTimeInterval, refreshInterval: Double)?
     private let ledger: WakeupLedger
     private let clock: any Clock<Duration>
     private var madeInput: FrameInputCoalescer?
-    private let stall: DemandTimer
-    private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
-    private let mediaTime: @MainActor () -> CFTimeInterval
-    /// The last link frame's timestamp (or the time the clients activated): where a stall starts.
-    private var lastLinkFrame: CFTimeInterval = 0
-    /// Times the stall timer was armed (each arm is one task and one cooperative-pool wake).
-    public private(set) var stallTimerArms = 0
-    /// The last frame stall seen (debug and tests).
-    public private(set) var lastStall: FrameStall?
-    private var closeObserver: MainActorObservation?
+    /// The link's last refresh period: a stalled frame is shown this long after it starts.
+    private var lastRefreshInterval = FrameTick.defaultRefreshInterval
+    /// When its clients last ticked, or, idle before, activated (``DisplayClock/now()``'s timebase):
+    /// ``RenderStarvationGuard`` measures a late frame from it.
+    public private(set) var lastTick: CFTimeInterval = 0
+    /// Its last tick came from the stall deadline, not from its display's link: the link stopped (a
+    /// ``FrameStall``), or nobody can see its window and it ticks at the stall rate. A late tick then
+    /// says nothing about the main thread.
+    public private(set) var ticksOffLink = false
+    /// The guard that watches its frames (``RenderStarvationGuard/watch(_:)``).
+    weak var starvation: RenderStarvationGuard?
+    /// The late period the guard saw since ``lastTick`` (stale once it moves).
+    var starvationPeriod: RenderStarvationGuard.Period?
+    var closeObserver: MainActorObservation?
+    /// Moves it to its window's new display when the window changes screen (window schedulers only).
+    var screenFamily: WindowScreenFamily?
+    /// When the frame of its last tick is shown (nil before the first tick after subscribing).
+    private var lastTargetTimestamp: CFTimeInterval?
+    /// Set when it moves to another display: its last tick there. Until a link tick of the new display
+    /// starts more than half that display's interval after it and is shown after it, that display's
+    /// ticks pass it by, so its tick time never runs back and no refresh gets two frames (Chrome's
+    /// `kDoubleTickDivisor` check, `frame_time > last.frame_time + interval / kDoubleTickDivisor`,
+    /// in `DelayBasedBeginFrameSource::IssueBeginFrameToObserver`,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc).
+    private var handoff: Handoff?
+    private struct Handoff {
+        let timestamp: CFTimeInterval
+        let target: CFTimeInterval
+    }
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
-    /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).
+    /// Display links this scheduler's subscribing made since creation (debug: a scheduler that stays
+    /// subscribed through a backlog makes one per burst; joining a display that has a link makes none).
     public private(set) var linksMade: UInt64 = 0
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
+    /// The highest ``FrameClient/rate`` of its active clients (nil while idle); ``linkRate`` is what
+    /// it asks of its display's link (``DisplayClock``).
+    public private(set) var frameRate: FrameRate?
+    /// Energy Saver's ambient cap and the ambient clients waiting out display sleep (FrameScheduler+Energy.swift).
+    var energyState = AmbientEnergyState()
+    /// Its window's occlusion and the clients waiting it out (FrameScheduler+Occlusion.swift).
+    var occlusionHold = OcclusionHold()
+    /// Its motion and commit-window frame sequences (FrameSequenceTracker.swift).
+    public let sequences: FrameSequenceTracker
 
-    init(name: String, host: Host, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-         mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
-         makeLink: LinkFactory? = nil, budget: MainFrameBudget?) {
+    /// - Parameters:
+    ///   - displays: The clock to subscribe to (the app's: ``appDisplays``).
+    ///   - sequences: Its frame sequences (nil: one on the app's trace runtime).
+    init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
+         ledger: WakeupLedger = .shared, budget: MainFrameBudget?, sequences: FrameSequenceTracker? = nil) {
         self.budget = budget
-        self.mediaTime = mediaTime
+        self.sequences = sequences ?? FrameSequenceTracker()
         self.name = name
         switch host {
         case .screen: isScreenHost = true
@@ -128,30 +168,29 @@ public final class FrameScheduler: NSObject {
             isScreenHost = false
             self.window = window
         }
+        displayClock = displays
         self.ledger = ledger
         self.clock = clock
-        self.makeLinkOverride = makeLink
-        stall = DemandTimer(owner: "FrameScheduler.stall", clock: clock, ledger: ledger)
+        reportsUnbudgeted = budget == nil
         super.init()
     }
 
-    /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``).
-    /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
-    public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
-                               makeLink: @escaping LinkFactory) -> FrameScheduler {
-        FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, mediaTime: mediaTime, makeLink: makeLink, budget: nil)
-    }
+    /// Its display's link's last refresh period (a 60 Hz frame before the first link frame).
+    public var refreshPeriod: CFTimeInterval { lastRefreshInterval }
 
-    /// Owners of the clients that are ticking now.
-    public var activeClients: [String] {
-        clients.values.filter(\.isActive).map(\.owner).sorted()
-    }
+    /// When the frame of its last tick is shown (the frame deadline main-thread work ahead of that
+    /// frame must meet), in `CACurrentMediaTime` seconds; nil while idle. It may be past: the next
+    /// frame's is one ``refreshPeriod`` later.
+    public var frameTarget: CFTimeInterval? { lastTargetTimestamp }
 
-    public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
+    /// The display it ticks on now (nil while idle or never subscribed).
+    var display: CGDirectDisplayID? { subscribed }
 
-    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
-    /// clients (made on first use; dropped with the scheduler's window).
+    /// Its display's link exists and runs, and this scheduler ticks on it.
+    public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
+
+    /// This scheduler's continuous input, delivered before its frame clients (made on first use; kept, with
+    /// its work dropped, when its window closes, so a window shown again keeps it). Get it through ``FrameInputCoalescers``.
     public var input: FrameInputCoalescer {
         if let madeInput { return madeInput }
         let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
@@ -159,30 +198,98 @@ public final class FrameScheduler: NSObject {
         return made
     }
 
-    /// A display link exists (only while clients are active).
-    public var hasLink: Bool { link != nil }
+    /// A display link ticks this scheduler (only while clients are active).
+    public var hasLink: Bool { subscribed.map { displayClock.hasLink($0) } ?? false }
+
+    /// Times its display's stall timer was armed (each arm is one task and one cooperative-pool wake).
+    public var stallTimerArms: Int { displayID.map { displayClock.stallTimerArms(on: $0) } ?? 0 }
+    /// The last frame stall its display saw (debug and tests).
+    public var lastStall: FrameStall? { displayID.flatMap { displayClock.lastStall(on: $0) } }
+
+    /// The display it ticks on now.
+    private var subscribed: CGDirectDisplayID? { isSubscribed ? displayID : nil }
+
+    /// The window whose display it ticks on (nil: a screen host, on the main display).
+    var hostWindow: NSWindow? { isScreenHost ? nil : window }
+
+    /// The timestamp of its last tick while subscribed (nil before the first one).
+    var lastTickTimestamp: CFTimeInterval? { lastTimestamp }
+
+    /// True for the ``MainWorkScheduler``'s scheduler: its budgeted classes tick last on its display.
+    var holdsBudget: Bool { budget != nil }
+
+    /// A budgeted client still has work queued: it stays in the round-robin until it goes idle.
+    var hasBudgetedWork: Bool { !budgetedOrder.isEmpty }
 
     // MARK: Clients
 
     func activate(_ client: FrameClient) {
-        let id = ObjectIdentifier(client)
-        clients[id] = client
-        if client.workClass.isBudgeted, !budgetedOrder.contains(id) { budgetedOrder.append(id) }
-        guard let link = link ?? makeLink() else {
-            // No screen (headless launch): tick once on the next turn.
-            // task-owner: one hop; the client deactivates or re-arms on its tick
-            Task { @MainActor [weak self] in self?.frameDidFire(timestamp: nil) }
-            return
+        let key = ObjectIdentifier(client)
+        if waitsForScreens(client) || waitsForVisibleWindow(client) { return }
+        clients[key] = client
+        if client.workClass.isBudgeted, !budgetedOrder.contains(key) { budgetedOrder.append(key) }
+        guard !isSubscribed else { return updateFrameRate() }
+        frameRate = FrameRate.highest(of: clients.values.map(\.rate))
+        let linksBefore = displayClock.linksMade
+        lastTimestamp = nil
+        lastTick = displayClock.now()
+        ticksOffLink = false
+        let id = displayClock.subscribe(self)
+        displayID = id
+        isSubscribed = true
+        if displayClock.linksMade != linksBefore { linksMade += 1 }
+        ticksOnLink = displayClock.hasLink(id)
+    }
+
+    /// Its display's link was made or dropped (the clock, on a stall rebuild or a failed one).
+    func displayLinkDidChange(exists: Bool) {
+        guard isSubscribed else { return }
+        ticksOnLink = exists
+        sequences.linkDidChange()
+    }
+
+    /// The clock moved it to `id` (its screen changed or went away): it ticks on `id`'s link from its
+    /// next frame shown after its last one.
+    func displayDidChange(to id: CGDirectDisplayID, hasLink: Bool) {
+        displayID = id
+        ticksOnLink = hasLink
+        if let lastTimestamp, let lastTargetTimestamp {
+            handoff = Handoff(timestamp: lastTimestamp, target: lastTargetTimestamp)
+        } else {
+            handoff = nil
         }
-        if link.isPaused {
-            lastTimestamp = nil
-            link.isPaused = false
+    }
+
+    /// Whether a tick of its display goes to it. After a display change only a link tick that starts
+    /// more than half the new interval after its last tick and is shown after its last frame does,
+    /// and the first one ends the handoff: tick times never decrease and no refresh gets two frames.
+    /// A stall tick (no timestamp, it runs now) always does.
+    func takesTick(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
+        guard let last = handoff else { return true }
+        if let timestamp {
+            let interval = refreshInterval ?? lastRefreshInterval
+            let target = targetTimestamp ?? timestamp + interval
+            guard timestamp > last.timestamp + interval / 2,
+                  target > last.target + Self.handoffSlack
+            else { return false }
         }
-        if !stall.isScheduled { lastLinkFrame = mediaTime() }
-        armStall()
+        handoff = nil
+        return true
+    }
+
+    /// Two targets closer than this are one refresh (float rounding of link times).
+    private static let handoffSlack: CFTimeInterval = 0.0005
+
+    /// Its window moved to another screen (its ``WindowScreenFamily``): tick on that screen's link
+    /// now (the display's stall deadline also moves it, within a ``stallTimeout``, as a backstop).
+    func screenDidChange() {
+        guard let subscribed else { return }
+        displayClock.resubscribe(self, from: subscribed)
     }
 
     func deactivate(_ client: FrameClient) {
+        energyState.asleep[ObjectIdentifier(client)] = nil
+        occlusionHold.held[ObjectIdentifier(client)] = nil
         drop(ObjectIdentifier(client))
         if clients.isEmpty { pause() }
     }
@@ -190,135 +297,120 @@ public final class FrameScheduler: NSObject {
     private func drop(_ id: ObjectIdentifier) {
         clients[id] = nil
         budgetedOrder.removeAll { $0 == id }
+        updateFrameRate()
     }
 
-    /// Drops the link while idle: an idle window holds no display link at
-    /// all (and no link -> scheduler retain cycle); the next client makes a
-    /// new one.
+    /// Recomputes ``frameRate`` after a client came or went and, when it changed while subscribed,
+    /// tells the display, whose link may run at another rate now.
+    private func updateFrameRate() {
+        let rate = FrameRate.highest(of: clients.values.map(\.rate))
+        guard rate != frameRate else { return }
+        frameRate = rate
+        if let subscribed, rate != nil { displayClock.frameRateDidChange(on: subscribed) }
+    }
+
+    /// Leaves the display while idle: an idle window holds no subscription (and its display drops
+    /// the link once nobody else ticks on it); the next client subscribes again.
     private func pause() {
-        link?.invalidate()
-        link = nil
         lastTimestamp = nil
-        stall.cancel()
-        stalls = 0
+        lastTargetTimestamp = nil
+        handoff = nil
+        sequences.closeAll()
+        guard let subscribed else { return }
+        isSubscribed = false
+        ticksOnLink = false
+        displayClock.unsubscribe(self, from: subscribed)
+        // No frame of it can be late now: what waited for one goes on.
+        starvation?.framesEnded(self)
     }
 
-    /// Drops the link and every client (the window closed).
+    /// Drops the subscription and every client (the window closed).
     public func invalidate() {
         madeInput?.invalidate()
-        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
+        detachAsleep()
+        detachOccluded()
         budgetedOrder.removeAll()
-        stall.cancel()
-        link?.invalidate()
-        link = nil
+        frameRate = nil
+        pause()
         closeObserver = nil
     }
 
     // MARK: Frames
 
-    private func makeLink() -> (any FrameLink)? {
-        let made: (any FrameLink)?
-        if let makeLinkOverride {
-            made = makeLinkOverride(self)
-        } else if !isScreenHost, let window {
-            // concurrency-allow: the sanctioned display link (one per window)
-            let display = window.displayLink(target: self, selector: #selector(tick(_:)))
-            display.preferredFrameRateRange = Self.motionRange
-            display.add(to: .main, forMode: .common)
-            made = display
-        } else if let screen = NSScreen.main ?? NSScreen.screens.first {
-            // concurrency-allow: the sanctioned display link (window-less work)
-            let display = screen.displayLink(target: self, selector: #selector(tick(_:)))
-            display.preferredFrameRateRange = Self.motionRange
-            display.add(to: .main, forMode: .common)
-            made = display
-        } else {
-            made = nil
-        }
-        if made != nil { linksMade += 1 }
-        link = made
-        return made
-    }
-
-    /// Springs step every display frame: 120 Hz on ProMotion (never below 80), the display's rate elsewhere.
-    private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-
-    @objc private func tick(_ link: CADisplayLink) {
-        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)
-    }
-
-    private func armStall(after delay: Duration = FrameScheduler.stallTimeout) {
-        guard !stall.isScheduled else { return }
-        stallTimerArms += 1
-        stall.schedule(after: delay) { @MainActor [weak self] in self?.stallTimerFired() }
-    }
-
-    /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.
-    private static let stallSlack: CFTimeInterval = 0.0005
-
-    private func stallTimerFired() {
-        guard !clients.isEmpty else { return }
-        let sinceFrame = mediaTime() - lastLinkFrame
-        let timeout = Double(Self.stallTimeout.components.seconds) + Double(Self.stallTimeout.components.attoseconds) / 1e18
-        guard sinceFrame + Self.stallSlack >= timeout else {
-            // A frame came since the timer was armed: wait out the rest of the timeout from it.
-            armStall(after: .seconds(timeout - sinceFrame))
+    /// One display frame (tests call it directly): on its display every scheduler there ticks; a
+    /// scheduler without a display (headless) ticks alone. `targetTimestamp`: when the frame is shown
+    /// (the link's); nil is `timestamp` plus `refreshInterval` (nil: the link's last interval).
+    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil,
+                             targetTimestamp: CFTimeInterval? = nil) {
+        if let subscribed {
+            displayClock.displayDidFire(subscribed, timestamp: timestamp, refreshInterval: refreshInterval,
+                                        targetTimestamp: targetTimestamp)
             return
         }
-        frameStalled()
+        let tick = beginFrame(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
+                              offLink: timestamp == nil)
+        deliverFrameLocked(tick)
+        deliverBudgeted(tick)
+        endFrame()
     }
 
-    private func frameStalled() {
-        stalls += 1
-        if stalls >= Self.stallsBeforeRebuild {
-            stalls = 0
-            link?.invalidate()
-            link = nil
-        }
-        lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
-        ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
-        deliver(timestamp: nil, refreshInterval: nil)
-        guard !clients.isEmpty else { return }
-        (link ?? makeLink())?.isPaused = false
-        armStall()
-    }
-
-    /// One display frame (the link's tick; tests call it directly).
-    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
-        lastLinkFrame = timestamp ?? mediaTime()
-        stalls = 0
-        deliver(timestamp: timestamp, refreshInterval: refreshInterval)
-        if clients.isEmpty { pause() } else { armStall() }
-    }
-
-    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
+    /// Starts this scheduler's part of a frame: its tick (with its own elapsed time) and, on the
+    /// budget holder, the budget's frame window. `offLink`: the stall deadline ticks it, not the link
+    /// (``ticksOffLink``). `seen`: someone can see its window (false for a hidden window's stall-rate tick).
+    func beginFrame(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?,
+                    offLink: Bool, seen: Bool = true) -> FrameTick {
         frames &+= 1
-        let now = timestamp ?? CACurrentMediaTime()
+        // When the tick runs on main, not the frame's vsync time: the guard measures main's lateness.
+        let ranAt = displayClock.now()
+        starvation?.tickEnds(self, at: ranAt)
+        lastTick = ranAt
+        ticksOffLink = offLink
+        let now = timestamp ?? ranAt
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
-        let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
-                             rawElapsed: elapsed, refreshInterval: refreshInterval)
+        if let refreshInterval { lastRefreshInterval = refreshInterval }
+        if !offLink, ticksOnLink, let timestamp, let refreshInterval {
+            linkFrame = (timestamp, refreshInterval)
+        } else {
+            linkFrame = nil
+        }
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        // Clients activated during this frame tick next frame. The input stage first (the window's
-        // FrameInputCoalescer), so the frame-locked clients see this frame's input; then those,
-        // every frame; then (only on the scheduler that holds the budget) the budgeted batches in
-        // class order, each only while its class may run (a held one stays active and ticks next
-        // frame: input pending, or the class's budget spent).
+        // A tick with no vsync while its link runs for a window someone sees: the vsyncs it missed are drops.
+        sequences.frameBegan(linkFrame, vsyncsGoOn: seen && isRunning)
+        budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval, ranAt: ranAt)
+        // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
+        // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
+        let target = targetTimestamp ?? now + lastRefreshInterval
+        lastTargetTimestamp = target
+        return FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
+                         rawElapsed: elapsed, refreshInterval: refreshInterval,
+                         targetTimestamp: target, sequence: frames)
+    }
+
+    /// The frame-locked clients, every frame: the input stage first (the window's
+    /// FrameInputCoalescer), so the frame clients see this frame's input. Clients activated during
+    /// this frame tick next frame.
+    func deliverFrameLocked(_ tick: FrameTick) { // perf-hot: 0.5ms frame-tick (every frame)
         let ticking = clients.values.filter(\.isActive)
-        let order = budgetedOrder
-        budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
         for client in ticking where client.workClass == .input {
             fire(client, tick)
         }
         for client in ticking where client.workClass == .frame {
             fire(client, tick)
         }
+    }
+
+    /// Only on the scheduler that holds the budget, after every other scheduler on its display: the
+    /// budgeted batches in class order, each only while its class may run (a held one stays active
+    /// and ticks next frame: input pending, or the class's budget spent).
+    func deliverBudgeted(_ tick: FrameTick) {
         guard let budget else { return }
+        let order = budgetedOrder
         for workClass in MainWorkClass.budgeted {
             for id in order {
                 guard let client = clients[id], client.workClass == workClass, client.isActive else { continue }
@@ -333,12 +425,24 @@ public final class FrameScheduler: NSObject {
         }
     }
 
-    private func fire(_ client: FrameClient, _ tick: FrameTick) {
-        ledger.record(client.owner, reason: "frame")
-        if !client.fire(tick) { drop(ObjectIdentifier(client)) }
+    /// Ends this scheduler's part of a frame: reports a link frame (``onLinkFrame``, and for ``app``
+    /// and the windows their clock's ``DisplayClock/unbudgetedLinks``), then with no client left it
+    /// leaves the display.
+    func endFrame() {
+        if let frame = linkFrame {
+            linkFrame = nil
+            onLinkFrame?(frame.timestamp, frame.refreshInterval)
+            if reportsUnbudgeted { displayClock.unbudgetedLinks.frame(timestamp: frame.timestamp, refreshInterval: frame.refreshInterval) }
+        }
+        if clients.isEmpty { pause() }
     }
 
-    private struct WeakScheduler {
-        weak var value: FrameScheduler?
+    /// Ticks `client` and records its wakeup, unless an earlier tick of this frame stopped or parked it
+    /// (it left ``clients``): a client that does not run is not counted.
+    private func fire(_ client: FrameClient, _ tick: FrameTick) {
+        let id = ObjectIdentifier(client)
+        guard clients[id] === client, client.isActive else { return }
+        ledger.record(client.owner, reason: "frame")
+        if !client.fire(tick) { drop(id) }
     }
 }

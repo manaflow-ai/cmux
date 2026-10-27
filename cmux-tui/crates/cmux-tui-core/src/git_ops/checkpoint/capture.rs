@@ -6,6 +6,7 @@
 //! read. The observation is taken again before returning, and a change is
 //! `repository_changed`, never a mixed checkpoint.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
@@ -445,14 +446,14 @@ fn read_untracked(
     if scan::behind_a_link(root, &item.path, &mut HashSet::new()) {
         return Err(gone());
     }
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = files::File::options();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(scan::join(root, &item.path)).map_err(|_| gone())?;
+    let file = files::open_with(&options, scan::join(root, &item.path)).map_err(|_| gone())?;
     let metadata = file.metadata().map_err(|_| gone())?;
     let size = item.size();
     if !metadata.is_file() || metadata.len() != size {
@@ -467,10 +468,10 @@ fn read_untracked(
 }
 
 fn file_identity(root: &Path, path: &[u8]) -> Option<(u64, u64)> {
-    std::fs::symlink_metadata(scan::join(root, path)).ok().map(|metadata| identity_of(&metadata))
+    files::symlink_metadata(scan::join(root, path)).ok().map(|metadata| identity_of(&metadata))
 }
 
-fn identity_of(metadata: &std::fs::Metadata) -> (u64, u64) {
+fn identity_of(metadata: &files::Metadata) -> (u64, u64) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
