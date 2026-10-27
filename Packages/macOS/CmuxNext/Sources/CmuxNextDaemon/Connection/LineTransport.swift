@@ -1,5 +1,4 @@
 import CmuxNextWakeups
-import Darwin
 public import Foundation
 import CmuxNextCompat
 import CmuxNextIPC
@@ -119,21 +118,16 @@ final class LineTransport: Sendable {
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
-        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        // Close-on-exec, and no SIGPIPE on a send to a daemon that went away (openUnixStreamSocket).
+        let fd = openUnixStreamSocket()
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
-        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
-        // peer key is this process's audit token (request-origin.md, peer key caveat).
-        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-        var on: Int32 = 1
-        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
-        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         guard let address = UnixSocketAddress(path: path) else {
-            Darwin.close(fd)
+            closeSocket(fd)
             throw .socketPathTooLong(path)
         }
         guard address.connect(fd) == 0 else {
             let code = errno
-            Darwin.close(fd)
+            closeSocket(fd)
             throw .connectFailed(path: path, errno: code)
         }
         return fd
@@ -150,7 +144,7 @@ final class LineTransport: Sendable {
     private func closeDescriptor() {
         let closed = socket.withLock { socket -> Bool in
             guard socket.fd >= 0 else { return false }
-            Darwin.close(socket.fd)
+            closeSocket(socket.fd)
             socket.fd = -1
             return true
         }
@@ -286,7 +280,8 @@ final class LineTransport: Sendable {
     func close() {
         failAll(.closedByClient)
         socket.withLock { socket in
-            if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
+            // SHUT_RDWR is an Int32 on Darwin and an Int on Linux (Glibc imports it from an enum).
+            if socket.fd >= 0 { shutdown(socket.fd, Int32(truncatingIfNeeded: SHUT_RDWR)) }
         }
         child?.terminate()
     }
@@ -366,7 +361,7 @@ final class LineTransport: Sendable {
         while true {
             // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
             // for the call and nothing else touches meanwhile.
-            let count = unsafe chunk.withUnsafeMutableBytes { unsafe Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = unsafe chunk.withUnsafeMutableBytes { unsafe read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }

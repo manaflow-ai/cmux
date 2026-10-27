@@ -1,5 +1,4 @@
 public import Foundation
-import Darwin
 import CmuxNextCompat
 import CmuxNextTrace
 import class CmuxSafeConcurrency.OnceContinuation
@@ -64,7 +63,7 @@ public struct DaemonBridge: Hashable, Sendable {
                     continuation.resume(returning: spawned.opened)
                 } catch {
                     spawned.opened.child.terminate()
-                    Darwin.close(spawned.opened.fd)
+                    close(spawned.opened.fd)
                     continuation.resume(throwing: error)
                 }
             }
@@ -76,20 +75,26 @@ public struct DaemonBridge: Hashable, Sendable {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
         // SAFETY: socketpair writes two descriptors into the two-element array's storage, live for the call.
-        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(POSIXErrorText(errno))") }
+        guard unsafe socketpair(AF_UNIX, unixStreamType, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(POSIXErrorText(errno))") }
         var errPipe: [Int32] = [-1, -1]
         // SAFETY: pipe writes two descriptors into the two-element array's storage, live for the call.
         guard unsafe pipe(&errPipe) == 0 else {
-            Darwin.close(pair[0]); Darwin.close(pair[1])
+            close(pair[0]); close(pair[1])
             throw .launchFailed("pipe: \(POSIXErrorText(errno))")
         }
         let (mine, theirs, errRead, errWrite) = (pair[0], pair[1], errPipe[0], errPipe[1])
         _ = fcntl(mine, F_SETFD, FD_CLOEXEC)
         _ = fcntl(errRead, F_SETFD, FD_CLOEXEC)
-        var on: Int32 = 1
-        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
-        unsafe setsockopt(mine, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // A write to a dead bridge fails with EPIPE: SO_NOSIGPIPE on Darwin, and on both platforms the
+        // connection's writer sends with MSG_NOSIGNAL (refuseSIGPIPE).
+        refuseSIGPIPE(mine)
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        #else
+        var actions = posix_spawn_file_actions_t()
+        var attributes = posix_spawnattr_t()
+        #endif
         // SAFETY (file actions and attributes): each call gets a pointer to the local `actions` or `attributes`,
         // live for the call; _init sets each up before any other use and the defer destroys it exactly once.
         unsafe posix_spawn_file_actions_init(&actions)
@@ -97,13 +102,18 @@ public struct DaemonBridge: Hashable, Sendable {
         unsafe posix_spawn_file_actions_adddup2(&actions, theirs, 0)
         unsafe posix_spawn_file_actions_adddup2(&actions, theirs, 1)
         unsafe posix_spawn_file_actions_adddup2(&actions, errWrite, 2)
-        var attributes: posix_spawnattr_t?
         // SAFETY: as above (file actions and attributes).
         unsafe posix_spawnattr_init(&attributes)
         defer { unsafe posix_spawnattr_destroy(&attributes) }
         // Only stdin, stdout and stderr reach the child.
+        #if canImport(Darwin)
         // SAFETY: as above (file actions and attributes).
         unsafe posix_spawnattr_setflags(&attributes, Int16(clamping: POSIX_SPAWN_CLOEXEC_DEFAULT))
+        #else
+        // Glibc has no close-on-exec default: the child closes every descriptor from 3 up after the dup2 actions.
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawn_file_actions_addclosefrom_np(&actions, 3)
+        #endif
         let words = [executable] + arguments
         // SAFETY: strdup copies each Swift string into a NUL-terminated heap string; the defer frees each copy
         // exactly once, after posix_spawn has copied argv into the child.
@@ -115,10 +125,10 @@ public struct DaemonBridge: Hashable, Sendable {
         // SAFETY: `pid`, `actions` and `attributes` are locals live for the call; argv is the nil-terminated array
         // of live copies above; environ is the process's own nil-terminated environment, which nothing here changes.
         let spawned = unsafe blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)
-        Darwin.close(theirs)
-        Darwin.close(errWrite)
+        close(theirs)
+        close(errWrite)
         guard spawned == 0 else {
-            Darwin.close(mine); Darwin.close(errRead)
+            close(mine); close(errRead)
             throw .launchFailed("spawn \(executable): \(POSIXErrorText(spawned))")
         }
         return Spawned(opened: Opened(fd: mine, child: BridgeChild(pid: pid, stderr: errRead, reaper: queues.reap)), stderr: errRead)
@@ -135,9 +145,9 @@ public struct DaemonBridge: Hashable, Sendable {
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }
             var byte: UInt8 = 0
             // SAFETY: read writes at most 1 byte, the count given, into `byte`, a local live for the call.
-            let read = unsafe Darwin.read(fd, &byte, 1)
-            if read < 0, errno == EINTR { continue }
-            guard read == 1 else { throw .endpointBlocked("the link dial ended without an answer") }
+            let count = unsafe read(fd, &byte, 1)
+            if count < 0, errno == EINTR { continue }
+            guard count == 1 else { throw .endpointBlocked("the link dial ended without an answer") }
             if byte == UInt8(ascii: "\n") { return Data(line) }
             guard line.count < maxReplyBytes else { break }
             line.append(byte)
@@ -212,8 +222,8 @@ final class BridgeChild: Sendable {
             return descriptor
         }
         guard descriptor >= 0 else { return }
-        Darwin.kill(pid, SIGKILL)
-        Darwin.close(descriptor)
+        kill(pid, SIGKILL)
+        close(descriptor)
         ChildExitWatch(pid: pid, queue: reaper).start { _ in }
     }
 

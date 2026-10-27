@@ -3,13 +3,13 @@ import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
-import Darwin
 import Dispatch
 import Foundation
 
 /// An event that can make a retry succeed. Fired by callers (network path
-/// change, app activation) and by a kernel vnode watch on a socket file's
-/// directory (``watch(file:companions:)``): the watch fires only when the
+/// change, app activation) and by a kernel watch on a socket file's
+/// directory (``watch(file:companions:)``; ``FolderEventSource``: a vnode
+/// source on Darwin, inotify on Linux): the watch fires only when the
 /// file's identity differs from the one recorded after the last failed attempt
 /// (``rebaseline()``), so the loop's own attempts (a `server ensure` that
 /// recreates the socket) never wake it again.
@@ -54,7 +54,7 @@ public final class RetryWake: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake", qos: .userInitiated)
     private let state = Mutex<State>(State())
 
-    /// The folder the vnode watch is on.
+    /// The folder the kernel watch is on.
     private struct WatchedFolder {
         var path: String
         var identity: Identity
@@ -75,7 +75,7 @@ public final class RetryWake: Sendable {
         var companions: [String] = []
         var baseline: [Identity?] = []
         var folder: WatchedFolder?
-        var source: (any DispatchSourceFileSystemObject)?
+        var source: FolderEventSource?
     }
 
     /// - Parameters:
@@ -123,7 +123,7 @@ public final class RetryWake: Sendable {
         if changed { arm() }
     }
 
-    /// Ends the watch: the vnode source is cancelled and no file is watched
+    /// Ends the watch: the folder watch is cancelled and no file is watched
     /// until the next ``watch(file:companions:)``. A pending ``fire()`` stays.
     /// A reader that is healthy, or that ended, keeps no watch (each entry
     /// change in the watched folder would wake the process).
@@ -215,7 +215,7 @@ public final class RetryWake: Sendable {
         waiter?.resume(returning: cause)
     }
 
-    /// Arms the vnode watch on the deepest folder on the watched file's path
+    /// Arms the folder watch on the deepest folder on the watched file's path
     /// that exists and opens (the file's own folder once it exists), then
     /// checks once more: a deeper folder made while arming sends its events to
     /// a folder nobody watches (arm again, one level deeper), and the file
@@ -232,23 +232,19 @@ public final class RetryWake: Sendable {
                 return
             }
             let folder = opened.folder
-            let descriptor = opened.descriptor
+            let events = opened.events
             probe.folderChosen(folder.path)
-            // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
-            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
-                                                                   eventMask: [.write, .link, .delete, .rename], queue: queue)
-            source.setEventHandler { [weak self] in self?.directoryChanged() }
-            source.setCancelHandler { close(descriptor) }
-            source.resume()
+            // The watch starts under the lock, so it is never outside the state (its events wait for the lock).
+            // A kernel source for file watching: no Foundation async equivalent (idle-wakeups.md).
             let installed = state.withLock { state -> Bool in
                 guard state.file == file else { return false }
                 state.source?.cancel()
-                state.source = source
+                state.source = FolderEventSource(events, queue: queue) { [weak self] in self?.directoryChanged() }
                 state.folder = folder
                 return true
             }
             guard installed else {
-                source.cancel()
+                events.discard()
                 return
             }
             if Self.folderMoved(toward: file, from: folder) { continue }
@@ -257,7 +253,7 @@ public final class RetryWake: Sendable {
         }
     }
 
-    /// A vnode event on the watched folder: move the watch when the folder
+    /// A kernel event on the watched folder: move the watch when the folder
     /// toward the file changed, else fire when the file changed.
     private func directoryChanged() {
         let watched = state.withLock { state -> (file: String, folder: WatchedFolder)? in
@@ -296,14 +292,12 @@ public final class RetryWake: Sendable {
 
     /// Opens, for events only, the deepest folder on `file`'s path that exists
     /// and opens (`/` at worst); nil when none opens (no descriptor left).
-    private static func openNearestFolder(of file: String) -> (folder: WatchedFolder, descriptor: Int32)? {
+    private static func openNearestFolder(of file: String) -> (folder: WatchedFolder, events: FolderEventSource.Opened)? {
         var blocked: Identity?
         for directory in folders(above: file) {
             if let identity = directoryIdentity(of: directory) {
-                // SAFETY: open reads the NUL-terminated copy of `directory` Swift makes for the call.
-                let descriptor = unsafe open(directory, O_EVTONLY | O_CLOEXEC)
-                if descriptor >= 0 {
-                    return (WatchedFolder(path: directory, identity: identity, blocked: blocked), descriptor)
+                if let events = FolderEventSource.Opened(path: directory) {
+                    return (WatchedFolder(path: directory, identity: identity, blocked: blocked), events)
                 }
                 blocked = identity
             } else {

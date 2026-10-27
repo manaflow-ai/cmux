@@ -1,5 +1,8 @@
 import Foundation
+import CmuxNextCompat
+#if canImport(os)
 import os
+#endif
 
 /// A change the person already sees (Cmd-N's workspace shows at the press) must not be taken back
 /// because the daemon answered it after the 2 s control deadline: a busy daemon still commits it

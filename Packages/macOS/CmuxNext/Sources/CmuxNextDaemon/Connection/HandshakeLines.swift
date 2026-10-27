@@ -1,5 +1,8 @@
 import Foundation
+import CmuxNextCompat
+#if canImport(os)
 import os
+#endif
 
 /// The connect handshake's request lines (`DaemonHandshake`).
 enum HandshakeLines {

@@ -1,5 +1,4 @@
 public import CmuxNextWakeups
-import Darwin
 import Dispatch
 import Foundation
 import CmuxNextCompat

@@ -1,4 +1,3 @@
-import Darwin
 public import Foundation
 
 /// The socket of a session's daemon, remembered from the last connection,

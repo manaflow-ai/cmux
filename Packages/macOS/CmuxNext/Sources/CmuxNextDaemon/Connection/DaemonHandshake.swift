@@ -1,4 +1,7 @@
+import CmuxNextCompat
+#if canImport(os)
 import os
+#endif
 
 /// Validates one transport before its immutable ready session is admitted.
 struct DaemonHandshake {

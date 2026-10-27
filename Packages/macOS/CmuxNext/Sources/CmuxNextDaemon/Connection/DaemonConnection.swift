@@ -3,7 +3,10 @@ public import Foundation
 import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
+// Logger: os.Logger where `os` exists, CmuxNextCompat's stderr logger on Linux (Platform/Logger+Linux.swift).
+#if canImport(os)
 import os
+#endif
 
 /// The control-plane connection: one socket for `subscribe` and mutations.
 ///
