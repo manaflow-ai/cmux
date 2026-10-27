@@ -81,7 +81,10 @@ public final class AddDeviceModel {
         case .newDevice where platform == .phone:
             [AddDeviceButton(action: .done, key: .return)]
         case .newDevice:
-            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyLine, key: .return)]
+            // A computer: New Cloud VM… stays at hand, as on the network way (the card opens here
+            // when the network lists nothing to add).
+            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newCloudMachine, key: nil),
+             AddDeviceButton(action: .copyLine, key: .return)]
         }
     }
 

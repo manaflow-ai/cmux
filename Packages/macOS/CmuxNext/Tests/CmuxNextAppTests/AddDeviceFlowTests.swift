@@ -91,8 +91,10 @@ import Testing
         let model = AddDeviceModel(services: fake.services())
         await model.begin()
         #expect(model.way == .newDevice)
-        #expect(model.buttons.map(\.action) == [.cancel, .copyLine])
+        #expect(model.buttons.map(\.action) == [.cancel, .newCloudMachine, .copyLine])
         #expect(model.buttons.last?.key == .return)
+        #expect(model.perform(.newCloudMachine), "New Cloud VM… is still offered, and closes the card")
+        #expect(fake.clouds == 1)
     }
 
     @Test func noCLIShowsTheNetworkAsUnavailableAndStillOffersAName() async {
