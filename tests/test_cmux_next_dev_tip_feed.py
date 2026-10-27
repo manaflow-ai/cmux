@@ -115,7 +115,7 @@ check(-1 not in steps and steps == sorted(steps), "tip-dmg-build: codesign the s
 steps = [tip_dmg.find(marker) for marker in (
     "name: Download the unsigned tip DMG", 'sha256sum -c "$APP_ARCHIVE_NAME.sha256"', 'cmp -s tip-unsigned/built-from.sha256',
     '"$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -', "name: Download the DMG signer",
-    '"$RCODESIGN_DMG_SHA256  $signer" | sha256sum -c -', 'echo "RCODESIGN=$signer" >> "$GITHUB_ENV"',
+    '"$DMG_SIGNER_SHA256  $signer" | sha256sum -c -', 'echo "RCODESIGN=$signer" >> "$GITHUB_ENV"',
     "./scripts/ci/rcodesign-notarize-dmg-dev.sh", "python3 scripts/ci/tip_appcast_linux.py")]
 check(-1 not in steps and steps == sorted(steps),
       "tip-dmg: require the DMG tip-dmg-build made from the signed archive, then sign, notarize, staple and write the appcast")
@@ -773,8 +773,13 @@ check(signer_job["steps"][0]["with"]["ref"] == "${{ github.sha }}"
       "the DMG signer builds from the dispatched commit with the image's rustup, never a fetched installer")
 check(any(step.get("run", "").startswith("./scripts/ci/build-rcodesign-dmg.sh") for step in signer_job["steps"])
       and signer_job["outputs"]["sha256"] == "${{ steps.build.outputs.sha256 }}"
-      and dmg_job["env"]["RCODESIGN_DMG_SHA256"] == "${{ needs.rcodesign-dmg.outputs.sha256 }}",
+      and dmg_job["env"]["DMG_SIGNER_SHA256"] == "${{ needs.rcodesign-dmg.outputs.sha256 }}",
       "tip-dmg checks the signer against the digest its build reported")
+# rcodesign reads every RCODESIGN_* variable as configuration; one in tip-dmg broke run 40454509260.
+check(not [key for env in [dmg_job.get("env", {})] + [step.get("env", {}) for step in dmg_job["steps"]]
+           for key in env if key.startswith("RCODESIGN_")]
+      and 'compgen -e | grep "^RCODESIGN_"' in (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text(),
+      "no RCODESIGN_* variable reaches the DMG signer")
 download = next(step for step in dmg_job["steps"] if step.get("name") == "Download the DMG signer")
 upload = next(step for step in signer_job["steps"] if "upload-artifact" in str(step.get("uses", "")))
 check(download["with"]["name"] == "${{ needs.rcodesign-dmg.outputs.artifact }}"
