@@ -1,0 +1,177 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "resize-020",
+  "suite": "terminal",
+  "title": "VT resize stream 20 at 60x20",
+  "surface": "cmux-next-daemon",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {},
+  "fixture": {
+    "seed": "terminal.resize-020",
+    "network": "offline",
+    "clock": "virtual"
+  },
+  "preconditions": [
+    "hermetic state root",
+    "no other cmux-tui on the state root"
+  ],
+  "requires": [
+    "resource_api"
+  ],
+  "switches": [
+    "terminal-holder"
+  ],
+  "platforms": [
+    "linux",
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "empty",
+          "name": "oracle"
+        },
+        "idempotencyKey": "resize-020.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "feed",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "printf '%s' \"$1\"; printf '\\033]2;%s\\007' \"$2\"; exec cat",
+            "sh",
+            "\u001b[34m[000] --flag delta zeta café x theta eta epsilon naïve λόγος gamma 100% café\u001b[0m\r\n\u001b[33m[001] 100% epsilon {} {} naïve zeta {} [ok] theta iota alpha a/b/c delta\u001b[0m\r\n\u001b[?40h\u001b[?3h\u001b[35m[100] café ünïcödé delta beta [ok] café --flag alpha x beta iota x ünïcödé {} theta epsilon zeta {} eta 100% {} 100% a/b/c eta 100% eta epsilon [ok] theta eta beta kappa\u001b[0m\r\n\u001b[33m[101] iota café delta λόγος alpha 100% ünïcödé alpha alpha --flag 100% zeta alpha a/b/c [ok] 100% 100% kappa {} epsilon λόγος delta gamma iota alpha alpha zeta epsilon\u001b[0m\r\n\u001b[35m[102] λόγος naïve gamma ünïcödé alpha alpha [ok] kappa zeta ünïcödé theta alpha kappa 100% kappa alpha x kappa λόγος [ok] delta [ok] iota 100%\u001b[0m\r\n\u001b[32m[103] naïve epsilon kappa delta {} x {} alpha alpha --flag --flag kappa 100% iota kappa {} x alpha kappa iota theta --flag --flag iota λόγος a/b/c ünïcödé a/b/c kappa x\u001b[0m\r\n\u001b[?3l\u001b[33m[200] ünïcödé λόγος naïve 100% [ok] gamma\u001b[0m\r\n\u001b[36m[201] {} a/b/c iota ünïcödé ünïcödé {} alpha alpha\u001b[0m\r\n\u001b[33m[202] delta delta kappa alpha [ok] [ok] beta iota zeta --flag café {} zeta ünïcödé café\u001b[0m\r\n",
+            "oracle-vt-fed"
+          ],
+          "cols": 60,
+          "rows": 20
+        },
+        "idempotencyKey": "resize-020.feed"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a 60x20 terminal prints the 1174-byte stream, then the title oracle-vt-fed"
+    },
+    {
+      "id": "fed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:05a9663712f01d2292be03a745ca771acc0360ad22e855882eee9a798b66a0a9",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the title comes after the stream, so the parser has taken every byte of it"
+    },
+    {
+      "id": "state",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.screen.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "hash",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "d() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' \"$1\" | sha256sum; else printf '%s' \"$1\" | shasum -a 256; fi; }; printf '\\033]2;vt:%.64s screen:%.64s\\007' \"$(d \"$1\")\" \"$(d \"$2\")\"",
+            "sh",
+            "$step:state#/state_base64",
+            "$step:screen#/text"
+          ],
+          "cwd": "/",
+          "on_exit": "keep"
+        },
+        "idempotencyKey": "resize-020.hash"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a second terminal titles itself vt:<sha256 of the VT state> screen:<sha256 of the screen text>; it starts in / because a new terminal otherwise inherits the folder the stream's OSC 7 reported, which does not exist"
+    },
+    {
+      "id": "hashed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/1/lifecycle",
+        "equals": "exited",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the settled checkpoint holds the hash terminal's title: the arms and the baseline compare it"
+    }
+  ],
+  "invariants": [
+    "generated by schemas/terminal-corpus/generate.py (p15-oracle-101); features: deccolm-during-output, mode-40, wrap, scroll-region",
+    "the VT state and screen of the stream terminal hash to the same title on both terminal-holder arms"
+  ],
+  "teardown": [
+    "stop the case daemon",
+    "verify the socket and state root are gone"
+  ]
+}

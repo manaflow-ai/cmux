@@ -1,0 +1,177 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "resize-001",
+  "suite": "terminal",
+  "title": "VT resize stream 1 at 100x30",
+  "surface": "cmux-next-daemon",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {},
+  "fixture": {
+    "seed": "terminal.resize-001",
+    "network": "offline",
+    "clock": "virtual"
+  },
+  "preconditions": [
+    "hermetic state root",
+    "no other cmux-tui on the state root"
+  ],
+  "requires": [
+    "resource_api"
+  ],
+  "switches": [
+    "terminal-holder"
+  ],
+  "platforms": [
+    "linux",
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "empty",
+          "name": "oracle"
+        },
+        "idempotencyKey": "resize-001.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "feed",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "printf '%s' \"$1\"; printf '\\033]2;%s\\007' \"$2\"; exec cat",
+            "sh",
+            "\u001b[32m[000] eta naïve [ok] naïve delta alpha epsilon ünïcödé λόγος alpha beta café epsilon beta naïve gamma eta\u001b[0m\r\n\u001b[36m[001] naïve kappa alpha kappa x gamma iota {} naïve epsilon {} eta naïve\u001b[0m\r\n\u001b[35m[002] 100% zeta x eta ünïcödé iota zeta λόγος kappa ünïcödé eta zeta gamma delta ünïcödé\u001b[0m\r\n\u001b[35m[003] --flag a/b/c [ok] delta theta iota x x beta a/b/c café a/b/c λόγος ünïcödé gamma\u001b[0m\r\n\u001b[34m[004] beta 100% naïve 100% --flag epsilon iota [ok] x naïve iota zeta kappa x λόγος 100% beta a/b/c alpha epsilon eta zeta\u001b[0m\r\n\u001b[37m[005] λόγος --flag ünïcödé iota zeta epsilon [ok] theta eta a/b/c iota 100% gamma λόγος delta {} ünïcödé eta --flag\u001b[0m\r\n\u001b[35m[006] λόγος alpha alpha delta x alpha iota kappa café epsilon a/b/c {} delta alpha eta [ok] x\u001b[0m\r\n\u001b[36m[007] iota naïve iota ünïcödé [ok] gamma eta gamma gamma 100% alpha iota epsilon [ok] gamma alpha alpha kappa delta\u001b[0m\r\n\u001b[31m[008] beta naïve [ok] alpha {} alpha a/b/c eta x iota theta [ok]\u001b[0m\r\n\u001b[35m[009] theta a/b/c {} a/b/c ünïcödé beta iota x alpha iota beta 100% zeta kappa eta beta iota [ok] delta\u001b[0m\r\n\u001b[36m[010] a/b/c --flag epsilon gamma zeta a/b/c gamma ünïcödé alpha epsilon delta λόγος iota epsilon zeta beta alpha eta eta kappa\u001b[0m\r\n\u001b[34m[011] eta zeta zeta iota theta zeta theta {} alpha ünïcödé [ok] epsilon alpha naïve kappa 100% [ok] naïve kappa gamma ünïcödé λόγος λόγος --flag\u001b[0m\r\n\u001b[34m[012] [ok] a/b/c theta zeta alpha --flag x alpha a/b/c beta iota 100% {} ünïcödé x eta 100% --flag eta {} x eta gamma x iota\u001b[0m\r\n\u001b[37m[013] a/b/c a/b/c café iota kappa gamma ünïcödé 100% λόγος eta a/b/c theta gamma eta naïve theta café 100% x alpha theta {}\u001b[0m\r\n\u001b[37m[014] delta epsilon delta x x iota beta eta ünïcödé theta [ok] iota epsilon [ok] epsilon zeta zeta {} naïve ünïcödé alpha delta x café\u001b[0m\r\n\u001b[35m[015] x gamma zeta 100% --flag [ok] zeta zeta λόγος epsilon {} naïve ünïcödé --flag beta x a/b/c beta ünïcödé naïve theta x iota\u001b[0m\r\n\u001b[32m[016] x {} gamma naïve kappa a/b/c λόγος café theta λόγος kappa kappa café theta theta λόγος\u001b[0m\r\n\u001b[33m[017] café λόγος epsilon delta epsilon gamma eta eta kappa iota [ok] λόγος gamma iota kappa theta kappa --flag x\u001b[0m\r\n\u001b[37m[018] delta naïve λόγος beta x theta naïve zeta eta kappa zeta\u001b[0m\r\n\u001b[34m[019] {} epsilon eta ünïcödé kappa naïve epsilon kappa café naïve {} eta zeta beta zeta café\u001b[0m\r\n\u001b[34m[020] ünïcödé café alpha x kappa café --flag kappa zeta λόγος\u001b[0m\r\n\u001b[31m[021] {} {} --flag epsilon eta {} epsilon 100% gamma naïve zeta --flag zeta\u001b[0m\r\n\u001b[36m[022] delta naïve theta λόγος [ok] delta a/b/c x iota gamma theta iota\u001b[0m\r\n\u001b[34m[023] beta naïve kappa naïve x theta x epsilon alpha a/b/c 100% delta delta alpha {} --flag a/b/c eta delta kappa eta beta\u001b[0m\r\n\u001b[37m[024] café a/b/c iota alpha λόγος zeta beta beta λόγος eta x a/b/c\u001b[0m\r\n\u001b[34m[025] naïve beta theta x alpha gamma theta --flag alpha λόγος alpha beta a/b/c x theta eta a/b/c epsilon kappa naïve\u001b[0m\r\n\u001b[?40h\u001b[?3h\u001b[35m[100] [ok] epsilon --flag iota alpha eta gamma 100% beta x café naïve eta x\u001b[0m\r\n\u001b[35m[101] naïve zeta epsilon {} a/b/c café alpha --flag [ok] epsilon x epsilon delta λόγος gamma ünïcödé beta\u001b[0m\r\n\u001b[33m[102] theta iota eta gamma {} kappa zeta naïve zeta epsilon epsilon zeta {} x --flag\u001b[0m\r\n\u001b[35m[103] delta ünïcödé x epsilon {} gamma gamma iota beta café café zeta {} x 100% x naïve --flag eta gamma [ok] x eta ünïcödé ünïcödé eta {} 100% iota\u001b[0m\r\n\u001b[?3l\u001b[33m[200] gamma delta naïve a/b/c café --flag kappa delta café --flag gamma epsilon\u001b[0m\r\n\u001b[36m[201] a/b/c ünïcödé iota a/b/c 100% eta café ünïcödé λόγος --flag eta iota eta\u001b[0m\r\n\u001b[31m[202] theta kappa naïve café epsilon kappa beta iota a/b/c ünïcödé\u001b[0m\r\n\u001b[31m[203] a/b/c 100% λόγος {} ünïcödé λόγος a/b/c 100% λόγος naïve kappa\u001b[0m\r\n\u001b[?3h\u001b[32m[300] λόγος x gamma [ok] delta --flag 100% iota theta zeta eta ünïcödé iota ünïcödé 100% x zeta --flag --flag eta eta beta ünïcödé beta eta --flag kappa\u001b[0m\r\n\u001b[33m[301] alpha λόγος iota --flag naïve {} theta naïve café naïve beta kappa eta café [ok] kappa beta ünïcödé epsilon gamma epsilon\u001b[0m\r\n\u001b[35m[302] --flag zeta eta kappa theta zeta 100% theta delta x [ok] a/b/c naïve\u001b[0m\r\n\u001b[34m[303] naïve iota [ok] naïve λόγος x {} iota 100% zeta café λόγος\u001b[0m\r\n",
+            "oracle-vt-fed"
+          ],
+          "cols": 100,
+          "rows": 30
+        },
+        "idempotencyKey": "resize-001.feed"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a 100x30 terminal prints the 4522-byte stream, then the title oracle-vt-fed"
+    },
+    {
+      "id": "fed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:05a9663712f01d2292be03a745ca771acc0360ad22e855882eee9a798b66a0a9",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the title comes after the stream, so the parser has taken every byte of it"
+    },
+    {
+      "id": "state",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.screen.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "hash",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "d() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' \"$1\" | sha256sum; else printf '%s' \"$1\" | shasum -a 256; fi; }; printf '\\033]2;vt:%.64s screen:%.64s\\007' \"$(d \"$1\")\" \"$(d \"$2\")\"",
+            "sh",
+            "$step:state#/state_base64",
+            "$step:screen#/text"
+          ],
+          "cwd": "/",
+          "on_exit": "keep"
+        },
+        "idempotencyKey": "resize-001.hash"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a second terminal titles itself vt:<sha256 of the VT state> screen:<sha256 of the screen text>; it starts in / because a new terminal otherwise inherits the folder the stream's OSC 7 reported, which does not exist"
+    },
+    {
+      "id": "hashed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/1/lifecycle",
+        "equals": "exited",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the settled checkpoint holds the hash terminal's title: the arms and the baseline compare it"
+    }
+  ],
+  "invariants": [
+    "generated by schemas/terminal-corpus/generate.py (p15-oracle-101); features: deccolm-during-output, mode-40, wrap, scroll-region",
+    "the VT state and screen of the stream terminal hash to the same title on both terminal-holder arms"
+  ],
+  "teardown": [
+    "stop the case daemon",
+    "verify the socket and state root are gone"
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "resize-002",
+  "suite": "terminal",
+  "title": "VT resize stream 2 at 20x6",
+  "surface": "cmux-next-daemon",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {},
+  "fixture": {
+    "seed": "terminal.resize-002",
+    "network": "offline",
+    "clock": "virtual"
+  },
+  "preconditions": [
+    "hermetic state root",
+    "no other cmux-tui on the state root"
+  ],
+  "requires": [
+    "resource_api"
+  ],
+  "switches": [
+    "terminal-holder"
+  ],
+  "platforms": [
+    "linux",
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "empty",
+          "name": "oracle"
+        },
+        "idempotencyKey": "resize-002.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "feed",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "printf '%s' \"$1\"; printf '\\033]2;%s\\007' \"$2\"; exec cat",
+            "sh",
+            "\u001b[34m[000] beta epsilon eta\u001b[0m\r\n\u001b[31m[001] x\u001b[0m\r\n\u001b[33m[002] {} iota ünïcödé\u001b[0m\r\n\u001b[?40h\u001b[?3h\u001b[34m[100] café iota iota delta gamma x zeta naïve epsilon zeta alpha beta x --flag alpha iota kappa [ok] zeta kappa {} x eta {}\u001b[0m\r\n\u001b[35m[101] λόγος zeta x [ok] 100% zeta x theta delta zeta epsilon a/b/c café ünïcödé gamma delta x delta a/b/c gamma 100% --flag λόγος naïve zeta\u001b[0m\r\n\u001b[35m[102] epsilon iota --flag naïve gamma café alpha zeta --flag zeta x café [ok] naïve --flag ünïcödé theta café 100% a/b/c a/b/c delta theta eta λόγος {} alpha epsilon λόγος a/b/c café zeta\u001b[0m\r\n\u001b[35m[103] iota café eta λόγος {} naïve a/b/c zeta beta theta kappa ünïcödé --flag theta {} epsilon x zeta café kappa beta kappa --flag {} café --flag 100% [ok] theta delta eta café\u001b[0m\r\n\u001b[35m[104] --flag alpha --flag delta beta theta epsilon [ok] 100% café --flag theta epsilon {} kappa\u001b[0m\r\n\u001b[?3l\u001b[33m[200] alpha epsilon café [ok] epsilon zeta a/b/c 100% epsilon zeta [ok] [ok] gamma delta [ok] epsilon a/b/c delta beta\u001b[0m\r\n\u001b[33m[201] 100% kappa eta delta {} --flag eta a/b/c naïve delta {} eta 100% ünïcödé gamma\u001b[0m\r\n\u001b[?3h\u001b[32m[300] λόγος zeta delta alpha iota naïve kappa delta zeta ünïcödé naïve delta kappa 100% naïve alpha [ok] 100% delta x\u001b[0m\r\n\u001b[31m[301] gamma λόγος kappa alpha iota beta gamma --flag ünïcödé alpha café theta epsilon alpha zeta ünïcödé naïve kappa kappa a/b/c alpha ünïcödé gamma [ok] zeta λόγος iota theta eta iota\u001b[0m\r\n\u001b[37m[302] alpha iota theta eta kappa eta λόγος 100% [ok] café beta naïve x iota beta zeta iota beta\u001b[0m\r\n",
+            "oracle-vt-fed"
+          ],
+          "cols": 20,
+          "rows": 6
+        },
+        "idempotencyKey": "resize-002.feed"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a 20x6 terminal prints the 1639-byte stream, then the title oracle-vt-fed"
+    },
+    {
+      "id": "fed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:05a9663712f01d2292be03a745ca771acc0360ad22e855882eee9a798b66a0a9",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the title comes after the stream, so the parser has taken every byte of it"
+    },
+    {
+      "id": "state",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:feed#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.screen.read"
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "hash",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "d() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' \"$1\" | sha256sum; else printf '%s' \"$1\" | shasum -a 256; fi; }; printf '\\033]2;vt:%.64s screen:%.64s\\007' \"$(d \"$1\")\" \"$(d \"$2\")\"",
+            "sh",
+            "$step:state#/state_base64",
+            "$step:screen#/text"
+          ],
+          "cwd": "/",
+          "on_exit": "keep"
+        },
+        "idempotencyKey": "resize-002.hash"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a second terminal titles itself vt:<sha256 of the VT state> screen:<sha256 of the screen text>; it starts in / because a new terminal otherwise inherits the folder the stream's OSC 7 reported, which does not exist"
+    },
+    {
+      "id": "hashed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/1/lifecycle",
+        "equals": "exited",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "the settled checkpoint holds the hash terminal's title: the arms and the baseline compare it"
+    }
+  ],
+  "invariants": [
+    "generated by schemas/terminal-corpus/generate.py (p15-oracle-101); features: deccolm-during-output, mode-40, wrap, scroll-region",
+    "the VT state and screen of the stream terminal hash to the same title on both terminal-holder arms"
+  ],
+  "teardown": [
+    "stop the case daemon",
+    "verify the socket and state root are gone"
+  ]
+}
