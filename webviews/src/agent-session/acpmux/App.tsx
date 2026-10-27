@@ -2682,6 +2682,9 @@ export function VirtualTranscript({
   // while the pointer rests on the same row.
   const pointedRows = useRef<AcpmuxRow[] | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// Fractional layout corrections that the DOM rounds away are carried into the next
+  /// placement pass, so repeated row measurement cannot walk the reader against their input.
+  const anchorCorrection = useRef<{ top: number; remainder: number } | undefined>(undefined);
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
@@ -3089,6 +3092,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      anchorCorrection.current = undefined;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
@@ -3192,14 +3196,18 @@ export function VirtualTranscript({
           oldRows,
           newRows: rows,
           liveTop: top,
-          anchorTop: top,
+          anchorTop: top + (anchorCorrection.current?.top === top ? anchorCorrection.current.remainder : 0),
         });
-        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
-          node.scrollTop = nextTop;
-          // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
-          // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
-          scrollPacer.current?.cancel();
-          setScrollAt(node.scrollTop);
+        if (nextTop !== undefined) {
+          if (clamped || Math.abs(nextTop - top) > 0.5) {
+            node.scrollTop = nextTop;
+            // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
+            // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+            scrollPacer.current?.cancel();
+            setScrollAt(node.scrollTop);
+          }
+          const remainder = nextTop - node.scrollTop;
+          anchorCorrection.current = Math.abs(remainder) <= 0.5 ? { top: node.scrollTop, remainder } : undefined;
         }
       }
     }
@@ -3740,6 +3748,7 @@ export function VirtualTranscript({
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {
+      anchorCorrection.current = undefined;
       if (reader(event)) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
