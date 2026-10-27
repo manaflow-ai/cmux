@@ -79,11 +79,16 @@ public final class SidebarDocStore {
     @ObservationIgnored private var earlyBatches: [Data] = []
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
+    /// The live list the last `show` projected over, in its order: `showsPinned` projects over it, so it reads what
+    /// `shown` draws whether or not the memo (`projectionCache`) is still kept.
+    @ObservationIgnored var lastLiveOrder: [SidebarDocWorkspaceRef] = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
     @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
+    /// `projectionCache` as a memory consumer of the app's coordinator (`registerMemoryConsumer(with:)`).
+    @ObservationIgnored var projectionMemory: SidebarDocProjectionMemory?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
@@ -123,6 +128,7 @@ public final class SidebarDocStore {
         // The load answers the changes unanswered before it was asked for (a later one asks for another load).
         let answering = unanswered
         // task-owner: one sidebar.get; settles the load
+        // main-hop-allow: SidebarDocRemote is the home daemon connection's main-actor async seam; the load applies in its one resume
         Task { [weak self] in
             defer {
                 self?.loading = false
@@ -183,6 +189,7 @@ public final class SidebarDocStore {
         adopting.formUnion(fresh)
         // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
         // tried again on the next structural change.
+        // main-hop-allow: SidebarDocRemote is the home daemon connection's main-actor async seam; a failure frees the refs in its resume
         Task { [weak self] in
             if (try? await remote.adopt(fresh, key: Self.newKey())) == nil { self?.adopting.subtract(fresh) }
         }
@@ -200,7 +207,7 @@ public final class SidebarDocStore {
     /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
     public func showsPinned(group item: String) -> Bool? {
         guard isActive, shown != nil else { return nil }
-        let projection = projection(live: projectionCache?.live ?? Array(lastLive))
+        let projection = projection(live: lastLiveOrder)
         return projection.map { $0.bandGroups.contains { $0.id == item && $0.pinned } } ?? records.isPinned(group: item)
     }
 
@@ -328,6 +335,7 @@ public final class SidebarDocStore {
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         // task-owner: one sidebar mutation; settles its pending intent
+        // main-hop-allow: the intent applied to the mirror in this turn (the person sees it now); the send is the home daemon's main-actor async seam (SidebarDocRemote) and settles in its resume
         Task { [weak self] in
             // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.

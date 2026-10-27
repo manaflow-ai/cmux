@@ -110,18 +110,18 @@ impl Roots {
     /// The root that holds `components` (the longest matching spelling)
     /// and the components below it.
     fn locate(&self, components: &[String]) -> Result<(&Root, Vec<String>), FsError> {
-        let mut best: Option<(&Root, usize)> = None;
+        let mut best: Option<(&Root, &[String])> = None;
         for root in &self.roots {
             for spelling in &root.spellings {
-                if components.starts_with(spelling)
-                    && best.is_none_or(|(_, length)| spelling.len() > length)
+                if let Some(below) = components.strip_prefix(spelling.as_slice())
+                    && best.is_none_or(|(_, shortest)| below.len() < shortest.len())
                 {
-                    best = Some((root, spelling.len()));
+                    best = Some((root, below));
                 }
             }
         }
-        let (root, length) = best.ok_or(FsError::PermissionDenied)?;
-        Ok((root, components[length..].to_vec()))
+        let (root, below) = best.ok_or(FsError::PermissionDenied)?;
+        Ok((root, below.to_vec()))
     }
 
     /// The kind of what `path` names after following symlinks, when that is
@@ -267,8 +267,8 @@ impl<'a> Walk<'a> {
         self.root
             .spellings
             .iter()
-            .filter(|spelling| parts.starts_with(spelling))
-            .max_by_key(|spelling| spelling.len())
-            .map(|spelling| parts[spelling.len()..].to_vec())
+            .filter_map(|spelling| parts.strip_prefix(spelling.as_slice()))
+            .min_by_key(|below| below.len())
+            .map(<[String]>::to_vec)
     }
 }

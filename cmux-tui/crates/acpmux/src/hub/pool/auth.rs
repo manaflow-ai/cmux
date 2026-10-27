@@ -100,6 +100,21 @@ impl AuthCache {
         self.fingerprint_with(family, &env, &home)
     }
 
+    /// What the parsed entries keep (a memory consumer's bytes).
+    pub fn approx_bytes(&self) -> u64 {
+        type Entry = (PathBuf, (u64, Option<SystemTime>, u64));
+        let parsed = self.parsed.lock().unwrap_or_else(|e| e.into_inner());
+        let paths: u64 =
+            parsed.keys().map(|p| crate::memory::string_bytes(&p.to_string_lossy())).sum();
+        crate::memory::inline_bytes::<Entry>(parsed.len()) + paths
+    }
+
+    /// Drops every parse: the next fingerprint reads its files again. Lossless.
+    pub fn clear(&self) {
+        let parsed = std::mem::take(&mut *self.parsed.lock().unwrap_or_else(|e| e.into_inner()));
+        drop(parsed);
+    }
+
     fn fingerprint_with(
         &self,
         family: &str,
@@ -126,7 +141,7 @@ impl AuthCache {
     }
 
     fn file_part(&self, path: &Path, reader: Reader) -> u64 {
-        let Ok(md) = std::fs::metadata(path) else { return 0 };
+        let Ok(md) = cmux_blocking::fs::metadata(path) else { return 0 };
         let (len, mtime) = (md.len(), md.modified().ok());
         if reader == Reader::Stat {
             // Present or not: the harness rewrites it on every token refresh,
@@ -141,7 +156,8 @@ impl AuthCache {
         {
             return part;
         }
-        let part = std::fs::read(path).map(|bytes| account_part(reader, &bytes)).unwrap_or(0);
+        let part =
+            cmux_blocking::fs::read(path).map(|bytes| account_part(reader, &bytes)).unwrap_or(0);
         // A file written within the timestamp's resolution of this read may
         // change again with the same size and mtime: never trust such a
         // parse later (git's racy-entry rule).

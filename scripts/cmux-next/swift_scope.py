@@ -106,6 +106,8 @@ def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: st
 Target = main_actor_scope.Target
 package_targets = main_actor_scope.package_targets
 default_isolation = main_actor_scope.default_isolation
+# What a Package.swift links (its targets' kinds and dependencies, library products, path packages).
+package_graph = main_actor_scope.package_graph
 
 
 def main_lines(lines: list[str], default_main: bool) -> list[bool]:

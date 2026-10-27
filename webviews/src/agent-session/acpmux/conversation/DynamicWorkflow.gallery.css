@@ -252,7 +252,7 @@
 }
 
 .workflow-gallery__progress::-webkit-progress-value {
-  border-radius: inherit;
+  border-radius: 999px;
   background: var(--workflow-accent);
 }
 

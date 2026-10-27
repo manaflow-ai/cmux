@@ -171,6 +171,8 @@ class Signposts(Fixture):
                 case qualified = 6
                 case bound = 7
                 case ring = 8
+                case timer = 9
+                case timerShort = 10
             }
             """)
         self.write("Packages/macOS/CmuxNext/Sources/A/Emit.swift", """
@@ -182,6 +184,8 @@ class Signposts(Fixture):
             Signposter.stall.begin(SignpostName.qualified, taskClass: "a", owner: "b")
             let name: SignpostName = .bound
             trace.asyncBegin(.ring, id: 1)
+            static let timer = SwitchFrameTimer(owner: "debug.x", signpost: SignpostName.timer)
+            let short = SwitchFrameTimer(owner: "y", signpost: .timerShort, trace: runtime)
             switch name {
             case .switched: break
             }
@@ -436,10 +440,12 @@ class Checkout(unittest.TestCase):
         for item in items:
             self.assertTrue(os.path.isfile(os.path.join(REPO, item.key)), item.key)
 
-    def test_mq6_includes_motion_pane_hold_content(self):
+    def test_mq6_drops_the_motion_holds_that_became_features(self):
+        """p12-perf-process-102: features paneHoldsContentInMotion and sidebarSlideHoldsContent replace them."""
         with contextlib.redirect_stderr(io.StringIO()):
             listed = {item.key for item in queues.unmigrated_features(REPO)}
-        self.assertIn("motion.pane.holdContent", listed)
+        self.assertNotIn("motion.pane.holdContent", listed)
+        self.assertNotIn("sidebar.slideHoldsContent", listed)
 
     def test_mq1_keeps_only_the_allowlist_out(self):
         with contextlib.redirect_stderr(io.StringIO()):

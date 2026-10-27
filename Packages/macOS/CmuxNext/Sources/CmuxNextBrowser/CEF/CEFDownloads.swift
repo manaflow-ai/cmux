@@ -34,7 +34,12 @@ nonisolated enum CEFDownloadEvent: Equatable, Sendable {
 /// What `CEFDownloads` needs from the shim (`cmux_shim_download_*`); tests
 /// pass a fake.
 struct CEFDownloadShim {
-    /// Starts a download of a URL with a tab's request context.
+    /// Starts a download of a URL with a tab's request context. False, with
+    /// nothing sent, when the client knows the tab's browser is gone; true
+    /// once sent to a live one. The op itself is one-way: DOWNLOAD_STARTED
+    /// reports the start, as `DownloadManager::DownloadUrl`
+    /// (content/public/browser/download_manager.h) returns nothing, so the
+    /// answer is the same in both backends.
     var start: (_ browser: Int32, _ url: String) -> Bool
     /// Answers DOWNLOAD_STARTED (by token) with a path; "" cancels.
     var answer: (_ id: Int32, _ path: String) -> Void
@@ -63,6 +68,9 @@ final class CEFDownloads {
     var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
+    /// The tab that browser `browser` shows, as a read of its browser id at the time of the call: a tab
+    /// keeps itself across a host restart, its browser id does not (the next host gives it a new one).
+    var tabBrowser: (_ browser: Int32) -> () -> Int32? = { browser in { browser } }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
 
     private var items: [Int32: BrowserDownload] = [:]
@@ -72,6 +80,9 @@ final class CEFDownloads {
     private var started: [(browser: Int32, url: String)] = []
     /// Page downloads waiting for `admit`'s answer, by token.
     private var admitting: Set<Int32> = []
+    /// How many Chromium Hosts ended (``hostEnded()``): an `admit` answer for a token of an ended host is
+    /// for no download here.
+    private var endedHosts = 0
 
     init(shim: @escaping () -> CEFDownloadShim?) {
         self.shim = shim
@@ -87,6 +98,8 @@ final class CEFDownloads {
     }
 
     /// Downloads `url` with tab `browser`'s session into the Downloads folder.
+    /// True once sent to a live browser (``CEFDownloadShim/start``); false
+    /// for a gone one, so Retry of a download whose tab closed keeps its row.
     func download(_ url: String, browser: Int32) -> Bool {
         guard Self.isDownloadable(url) else {
             logger.error("download refused: not a web URL")
@@ -103,14 +116,16 @@ final class CEFDownloads {
     }
 
     /// Downloads `url` with tab `browser`'s session into `destination`, a
-    /// file the person chose.
+    /// file the person chose. True once sent to a live browser, as `download`.
     func save(_ url: URL, to destination: URL, browser: Int32) -> Bool {
         let address = url.absoluteString
         guard Self.isDownloadable(address), let shim = shim() else { return false }
         chosen.append((browser, address, destination))
         if chosen.count > 16 { chosen.removeFirst(chosen.count - 16) }
         guard shim.start(browser, address) else {
-            chosen.removeAll { $0.browser == browser && $0.url == address && $0.destination == destination }
+            if let index = chosen.lastIndex(where: { $0.browser == browser && $0.url == address && $0.destination == destination }) {
+                chosen.remove(at: index)
+            }
             return false
         }
         return true
@@ -155,8 +170,9 @@ final class CEFDownloads {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
         admitting.insert(id)
+        let host = endedHosts
         admit(browser) { [weak self] outcome, site in
-            guard let self, admitting.remove(id) != nil else { return }
+            guard let self, host == endedHosts, admitting.remove(id) != nil else { return }
             guard outcome == .allowed else {
                 shim()?.answer(id, "")
                 logger.notice("download \(id) refused for tab \(browser): automatic downloads")
@@ -168,6 +184,30 @@ final class CEFDownloads {
                 return
             }
             start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: nil)
+        }
+    }
+
+    /// Chromium's DOWNLOAD_INTERRUPT_REASON_CRASH
+    /// (components/download/public/common/download_interrupt_reason_values.h).
+    static let crashReason: Int64 = 50
+
+    /// The process type of the crash record `CEFRuntime.hostEnded` writes for the host's end.
+    static let hostProcessType = "chromium-host"
+
+    /// The Chromium Host ended (host mode, `CEFRuntime.hostEnded`) with every download it ran: each one
+    /// still running ends interrupted with ``crashReason``, as Chrome ends the downloads its browser
+    /// process was running when it died (download_item_impl.cc: an item restored in progress becomes
+    /// interrupted with CRASH), and keeps Retry, which starts it again from its tab on the next host
+    /// (``tabBrowser``). It runs in the host end's turn (``forRuntime(_:)``). The next host
+    /// numbers its downloads from 1 again (CEFShim's download_state.h), so nothing the ended host was
+    /// given stays: an old row never takes a new host's download, nor sends it a cancel.
+    func hostEnded() {
+        endedHosts += 1
+        admitting.removeAll()
+        chosen.removeAll()
+        started.removeAll()
+        for id in items.keys.sorted() {
+            handle(.done(id: id, end: .interrupted, reason: Self.crashReason, path: ""))
         }
     }
 
@@ -198,9 +238,11 @@ final class CEFDownloads {
         item.cancelHandler = { shim.control(id, 0) }
         item.pauseHandler = { paused in shim.control(id, paused ? 1 : 2) }
         if let source = URL(string: url), ["http", "https"].contains(source.scheme?.lowercased()) {
-            // Retry starts it again from its tab, to the file the person chose if they chose one.
+            // Retry starts it again from its tab, through the browser the tab has then, to the file the
+            // person chose if they chose one.
+            let current = tabBrowser(browser)
             item.retryHandler = { [weak self] in
-                guard let self else { return false }
+                guard let self, let browser = current() else { return false }
                 return pick.map { save(source, to: $0, browser: browser) } ?? download(url, browser: browser)
             }
         }
@@ -225,8 +267,14 @@ extension CEFDownloads {
         let downloads = CEFDownloads { [weak runtime] () -> CEFDownloadShim? in
             guard let shim = runtime?.shim else { return nil }
             return CEFDownloadShim(
-                start: { browser, url in url.withCString { shim.downloadURL(browser, $0) } == 1 },
-                answer: { id, path in _ = path.withCString { shim.downloadContinue(id, $0) } },
+                // Liveness is the runtime's own (a closed tab leaves `tabsByBrowser` in its close
+                // turn); the op's answer is not read, a stand-in in host mode.
+                start: { [weak runtime] browser, url in
+                    guard let tab = runtime?.tabsByBrowser[browser], !tab.isClosed else { return false }
+                    _ = shim.downloadURL(browser, url)
+                    return true
+                },
+                answer: { id, path in _ = shim.downloadContinue(id, path) },
                 control: { id, command in _ = shim.downloadControl(id, command) }
             )
         }
@@ -237,6 +285,15 @@ extension CEFDownloads {
             guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed, nil) }
             let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
             tab.automaticDownloads.request(site: site) { decide($0, site) }
+        }
+        downloads.tabBrowser = { [weak runtime] (browser: Int32) -> () -> Int32? in
+            let tab = runtime?.tabsByBrowser[browser]
+            return { [weak tab] in tab?.browserID }
+        }
+        // The host's end is recorded once, in its own turn (`CEFRuntime.hostEnded`).
+        runtime.crashLog.addObserver { [weak downloads] record in
+            guard record.source == .process, record.processType == CEFDownloads.hostProcessType else { return }
+            downloads?.hostEnded()
         }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {

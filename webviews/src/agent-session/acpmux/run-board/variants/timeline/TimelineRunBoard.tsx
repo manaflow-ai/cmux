@@ -19,6 +19,7 @@ import {
 } from "../../runApi";
 import { attachRunTerminal } from "../../runAttach";
 import { attachTicketExpired } from "../../RunBoard";
+import { usePageInterval } from "../../../../../pages/shared/pageLifecycle";
 
 export type TimelineRunBoardProps = {
   snapshot: RunBoardSnapshot;
@@ -344,16 +345,16 @@ export function TimelineRunBoard({
     }
   }, [client, recovered]);
 
-  useEffect(() => {
-    if (!client || disconnected || !session.current || pollMs <= 0) return;
-    const timer = setInterval(() => {
+  // A hidden board polls nothing; it reads again at its next period after it shows.
+  usePageInterval(
+    () => {
       void session.current
         ?.replay(stateRef.current.snapshot)
         .then((next) => dispatch({ type: "receive", snapshot: next }))
         .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
-    }, pollMs);
-    return () => clearInterval(timer);
-  }, [client, disconnected, pollMs]);
+    },
+    client && !disconnected && pollMs > 0 ? pollMs : null,
+  );
 
   const attempt = selectedAttempt(state);
   const events = useMemo(() => (attempt ? eventsFor(attempt) : []), [attempt]);

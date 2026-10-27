@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextDaemon
+public import CmuxNextInputModel
 public import CmuxNextOracle
 
 extension TerminalAttachMachine.Phase {
@@ -23,6 +24,7 @@ extension OracleTerminalsFacet {
     /// - Parameters:
     ///   - attach: The attach state read of the view that shows a tab (by tab id), nil when no view is made.
     ///   - screen: The `read-screen` of a surface.
+    @MainActor
     public static func terminals(in workspaces: [WorkspaceModel], attach: (String) -> (@Sendable () -> Attach)?,
                                  screen: (SurfaceID) throws(OracleFacetError) -> @Sendable () async throws -> String)
         throws(OracleFacetError) -> [Terminal] {

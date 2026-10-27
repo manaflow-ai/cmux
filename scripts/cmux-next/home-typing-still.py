@@ -15,34 +15,54 @@ changes of the transcript in one main-thread turn: the rows follow the second at
 a first pass over the 2 ms frame budget defers it as intended: SKIP of that proof, and the rows must follow a frame
 later). The half-pixel snapshot also has the pane's right edge on half a device pixel: my (outgoing) rows' right
 edges are snapped (82ccac1). Socket only, no system input. Runs on
-cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
+cmux-lawrence-2 or a lab host.
 
-Usage: home-typing-still.py --tag <tag> [--out DIR]
+The app launches through bench_launch.BenchApp (the bench env, classic Home, no activation, a scratch config, a fresh
+saved session) and ends with BenchApp.stop (the DEBUG quit fixture, then the tag's teardown: its `acpmux daemon
+shutdown` and daemons). With --story (default none) a run that reached the resize-pace step writes cmux-perf-result/v1
+into --out (paint_typing_report.home_typing_series): each width change's layout pass (ms), the passes the frame budget
+deferred and the failed checks.
+
+Usage: home-typing-still.py (--tag <tag> | --app BUNDLE) [--out DIR] [--story home-typing-still]
 """
-import argparse, json, os, socket, subprocess, sys, time
-import re
+import argparse, json, os, socket, sys, time
 
 # The pane width trim (pt) that puts the transcript's right edge on half a device pixel (with the 0.25 pt move, 2x).
 FRACTION_TRIM = 0.5
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
 from home_pixels import SKIPPED, check_rows, mean_rgb, read_png  # noqa: E402
 import home_classic  # noqa: E402
+import paint_typing_report as report  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
+ENGINE = report.ENGINES[report.HOME_TYPING_STILL_STORY]
 parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
+parser.add_argument("--tag", help="the tag of a DerivedData Debug app (with --app: the story runner passes it; the bundle carries the tag)")
+parser.add_argument("--app", help="the app bundle (default: the DerivedData Debug app of --tag)")
 parser.add_argument("--out", default="/tmp/home-typing-still")
+parser.add_argument("--story", help="write the run as cmux-perf-result/v1 under this story")
+parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+parser.add_argument("--build-config", choices=["bench", "bench-checks"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it")
 opts = parser.parse_args()
+if not opts.app and not opts.tag:
+    parser.error("name the app with --app, or the tag of a DerivedData Debug app with --tag")
+if opts.story and story_problem(opts.story, ENGINE):
+    parser.error(story_problem(opts.story, ENGINE))
 home = os.environ["HOME"]
-app = f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
-sock = f"/tmp/cmux-debug-{opts.tag}.sock"
+app = opts.app or f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
 os.makedirs(opts.out, exist_ok=True)
 failures = []
+pace_steps = []  # the resize-pace step replies (debug.home.drive resize), for result-v1
+bench = BenchApp(app, out=opts.out, env={"CMUX_DEV_BACKEND_MODE": "local", **home_classic.ENV}, window=(40, 40, 1200, 800),
+                 screen="last", log_name="app.log", perf_session=opts.session, build_config=opts.build_config)
 
 
 def rpc(method, params=None, timeout=35):
     try:
-        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(sock)
+        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(bench.socket)
         c.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
@@ -97,17 +117,9 @@ def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
     return count
 
 
-if os.path.exists(sock):
-    os.unlink(sock)
-env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
-       "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
-process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
-                           stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
-pid = process.pid
-print(f"launched pid {pid}", flush=True)
 try:
+    bench.launch(timeout=180)
+    print(f"launched pid {bench.process.pid}", flush=True)
     # Classic Home or stop at once (cx-h0kds): these checks drive the native classic Home transcript.
     if not home_classic.require(rpc):
         sys.exit(2)
@@ -196,6 +208,7 @@ try:
     base = rpc("debug.home.drive", {"action": "rows"}) or {}
     paced = rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM + 40, FRACTION_TRIM + 80]}) or {}
     steps = paced.get("steps") or []
+    pace_steps.extend(steps)
     check("resize pace: two width changes in one turn", bool(paced.get("ok")) and len(steps) == 2 and bool(base.get("ok")), paced)
     if len(steps) == 2 and base.get("ok"):
         def outgoing_right(rows):
@@ -231,15 +244,15 @@ try:
                   bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
     rpc("debug.home.drive", {"action": "resize", "trims": [0]})
 finally:
-    reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-    if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
-        rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
-    poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
-                   env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
+    bench.stop()
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
 if SKIPPED:
     print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
-sys.exit(1 if failures else 0)
+recorded = True
+if opts.story:
+    recorded = bool(pace_steps) and report.any_written(
+        report.record_all(bench, opts.story, ENGINE, report.home_typing_series(pace_steps, failures)))
+    if not recorded:
+        print(f"FAIL no result-v1 written for --story {opts.story}", flush=True)
+sys.exit(1 if failures or not recorded else 0)

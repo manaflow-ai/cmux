@@ -253,7 +253,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             ctx.translateBy(x: -294, y: -8)
             // drawOverlay draws the whole header overlay; the clip keeps the
             // avatar's 40 x 40 pt.
-            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight))
+            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight), title: name)
             ctx.restoreGState()
             return true
         }
@@ -290,7 +290,8 @@ private final class AvatarHolder: NSView {
         shadowView.setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { imageView.removeFromSuperview(); shadowView.removeFromSuperview(); lane.removeFromSuperview() }
+    // cmux: no deinit (it ran main-actor view calls off the actor): leaving the window takes the disc, its
+    // shadow and its lane out of the titlebar (viewDidMoveToWindow -> place()).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         place()
@@ -356,7 +357,7 @@ enum AvatarShadow {
     static let sigma = HeaderBar.flag("--avatar-shadow-sigma", 3)
     /// The image's margin around the 40 pt disc: the drop plus 3 sigma.
     static var margin: CGFloat { (drop + 3 * sigma).rounded(.up) }
-    private static var cache: [CGFloat: CGImage] = [:]
+    private static var cache: [CGFloat: CGImage] = [:] // cmux: memory: fixed one shadow per display scale (1x to 3x)
 
     /// The shadow at `scale` (device pixels per point): (40 + 2 margin) pt square, the disc's frame
     /// inset by -margin; nil if the bitmap cannot be made (no shadow, as before).
@@ -367,7 +368,7 @@ enum AvatarShadow {
         let n = max(1, CrashGuard.int((side * scale).rounded(), in: 1...4096))
         // The dropped disc, black at the shadow's opacity (CG: bottom-left origin, so the drop is -y).
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+              let ctx = CGContext.ownedBitmap(width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
         ctx.setFillColor(NSColor(white: 0, alpha: opacity).cgColor)

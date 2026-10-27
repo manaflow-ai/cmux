@@ -12,4 +12,8 @@ public nonisolated struct AgentInventoryProviderChangedRequest: DaemonRequest {
     /// Creates an invalidation for one captured enabled demand generation.
     /// - Parameter demandSequence: The latest native demand sequence on this provider.
     public init(demandSequence: UInt64) { self.demandSequence = demandSequence }
+
+    enum CodingKeys: String, CodingKey {
+        case demandSequence = "demand_sequence"
+    }
 }

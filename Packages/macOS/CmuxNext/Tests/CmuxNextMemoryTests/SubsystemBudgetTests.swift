@@ -59,6 +59,10 @@ struct SubsystemBudgetTests {
         #expect(budget.liveHiddenInternalPages == row.internalPages)
         #expect(budget.kittyImageBytesPerSurface == row.kittyBytes)
         #expect(budget.webProcessPagesPerGroup == 8)
+        // Chrome's values on every Mac (content_features.cc kProcessPerSiteMainFrameTotalMemoryLimit,
+        // render_process_host_impl.cc g_subframe_process_reuse_memory_threshold).
+        #expect(budget.sharedRendererMemoryCapBytes == 2_147_483_648)
+        #expect(budget.sharedRendererSubframeMemoryCapBytes == 536_870_912)
     }
 
     @Test func onlyTheWarmSetDependsOnTheGPUReleaseAPI() {

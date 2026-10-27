@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 
 extension AgentPaneView {
@@ -29,7 +30,7 @@ extension AgentPaneView {
         page.omnibar.workspaces = workspaces
         model.adoptNewTab(page)
         guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))", whileFrozen: .latest(.newTabPlaces))
     }
 
     /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):
@@ -40,7 +41,7 @@ extension AgentPaneView {
         page.weather = weather
         model.adoptNewTab(page)
         let json = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))")
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))", whileFrozen: .latest(.newTabWeather))
     }
 
     private func show(_ page: AgentPaneNewTab) {
@@ -49,4 +50,11 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
     }
+}
+
+nonisolated extension PagePushKind {
+    /// The New Tab bar's open tabs and workspaces (`acpmux-newtab-places`).
+    static let newTabPlaces = PagePushKind("agent.newTabPlaces")
+    /// The New Tab weather widget's reading (`acpmux-newtab-weather`).
+    static let newTabWeather = PagePushKind("agent.newTabWeather")
 }

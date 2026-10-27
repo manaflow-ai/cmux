@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import Sparkle
 
 /// Holds back, for one scheduled check, an update whose Sparkle deltas may still be coming.
 ///
@@ -19,12 +18,12 @@ struct PendingDeltaWait {
     }
 
     /// Returns whether a scheduled check should skip `item` and leave it to the next check.
-    mutating func shouldHold(_ item: SUAppcastItem, now: Date) -> Bool {
+    mutating func shouldHold(_ item: UpdateAppcastItem, now: Date) -> Bool {
         if heldPreviousCheck {
             heldPreviousCheck = false
             return false
         }
-        guard item.deltaUpdates?.isEmpty ?? true, let published = item.date,
+        guard !item.listsDeltas, let published = item.date,
               abs(now.timeIntervalSince(published)) < window else { return false }
         heldPreviousCheck = true
         return true

@@ -6,13 +6,16 @@ import CmuxNextDesign
 /// file URL (what System Settings' lists accept).
 final class PermissionAppTile: NSView, NSDraggingSource {
     private let appURL: URL
+    /// The app's icon, read off the main thread by the App (cmux's own when it has none yet).
+    private let appIcon: NSImage
     private lazy var hover = ChromeHover(self)
 
-    init(appURL: URL) {
+    init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL
+        appIcon = icon ?? NSImage(named: NSImage.applicationIconName) ?? NSImage()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
+        let icon = NSImageView(image: appIcon)
         icon.imageScaling = .scaleProportionallyUpOrDown
         let name = NSTextField(labelWithString: Self.displayName(appURL))
         name.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
@@ -58,11 +61,13 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
+    // local-monitor-allow: the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
         item.setDraggingFrame(NSRect(x: 10, y: (bounds.height - 32) / 2, width: 32, height: 32),
-                              contents: NSWorkspace.shared.icon(forFile: appURL.path))
+                              contents: appIcon)
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
@@ -70,6 +75,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: ChromeHover.refresh(animated: false) stores the hover layer's fill color only; the tile lives in the permission card's own panel, which no visibility node holds
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

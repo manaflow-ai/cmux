@@ -4,10 +4,12 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextDaemon
+import CmuxNextFocusUI
 @testable import CmuxNextSignposts
 @testable import CmuxNextTabs
 @testable import CmuxNextTrace
 import Foundation
+import QuartzCore
 import Testing
 
 /// `switch.tab` through a real pane (p09-observability task 028): `PaneController.select` begins one pair with the
@@ -176,5 +178,53 @@ struct TabSwitchSignpostPaneTests {
         let pairs = log.pairs
         #expect(pairs.count == 1)
         #expect(pairs.first?.end == Signposter.EndCode.missed, "not a committed sample spanning the hidden time")
+    }
+
+    // MARK: Input age (begin arg0's top 24 bits, µs; all ones without an input)
+
+    private static let noInput: UInt64 = 0xFF_FFFF
+
+    private func clickEvent(agedSeconds age: TimeInterval) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: CACurrentMediaTime() - age,
+                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    private var beginAges: [UInt64] { log.records.filter { $0.phase == .asyncBegin }.map { $0.arg0 >> 40 } }
+
+    /// A click on a tab is being dispatched when its switch begins: that click's age is the switch's input stage,
+    /// read from the app's input dispatch (`InputDispatchContext`), not from `NSApp.currentEvent`.
+    @Test func theClickBeingDispatchedIsTheSwitchInput() throws {
+        let rig = try rig()
+        defer { rig.tearDown() }
+        let click = try clickEvent(agedSeconds: 0.003)
+        rig.services.inputDispatch.dispatching(click) { rig.pane.select(StripTabID(rig.warm[0])) }
+        let ages = beginAges
+        try #require(ages.count == 1)
+        #expect(ages[0] >= 3_000 && ages[0] < 1_000_000, "the click 3 ms old: \(ages[0]) µs (all ones: no input stage)")
+    }
+
+    /// A socket or CLI `tab.focus` a moment after a click: `NSApp.currentEvent` still holds the click, but no input is
+    /// being dispatched and no person's run is in progress, so the switch has no input age.
+    @Test func aRecentClickLeftInCurrentEventIsNoSwitchInput() throws {
+        let rig = try rig()
+        defer { rig.tearDown() }
+        let stale = try clickEvent(agedSeconds: 0.003)
+        try #require(class_getInstanceVariable(NSApplication.self, "_currentEvent") != nil, "NSApplication has no _currentEvent ivar on this macOS")
+        NSApp.setValue(stale, forKey: "currentEvent")
+        defer { NSApp.setValue(nil, forKey: "currentEvent") }
+        try #require(NSApp.currentEvent?.type == .leftMouseDown, "the test could not leave a recent click in currentEvent")
+        rig.pane.select(StripTabID(rig.warm[0]))
+        #expect(beginAges == [Self.noInput], "a socket switch took the last click's age: \(beginAges)")
+    }
+
+    /// The New Tab page's location bar picks a tab: the page's click comes back with its request a turn after its own
+    /// dispatch (`InputDispatchContext.answering`), and the switch takes that click's age.
+    @Test func aPageClickCarriedWithItsRequestIsTheSwitchInput() throws {
+        let rig = try rig()
+        defer { rig.tearDown() }
+        rig.services.inputDispatch.answering(input: CACurrentMediaTime() - 0.003) { rig.pane.select(StripTabID(rig.warm[0])) }
+        let ages = beginAges
+        try #require(ages.count == 1)
+        #expect(ages[0] >= 3_000 && ages[0] < 1_000_000, "the page's click 3 ms old: \(ages[0]) µs")
     }
 }

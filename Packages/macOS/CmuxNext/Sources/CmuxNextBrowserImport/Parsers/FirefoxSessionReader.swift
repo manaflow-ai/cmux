@@ -24,20 +24,16 @@ public struct FirefoxSessionReader {
     }
 
     public func decompress(_ data: Data) -> Data? {
-        let bytes = [UInt8](data)
-        guard bytes.count > 12, Array(bytes[0..<8]) == magic else { return nil }
-        let size = Int(PickleReader.uint32(bytes, at: 8))
+        guard data.count > 12, data.prefix(8).elementsEqual(magic), let size = PickleReader.uint32(data.dropFirst(8))?.widened
+        else { return nil }
+        let block = [UInt8](data.dropFirst(12))
         // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
         // that would only allocate.
-        guard size > 0, size <= maximumSize, size / 255 <= bytes.count - 12 else { return nil }
+        guard size > 0, size <= maximumSize, size / 255 <= block.count else { return nil }
         var output = [UInt8](repeating: 0, count: size)
-        let written = bytes.withUnsafeBufferPointer { source in
-            output.withUnsafeMutableBufferPointer { destination -> Int in
-                // Both buffers are non-empty (checked above); without a base address nothing decodes.
-                guard let target = destination.baseAddress, let input = source.baseAddress else { return 0 }
-                return compression_decode_buffer(target, size, input + 12, bytes.count - 12, nil, COMPRESSION_LZ4_RAW)
-            }
-        }
+        // SAFETY: the decoder reads at most block.count bytes of `block` and writes at most `size`
+        // (output.count) bytes into `output`, the counts passed; Swift lends both arrays for the call.
+        let written = unsafe compression_decode_buffer(&output, size, block, block.count, nil, COMPRESSION_LZ4_RAW)
         return written == size ? Data(output) : nil
     }
 
@@ -52,13 +48,14 @@ public struct FirefoxSessionReader {
                     read.skipped.unsupported += 1
                     continue
                 }
-                // `index` is 1-based; any other number (Int.min included) picks the nearest entry.
+                // `index` is 1-based; any other number (Int.min included) picks the nearest entry, as Firefox
+                // restores it (SessionStore.sys.mjs restoreTab: the index is kept inside the entries).
                 let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
-                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else {
+                guard let entry = entries[checked: index], let text = entry["url"] as? String, let url = ImportableURL.parse(text) else {
                     read.skipped.notImportable += 1
                     continue
                 }
-                let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let title = (entry["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 read.items.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
             }
         }
