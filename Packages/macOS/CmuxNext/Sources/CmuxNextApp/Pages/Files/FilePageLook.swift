@@ -135,7 +135,8 @@ final class FilePageLook {
             watcher.start()
             if kind == .editor {
                 followImportChoice()
-                let feed = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: directory.appending(path: "cmux.json")))
+                let feed = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: directory.appending(path: "cmux.json")),
+                                            mainWork: mainWork)
                 languageFeed = feed
                 stopLanguages = feed.listen { [weak self] pack in
                     self?.languages = pack

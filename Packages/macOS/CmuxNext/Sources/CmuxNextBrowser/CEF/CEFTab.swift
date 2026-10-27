@@ -79,6 +79,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
             if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
+            runtime.rendererStability.tabStateChanged(from: oldValue.state, to: machine.state, of: self)
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
@@ -199,7 +200,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
-    @ObservationIgnored private(set) var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false { didSet { runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed) } }
     /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
     @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
@@ -290,11 +291,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         }
         if let state = pendingRestore {
             pendingRestore = nil
-            // 1 = restored; fork API 10 reports why not (-1 committed entries,
-            // -2 navigation not dropped, -3 state does not decode).
-            let code = runtime.shim?.tabRestoreNavigation(browser, state) ?? 0
-            host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
-            if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+            // Set only where the fork restores (`CEFEngine` reads the mirrored navigation_restore_supported;
+            // a restarted host restores the state its fork saved). One-way, as Chrome's
+            // NavigationController::Restore (content/public/browser/navigation_controller.h).
+            _ = runtime.shim?.tabRestoreNavigation(browser, state)
+            host.lifecycleTrace.record(id, "restore-navigation sent")
         }
         refreshExtensionActions()
     }
@@ -316,6 +317,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed)
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -346,7 +348,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     // MARK: BrowserTab
 
     public func load(_ url: URL) {
-        guard !isClosed else { return }
+        guard !isClosed, !loadsDebugURL(url) else { return }
         isDiscardedInPlace = false
         automaticDownloads.userGesture()
         let id = makeNavigationID()
@@ -408,8 +410,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         return .load(url)
     }
 
-    /// Answers "Page unresponsive": wait restarts Chromium's hang timer,
-    /// terminate ends the renderer (the sad tab follows).
+    /// Answers "Page unresponsive": wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }

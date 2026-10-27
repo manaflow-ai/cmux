@@ -151,6 +151,33 @@ import Testing
         #expect(archiveText.contains("verbose marker"))
     }
 
+    @Test func theClearDeadlineAsksForTolerance() async throws {
+        let clock = WakeRecordingClock(.neverFires)
+        let log = AppLog(appFileURL: nil, networkFileURL: nil, buildStamp: "test", timeoutClock: clock)
+        #expect(await log.clear())
+        #expect(await clock.nextWakes(1) == [.init(wait: .seconds(5), tolerance: .milliseconds(500))])
+    }
+
+    @Test func theExportDrainAndExportDeadlinesAskForTolerance() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = WakeRecordingClock(.neverFires)
+        let log = AppLog(
+            appFileURL: dir.appendingPathComponent("app.log"),
+            networkFileURL: dir.appendingPathComponent("network.log"),
+            buildStamp: "test",
+            timeoutClock: clock
+        )
+        let archiveURL = try #require(await log.exportLogs())
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        // Each deadline sleeps on its own detached task, so they may start in either order.
+        let wakes = await clock.nextWakes(2).sorted { $0.wait < $1.wait }
+        #expect(wakes == [
+            .init(wait: .seconds(5), tolerance: .milliseconds(500)),
+            .init(wait: .seconds(10), tolerance: .seconds(1)),
+        ])
+    }
+
     @Test func clearRemovesActiveAndArchivedGenerations() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
