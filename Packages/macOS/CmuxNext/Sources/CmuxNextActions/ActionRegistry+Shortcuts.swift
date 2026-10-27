@@ -81,7 +81,7 @@ extension ActionRegistry {
         var groups: [String: [ActionID]] = [:]
         for descriptor in descriptors {
             guard let shortcut = effectiveShortcut(for: descriptor.id) else { continue }
-            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id)
+            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id) || KeyBindingDefaults.homeScoped.contains(descriptor.id)
             let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)|\(onHome)"
             groups[key, default: []].append(descriptor.id)
         }

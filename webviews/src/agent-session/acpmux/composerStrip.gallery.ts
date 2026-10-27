@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats and folders), not shipped UI.
 // The composer's location strip (hq#1957 composer location strip, Composer.tsx, ComposerContext.tsx,
-// composerLocation.css): the folder, the computer and the branch sit in a tab on the card's top
-// edge instead of a second row inside it, so the card holds one controls row. Only a new chat has
+// composerLocation.css): the folder, the computer and the branch stand a few px over the card
+// instead of a second row inside it, so the card holds one controls row. Only a new chat has
 // it, before its first send (locationRow.ts); a started chat's card stands alone, and its queued
 // prompts sit on the card. The strip keeps one height with a project, without one and while the
 // host's name loads. A new chat's effort chip draws what this harness last showed and its access
@@ -79,6 +79,16 @@ export default agentPaneEntry({
     started: {
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
+    },
+    "started-movable": {
+      note: "A started chat its tab's right-click menu can move (Move to Cloud): still no location strip over the composer; the move stays in that menu.",
+      native: { "pane.tabState": { moves: ["cloudMove"] } },
+      snapshot: started(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("a started chat drew the location strip over its composer");
+      },
     },
     "long-folder": {
       note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',

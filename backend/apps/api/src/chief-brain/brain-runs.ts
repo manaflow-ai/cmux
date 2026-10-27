@@ -5,6 +5,8 @@
  * 1:1: `talk` -> a talk step, `tool` -> a tool step (running, input), `echo` -> the same tool step
  * (done, output). The brain is the only writer.
  */
+import { oneLine } from "./brain-text.ts"
+
 export type StepKind = "talk" | "thought" | "tool" | "note"
 
 export interface Step {
@@ -141,7 +143,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
   const marks: Record<string, unknown> = Object.fromEntries(markRows.filter((r) => !String(r.mark).startsWith("region:")).map((r) => [`${r.mark}_at`, Number(r.at)]))
   if (regions.length > 0) marks.regions = regions
   const kind = String(t.trigger_kind)
-  const threadRoot = kind === "spawn" ? undefined : kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
+  const threadRoot = kind === "spawn" ? undefined : oneLine(kind) ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
   return {
     id,
     conversation: String(t.conversation),

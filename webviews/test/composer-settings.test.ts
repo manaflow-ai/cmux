@@ -43,3 +43,60 @@ test("the page's attachment view choice applies at once and asks the host to kee
     settings.setComposerSettings(DEFAULT_COMPOSER);
   }
 });
+
+test("send-to-bottom defaults on and the composer toggle writes the host setting", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  const writes: [string, boolean][] = [];
+  expect(readComposerSettings({}).scrollToBottomOnSend).toBe(true);
+  expect(readComposerSettings({ scrollToBottomOnSend: false }).scrollToBottomOnSend).toBe(false);
+  settings.registerComposerHost((method, show) => writes.push([method, show]));
+  try {
+    settings.setScrollToBottomOnSend(false);
+    settings.setScrollToBottomOnSend(true);
+    expect(writes).toEqual([
+      ["pane.setScrollToBottomOnSend", false],
+      ["pane.setScrollToBottomOnSend", true],
+    ]);
+  } finally {
+    settings.registerComposerHost(undefined);
+    settings.setComposerSettings(DEFAULT_COMPOSER);
+  }
+});
+
+test("a rejected send-to-bottom write rolls back the optimistic choice", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  settings.setComposerSettings({ scrollToBottomOnSend: true });
+  settings.registerComposerHost(() => Promise.reject(new Error("managed")));
+  try {
+    settings.setScrollToBottomOnSend(false);
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(true);
+  } finally {
+    settings.registerComposerHost(undefined);
+    settings.setComposerSettings(DEFAULT_COMPOSER);
+  }
+});
+
+test("a host snapshot wins over a late success from an older send-to-bottom write", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  let resolveWrite!: () => void;
+  settings.setComposerSettings({ scrollToBottomOnSend: true });
+  settings.registerComposerHost(() => new Promise<void>((resolve) => (resolveWrite = resolve)));
+  try {
+    settings.setScrollToBottomOnSend(false);
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(false);
+    settings.setComposerSettings({ scrollToBottomOnSend: true });
+    resolveWrite();
+    await Promise.resolve();
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(true);
+    // A stale success must not poison the confirmed value used by a later rejected write.
+    settings.registerComposerHost(() => Promise.reject(new Error("managed")));
+    settings.setScrollToBottomOnSend(false);
+    await Promise.resolve();
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(true);
+  } finally {
+    settings.registerComposerHost(undefined);
+    settings.setComposerSettings(DEFAULT_COMPOSER);
+  }
+});
