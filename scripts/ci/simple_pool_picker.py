@@ -64,8 +64,9 @@ IDLE_STALL_MINUTES = 5
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
 XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
-# Ten pages of 100 is twice the organization's runners today.
-MAX_RUNNER_PAGES = 10
+# The org-wide fallback read (LiveState.runners(), only when the glaeda-minis group is unreadable):
+# 2,862 org runners on 2026-10-27 held the minis past page 10, so read up to 5,000.
+MAX_RUNNER_PAGES = 50
 OWNED_FAMILY = re.compile(
     rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
     rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
