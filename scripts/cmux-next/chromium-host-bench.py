@@ -134,11 +134,12 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on. Each row runs on its own and gets a `host_windows`
-block from the host's lines in the app log written while it ran (chromium_host_windows.py, p01-process-068): the
-Chromium widgets the fork blocked (BLOCKED_WIDGET, by Views class and by the cmux UI that owns the kind) and the host
-windows its backstop took off screen (UNEXPECTED_WINDOW). A row fails with any unexpected window, or a blocked widget
-that was neither dismissed nor owned by a cmux UI; `host_windows` in the report is the same count over the whole run.
+and shows no window, with feature chromiumHostFileDialogs on. The page rows share one probe tab; each row gets a
+`host_windows` block from the host's lines in the app log written while it ran (chromium_host_windows.py,
+p01-process-068): the Chromium widgets the fork blocked (BLOCKED_WIDGET, by Views class and by the cmux UI whose kind
+of request it was) and the host windows its backstop took off screen (UNEXPECTED_WINDOW). A row fails with any
+unexpected window, or a blocked widget with no logged dismissal (refused or close-failed: it still shows, whatever its
+owner); `host_windows` in the report is the same count over the whole run.
 --list-failing then prints one `FAILING native_ui.<row>: <reason>` line per failing row (`FAILING none` when none).
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
@@ -794,29 +795,31 @@ def main():
 
 
 def native_ui_rows(rpc, url, app_pid):
-    """The --native-ui rows, each run on its own so the host's window lines it caused are its own (task p01-process-068):
-    each row gets chromium_host_windows' block of the app log lines written while it ran, and RESULT["host_windows"] is
-    the block of the whole run (lines a row's last dismissal wrote after it ended are counted there). Returns
-    (rows, ok)."""
-    rows = {}
+    """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows; each row gets
+    chromium_host_windows' block of the app log lines written while it ran (a log cursor taken right after it), and
+    RESULT["host_windows"] is the block of the whole run (lines a row's last dismissal wrote after it ended are counted
+    there). Returns (rows, ok)."""
     every_line = []
     cursor = chromium_host_windows.LogCursor(APP_LOG.get("path"))
     evaluate = lambda script: page_eval(rpc, script, None)  # noqa: E731
-    for name in opts.native_ui:
-        if name in chromium_host_native_ui.ROWS:
-            got, _ = chromium_host_native_ui.run(rpc, wait, evaluate, url, rows_to_run=[name], front=front_pid,
-                                                 app_pid=app_pid)
-        else:
-            got, _ = chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
-                                                         on_screen_windows, rows_to_run=[name])
+
+    def on_row(_name, row):
         lines = cursor.take()
-        every_line += lines
-        rows.update({row: chromium_host_windows.checked(result, lines) if isinstance(result, dict) else result
-                     for row, result in got.items()})
+        every_line.extend(lines)
+        return chromium_host_windows.checked(row, lines)
+
+    rows = {}
+    page_rows = [row for row in opts.native_ui if row in chromium_host_native_ui.ROWS]
+    if page_rows:
+        rows.update(chromium_host_native_ui.run(rpc, wait, evaluate, url, rows_to_run=page_rows, front=front_pid,
+                                                app_pid=app_pid, on_row=on_row)[0])
+    dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+    if dialog_rows:
+        rows.update(chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
+                                                        on_screen_windows, rows_to_run=dialog_rows, on_row=on_row)[0])
     every_line += cursor.take()
     RESULT["host_windows"] = chromium_host_windows.count(every_line)
-    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(
-        isinstance(row, dict) and row.get("ok") for row in rows.values())
+    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values())
     return rows, ok
 
 

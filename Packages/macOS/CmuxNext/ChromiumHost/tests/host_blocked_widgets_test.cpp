@@ -4,9 +4,11 @@
 // logged once as BLOCKED_WIDGET with its browser, kind, class, rect and the
 // cmux UI that owns its kind; a move or resize of it neither dismisses nor
 // logs again; a widget that hides before its dismissal runs is logged as
-// gone and not closed; a dialog that refuses the close stays and is logged
-// as refused; the fork's synchronous hide inside the close is not logged
-// twice. The window backstop's line hashes the title and never prints it.
+// gone and not closed; a dialog that refuses the close (the close returns 1
+// and no hide comes) stays, is logged as refused, and its later moves neither
+// dismiss nor log it again, while its eventual hide logs it as dismissed; a
+// close the fork does not know (0) is logged as close-failed; the fork's
+// synchronous hide inside the close is not logged twice. The window backstop's line hashes the title and never prints it.
 // Whether the fork blocks every widget is the fork's helper-blocked-widgets
 // case (task 176); the counts per row are chromium-host-bench.py --native-ui.
 // Run by scripts/cmux-next/tests/chromium-host-blocked-widgets.test.sh.
@@ -34,14 +36,16 @@ bool Contains(const std::string& text, const std::string& part) {
   return text.find(part) != std::string::npos;
 }
 
-// The fork: its handler, the widgets it closes, and whether a close takes
-// the widget (then it reports the widget hidden before returning, as the
-// fork does).
+// The fork: its handler, the widgets it closes, and what a close does. A
+// close that takes the widget reports it hidden before returning 1, as the
+// fork does; a dialog that refuses to cancel returns 1 and stays; a widget
+// the fork does not know returns 0.
+enum class CloseResult { kTakes, kRefuses, kUnknown };
 struct FakeFork {
   BlockedWidgetFn fn = nullptr;
   void* context = nullptr;
   std::vector<int> closed;
-  bool refuses = false;
+  CloseResult result = CloseResult::kTakes;
 };
 FakeFork* g_fork = nullptr;
 
@@ -57,9 +61,16 @@ struct Harness {
   std::vector<std::string> lines;
   BlockedWidgets widgets{[this](int id) {
                            fork.closed.push_back(id);
-                           if (fork.refuses) return 0;
-                           Show(0, id, 0, 0, "", 0, 0, 0, 0);
-                           return 1;
+                           switch (fork.result) {
+                             case CloseResult::kTakes:
+                               Show(0, id, 0, 0, "", 0, 0, 0, 0);
+                               return 1;
+                             case CloseResult::kRefuses:
+                               return 1;
+                             case CloseResult::kUnknown:
+                               break;
+                           }
+                           return 0;
                          },
                          [this](std::function<void()> task) { tasks.push_back(std::move(task)); },
                          [this](const std::string& line) { lines.push_back(line); }};
@@ -114,16 +125,41 @@ void TestGoneBeforeDismissal() {
 
 void TestRefused() {
   Harness h;
-  h.fork.refuses = true;
+  h.fork.result = CloseResult::kRefuses;
   h.Show(0, 9, 0, 1, "SomeUnknownDialogView", 100, 100, 50, 40);
   h.RunTasks();
+  Check(h.fork.closed == std::vector<int>{9}, "the refusing dialog is closed once");
   Check(h.lines.size() == 1 && Contains(h.lines[0], " browser=0 ") &&
             Contains(h.lines[0], " owner=none action=refused"),
-        "a refused close is logged as refused with no owner: " + (h.lines.empty() ? std::string() : h.lines[0]));
+        "a close that returns 1 with no hide is logged as refused, not dismissed: " +
+            (h.lines.empty() ? std::string() : h.lines[0]));
   Check(h.widgets.shown() == 1, "a refused widget stays shown");
-  h.Show(0, 9, 0, 0, "SomeUnknownDialogView", 100, 100, 50, 40);
-  Check(h.lines.size() == 1, "its later hide is not logged again");
+  h.Show(0, 9, 0, 1, "SomeUnknownDialogView", 120, 100, 50, 40);  // moved
+  h.Show(0, 9, 0, 1, "SomeUnknownDialogView", 120, 100, 60, 40);  // resized
+  Check(h.tasks.empty(), "its later moves post no second dismissal");
+  h.RunTasks();
+  Check(h.fork.closed.size() == 1, "its later moves do not close it again");
+  Check(h.lines.size() == 1, "its later moves log nothing");
+  h.Show(0, 9, 0, 0, "SomeUnknownDialogView", 120, 100, 60, 40);
+  Check(h.lines.size() == 2 && Contains(h.lines[1], " widget=9 ") && Contains(h.lines[1], " action=dismissed"),
+        "its hide at last logs it as dismissed: " + (h.lines.size() < 2 ? std::string() : h.lines[1]));
   Check(h.widgets.shown() == 0, "and it is gone");
+  h.Show(0, 9, 0, 0, "SomeUnknownDialogView", 120, 100, 60, 40);
+  Check(h.lines.size() == 2, "a second hide logs nothing");
+}
+
+void TestCloseFailed() {
+  Harness h;
+  h.fork.result = CloseResult::kUnknown;
+  h.Show(2, 6, 0, 1, "FindBarView", 0, 0, 10, 10);
+  h.RunTasks();
+  Check(h.lines.size() == 1 && Contains(h.lines[0], " owner=find action=close-failed"),
+        "a close the fork does not know is logged as close-failed: " + (h.lines.empty() ? std::string() : h.lines[0]));
+  h.Show(2, 6, 0, 1, "FindBarView", 5, 0, 10, 10);
+  h.RunTasks();
+  Check(h.fork.closed.size() == 1 && h.lines.size() == 1, "a later move neither closes nor logs it again");
+  h.Show(2, 6, 0, 0, "FindBarView", 5, 0, 10, 10);
+  Check(h.lines.size() == 1 && h.widgets.shown() == 0, "its hide is not logged again");
 }
 
 void TestPagePopupAndOwners() {
@@ -138,7 +174,8 @@ void TestPagePopupAndOwners() {
   if (h.lines.size() == 5) {
     Check(Contains(h.lines[0], " kind=3 class=- ") && Contains(h.lines[0], " owner=none "),
           "a page popup has no class: " + h.lines[0]);
-    Check(Contains(h.lines[1], " owner=find "), "the find bar is find's: " + h.lines[1]);
+    Check(Contains(h.lines[1], " owner=find action=dismissed"),
+          "the find bar is find's, and dismissed like any other (no widget is routed): " + h.lines[1]);
     Check(Contains(h.lines[2], " owner=chooser "), "the screen share picker is a chooser's: " + h.lines[2]);
     Check(Contains(h.lines[3], " owner=js-dialog "), "HTTP auth is 063's: " + h.lines[3]);
     Check(Contains(h.lines[4], " class=Bad_class_name_with_signs "), "a class name is one token: " + h.lines[4]);
@@ -170,6 +207,7 @@ int main() {
   TestDismissedOnce();
   TestGoneBeforeDismissal();
   TestRefused();
+  TestCloseFailed();
   TestPagePopupAndOwners();
   TestNoSetter();
   TestUnexpectedWindowLine();

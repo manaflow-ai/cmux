@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """chromium_host_windows.py and chromium-host-bench.py --native-ui --list-failing (p01-process-068), with no app: the
 host's BLOCKED_WIDGET and UNEXPECTED_WINDOW lines (host_blocked_widgets.h's format) are parsed out of app log lines,
-counted per row by Views class and owner, and a row fails on any unexpected window or a blocked widget that was
-neither dismissed nor owned by a cmux UI. Through the bench: each row runs on its own and gets only the lines written
-while it ran, a late line still fails the whole run, and --list-failing names each failing row.
+counted per row by Views class and owner, and a row fails on any unexpected window or a blocked widget whose last line
+is not a dismissal (refused, close-failed), owned by a cmux UI or not. Through the bench: the page rows share one probe
+tab, each row gets only the lines written while it ran, a late line still fails the whole run, a probe that never
+loads fails each of its rows by name, and --list-failing names each failing row.
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_windows.py"""
 import contextlib, importlib.util, io, os, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
+import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_windows as windows  # noqa: E402
+
+# The modules are shared by every load of the bench: each test patches their run and tearDown puts these back.
+REAL_RUNS = (chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run)
 
 PREFIX = "[12:00:01.5] cmux-chromium-host: "
 DISMISSED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=11 kind=0 class=JavaScriptTabModalDialogViewViews "
@@ -18,6 +24,8 @@ POPUP = PREFIX + "BLOCKED_WIDGET browser=7 widget=12 kind=3 class=- rect=0,0,10,
 REFUSED = PREFIX + "BLOCKED_WIDGET browser=0 widget=13 kind=0 class=Odd rect=0,0,1,1 visible=1 owner=none action=refused"
 OWNED_REFUSED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=14 kind=0 class=PermissionPromptBubbleOneOriginView "
                  "rect=0,0,1,1 visible=1 owner=permission-prompt action=refused")
+CLOSE_FAILED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=16 kind=0 class=FindBarView rect=0,0,1,1 visible=1 "
+                "owner=find action=close-failed")
 WINDOW = PREFIX + "UNEXPECTED_WINDOW class=NSPanel title=1a2b3c4d action=ordered-out"
 
 
@@ -52,7 +60,18 @@ class ParseTests(unittest.TestCase):
         refused = windows.count([REFUSED])
         self.assertFalse(refused["ok"], "a refused widget no cmux UI owns fails")
         self.assertEqual([w["widget"] for w in refused["unhandled_widgets"]], ["13"])
-        self.assertTrue(windows.count([OWNED_REFUSED])["ok"], "a refused widget a cmux UI owns passes")
+        owned = windows.count([OWNED_REFUSED])
+        self.assertFalse(owned["ok"], "a refused widget fails though a cmux UI owns its kind: no widget is routed")
+        self.assertEqual([w["widget"] for w in owned["unhandled_widgets"]], ["14"])
+        self.assertFalse(windows.count([CLOSE_FAILED])["ok"], "a close the fork did not know fails")
+
+    def test_refused_then_dismissed(self):
+        later = REFUSED.replace("action=refused", "action=dismissed")
+        block = windows.count([REFUSED, POPUP, later])
+        self.assertTrue(block["ok"], "a refused widget that hid at last counts by its last line")
+        self.assertEqual(block["blocked_widgets"], 2, "one widget, two lines: counted once")
+        self.assertEqual(block["blocked_by_class"], {"-": 1, "Odd": 1})
+        self.assertFalse(windows.count([later, REFUSED])["ok"], "the last line decides")
 
     def test_checked(self):
         row = windows.checked({"ok": True, "show_ms": 3}, [WINDOW])
@@ -63,8 +82,9 @@ class ParseTests(unittest.TestCase):
 
     def test_failing(self):
         rows = {"select": {"ok": True}, "date": {"ok": False, "not_run": "no widget host"},
-                "alert": windows.checked({"ok": True}, [WINDOW]), "error": "the probe never loaded"}
-        self.assertEqual([name for name, _ in windows.failing(rows)], ["date", "alert", "error"])
+                "alert": windows.checked({"ok": True}, [WINDOW]), "side_panel": {"ok": False, "error": "no probe"}}
+        self.assertEqual(windows.failing(rows), [("date", "no widget host"), ("alert", rows["alert"]["host_windows_failed"]),
+                                                 ("side_panel", "no probe")])
 
     def test_cursor_whole_lines(self):
         with tempfile.TemporaryDirectory() as root:
@@ -94,23 +114,32 @@ class BenchTests(unittest.TestCase):
         self.bench.RESULT = {"modes": {}, "notes": []}
         self.lines = {}  # row -> lines its run writes
         self.ran = []
+        self.calls = []  # (module, rows) per run call: one probe per module
 
-        def run_rows(rows_to_run):
-            (name,) = rows_to_run
-            self.ran.append(name)
-            with open(self.log, "a") as log:
-                log.writelines(line + "\n" for line in self.lines.get(name, []))
-            return {name: {"ok": True}}, True
+        def fake(module, order):
+            def run(*_a, rows_to_run, on_row, **_k):
+                self.calls.append((module, list(rows_to_run)))
+                rows = {}
+                for name in order:
+                    if name not in rows_to_run:
+                        continue
+                    self.ran.append(name)
+                    with open(self.log, "a") as log:
+                        log.writelines(line + "\n" for line in self.lines.get(name, []))
+                    rows[name] = on_row(name, {"ok": True})
+                return rows, True
+            return run
 
-        self.bench.chromium_host_native_ui.run = lambda *a, rows_to_run, **k: run_rows(rows_to_run)
-        self.bench.chromium_host_native_ui_dialogs.run = lambda *a, rows_to_run, **k: run_rows(rows_to_run)
+        self.bench.chromium_host_native_ui.run = fake("page", self.bench.chromium_host_native_ui.ROWS)
+        self.bench.chromium_host_native_ui_dialogs.run = fake("dialogs", self.bench.chromium_host_native_ui_dialogs.ROWS)
 
     def tearDown(self):
+        chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run = REAL_RUNS
         self.root.cleanup()
 
-    def run_bench(self, names):
+    def run_bench(self, names, rpc=None):
         self.bench.opts = self.bench.parse(["--app", "x", "--out", self.root.name, "--native-ui", names, "--list-failing"])
-        rows, ok = self.bench.native_ui_rows(None, "file:///probe", 1)
+        rows, ok = self.bench.native_ui_rows(rpc, "file:///probe", 1)
         self.bench.RESULT["modes"]["native_ui"] = rows
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -120,7 +149,9 @@ class BenchTests(unittest.TestCase):
     def test_rows_get_their_own_lines(self):
         self.lines = {"date": [POPUP], "file_picker": [WINDOW]}
         rows, ok, printed = self.run_bench("select,date,file_picker")
-        self.assertEqual(self.ran, ["select", "date", "file_picker"], "each row runs on its own, in order")
+        self.assertEqual(self.ran, ["select", "date", "file_picker"], "each row runs, in order")
+        self.assertEqual(self.calls, [("page", ["select", "date"]), ("dialogs", ["file_picker"])],
+                         "the page rows share one probe: one run call per module")
         self.assertFalse(ok)
         self.assertTrue(rows["select"]["ok"])
         self.assertTrue(rows["date"]["ok"])
@@ -131,17 +162,35 @@ class BenchTests(unittest.TestCase):
                          ["FAILING native_ui.file_picker", "FAILING native_ui.host_windows"])
 
     def test_clean_run(self):
-        self.lines = {"date": [DISMISSED, OWNED_REFUSED]}
+        self.lines = {"date": [DISMISSED, POPUP]}
         rows, ok, printed = self.run_bench("select,date")
         self.assertTrue(ok)
         self.assertEqual(self.bench.RESULT["host_windows"]["blocked_widgets"], 2)
         self.assertEqual(printed, ["FAILING none"])
 
+    def test_owned_refused_fails_its_row(self):
+        self.lines = {"date": [OWNED_REFUSED]}
+        rows, ok, printed = self.run_bench("select,date")
+        self.assertFalse(ok)
+        self.assertFalse(rows["date"]["ok"], "an owned widget that still shows is not handled by its owner label")
+        self.assertEqual([line.split(":")[0] for line in printed],
+                         ["FAILING native_ui.date", "FAILING native_ui.host_windows"])
+
+    def test_probe_failure_names_each_row(self):
+        native_ui = self.bench.chromium_host_native_ui
+        native_ui.run = REAL_RUNS[0]
+        rpc = lambda method, params=None, timeout=None: {"opened": method}  # noqa: E731
+        never = lambda *_a, **_k: False  # noqa: E731
+        self.bench.wait = never
+        self.bench.page_eval = lambda *_a, **_k: None
+        rows, ok, printed = self.run_bench("select,date,autofill", rpc=rpc)
+        self.assertFalse(ok)
+        self.assertEqual(sorted(rows), ["autofill", "date", "select"])
+        self.assertTrue(all(rows[name]["error"].startswith("the probe never loaded") for name in rows))
+        self.assertEqual([line.split(":")[0] for line in printed],
+                         ["FAILING native_ui.select", "FAILING native_ui.date", "FAILING native_ui.autofill"])
+
     def test_line_after_the_last_row_fails_the_run(self):
-        def late(*_a, rows_to_run, **_k):
-            self.ran.append(rows_to_run[0])
-            return {rows_to_run[0]: {"ok": True}}, True
-        self.bench.chromium_host_native_ui.run = late
         take = self.bench.chromium_host_windows.LogCursor.take
         calls = []
 

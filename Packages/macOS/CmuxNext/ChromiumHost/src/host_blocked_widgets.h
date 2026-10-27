@@ -6,13 +6,13 @@
 // of no page) gets a headless window from the fork and is reported here
 // instead of ordering in. The host dismisses each one as Chrome's Escape does
 // (cmux_blocked_widget_close, DialogClientView::AcceleratorPressed in
-// ui/views/window/dialog_client_view.cc) and logs it as one BLOCKED_WIDGET
-// line, naming the cmux UI that owns that kind of request: 062's permission
-// prompts, 063's JavaScript dialogs and HTTP auth, 228's choosers, cmux's
-// find. Each of those UIs takes its request through its own shim event, and
-// Chromium then makes no widget, so an owned widget here is a request its
-// cmux UI did not take; the line says which one. A page never waits on a
-// dialog no one can see.
+// ui/views/window/dialog_client_view.cc) and logs it as BLOCKED_WIDGET lines.
+// No widget is routed to a cmux UI: 062's permission prompts, 063's
+// JavaScript dialogs and HTTP auth, 228's choosers and cmux's find each take
+// their request through their own shim event, before Chromium makes a widget.
+// A widget of one of those kinds here is a request its cmux UI did not take,
+// so it is dismissed like any other, and the line's owner= names that UI for
+// whoever reads the log. A page never waits on a dialog no one can see.
 //
 // The window observer in browser_host_main.mm is the backstop for what the
 // fork cannot block (a window-modal sheet, an AppKit panel such as
@@ -31,7 +31,10 @@
 //   int cmux_set_blocked_widget_handler(cmux_blocked_widget_fn fn, void* context);
 //   int cmux_blocked_widget_close(int widget_id);
 // UI thread only; `visible` 1 when the widget shows (and again when it moves
-// or resizes), 0 when it hides or closes (its id is then gone).
+// or resizes), 0 when it hides or closes (its id is then gone). The close
+// returns 1 for a blocked widget it cancelled, and the handler then reports
+// the widget hidden, unless the dialog refuses to cancel: then it stays. It
+// returns 0 for a widget it does not know, or a hosted one.
 //
 // No CEF, no AppKit: scripts/cmux-next/tests/chromium-host-blocked-widgets.test.sh
 // compiles it on Linux. UI thread only: no lock.
@@ -54,7 +57,8 @@ using BlockedWidgetFn = void (*)(void* context, int browser_id, int widget_id, i
 using SetBlockedWidgetHandlerFn = int (*)(BlockedWidgetFn fn, void* context);
 using BlockedWidgetCloseFn = int (*)(int widget_id);
 
-// The cmux UI that answers a kind of request Chromium would show as a widget.
+// The cmux UI that answers a kind of request Chromium would show as a widget
+// (the log's owner=: the UI that missed the request, not one that took it).
 enum class WidgetOwner {
   kNone,
   kPermissionPrompt,  // 062: PERMISSION_PROMPT
@@ -121,9 +125,10 @@ struct BlockedWidget {
 
 // What the host did with a shown blocked widget.
 enum class BlockedAction {
-  kDismissed,  // cmux_blocked_widget_close took it
-  kRefused,    // the close returned 0: a dialog that does not cancel on Escape
-  kGone,       // it hid or closed before the dismissal ran
+  kDismissed,    // the close cancelled it and the fork reported it hidden
+  kRefused,      // the close returned 1 and it still shows: it does not cancel on Escape
+  kCloseFailed,  // the close returned 0: the fork does not know the widget it reported
+  kGone,         // it hid or closed before the dismissal ran
 };
 
 inline const char* ActionName(BlockedAction action) {
@@ -132,6 +137,8 @@ inline const char* ActionName(BlockedAction action) {
       return "dismissed";
     case BlockedAction::kRefused:
       return "refused";
+    case BlockedAction::kCloseFailed:
+      return "close-failed";
     case BlockedAction::kGone:
       break;
   }
@@ -185,8 +192,11 @@ inline std::string UnexpectedWindowLine(std::string_view window_class, std::stri
 
 // The host's blocked widget handler: each widget that shows is dismissed
 // once, in a UI task after the report (outside the widget's own Show, as
-// Chrome's Escape arrives as an event of its own), and logged once with
-// what happened. UI thread only.
+// Chrome's Escape arrives as an event of its own). It is logged as dismissed
+// only when the fork reports it hidden; one that still shows after the close
+// is logged as refused and kept, so its later move reports neither dismiss
+// nor log it again, and its hide, if it comes, logs it as dismissed. UI
+// thread only.
 class BlockedWidgets {
  public:
   using Close = std::function<int(int widget_id)>;
@@ -216,35 +226,57 @@ class BlockedWidgets {
     auto found = widgets_.find(id);
     if (!widget.visible) {
       if (found == widgets_.end()) return;
-      // Hid before its dismissal ran (the page navigated, Chromium closed it).
-      if (!found->second.handled) log_(BlockedWidgetLine(found->second.widget, BlockedAction::kGone));
+      const Entry entry = std::move(found->second);
       widgets_.erase(found);
+      switch (entry.state) {
+        case State::kPending:  // hid before its dismissal ran (the page navigated, Chromium closed it)
+          log_(BlockedWidgetLine(entry.widget, BlockedAction::kGone));
+          break;
+        case State::kRefused:  // went at last after a refused close
+          log_(BlockedWidgetLine(entry.widget, BlockedAction::kDismissed));
+          break;
+        case State::kClosing:      // the close's own hide: Dismiss logs it
+        case State::kCloseFailed:  // logged when its close failed
+          break;
+      }
       return;
     }
     // A move or resize of a widget already reported reports it again.
     if (found != widgets_.end()) return;
-    widgets_.emplace(id, Entry{std::move(widget), false});
+    widgets_.emplace(id, Entry{std::move(widget), State::kPending});
     post_([this, id] { Dismiss(id); });
   }
 
-  // Shown widgets: their dismissal has not run yet, or was refused.
+  // Widgets still shown: their dismissal has not run yet, or did not take them.
   size_t shown() const { return widgets_.size(); }
 
  private:
+  enum class State {
+    kPending,      // reported, its dismissal not run yet
+    kClosing,      // inside its close
+    kRefused,      // its close returned 1 and it still shows
+    kCloseFailed,  // its close returned 0
+  };
   struct Entry {
     BlockedWidget widget;
-    bool handled;  // its dismissal ran and was logged
+    State state;
   };
 
   void Dismiss(int id) {
     auto found = widgets_.find(id);
     if (found == widgets_.end()) return;  // hid first, and logged as gone
-    found->second.handled = true;
+    found->second.state = State::kClosing;
     const BlockedWidget widget = found->second.widget;
-    // A close that takes the widget reports it hidden before it returns.
-    const BlockedAction action = close_(id) == 1 ? BlockedAction::kDismissed : BlockedAction::kRefused;
-    if (action == BlockedAction::kDismissed) widgets_.erase(id);
-    log_(BlockedWidgetLine(widget, action));
+    const int closed = close_(id);
+    // The fork reports a cancelled widget hidden before the close returns:
+    // Report erased it then.
+    found = widgets_.find(id);
+    if (found == widgets_.end()) {
+      log_(BlockedWidgetLine(widget, BlockedAction::kDismissed));
+      return;
+    }
+    found->second.state = closed == 1 ? State::kRefused : State::kCloseFailed;
+    log_(BlockedWidgetLine(widget, closed == 1 ? BlockedAction::kRefused : BlockedAction::kCloseFailed));
   }
 
   Close close_;
