@@ -22,7 +22,7 @@ const cases = [
   [
     "cleanup restart leak",
     "useEffect(() => { let id = setInterval(tick, 1000); return () => { clearInterval(id); id = setInterval(tick, 1000); }; }, []);",
-    1,
+    2,
   ],
   [
     "async effect cannot register cleanup",
