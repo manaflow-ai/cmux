@@ -47,5 +47,17 @@ public nonisolated struct BrowserResizeTunables {
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",
         default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
-    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }
+    /// On (the default): while a person drags a divider or a column or row edge, a Chromium page keeps
+    /// the size it had when the drag began, anchored at its top-left corner and clipped to its pane
+    /// (any gap in the page's own color), and lays out once when the pane's frame is final
+    /// (`CEFTabContentView.paneResizeGestureDidChange`). Off: the page lays out at every frame's
+    /// size, some frames behind the pane (Chromium draws in another process).
+    public static let holdDuringDrag = Tunable<Bool>.toggle(
+        "browserResize.holdDuringDrag", section, "Keep the page's size while a divider is dragged",
+        help: "While a pane divider or edge is dragged, a Chromium page keeps its size and moves with the pane, and lays out once when the drag lands. Off lays the page out at every size, some frames behind the divider.",
+        default: true, code: "BrowserResizeTunables.holdDuringDrag")
+
+    public static var all: [TunableDescriptor] {
+        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, holdDuringDrag.descriptor]
+    }
 }

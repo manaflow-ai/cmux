@@ -62,6 +62,10 @@ if "--suite=command-pan" in sys.argv:
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=split-resize`: a Chromium page beside a dragged split divider (scripts/cmux-next/split-resize-bench.py).
+if "--suite=split-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-resize-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-resize"])
 # `--suite=cef-tab`: new Chromium and WebKit tabs, key to visible and to page pixels, light and STRESS
 # (scripts/cmux-next/cef-tab-bench.py, PL-cef-tab).
 if "--suite=cef-tab" in sys.argv:

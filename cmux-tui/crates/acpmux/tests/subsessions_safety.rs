@@ -565,6 +565,134 @@ async fn a_family_prompt_from_an_agent_after_a_web_turn_runs_as_a_web_turn() {
     assert_eq!(app.turn_controls(&child).await, ["web"]);
 }
 
+/// An agent a remote device drives never sends files with a message: `send_message` asks the
+/// daemon before it reads any path (`attachCheck`), and a send that carries files anyway, inline
+/// or by upload reference, is refused before the daemon reads or resolves them.
+#[tokio::test]
+async fn an_agent_a_web_turn_drove_cannot_send_files_with_a_message() {
+    let s = Scratch::new("webattach");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    let mut app = Client::new(&hub);
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo child"})).await;
+    let child = child["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+
+    let inline = acpmux::attach::block("secret.txt", b"from the agent's machine");
+    let send = json!({"sessionId": child, "text": "see this", "attachments": [inline]});
+    let e = p.refused(SEND, send).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let upload = uuid::Uuid::now_v7().to_string();
+    let by_ref = json!({"type": "resource_link", "name": "secret.txt",
+        "uri": format!("acpmux-upload:{upload}"),
+        "_meta": {"acpmux": {"upload": {"uploadId": upload, "fileName": "secret.txt"}}}});
+    let send = json!({"sessionId": child, "text": "see this", "attachments": [by_ref]});
+    let e = p.refused(SEND, send).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let check = json!({"sessionId": child, "text": "", "attachCheck": true});
+    let e = p.refused(SEND, check).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let events = app.events(&child).await;
+    let sent: Vec<_> = events.iter().filter(|e| e["kind"] == "user_message").collect();
+    assert_eq!(sent.len(), 1, "only its start prompt reached the child: {sent:?}");
+}
+
+/// The same agent's own shell: `acpmux send --attach` (now or `--no-wait`) and the
+/// cmux-subsessions `send_message` tool, run as that agent (its caller token), send no file and
+/// read none for the tool: the daemon refuses a prompt, a queued send or an upload carrying them,
+/// and `send_message` asks before it reads a path (here one that is not there).
+#[tokio::test]
+async fn an_agent_a_web_turn_drove_sends_no_files_from_its_shell_or_its_tools() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let s = Scratch::new("webshell");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    let mut app = Client::new(&hub);
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo child"})).await;
+    let child = child["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    let socket = PathBuf::from("/tmp").join(format!("acpmux-webshell-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&socket);
+    let listener = acpmux::server::bind_unix(&socket).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    let as_parent = |cmd: &mut tokio::process::Command| {
+        cmd.env("ACPMUX_SOCKET", &socket)
+            .env("ACPMUX_SESSION_ID", &parent)
+            .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&parent))
+            .env("ACPMUX_SESSION_TOKEN_SOCKET", &socket)
+            .kill_on_drop(true);
+    };
+    let small = s.root.join("small.txt");
+    std::fs::write(&small, b"from the agent's machine").unwrap();
+    // Past what goes inline: sent by upload first.
+    let big = s.root.join("big.bin");
+    std::fs::write(&big, vec![7u8; 5 << 20]).unwrap();
+    for (file, wait) in [(&small, true), (&big, true), (&small, false)] {
+        let mut cmd = daemon_env::tokio_command(&s.root, daemon_env::Agents::Deny);
+        cmd.arg("send").arg("--attach").arg(file);
+        if !wait {
+            cmd.arg("--no-wait");
+        }
+        cmd.arg(&child).arg("see this");
+        as_parent(&mut cmd);
+        let out = tokio::time::timeout(Duration::from_secs(60), cmd.output()).await.unwrap();
+        let out = out.unwrap();
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!out.status.success(), "{}: {said}", file.display());
+        assert!(said.contains("remote device"), "{}: {said}", file.display());
+    }
+    // The tool: refused before it reads the path, which is not there.
+    let mut mcp = daemon_env::tokio_command(&s.root, daemon_env::Agents::Deny);
+    mcp.arg("subsession-mcp")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    as_parent(&mut mcp);
+    let mut mcp = mcp.spawn().unwrap();
+    let mut stdin = mcp.stdin.take().unwrap();
+    let mut lines = tokio::io::BufReader::new(mcp.stdout.take().unwrap()).lines();
+    let missing = s.root.join("not-there.txt");
+    for line in [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "send_message",
+            "arguments": {"sessionId": child, "text": "see this", "attachments": [missing]}}}),
+        // No files: a text message, which it may send.
+        json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "send_message",
+            "arguments": {"sessionId": child, "text": "just text", "attachments": []}}}),
+    ] {
+        stdin.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    }
+    let mut answers = std::collections::HashMap::new();
+    while answers.len() < 2 {
+        let line = tokio::time::timeout(Duration::from_secs(60), lines.next_line()).await;
+        let v: Value = serde_json::from_str(&line.unwrap().unwrap().unwrap()).unwrap();
+        if let Some(id @ (2 | 3)) = v["id"].as_i64() {
+            answers.insert(id, v);
+        }
+    }
+    let text =
+        |a: &Value| a["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+    let refused = &answers[&2];
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert!(text(refused).contains("remote device"), "read the path first: {refused}");
+    let plain = &answers[&3];
+    assert_ne!(plain["result"]["isError"], true, "a text message was refused: {plain}");
+    let events = app.events(&child).await;
+    let sent: Vec<_> = events.iter().filter(|e| e["kind"] == "user_message").collect();
+    let texts: Vec<_> =
+        sent.iter().map(|e| e["msg"]["text"].as_str().unwrap_or_default()).collect();
+    assert!(!texts.contains(&"see this"), "a message with files reached the child: {sent:?}");
+    let uploads = std::env::var_os("ACPMUX_HOME").map(PathBuf::from).unwrap().join("uploads");
+    let saved = std::fs::read_dir(uploads.join(&child)).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(saved, 0, "an upload was begun for the child");
+    let _ = std::fs::remove_file(&socket);
+}
+
 #[tokio::test]
 async fn a_family_prompt_never_clears_its_receivers_web_floor() {
     let s = Scratch::new("webfloor");
