@@ -724,7 +724,8 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                        .to_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -781,8 +782,11 @@ impl State {
     fn write_codex_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
-            msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
-                .to_value(),
+            msg: Message::notification(
+                crate::codex_app_server::STDIN_KIND,
+                crate::codex_app_server::redact(&line),
+            )
+            .to_value(),
         });
         let _ = self.stdin_tx.send(crate::codex_app_server::line(&line));
     }
@@ -805,7 +809,10 @@ impl State {
             self.max_out_id = self.max_out_id.max(n);
         }
         if let Some(cx) = self.codex.clone() {
-            self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
+            self.push(Entry::Tap {
+                dir: TapDir::Out,
+                msg: crate::codex_app_server::redact(&message.to_value()),
+            });
             // Answers and updates the translator gives itself go out as if Codex sent them.
             self.codex_out(cx.from_client(&message.to_value()));
             return;

@@ -427,7 +427,8 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                            let safe = crate::codex_app_server::redact(&raw);
+                            tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
                         let split = crate::codex_app_server::split(cx.tr.from_server(&raw));
@@ -435,7 +436,10 @@ impl ChildAgent {
                         drop(order);
                         for m in &split.hub {
                             if !matches!(m, Message::Response { .. }) {
-                                tap(Direction::In, m, None);
+                                let safe = crate::codex_app_server::redact(&m.to_value());
+                                if let Ok(safe) = Message::from_value(safe) {
+                                    tap(Direction::In, &safe, None);
+                                }
                             }
                         }
                         split.hub
@@ -689,7 +693,9 @@ impl ChildAgent {
             // The host writes it and logs it back as an `out` entry.
             return h.link().line(msg.to_value()).await;
         }
-        (self.tap)(Direction::Out, msg, None);
+        let safe = crate::codex_app_server::redact(&msg.to_value());
+        let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
+        (self.tap)(Direction::Out, &safe_message, None);
         if let Some(cx) = &self.codex {
             let order = cx.order.lock().await;
             let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
@@ -774,9 +780,10 @@ impl ChildAgent {
     /// Returns false once stdin is closed.
     async fn codex_lines(&self, lines: Vec<Value>) -> bool {
         for l in lines {
+            let safe = crate::codex_app_server::redact(&l);
             (self.tap)(
                 Direction::Out,
-                &Message::notification(crate::codex_app_server::STDIN_KIND, l.clone()),
+                &Message::notification(crate::codex_app_server::STDIN_KIND, safe),
                 None,
             );
             if self.stdin_tx.send(crate::codex_app_server::line(&l)).await.is_err() {
