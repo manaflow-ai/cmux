@@ -225,6 +225,10 @@ import Testing
         let router = LinkRouter()
         router.routing = { LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: ["/pull/"]) }
         #expect(router.target(for: url) == .system, "urlsToAlwaysOpenExternally must still win")
+        router.routing = { LinkRouting(opensInCmuxBrowser: false, embeddedHosts: [], externalRules: []) }
+        #expect(router.target(for: url) == .system, "turning off Open Links in cmux Browser must use the system browser")
+        router.routing = { LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [], browserEnabled: false) }
+        #expect(router.target(for: url) == .system, "disabling cmux Browser must use the system browser")
     }
 
     @Test func aPrintedPathKeepsItsLineAndColumn() {
