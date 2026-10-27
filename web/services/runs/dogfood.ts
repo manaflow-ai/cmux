@@ -236,6 +236,19 @@ export async function cancelActiveCloudVmAttempts(input: {
   await forceFinalizeRunCancellation(input.runId, input.userId);
 }
 
+/** The provider's own strict destroy: true when it destroyed the VM or says it has no such machine. */
+async function strictProviderDestroy(providerVmId: string): Promise<boolean> {
+  try {
+    await getProvider(defaultProviderId()).destroy(providerVmId, undefined, { strict: true });
+    return true;
+  } catch (providerError) {
+    // Only the provider's own "no such machine" counts; an endpoint 404 is not proof.
+    if (isProviderDeletionConfirmed(providerError)) return true;
+    console.error("[runs] sandbox VM provider destroy failed", providerError);
+    return false;
+  }
+}
+
 /**
  * Reap completed cloud VMs after their terminal attach window expires. The cron pass first fails
  * sandboxed attempts whose launcher died, so their VMs are due in the same pass; `runId` scopes
@@ -254,6 +267,8 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
   await Promise.allSettled(claims.map(async (claim) => {
     let succeeded = false;
     let deferred = false;
+    // A handle let go without any destroy: never recorded as a confirmed destroy.
+    let released = false;
     try {
       if (!claim.attempt.providerVmId) throw new Error("retained attempt has no provider VM id");
       await runVmWorkflow(destroyVm({
@@ -275,28 +290,35 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
         errors += 1;
         deferred = true;
         console.error("[runs] sandbox VM is still recorded but out of the reaper's scope", { attemptId: claim.attempt.id });
-      } else if (isVmNotFoundError(error) && claim.environment === "sandboxed" && claim.attempt.providerVmId
-        && !await sandboxVmOwnedByAttempt({ providerVmId: claim.attempt.providerVmId, runId: claim.attempt.runId, attemptId: claim.attempt.id, userId: claim.userId }).catch(() => true)) {
-        // The id matches no VM the launcher created for this attempt (it came only from an event):
-        // nothing of this Run's to destroy, and never another tenant's VM through provider credentials.
-        succeeded = true;
-        console.warn("[runs] sandbox attempt's VM id is not its own VM; released without a provider destroy", { attemptId: claim.attempt.id });
       } else if (isVmNotFoundError(error) && claim.environment === "sandboxed" && claim.attempt.providerVmId) {
-        // This attempt's own VM row is no longer live, but that is the control plane's view: ask the
-        // provider itself, and treat the VM as gone only when it confirms (destroyed now, or not found).
-        try {
-          await getProvider(defaultProviderId()).destroy(claim.attempt.providerVmId, undefined, { strict: true });
+        // The unscoped provider destroy below is only for the VM the launcher created for this
+        // attempt; an id that only came from an event never reaches another tenant's VM.
+        const providerVmId = claim.attempt.providerVmId;
+        const owned = await sandboxVmOwnedByAttempt({ providerVmId, runId: claim.attempt.runId, attemptId: claim.attempt.id, userId: claim.userId })
+          .catch((lookupError: unknown) => {
+            console.error("[runs] sandbox VM ownership lookup failed", lookupError);
+            return null;
+          });
+        if (owned === null) {
+          // Ownership unknown: no provider call; keep the obligation and retry later.
+          errors += 1;
+          deferred = true;
+        } else if (!owned) {
+          // Nothing of this Run's to destroy: let the handle go, and confirm no destroy.
           succeeded = true;
-        } catch (providerError) {
-          // Only the provider's own "no such machine" counts; an endpoint 404 is not proof.
-          if (isProviderDeletionConfirmed(providerError)) succeeded = true;
-          else {
+          released = true;
+          console.warn("[runs] sandbox attempt's VM id is not its own VM; released without a provider destroy", { attemptId: claim.attempt.id });
+        } else {
+          // Its own VM row is no longer live, but that is the control plane's view: ask the provider
+          // itself, and treat the VM as gone only when it confirms (destroyed now, or not found).
+          if (await strictProviderDestroy(providerVmId)) {
+            succeeded = true;
+            cleaned += 1;
+          } else {
             errors += 1;
             deferred = true;
-            console.error("[runs] sandbox VM provider destroy failed", providerError);
           }
         }
-        if (succeeded) cleaned += 1;
       } else if (isVmNotFoundError(error)) {
         // The VM is gone, or this run's user and billing scope can no longer reach it, so this
         // row can never destroy it. Leaving it claimable would fail it every minute and, with
@@ -312,7 +334,7 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
     } finally {
       // For a sandbox, succeeded means a strict destroy confirmed the VM is gone. Record that: the
       // orphan sweep adopts a marked VM until it is set, so a failed write costs one more destroy.
-      if (succeeded && claim.environment === "sandboxed" && claim.attempt.providerVmId) {
+      if (succeeded && !released && claim.environment === "sandboxed" && claim.attempt.providerVmId) {
         await confirmSandboxVmDestroyed(claim.attempt.providerVmId).catch((error) => console.error("[runs] sandbox VM destroy confirmation not recorded", error));
       }
       if (deferred) await deferAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, delayMs: 10 * 60_000 });
