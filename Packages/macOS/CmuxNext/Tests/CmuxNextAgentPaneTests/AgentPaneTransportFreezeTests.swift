@@ -23,7 +23,7 @@ struct AgentPaneTransportFreezeTests {
 
     static func rig(_ pushes: Pushes, hidden: Bool = true) -> (AgentPaneTransport, AgentPaneFramePacer) {
         let pacer = AgentPaneFramePacer(frames: AgentPaneHiddenPacingTests.Ticks(), fallback: AgentPaneHiddenHoldTests.SoonDeadline(),
-                                        isHidden: { hidden })
+                                        nextTurn: { work in Task { @MainActor in work() } }, isHidden: { hidden })
         let transport = AgentPaneTransport(pacer: pacer)
         transport.promptJournal = nil
         transport.deliver = { event, done in
