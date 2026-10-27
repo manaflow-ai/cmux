@@ -128,6 +128,7 @@ test("a turn whose model said nothing says so until acpmux hears the model", asy
     await until(() => snapshot.silentTurn === true, "the second silence");
     daemon.push(record([["mux", "turn_result", { status: "cancelled" }]], 8));
     await until(() => snapshot.silentTurn === undefined, "the turn's end");
+    expect(snapshot.isWorking).toBe(false);
     expect(snapshot.turnStartedAtMs).toBeUndefined();
   } finally {
     client.close();
