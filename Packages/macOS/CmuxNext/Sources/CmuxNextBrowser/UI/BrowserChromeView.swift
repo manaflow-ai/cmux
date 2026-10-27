@@ -106,6 +106,10 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// Counts toolbar hide and show changes; only the latest one's landing hides the row.
+    var toolbarToggles = 0
+    /// The frames a toolbar change starts from, until the layout that places the rows at rest.
+    var pendingToolbarSlide: ToolbarSlide?
     /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
     public var toolbarPosition: ToolbarPosition = .top {
         didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
@@ -296,6 +300,14 @@ public final class BrowserChromeView: NSView {
         syncHeaderBand(animated: false)
     }
 
+    /// The toolbar row's frame: hidden, it keeps its height past its edge, so a hide moves the
+    /// row and never resizes it.
+    private func toolbarFrame(_ rows: BrowserChromeLayout) -> CGRect {
+        guard isToolbarHidden else { return rows.toolbar }
+        let height = rowMetrics.toolbarHeight
+        return CGRect(x: 0, y: toolbarPosition == .top ? -height : bounds.height, width: bounds.width, height: height)
+    }
+
     /// The rows' frames for the view's size and state now.
     var chromeLayout: BrowserChromeLayout {
         BrowserChromeLayout(BrowserChromeLayout.Input(
@@ -407,7 +419,7 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         let rows = chromeLayout, mapping = chromeFrameMapping
-        toolbar.setChromeFrame(mapping.map(rows.toolbar))
+        toolbar.setChromeFrame(mapping.map(toolbarFrame(rows)))
         separator.setChromeFrame(mapping.map(rows.separator))
         accessoryBar.setChromeFrame(mapping.map(rows.accessoryBar))
         contentContainer.setChromeFrame(mapping.map(rows.content))
@@ -424,6 +436,7 @@ public final class BrowserChromeView: NSView {
         pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
+        startToolbarSlide()
     }
 
     /// Child-window pages draw above this view; tell them where the find

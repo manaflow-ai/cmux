@@ -28,6 +28,12 @@ import CmuxNextWakeups
         #expect(chrome.isOmnibarHidden)
         #expect(chrome.isToolbarHidden)
         #expect(chrome.toolbarRowHeight == 0, "the toolbar row still takes space")
+        let rowHeight = chrome.toolbar.frame.height
+        chrome.layoutSubtreeIfNeeded()
+        #expect(chrome.toolbar.isHidden, "outside a window the row hides at once")
+        #expect(chrome.toolbar.frame.height == rowHeight, "the hidden row resized instead of moving past its edge")
+        #expect(chrome.toolbar.frame.minY == chrome.bounds.maxY, "y up: the hidden row parks above the top edge")
+        #expect(chrome.contentContainer.frame.maxY == chrome.bounds.maxY, "the page did not take the row's room")
 
         chrome.toggleOmnibar()
         #expect(!chrome.isOmnibarHidden)
