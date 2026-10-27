@@ -27,4 +27,14 @@ struct CloudLinkLanesTests {
         #expect(arguments.contains("--carrier") == !invited)
         #expect((value(of: "--invite-file", in: arguments) != nil) == invited)
     }
+
+    /// The owner flag (#26323) still reaches the link now that its argv is built here.
+    @Test func theOwnerFlagReachesTheLink() {
+        let arguments = CloudMachineLink.connectArguments(
+            route: "ws://10.0.0.2:1337/v1/link", deviceName: "Mac", paths: paths, machineID: "vm-1",
+            inviteFile: nil, trustedCarrier: true, hubSocket: "/tmp/hub.sock", vmKind: ["--vm-kind", "owner"]
+        )
+        #expect(value(of: "--vm-kind", in: arguments) == "owner")
+        #expect(Array(arguments.suffix(2)) == ["--wireguard-hub", "/tmp/hub.sock"])
+    }
 }
