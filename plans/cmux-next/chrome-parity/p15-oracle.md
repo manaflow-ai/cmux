@@ -604,6 +604,10 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 355 | Live: per-case launch environment and config | M | 20-36 | 047, 200, 225 | MQ-live |
 | 356 | Live: facets for the scripts' debug.* reads | L | 24-48 | 030, 225 | MQ-live |
 | 357 | Live: chrome:// and cmux:// pages are local | S | 18-24 | 012, 225 | MQ-live |
+| 360 | Loopback TLS page | S | 18-28 | 222, 225, 072, 352 | MQ-action-gaps |
+| 361 | Oracle test extension in the hermetic profile | M | 20-36 | 047, 072 | MQ-action-gaps |
+| 248 | Loopback permission-asking page | S | 18-24 | 222, 225, 072 | MQ-action-gaps |
+| 249 | Loopback Web Store stand-in | S | 18-28 | 222, 225, 072 | MQ-action-gaps |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -977,6 +981,34 @@ root is under /tmp and state/projects.rs refuses every path under /tmp, /var/fol
 success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
+
+The browser, browserProfile and devtools action cases (072) open their fixture page from 222's loopback server
+(openBrowser and `cmux browser navigate` refuse data: URLs), which driver_app.py starts for a case with `fixture.web`
+(225's fixer; 072 had planned it as a follow-up). Their success paths that need a fixture no planned task made name
+these four follow-ups.
+
+**360 Loopback TLS page.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`, `browser/_tuning.json`. An https
+listener on 127.0.0.1 with a per-run self-signed certificate the engines do not trust (352's https origin, which the
+live cases share), so a load shows the engine's certificate warning (Chromium's `net/test/embedded_test_server`
+`CERT_EXPIRED` server). The success cases of browser.certificateWarning.goBack, browser.pageInfo.certificate (a real
+chain) and browser.pageInfo.reenableCertificateWarnings (after a person-path proceed) lose their gap_success. Test:
+fleet, the three cases green twice on both engines.
+
+**361 Oracle test extension.** Files: `driver_app.py`, `tests/oracle/fixtures/extensions/oracle/`, `browser/_tuning.json`.
+loadUnpacked is person-only, so before launch the driver installs an unpacked MV3 extension named oracle (an action, a
+command, an options page) into the tag's hermetic Chromium profile the way the profile's extension store reads it
+(BrowserExtensionStore), as Chromium's browser tests load one with `--load-extension`. The success cases of the ten
+browser.extension.* actions lose their gap_success. Test: fleet, the ten cases green twice on chromium.
+
+**248 Loopback permission-asking page.** Files: `tests/oracle/fixtures/web/`, `browser/_tuning.json`. A page on 222's
+origin that asks for the notifications permission on load, so a prompt is pending; browser.prompt.allow and
+browser.prompt.block run their success path on it. Test: fleet, both cases green twice on both engines.
+
+**249 Loopback Web Store stand-in.** Files: `BrowserExtensionInfo.swift`, `driver_app.py`, `tests/oracle/fixtures/web/`,
+`browser/_tuning.json`. browser.extensions.webStore opens the remote Chrome Web Store, which no oracle case may load. A
+DEBUG and bench-hooks launch value replaces `URL.browserExtensionWebStore` for the run (injected at launch, never read
+in a Release build); driver_app.py sets it to `$WEB/webstore.html`. The action loses its gap. Test: fleet, the case
+green twice; a Release build still opens chromewebstore.google.com.
 
 **245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
 `mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
