@@ -20,19 +20,93 @@ import Testing
         let mailbox: TerminalEventMailbox
         let router: TerminalEventRouter
 
-        init(label: String) {
+        /// - Parameters:
+        ///   - restores: What Ghostty answers a READY (`ghostty_surface_restore_snapshot`).
+        ///   - localHistory: What Ghostty answers a local-history READY (a `GHOSTTY_SURFACE_LOCAL_HISTORY_*`).
+        init(label: String, restores: Bool = true,
+             localHistory: Int32 = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue)) {
             let steps = StepLog()
             self.steps = steps
             lane = TerminalOutputLane(surface: TerminalEventRouterTests.surface, label: label,
                                       parse: { _, data in steps.append("output \(String(decoding: data, as: UTF8.self))") },
-                                      setGrid: { _, columns, rows, generation in steps.append("grid \(columns)x\(rows) #\(generation)") })
+                                      setGrid: { _, columns, rows, generation in steps.append("grid \(columns)x\(rows) #\(generation)") },
+                                      restore: { _, _, _ in
+                                          steps.append("restore")
+                                          return restores
+                                      },
+                                      restoreLocal: { _, _, _, _ in
+                                          steps.append("restore local")
+                                          return localHistory
+                                      })
             mailbox = TerminalEventMailbox {}
             // The session's input goes nowhere here.
             let input = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "\(label).input", qos: .utility)) { _, _ in .next })
+            // A swap is recorded and ends the loop (nil: the session is gone).
             router = TerminalEventRouter(lane: lane, mailbox: mailbox,
                                          input: TerminalInputSink(lane: input, typingSurface: TypingLatencyProbe(path: nil).makeSurfaceKey()),
-                                         replace: { _ in nil })
+                                         replace: { _ in
+                                             steps.append("swap")
+                                             return nil
+                                         })
         }
+    }
+
+    /// A READY Ghostty refused is no content: the main actor hears of none, and the next replay goes
+    /// into the same surface instead of swapping it. A READY that restored is content, and a replay
+    /// after it swaps.
+    @Test func refusedReadyIsNoContent() async {
+        let fixture = Fixture(label: "test.router-ready-refused", restores: false)
+        defer { fixture.lane.close() }
+        var router = fixture.router
+        #expect(await router.route(.snapshot(Data("snap".utf8), phase: .ready)))
+        await fixture.lane.drained()
+        let afterReady = fixture.mailbox.take()
+        #expect(afterReady?.contentQueued != true, "a refused READY was posted as content")
+        #expect(afterReady?.readyRestores ?? 0 == 0)
+        #expect(!router.hasContent)
+
+        #expect(await router.route(.replay(Data("vt".utf8))), "a replay after a refused READY swapped the surface")
+        await fixture.lane.drained()
+        #expect(fixture.steps.entries == ["restore", "output vt"])
+        #expect(fixture.mailbox.take()?.contentQueued == true)
+
+        let restoring = Fixture(label: "test.router-ready-restored")
+        defer { restoring.lane.close() }
+        var restored = restoring.router
+        #expect(await restored.route(.snapshot(Data("snap".utf8), phase: .ready)))
+        await restoring.lane.drained()
+        let pending = restoring.mailbox.take()
+        #expect(pending?.contentQueued == true)
+        #expect(pending?.readyRestores == 1)
+        #expect(!(await restored.route(.replay(Data("vt".utf8)))))
+        #expect(restoring.steps.entries == ["restore", "swap"])
+    }
+
+    /// A local-history READY that Ghostty answers with an error changed nothing: no content, and the
+    /// next replay goes into the same surface. A mismatch restored the READY without history: content.
+    @Test func localHistoryErrorIsNoContent() async {
+        let local = TerminalSnapshotPhase.readyLocalHistory(
+            TerminalLocalHistory(columns: 80, rows: 24, historyRows: 10, digest: Data([1, 2, 3])))
+        let fixture = Fixture(label: "test.router-local-error", localHistory: Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
+        defer { fixture.lane.close() }
+        var router = fixture.router
+        #expect(await router.route(.snapshot(Data("snap".utf8), phase: local)))
+        await fixture.lane.drained()
+        let afterError = fixture.mailbox.take()
+        #expect(afterError?.contentQueued != true, "a local-history error was posted as content")
+        #expect(afterError?.localHistoryMismatches == 1)
+        #expect(await router.route(.replay(Data("vt".utf8))), "a replay after a local-history error swapped the surface")
+        await fixture.lane.drained()
+        #expect(fixture.steps.entries == ["restore local", "output vt"])
+
+        let mismatch = Fixture(label: "test.router-local-mismatch", localHistory: Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue))
+        defer { mismatch.lane.close() }
+        var mismatched = mismatch.router
+        #expect(await mismatched.route(.snapshot(Data("snap".utf8), phase: local)))
+        await mismatch.lane.drained()
+        #expect(mismatch.mailbox.take()?.contentQueued == true)
+        #expect(!(await mismatched.route(.replay(Data("vt".utf8)))))
+        #expect(mismatch.steps.entries == ["restore local", "swap"])
     }
 
     /// With the main actor held, output and `.resize` steps reach the lane in stream order, each new grid at
@@ -103,6 +177,40 @@ import Testing
         #expect(!pending.exited)
         pending.exited = true
         #expect(pending.exited)
+
+        // One by one, a chip that arrives while restoring is hidden, and `.connected` does not show it again.
+        var restoring = TerminalEventMailbox.Pending()
+        restoring.set(.restoring)
+        restoring.setSizedFor(chip)
+        restoring.set(.connected)
+        #expect(restoring.sizedFor == .some(nil), "a chip that came while restoring showed after connected")
+
+        // A chip after `.connected` shows; with no pending status the main actor checks the view's connection.
+        var connected = TerminalEventMailbox.Pending()
+        connected.set(.restoring)
+        connected.setSizedFor(chip)
+        connected.set(.connected)
+        connected.setSizedFor(chip)
+        #expect(connected.sizedFor == .some(chip))
+        var noStatus = TerminalEventMailbox.Pending()
+        noStatus.setSizedFor(chip)
+        #expect(noStatus.sizedFor == .some(chip))
+    }
+
+    /// The router records the stream `.restoring`, chip, `.connected` as one by one: no chip.
+    @Test func chipWhileRestoringStaysHidden() async {
+        let fixture = Fixture(label: "test.router-chip-restoring")
+        defer { fixture.lane.close() }
+        var router = fixture.router
+        let chip = TerminalSizedFor(deviceName: "iPad", deviceKind: "ipad", sameDevice: false,
+                                    grid: TerminalGridSize(columns: 60, rows: 20), fixedSize: false)
+        _ = await router.route(.status(.restoring))
+        _ = await router.route(.sizedFor(chip))
+        _ = await router.route(.status(.connected))
+        let pending = fixture.mailbox.take()
+        #expect(pending?.status == .connected)
+        #expect(pending?.sizedFor == .some(nil))
+        await fixture.lane.drained()
     }
 
     /// The lane's grid lock: each new grid takes the next generation, the locked grid none, and an adopted

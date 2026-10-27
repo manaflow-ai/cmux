@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextTerminalGeometry
 import Foundation
 import GhosttyNextKit
@@ -15,8 +16,13 @@ import GhosttyNextKit
 nonisolated struct TerminalEventRouter: Sendable {
     /// The lane later events go to: the session's live surface's (nil: it has no surface).
     private(set) var lane: TerminalOutputLane?
-    /// The live surface was handed content: a later replay needs a fresh one.
+    /// The live surface was handed content (output, a replay, or a READY the lane restored): a later
+    /// replay needs a fresh one. A READY counts only once the lane says it restored (``restored``).
     private(set) var hasContent = false
+    /// The live surface's READYs the lane restored: set from the lane's result, on its queue.
+    private var restored = TerminalRestoredContent()
+    /// A READY was queued on the live surface's lane since the loop last read ``restored``.
+    private var restoreQueued = false
     let mailbox: TerminalEventMailbox
     /// The session's input to the IO: a local-history mismatch asks it for a fresh READY.
     let input: TerminalInputSink
@@ -60,7 +66,7 @@ nonisolated struct TerminalEventRouter: Sendable {
         case .status(let status):
             mailbox.post { $0.set(status) }
         case .sizedFor(let sizedFor):
-            mailbox.post { $0.sizedFor = .some(sizedFor) }
+            mailbox.post { $0.setSizedFor(sizedFor) }
         case .output, .inputEcho:
             break // no lane: nothing to parse into
         }
@@ -69,13 +75,15 @@ nonisolated struct TerminalEventRouter: Sendable {
 
     /// A replay goes into the live surface while it has no content, else into a fresh one.
     private mutating func replay(_ event: TerminalIOEvent, vt: Data) async -> Bool {
-        guard hasContent else {
+        guard await surfaceHasContent() else {
             lane?.processOutput(vt)
             contentRestored()
             return true
         }
         guard let fresh = await replace(event) else { return false }
         lane = fresh
+        restored = TerminalRestoredContent()
+        restoreQueued = false
         return true
     }
 
@@ -83,16 +91,22 @@ nonisolated struct TerminalEventRouter: Sendable {
     /// of the preceding `.resize` (a READY keeps that lock's generation and takes its size).
     private mutating func restore(_ data: Data, phase: TerminalSnapshotPhase) async {
         guard let lane else { return }
-        let mailbox = mailbox
+        let mailbox = mailbox, content = restored
         switch phase {
         case .ready:
             // ghostty-next applies this surface's palette, default colors and
             // cursor defaults to the restored terminal itself (local policy,
             // GhosttyNextKit 68ac618db), keeping the program's overrides.
+            // A READY Ghostty refused leaves the terminal as it was: no content.
+            restoreQueued = true
             lane.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_READY) { restored in
-                if restored { mailbox.post { $0.readyRestores += 1 } }
+                guard restored else { return }
+                content.set()
+                mailbox.post {
+                    $0.readyRestores += 1
+                    $0.contentQueued = true
+                }
             }
-            contentRestored()
         case .history:
             await lane.waitForCapacity()
             lane.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_HISTORY)
@@ -100,20 +114,26 @@ nonisolated struct TerminalEventRouter: Sendable {
             // The restore reflows the old grid itself (no set_grid); on a mismatch the READY is
             // restored without history and the IO is asked for a fresh READY + history, on an error
             // the IO is asked as well.
+            // An error (a closed lane too) changed nothing: no content.
             let grid = TerminalGridSize(columns: local.columns, rows: local.rows)
             let input = input
+            restoreQueued = true
             lane.restoreLocalHistory(data, expectedRows: local.historyRows, digest: local.digest, grid: grid) { result in
                 switch result {
                 case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue):
+                    content.set()
                     mailbox.post {
                         $0.localSnapshots += 1
                         $0.readyRestores += 1
+                        $0.contentQueued = true
                     }
                 case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue):
+                    content.set()
                     input.resync()
                     mailbox.post {
                         $0.localHistoryMismatches += 1
                         $0.readyRestores += 1
+                        $0.contentQueued = true
                     }
                 default:
                     input.resync()
@@ -121,7 +141,6 @@ nonisolated struct TerminalEventRouter: Sendable {
                 }
             }
             mailbox.post { $0.grid = grid }
-            contentRestored()
         case .images(let skipped):
             await lane.waitForCapacity()
             lane.applyKittyReplay(data)
@@ -129,17 +148,38 @@ nonisolated struct TerminalEventRouter: Sendable {
         }
     }
 
+    /// Whether the live surface has content. A READY still on the lane is waited for (off main), so a
+    /// replay after a READY Ghostty refused goes into the same, empty surface.
+    private mutating func surfaceHasContent() async -> Bool {
+        if !hasContent, restoreQueued, let lane { await lane.drained() }
+        restoreQueued = false
+        if restored.value { hasContent = true }
+        return hasContent
+    }
+
     /// Output was queued on the live surface's lane: the first content's bookkeeping follows on the
     /// main actor's frame. Later output into a surface with content costs the main actor nothing.
     private mutating func contentQueued() {
+        if restored.value { hasContent = true }
         guard !hasContent else { return }
         contentRestored()
     }
 
-    /// A whole screen (a replay, a READY) was queued on the live surface's lane: content for the main
+    /// A whole screen (a replay) was queued on the live surface's lane: content for the main
     /// actor's bookkeeping, each time.
     private mutating func contentRestored() {
         hasContent = true
         mailbox.post { $0.contentQueued = true }
     }
+}
+
+/// One surface's READY restores that its output lane reported: set from the lane's result callback
+/// on the lane's queue, read by the events loop (``TerminalEventRouter``).
+nonisolated final class TerminalRestoredContent: Sendable {
+    private let restored = Atomic<Bool>(false)
+
+    /// A READY (or a local-history READY) restored into the surface.
+    var value: Bool { restored.load(ordering: .acquiring) }
+
+    func set() { restored.store(true, ordering: .releasing) }
 }

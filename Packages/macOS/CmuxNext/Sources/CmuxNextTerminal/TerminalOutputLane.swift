@@ -63,13 +63,28 @@ nonisolated final class TerminalOutputLane: Sendable {
     typealias SetGrid = @Sendable (ghostty_surface_t, UInt16, UInt16, UInt64) -> Void
     /// SAFETY: called only by ``lockGrid(_:)`` with the lane's live surface (``liveSurface``).
     @safe private let setGrid: SetGrid
+    /// Restores one GHOSTSNP phase into the surface: `ghostty_surface_restore_snapshot`, or a test's recorder.
+    typealias Restore = @Sendable (ghostty_surface_t, Data, ghostty_surface_snapshot_phase_e) -> Bool
+    /// SAFETY: called only by ``restoreSnapshot(_:phase:restored:)`` with the lane's live surface (``liveSurface``).
+    @safe private let restore: Restore
+    /// Restores a local-history READY: `ghostty_surface_restore_snapshot_local_history` (its
+    /// `ghostty_surface_local_history_result_e`), or a test's recorder.
+    typealias RestoreLocalHistory = @Sendable (ghostty_surface_t, Data, UInt64, Data) -> Int32
+    /// SAFETY: called only by ``restoreLocalHistory(_:expectedRows:digest:grid:done:)`` with the lane's
+    /// live surface (``liveSurface``).
+    @safe private let restoreLocal: RestoreLocalHistory
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
          hangs: (any HangWatchScoping)? = nil,
-         // SAFETY: the lane calls `parse` and `setGrid` only with its live surface (their notes).
+         // SAFETY: the lane calls `parse`, `setGrid`, `restore` and `restoreLocal` only with its live
+         // surface (their notes).
          parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) },
-         setGrid: @escaping SetGrid = { _ = unsafe ghostty_surface_set_grid($0, $1, $2, $3) }) {
+         setGrid: @escaping SetGrid = { _ = unsafe ghostty_surface_set_grid($0, $1, $2, $3) },
+         restore: @escaping Restore = { unsafe TerminalOutputLane.restoreSnapshot($0, $1, phase: $2) },
+         restoreLocal: @escaping RestoreLocalHistory = {
+             unsafe TerminalOutputLane.restoreLocalHistory($0, $1, expectedRows: $2, digest: $3)
+         }) {
         // SAFETY: the view's surface, which the lane reaches only through ``liveSurface``; the view
         // closes the lane before it frees the surface (TerminalSurfaceView.deinit).
         self.surface = unsafe UncheckedPointer(raw: surface)
@@ -77,6 +92,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         self.parse = unsafe parse
         // SAFETY: `setGrid` is called only with the live surface (its note).
         self.setGrid = unsafe setGrid
+        // SAFETY: `restore` and `restoreLocal` are called only with the live surface (their notes).
+        self.restore = unsafe restore
+        self.restoreLocal = unsafe restoreLocal
         self.highWater = highWater
         self.echoStage = echoStage
         self.keyFlows = keyFlows
@@ -168,6 +186,41 @@ nonisolated final class TerminalOutputLane: Sendable {
         }
     }
 
+    /// The production ``Restore``: `ghostty_surface_restore_snapshot` of one phase.
+    /// `surface` is a live handle on its lane.
+    static func restoreSnapshot(_ surface: ghostty_surface_t, _ data: Data,
+                                phase: ghostty_surface_snapshot_phase_e) -> Bool {
+        // SAFETY: Ghostty reads buffer.count bytes of `data`'s storage, alive for the closure, and
+        // copies what it keeps.
+        unsafe data.withUnsafeBytes { buffer -> Bool in
+            // SAFETY: as above.
+            guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+            // SAFETY: as above; the caller's live surface.
+            return unsafe ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
+        }
+    }
+
+    /// The production ``RestoreLocalHistory``: `ghostty_surface_restore_snapshot_local_history`.
+    /// `surface` is a live handle on its lane.
+    static func restoreLocalHistory(_ surface: ghostty_surface_t, _ data: Data, expectedRows: UInt64,
+                                    digest: Data) -> Int32 {
+        // SAFETY: Ghostty reads bytes.count bytes of `data` and check.count of `digest`, both
+        // storages alive for the closures, and copies what it keeps.
+        unsafe data.withUnsafeBytes { bytes -> Int32 in
+            // SAFETY: as above.
+            unsafe digest.withUnsafeBytes { check -> Int32 in
+                // SAFETY: as above.
+                guard let base = unsafe bytes.bindMemory(to: UInt8.self).baseAddress,
+                      let expected = unsafe check.bindMemory(to: UInt8.self).baseAddress else {
+                    return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+                }
+                // SAFETY: as above; the caller's live surface.
+                return unsafe Int32(ghostty_surface_restore_snapshot_local_history(
+                    surface, base, bytes.count, expectedRows, expected, check.count))
+            }
+        }
+    }
+
     /// Restores GHOSTSNP bytes (`ghostty_surface_restore_snapshot`) in
     /// stream order. Counted as backlog like output, so history pages push
     /// back on the IO the same way. A failed READY leaves the terminal as it
@@ -182,14 +235,8 @@ nonisolated final class TerminalOutputLane: Sendable {
             guard let surface = liveSurface else { return }
             let ready = phase == GHOSTTY_SURFACE_SNAPSHOT_READY
             guard ready || readyRestored.load(ordering: .relaxed) else { return }
-            // SAFETY: ``liveSurface`` on the lane; Ghostty reads buffer.count bytes of `data`'s
-            // storage, alive for the closure, and copies what it keeps.
-            let restored = unsafe data.withUnsafeBytes { buffer -> Bool in
-                // SAFETY: as above.
-                guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
-                // SAFETY: as above.
-                return unsafe ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
-            }
+            // SAFETY: ``liveSurface`` on the lane.
+            let restored = unsafe restore(surface, data, phase)
             if ready {
                 readyRestored.store(restored, ordering: .releasing)
                 done?(restored)
@@ -220,21 +267,8 @@ nonisolated final class TerminalOutputLane: Sendable {
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
             defer { done(result) }
             guard let surface = liveSurface else { return }
-            // SAFETY: ``liveSurface`` on the lane; Ghostty reads bytes.count bytes of `data` and
-            // check.count of `digest`, both storages alive for the closures, and copies what it keeps.
-            result = unsafe data.withUnsafeBytes { bytes -> Int32 in
-                // SAFETY: as above.
-                unsafe digest.withUnsafeBytes { check -> Int32 in
-                    // SAFETY: as above.
-                    guard let base = unsafe bytes.bindMemory(to: UInt8.self).baseAddress,
-                          let expected = unsafe check.bindMemory(to: UInt8.self).baseAddress else {
-                        return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
-                    }
-                    // SAFETY: as above.
-                    return unsafe Int32(ghostty_surface_restore_snapshot_local_history(
-                        surface, base, bytes.count, expectedRows, expected, check.count))
-                }
-            }
+            // SAFETY: ``liveSurface`` on the lane.
+            result = unsafe restoreLocal(surface, data, expectedRows, digest)
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue) { gridLock.adopt(grid) }

@@ -45,6 +45,17 @@ nonisolated final class TerminalEventMailbox: Sendable {
             exited = false
             if status != .connected { sizedFor = .some(nil) }
         }
+
+        /// A new chip. Applied one by one, a chip shows only while the view is connected, so a chip
+        /// after a pending status that is not connected is cleared: a later `.connected` does not
+        /// show it again. With no pending status, the main actor checks the view's connection.
+        mutating func setSizedFor(_ chip: TerminalSizedFor?) {
+            if let status, status != .connected {
+                sizedFor = .some(nil)
+            } else {
+                sizedFor = .some(chip)
+            }
+        }
     }
 
     private nonisolated struct State {
