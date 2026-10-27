@@ -51,6 +51,8 @@ it committed it, so the next read on the connection sees it), kill and restart o
 kill of the terminal holder (below), advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185),
 and waitFor on session.events (each event re-reads the facet; no sleeps). cli, mcp, action.run, key and
 tui.key belong to the other drivers.
+A resource.call with expect outcome `any` (a walk move of gen_walks.py) passes with ok or a typed error, and what
+it gave is the `reply` facet of its settled checkpoint, so a differential run compares it like any facet.
 
 Invariant I6 (no orphan processes or sockets). Each case runs in its own worker process (`case-worker`),
 which on Linux is a child subreaper (prctl PR_SET_CHILD_SUBREAPER): a process the case starts stays in
@@ -174,6 +176,10 @@ FACETS = (
     "invariants", "switches",
 )
 DEFAULT_FACETS = ("daemon",)
+# expect outcome `any` (case-v1, a walk move of gen_walks.py, p15-oracle-098): the step passes with ok or a typed error,
+# and what it gave is the `reply` facet of its settled checkpoint, compared like any facet.
+ANY_OUTCOME = "any"
+REPLY_FACET = "reply"
 # The build receipt linux_run.sh writes beside the binary it built (cmux-oracle-build-v1, with the full sha).
 BUILD_RECEIPT = "build.json"
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
@@ -1050,6 +1056,7 @@ class CaseReads:
         data = reply.get("data")
         if isinstance(data, dict):
             self.rename(data.get("session"))
+            self.rename_panic_log(data.get("panicLog"))
         return reply
 
     def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
@@ -1062,6 +1069,14 @@ class CaseReads:
         info = snapshot.get("session") if isinstance(snapshot, dict) else None
         if isinstance(info, dict) and info.get("name") == self.case_session:
             info["name"] = SESSION_NAME
+
+    def rename_panic_log(self, panic_log: Any) -> None:
+        """The owner names its panic log by the session (owner_panic_log.rs: `owner-panics-<session>.jsonl`), so
+        the facet shows the fixture's name there too; two runs of one case then give the same path."""
+        name = f"owner-panics-{self.case_session}."
+        path = panic_log.get("path") if isinstance(panic_log, dict) else None
+        if isinstance(path, str) and name in path:
+            panic_log["path"] = path.replace(name, f"owner-panics-{SESSION_NAME}.")
 
 
 def encode_selector(kind: str, value: Any) -> str:
@@ -1109,6 +1124,17 @@ def resolve_refs(value: Any, replies: Mapping[str, Any]) -> Any:
     if isinstance(value, dict):
         return {key: resolve_refs(item, replies) for key, item in value.items()}
     return value
+
+
+def reply_facet(kind: str, detail: Any) -> Dict[str, Any]:
+    """The reply facet of a step with an any outcome: ok with its mutation receipt's replayed flag, or the typed
+    error code. The reply's value is left out: the daemon facet beside it holds the objects it names."""
+    if kind == "error":
+        return {"outcome": "error", "error": detail}
+    out: Dict[str, Any] = {"outcome": "ok"}
+    if isinstance(detail, dict) and isinstance(detail.get("replayed"), bool):
+        out["replayed"] = detail["replayed"]
+    return out
 
 
 def not_comparable(reason: str, task: Optional[str] = None) -> Dict[str, str]:
@@ -1178,6 +1204,8 @@ class Capture:
 @dataclass
 class CaseState:
     replies: Dict[str, Any] = field(default_factory=dict)
+    # The reply facet of each step with an any outcome, by step id.
+    reply_facets: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     captures: List[Capture] = field(default_factory=list)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
@@ -1281,6 +1309,10 @@ class CaseRun:
         self.check_alive(step_id)
         checkpoints = step.get("checkpoint") or ["settled"]
         facets = tuple((step.get("args") or {}).get("facets") or FACETS) if op == "snapshot" else DEFAULT_FACETS
+        any_outcome = (step.get("expect") or {}).get("outcome") == ANY_OUTCOME
+        if any_outcome and "settled" not in checkpoints:
+            raise CaseError("Crash", "an any outcome is the reply facet of the step's settled checkpoint; its "
+                                     "checkpoint list needs settled", step_id)
         if "before" in checkpoints:
             self.capture(index, step_id, "before", facets)
         waiter = Waiter(self, step) if step.get("waitFor") else None
@@ -1293,7 +1325,7 @@ class CaseRun:
             if waiter is not None:
                 waiter.close()
         if "settled" in checkpoints:
-            self.capture(index, step_id, "settled", facets)
+            self.capture(index, step_id, "settled", facets + (REPLY_FACET,) if any_outcome else facets)
 
     def check_alive(self, step: str) -> None:
         """A daemon that exited while nobody killed it is a Crash at the step that finds it."""
@@ -1548,7 +1580,13 @@ class CaseRun:
             return
         step_id = step["id"]
         kind, detail = outcome
-        if expect["outcome"] != kind:
+        if expect["outcome"] == ANY_OUTCOME:
+            if step["op"] != "resource.call":
+                raise CaseError("Crash", f"an any outcome is a resource.call's, not a {step['op']} step's", step_id)
+            self.state.reply_facets[step_id] = reply_facet(kind, detail)
+            if kind == "error":
+                return
+        elif expect["outcome"] != kind:
             got = f"error {detail}" if kind == "error" else "ok"
             raise CaseError("Failure", f"expected {expect['outcome']}"
                                        f"{' ' + expect['error'] if 'error' in expect else ''}, got {got}", step_id)
@@ -1596,6 +1634,8 @@ class CaseRun:
         for name in names:
             if name == "daemon":
                 out[name] = self.daemon_facet(step)
+            elif name == REPLY_FACET and step in self.state.reply_facets:
+                out[name] = self.state.reply_facets[step]
             else:
                 out[name] = not_comparable(f"the daemon product has no {name} facet", FACET_TASKS.get(name))
         return out
