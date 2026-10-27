@@ -1,94 +1,113 @@
-/// Manual transcript input suppresses automatic scrolling for this long after the last event.
+/// Automatic transcript motion yields for one second after the last manual input.
 export const USER_SCROLL_INTENT_MS = 1000;
+const SCROLL_KEYS = new Set([
+  "ArrowDown",
+  "ArrowUp",
+  "ArrowLeft",
+  "ArrowRight",
+  "PageDown",
+  "PageUp",
+  "Home",
+  "End",
+  " ",
+  "Spacebar",
+]);
+type Listener = (event?: Event) => void;
+const states = new WeakMap<HTMLElement, ReturnType<typeof createIntent>>();
 
-const SCROLL_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " ", "Spacebar"]);
-type Listener = (held: boolean) => void;
-type State = {
-  until: number;
-  timer?: ReturnType<typeof setTimeout>;
-  refs: number;
-  listeners: Set<Listener>;
-  onWheel: (event: WheelEvent) => void;
-  onPointer: () => void;
-  onTouch: () => void;
-  onKey: (event: KeyboardEvent) => void;
-};
-
-const states = new WeakMap<HTMLElement, State>();
-
-function stateFor(node: HTMLElement): State {
-  const existing = states.get(node);
-  if (existing) return existing;
-  const state: State = {
-    until: 0,
-    refs: 0,
-    listeners: new Set(),
-    onWheel: () => markUserScrollIntent(node),
-    onPointer: () => markUserScrollIntent(node),
-    onTouch: () => markUserScrollIntent(node),
-    onKey: (event) => {
-      if (SCROLL_KEYS.has(event.key)) markUserScrollIntent(node);
+function createIntent() {
+  let at = -Infinity;
+  let generation = 0;
+  let pressed = false;
+  const listeners = new Set<Listener>();
+  return {
+    isHeld: () => pressed || performance.now() - at < USER_SCROLL_INTENT_MS,
+    // An explicit request may start during the hold, but its continuations expire on later input.
+    request: () => {
+      const started = generation;
+      return () => generation === started;
+    },
+    mark(event?: Event) {
+      at = performance.now();
+      generation += 1;
+      for (const listener of listeners) listener(event);
+    },
+    press(value: boolean) {
+      pressed = value;
+    },
+    subscribe(listener: Listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    reset() {
+      this.mark();
+      at = -Infinity;
+      pressed = false;
     },
   };
-  states.set(node, state);
+}
+
+/// One stable signal per scroller. Reading it allocates nothing per token or frame.
+export function userScrollIntent(node: HTMLElement) {
+  let state = states.get(node);
+  if (!state) {
+    state = createIntent();
+    states.set(node, state);
+  }
   return state;
 }
 
-function notify(state: State, held: boolean): void {
-  for (const listener of state.listeners) listener(held);
-}
-
-/// Returns the shared intent state for one transcript scroller.
-export function userScrollIntent(node: HTMLElement): {
-  isHeld: () => boolean;
-  mark: () => void;
-  subscribe: (listener: Listener) => () => void;
-} {
-  const state = stateFor(node);
-  return {
-    isHeld: () => performance.now() < state.until,
-    mark: () => markUserScrollIntent(node),
-    subscribe(listener) {
-      state.listeners.add(listener);
-      return () => state.listeners.delete(listener);
-    },
-  };
-}
-
-/// Installs the one listener set owned by a transcript and clears its timer/listeners on unmount.
+/// Capture input before row handlers can commit layout. A timestamp needs no expiry timer.
+/// Pointer/touch holds outlast one second while dragging; release starts the quiet interval.
 export function attachUserScrollIntent(node: HTMLElement): () => void {
-  const state = stateFor(node);
-  state.refs += 1;
-  if (state.refs === 1) {
-    node.addEventListener("wheel", state.onWheel, { capture: true, passive: true });
-    node.addEventListener("pointerdown", state.onPointer, { capture: true, passive: true });
-    node.addEventListener("touchstart", state.onTouch, { capture: true, passive: true });
-    node.ownerDocument.defaultView?.addEventListener("keydown", state.onKey, { capture: true, passive: true });
-  }
-  return () => {
-    if (state.refs === 0) return;
-    state.refs -= 1;
-    if (state.refs > 0) return;
-    node.removeEventListener("wheel", state.onWheel, { capture: true });
-    node.removeEventListener("pointerdown", state.onPointer, { capture: true });
-    node.removeEventListener("touchstart", state.onTouch, { capture: true });
-    node.ownerDocument.defaultView?.removeEventListener("keydown", state.onKey, { capture: true });
-    clearTimeout(state.timer);
-    state.timer = undefined;
-    state.until = 0;
-    state.listeners.clear();
+  const intent = userScrollIntent(node);
+  const page = node.ownerDocument;
+  let pressed = false;
+  const mark = (event: Event) => intent.mark(event);
+  const down = (event: Event) => {
+    pressed = true;
+    intent.press(true);
+    mark(event);
   };
-}
-
-/// Records a reader event and cancels every subscribed programmatic motion immediately.
-export function markUserScrollIntent(node: HTMLElement): void {
-  const state = stateFor(node);
-  state.until = performance.now() + USER_SCROLL_INTENT_MS;
-  clearTimeout(state.timer);
-  state.timer = setTimeout(() => {
-    state.until = 0;
-    state.timer = undefined;
-    notify(state, false);
-  }, USER_SCROLL_INTENT_MS);
-  notify(state, true);
+  const move = (event: Event) => {
+    if (pressed) mark(event);
+  };
+  const up = (event: Event) => {
+    if (!pressed) return;
+    pressed = false;
+    intent.press(false);
+    mark(event);
+  };
+  const key = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!SCROLL_KEYS.has(event.key) || target?.closest?.("input, textarea, select, [contenteditable=true]")) return;
+    // Scroll keys in another pane/composer do not take this transcript away from its reader.
+    if (!node.contains(target) && target !== page.body) return;
+    mark(event);
+  };
+  node.addEventListener("wheel", mark, { capture: true, passive: true });
+  node.addEventListener("pointerdown", down, { capture: true, passive: true });
+  node.addEventListener("touchstart", down, { capture: true, passive: true });
+  node.addEventListener("touchmove", mark, { capture: true, passive: true });
+  page.addEventListener("pointermove", move, { capture: true, passive: true });
+  page.addEventListener("pointerup", up, true);
+  page.addEventListener("pointercancel", up, true);
+  page.addEventListener("touchend", up, true);
+  page.addEventListener("touchcancel", up, true);
+  page.addEventListener("keydown", key, true);
+  return () => {
+    node.removeEventListener("wheel", mark, true);
+    node.removeEventListener("pointerdown", down, true);
+    node.removeEventListener("touchstart", down, true);
+    node.removeEventListener("touchmove", mark, true);
+    page.removeEventListener("pointermove", move, true);
+    page.removeEventListener("pointerup", up, true);
+    page.removeEventListener("pointercancel", up, true);
+    page.removeEventListener("touchend", up, true);
+    page.removeEventListener("touchcancel", up, true);
+    page.removeEventListener("keydown", key, true);
+    intent.reset();
+  };
 }

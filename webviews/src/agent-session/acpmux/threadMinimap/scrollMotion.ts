@@ -53,9 +53,7 @@ export function animateScroll(
     unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
-  const unsubscribeIntent = intent.subscribe((held) => {
-    if (held) end();
-  });
+  const unsubscribeIntent = intent.subscribe(end);
   const step = (now: number) => {
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
@@ -95,9 +93,7 @@ export function settleScroll(
     unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
-  const unsubscribeIntent = intent.subscribe((held) => {
-    if (held) end();
-  });
+  const unsubscribeIntent = intent.subscribe(end);
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
     const by = node.clientHeight > 0 ? offset() : undefined;
