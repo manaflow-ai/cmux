@@ -297,13 +297,15 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
-  dbTest("with no VM row left, the reaper asks the provider and only then lets the handle go", async () => {
+  dbTest("with no live VM row left, the reaper asks the provider about the attempt's own VM and only then lets the handle go", async () => {
     const userId = `sandbox-${randomUUID()}`;
     const destroyed: string[] = [];
     const { mock } = await import("bun:test");
     const drivers = await import("../services/vms/drivers");
+    // `drivers` is a live module namespace: keep a copy of the real exports to restore.
+    const original = { ...drivers };
     mock.module("../services/vms/drivers", () => ({
-      ...drivers,
+      ...original,
       getProvider: () => ({ destroy: async (id: string, _credential?: unknown, options?: { strict?: boolean }) => {
         // The no-row fallback always asks for a strict destroy.
         expect(options?.strict).toBe(true);
@@ -313,11 +315,18 @@ describe("sandboxed Run lifecycle in the repository", () => {
         if (id.endsWith("-route")) throw Object.assign(new Error("no route"), { status: 404, code: "ROUTE_NOT_FOUND" });
       } }),
     }));
+    // The launcher's row for the attempt's VM, already reconciled to destroyed (so not live).
+    const destroyedRow = async (target: { runId: string; attemptId: string }, vmId: string) => {
+      await insertSandboxVm(userId, `sandbox-run:${target.runId}:attempt:${target.attemptId}`, vmId);
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${vmId}`;
+    };
     try {
       const { reapExpiredCloudVmAttempts } = await import("../services/runs/dogfood");
       const gone = await startedAttempt(userId);
       const down = await startedAttempt(userId);
       await sql!`update run_attempts set provider_vm_id = ${`vm-${down.attemptId}-down`} where id = ${down.attemptId}`;
+      await destroyedRow(gone, `vm-${gone.attemptId}`);
+      await destroyedRow(down, `vm-${down.attemptId}-down`);
       for (const target of [gone, down]) {
         await finishAttempt(target);
       }
@@ -329,12 +338,20 @@ describe("sandboxed Run lifecycle in the repository", () => {
       expect((await repo().getRun(down.runId, userId)).attempts[0]?.leaseToken).toBeNull();
       const route = await startedAttempt(userId);
       await sql!`update run_attempts set provider_vm_id = ${`vm-${route.attemptId}-route`} where id = ${route.attemptId}`;
+      await destroyedRow(route, `vm-${route.attemptId}-route`);
       await finishAttempt(route);
       expect(await reapExpiredCloudVmAttempts({ runId: route.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
       expect((await repo().getRun(route.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${route.attemptId}-route`);
+      // A VM id that only came from the worker's event (no launcher row for this attempt and user)
+      // is never destroyed through the provider: the handle is released untouched.
+      const forged = await startedAttempt(userId);
+      await finishAttempt(forged);
+      expect(await reapExpiredCloudVmAttempts({ runId: forged.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 0 });
+      expect((await repo().getRun(forged.runId, userId)).attempts[0]?.providerVmId).toBeNull();
       expect(destroyed).toEqual([`vm-${gone.attemptId}`, `vm-${down.attemptId}-down`, `vm-${route.attemptId}-route`]);
     } finally {
-      mock.module("../services/vms/drivers", () => drivers);
+      mock.module("../services/vms/drivers", () => original);
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);
     }
   });
@@ -358,8 +375,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
     const userId = `sandbox-${randomUUID()}`;
     const { mock } = await import("bun:test");
     const drivers = await import("../services/vms/drivers");
+    const original = { ...drivers };
     mock.module("../services/vms/drivers", () => ({
-      ...drivers,
+      ...original,
       getProvider: () => ({ destroy: async () => { throw new Error("provider unavailable"); } }),
     }));
     try {
@@ -383,7 +401,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
       expect(kept.terminalRetainUntil!.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
       expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
     } finally {
-      mock.module("../services/vms/drivers", () => drivers);
+      mock.module("../services/vms/drivers", () => original);
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);
     }
