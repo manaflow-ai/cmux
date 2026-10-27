@@ -14,6 +14,10 @@
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AnnexBParser.swift", "wave": "p10-stability-093"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidScreenStream.swift", "wave": "p10-stability-093"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SurfaceSourceWire.swift", "wave": "p10-stability-093"},
-    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PrivateSignature.swift", "wave": "p10-stability-093"}
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PrivateSignature.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorSurfaceServer.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneGesture.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecording.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneFeedbackClip.swift", "wave": "p10-stability-093"}
   ]
 }

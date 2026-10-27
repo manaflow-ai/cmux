@@ -116,9 +116,11 @@ public struct XcodePhoneBackend: PhoneBackend {
         case .launch(let bundleID):
             _ = try await checked(["simctl", "launch", id.raw, bundleID], name: "simctl launch", deadline: .seconds(60))
         case .tap(let point):
+            try input.validate()
             let hid = try requireHID(input)
             try await hid.send(touches: try await gesture(id, hid).tap(point), to: id.raw)
         case .swipe(let from, let to, let seconds):
+            try input.validate()
             let hid = try requireHID(input)
             try await hid.send(touches: try await gesture(id, hid).swipe(from: from, to: to, seconds: seconds), to: id.raw)
         case .text(let text):

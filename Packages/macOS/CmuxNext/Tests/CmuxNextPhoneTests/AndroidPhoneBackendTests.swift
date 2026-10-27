@@ -51,6 +51,22 @@ import Testing
         #expect(runner.runs.contains([adb, "-s", "emulator-5554", "shell", "input", "swipe", "26", "1050", "26", "105", "300"]))
     }
 
+    /// `adb input` takes whole pixels and milliseconds: a point or swipe time no `Int` holds is a typed error before
+    /// any adb input run (p10-stability-093 fixer; before, `px` and the swipe's milliseconds trapped on 1e300 and inf).
+    @Test func aPointOrSwipeTimeNoScreenHasIsRefusedBeforeAdbRuns() async throws {
+        let runner = runner()
+        let backend = AndroidPhoneBackend(sdk: sdk, runner: runner)
+        await #expect(throws: PhoneError.outsideScreen) { try await backend.send(.tap(PhonePoint(x: 1e300, y: 0)), to: pixel) }
+        await #expect(throws: PhoneError.outsideScreen) { try await backend.send(.tap(PhonePoint(x: .infinity, y: 0)), to: pixel) }
+        let start = PhonePoint(x: 10, y: 400), end = PhonePoint(x: 10, y: 40)
+        for seconds in [1e300, .infinity, .nan, -1] {
+            await #expect(throws: PhoneError.outOfRange(what: "the swipe's seconds")) {
+                try await backend.send(.swipe(from: start, to: end, seconds: seconds), to: pixel)
+            }
+        }
+        #expect(!runner.runs.contains { $0.contains("input") })
+    }
+
     @Test func typedTextIsQuotedForTheDeviceShell() async throws {
         let runner = runner()
         try await AndroidPhoneBackend(sdk: sdk, runner: runner).send(.text("it's a & b"), to: pixel)
