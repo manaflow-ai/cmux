@@ -325,8 +325,6 @@ final class CloudService {
     }
 
     func stop() {
-        // task-owner: final app teardown; the holder also closes when its private pipes close.
-        Task { await codexBroker.shutdown() }
         for observer in observers { observer.cancel() }
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
@@ -338,6 +336,10 @@ final class CloudService {
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
     }
+
+    /// The quit coordinator awaits this before AppKit may terminate the
+    /// process, while Cloud transports can still erase delivered access.
+    func prepareForTermination() async { await codexBroker.shutdown() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
