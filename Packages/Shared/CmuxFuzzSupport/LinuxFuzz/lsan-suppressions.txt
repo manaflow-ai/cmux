@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions for the Swift fuzz targets (swift-libfuzzer.sh passes this file),
+# as Chromium keeps build/sanitizers/lsan_suppressions.cc for leaks that are not leaks.
+#
+# A Swift global or static (`static let`, a global `let`) is filled once by its one-time
+# initializer (mangled name ending in _WZ) and kept for the process's life. Swift stores the
+# reference inside enum payloads with spare bits set (Data, String), which LeakSanitizer does not
+# read as a pointer, so the value looks unreachable. A leak whose allocation stack passes through
+# such an initializer is that value; every other leak still counts.
+leak:_WZ$

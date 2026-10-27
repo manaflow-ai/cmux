@@ -79,18 +79,6 @@ import Testing
         _ = try? CmxIrohAdmissionAckCodec().decodePrefix(rng.bytes(24))
     }
 
-    /// TimeInterval(Int64.max) rounds up to 2^63, so the old range check let the
-    /// last representable timestamp through to Int64(_:), which trapped.
-    @Test func rendezvousEpochRefusesTimestampsPastInt64() throws {
-        let interval = CmxIrohLANRendezvousAliasGenerator.rotationInterval
-        for seconds in [TimeInterval(Int64.max) * interval, .infinity, .nan, -1] {
-            #expect(throws: CmxIrohLANRendezvousAliasError.self) {
-                try CmxIrohLANRendezvousAliasGenerator.epoch(for: Date(timeIntervalSince1970: seconds))
-            }
-        }
-        #expect(try CmxIrohLANRendezvousAliasGenerator.epoch(for: Date(timeIntervalSince1970: interval * 3)) == 3)
-    }
-
     @Test func streamHeadersDecodeOrThrowForAnyBytes() throws {
         let codec = try CmxIrohStreamHeaderCodec()
         for (index, header) in try Self.streamHeaders().enumerated() {

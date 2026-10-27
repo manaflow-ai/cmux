@@ -1,0 +1,1 @@
+../../../../CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileProtocolFuzzTests.swift
