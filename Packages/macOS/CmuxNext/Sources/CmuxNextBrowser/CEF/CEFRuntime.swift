@@ -568,11 +568,12 @@ final class CEFRuntime {
         unsafe shim.setWindowRequestHandler(cefWindowRequestCallback)
         installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
+        let logFile = library.chromiumLogFile(storage)
         let ok = CEFStartSteps.shared.timed("cef_initialize") {
             // SAFETY: Swift makes a NUL-terminated copy of each path and locale string for the call; `arguments`
             // owns the NULL-terminated argv (CEFSwitchArguments); `context` is above; the callbacks are C
             // functions of the header's types.
-            unsafe shim.initialize(paths.framework, paths.mainBundle, paths.helper, storage.root.path, storage.logFile.path,
+            unsafe shim.initialize(paths.framework, paths.mainBundle, paths.helper, storage.root.path, logFile,
                                    Self.logSeverity, locale.locale, locale.acceptLanguages, arguments.argv, context,
                                    schedule, cefEventCallback, cefKeyCallback)
         }

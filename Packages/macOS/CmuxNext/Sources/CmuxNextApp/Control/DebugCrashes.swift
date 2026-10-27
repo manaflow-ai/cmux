@@ -13,8 +13,14 @@ import Foundation
 @MainActor
 enum DebugCrashes {
     static func report(_ services: AppServices) -> JSONValue {
-        let crash = services.crashRecovery
-        let log = services.cache.cef.crashLog
+        report(crash: services.crashRecovery, chromium: services.cache.cef.crashLog,
+               hostSupervisor: services.chromiumRuntime.source.hostSupervisor)
+    }
+
+    /// The report of `crash` (this launch and the crash report folder), `log` (Chromium's process failures) and, in
+    /// host mode, `hostSupervisor`'s records of the Chromium Host's ends.
+    static func report(crash: CrashRecoveryService, chromium log: BrowserCrashLog,
+                       hostSupervisor: (any ChromiumHostSupervising)?) -> JSONValue {
         var launch: [String: JSONValue] = [
             "recovery": .string(recoveryName(crash.recovery)),
             "skips_browser_pages": .bool(crash.recovery.skipsBrowserPages),
@@ -38,7 +44,7 @@ enum DebugCrashes {
             "report_dir": .string(crash.writer.directory.path),
         ]
         #if DEBUG || CMUX_BENCH_HOOKS
-        if let supervisor = services.chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor {
+        if let supervisor = hostSupervisor as? ChromiumHostSupervisor {
             object["chromium_host_total"] = .number(Double(supervisor.crashesTotal))
             // The fields of each end's crash report (CrashReportWriter), one source for both.
             object["chromium_host"] = .array(supervisor.crashes.map { JSONValue(foundation: crash.writer.report(for: $0)) ?? .null })

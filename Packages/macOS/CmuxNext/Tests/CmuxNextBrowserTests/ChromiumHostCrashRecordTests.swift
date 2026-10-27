@@ -45,9 +45,9 @@ import Testing
         let filler = String(repeating: "f", count: 100)
         let log = (1...1000).map { "\($0) \(filler)" }.joined(separator: "\n") + "\n"
         try Data(log.utf8).write(to: file)
-        let tail = ChromiumHostLogTail.read(file)
+        let tail = ChromiumHostCrashRecord.logTail(of: file)
         #expect(tail == (981...1000).map { "\($0) \(filler)" })
-        #expect(ChromiumHostLogTail.read(file.appendingPathExtension("missing")).isEmpty)
+        #expect(ChromiumHostCrashRecord.logTail(of: file.appendingPathExtension("missing")).isEmpty)
     }
 
     @Test func theSignalHasItsName() {

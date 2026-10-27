@@ -17,14 +17,20 @@ import Testing
 /// record with its signal or exit code, its fork API and the last lines of its log without URLs (p01-process-085).
 @MainActor
 @Suite struct ChromiumHostSupervisorTests {
-    /// A stand-in host: `/bin/sh -c script`, its control channel on fd 3.
-    /// With `logFile`, the script's `$0` is `--log-file=<logFile>`, the argument the host's log comes from.
+    /// A stand-in host: `/bin/sh -c script chromium-host [--log-file=<logFile>]`, its control channel on fd 3.
+    /// With `logFile`, the spawn names the log as it names the real host's (ChromiumHostConfiguration), and
+    /// ``logToSpawnLog`` writes there, as the real host's Chromium does (`cmux_host::HostLogFile`).
     private static func plan(_ script: String, logFile: URL? = nil) -> ChromiumHostLaunchPlan {
-        let arguments = ["-c", script] + (logFile.map { ["--log-file=\($0.path)"] } ?? [])
+        let arguments = ["-c", script, "chromium-host"] + (logFile.map { ["--log-file=\($0.path)"] } ?? [])
         return ChromiumHostLaunchPlan(configuration: ChromiumHostConfiguration(executable: URL(filePath: "/bin/sh"), arguments: arguments),
                                       remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                       frameworkLocales: ["en.lproj"], cefVersion: "154.0.0")
     }
+
+    /// A stand-in's shell lines that set `f` to its spawn's `--log-file`, the argument the real host takes its log from.
+    private static let logToSpawnLog = """
+        f=""; for a in "$@"; do case "$a" in --log-file=*) f="${a#--log-file=}";; esac; done; [ -n "$f" ] || exit 70
+        """
 
     /// What the supervisor reported: each `onHostEnded` (its exit and whether it ran on the main thread), and how
     /// many ends its observers saw.
@@ -63,7 +69,7 @@ import Testing
             supervisor = ChromiumHostSupervisor(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: false) {
                 planOnMain.withLock { $0.append(Thread.isMainThread) }
                 return plan
-            }, logs: ChromiumHostLogTail(work: work, mainWork: mainWork))
+            })
             self.planOnMain = planOnMain
             let reports = reports
             supervisor.onHostEnded = { exit in reports.reported.append((exit, Thread.isMainThread)) }
@@ -204,8 +210,7 @@ import Testing
     @Test func aTrappedHostLeavesACrashRecordWithItsSignalAndLogTail() async throws {
         let log = FileManager.default.temporaryDirectory.appending(path: "chromium-host-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: log) }
-        let script = """
-            f="${0#--log-file=}"
+        let script = Self.logToSpawnLog + "\n" + """
             i=1; while [ $i -le 30 ]; do echo "[INFO] line $i" >> "$f"; i=$((i+1)); done
             echo "[FATAL] navigating to https://secret.example/a?q=1 from data:text/html,secret" >> "$f"
             exec /bin/cat <&3 >&3
@@ -231,8 +236,8 @@ import Testing
 
         #expect(kill(pid, SIGTRAP) == 0)
         rig.reports.untilEnds(1)
-        rig.reports.until { !rig.supervisor.crashes.isEmpty }
 
+        // The log was read before the end reached the main thread: the record is there in the end's own turn.
         try #require(rig.supervisor.crashes.count == 1)
         let record = rig.supervisor.crashes[0]
         #expect(record.pid == pid)

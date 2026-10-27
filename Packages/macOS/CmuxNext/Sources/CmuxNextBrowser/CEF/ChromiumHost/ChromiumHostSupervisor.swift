@@ -21,8 +21,9 @@ import Foundation
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
 ///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
 /// - Crash records: each end that is not a clean exit, outside quit, leaves a ``ChromiumHostCrashRecord`` (task 085):
-///   its signal or exit code, what it ran (CEF version, fork API) and the last lines of its log, read off the main
-///   thread with URLs replaced, as Chrome hands each lost child's `ChildProcessTerminationInfo` (status, exit code) to
+///   its signal or exit code, what it ran (CEF version, fork API) and the last lines of its log (the spawn's
+///   `--log-file`, which the host writes), read off the main thread before its end is posted, with URLs replaced, as
+///   Chrome hands each lost child's `ChildProcessTerminationInfo` (status, exit code) to
 ///   `BrowserChildProcessObserver::BrowserChildProcessCrashed` (content/browser/browser_child_process_host_impl.cc).
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
@@ -41,7 +42,7 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public private(set) var crashes: [ChromiumHostCrashRecord] = []
     /// Every such end since launch (``crashes`` keeps only the latest).
     public private(set) var crashesTotal = 0
-    /// Runs on the main thread with each crash record once its log lines were read (the App writes its report).
+    /// Runs on the main thread with each crash record (the App writes its report).
     public var onHostCrash: (@MainActor (ChromiumHostCrashRecord) -> Void)?
     /// The records ``crashes`` keeps.
     static let crashCapacity = 16
@@ -59,8 +60,6 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     }
 
     private let spawner: any ChromiumHostSpawning
-    /// Reads an ended host's log for its crash record; nil keeps no log lines.
-    private let logs: (any ChromiumHostLogReading)?
     private var host: Host?
     private var generation: UInt64 = 0
     private var starting = false
@@ -73,12 +72,11 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false) {
         self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
             ChromiumHostLaunchPlan.bundled()
-        }, logs: ChromiumHostLogTail(work: work, mainWork: mainWork))
+        })
     }
 
-    init(spawner: any ChromiumHostSpawning, logs: (any ChromiumHostLogReading)? = nil) {
+    init(spawner: any ChromiumHostSpawning) {
         self.spawner = spawner
-        self.logs = logs
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -118,13 +116,13 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// Waits for `started` to end off the main thread, then handles the end on it.
     private func watch(_ started: Host) {
         let spawner = spawner
-        spawner.watchExit(of: started.pid) { [weak self] exit in
+        spawner.watchExit(of: started.pid, log: started.logFile) { [weak self] exit, logTail in
             guard let self else { return spawner.reap(started.pid) }
-            self.ended(started, exit)
+            self.ended(started, exit, logTail: logTail)
         }
     }
 
-    private func ended(_ ended: Host, _ exit: ChromiumHostExit) {
+    private func ended(_ ended: Host, _ exit: ChromiumHostExit, logTail: [String]) {
         spawner.reap(ended.pid)
         exits.append(exit.description)
         // A superseded host's end was handled when it was superseded.
@@ -133,23 +131,18 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
         guard !isQuitting(), let pageExit = exit.pageExit else { return }
-        record(current, exit, reason: pageExit.reason)
+        keep(record(current, exit, reason: pageExit.reason, logTail: logTail))
         guard current.saidHello else { return }
         onHostEnded?(pageExit)
     }
 
-    /// Keeps the crash record of `ended`, with the last lines of its log once they were read off the main thread.
-    private func record(_ ended: Host, _ exit: ChromiumHostExit, reason: BrowserProcessExit.Reason) {
-        let record = ChromiumHostCrashRecord(
+    /// The crash record of `ended`, with the last lines of its log.
+    private func record(_ ended: Host, _ exit: ChromiumHostExit, reason: BrowserProcessExit.Reason,
+                        logTail: [String]) -> ChromiumHostCrashRecord {
+        ChromiumHostCrashRecord(
             date: Date(), pid: ended.pid, signal: exit.signal, exitCode: exit.signal == nil ? exit.status : nil, reason: reason,
             startFailure: exit.startFailure, saidHello: ended.saidHello, cefVersion: ended.cefVersion, forkAPI: ended.forkAPI,
-            logTail: [])
-        guard let logs, let logFile = ended.logFile else { return keep(record) }
-        logs.readTail(of: logFile) { [weak self] lines in
-            var read = record
-            read.logTail = lines
-            self?.keep(read)
-        }
+            logTail: logTail)
     }
 
     private func keep(_ record: ChromiumHostCrashRecord) {

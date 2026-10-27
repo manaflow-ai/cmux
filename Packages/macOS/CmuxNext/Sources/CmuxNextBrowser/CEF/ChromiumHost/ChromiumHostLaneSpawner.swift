@@ -92,13 +92,20 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
         }
     }
 
-    func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
-        let (processes, mainWork) = (processes, mainWork)
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void) {
+        let (processes, mainWork, work) = (processes, mainWork, work)
         // One per host, it ends with the host: its exit source fires once.
         work.task(.userVisible) {
             let exit = await processes.exit(of: pid)
-            mainWork.postFromAnyThread(.visible, owner: "ChromiumHostSupervisor.hostEnded") { ended(exit) }
+            let tail = await Self.logTail(log, after: exit, work: work)
+            mainWork.postFromAnyThread(.visible, owner: "ChromiumHostSupervisor.hostEnded") { ended(exit, tail) }
         }
+    }
+
+    /// The last lines of an ended host's `log` on `work`'s files lane; none for a clean exit or a host with no log.
+    private static func logTail(_ log: URL?, after exit: ChromiumHostExit, work: BackgroundWork) async -> [String] {
+        guard let log, exit.pageExit != nil else { return [] }
+        return (try? await work.run(.userVisible, mayBlock: .files) { ChromiumHostCrashRecord.logTail(of: log) }) ?? []
     }
 
     func reap(_ pid: pid_t) {

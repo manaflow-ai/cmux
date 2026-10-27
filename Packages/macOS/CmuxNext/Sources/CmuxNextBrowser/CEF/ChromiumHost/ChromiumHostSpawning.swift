@@ -18,8 +18,10 @@ nonisolated protocol ChromiumHostSpawning: Sendable {
     /// Starts a host off the main thread and returns its pid and wire.
     func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn
     /// Watches `pid` off the main thread (``ChromiumHostLaunching/exit(of:)``: it stays a zombie, not reaped) and runs
-    /// `ended` with its exit on the main thread, posted in a stated class.
-    func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void)
+    /// `ended` with its exit on the main thread, posted in a stated class, with the last lines of `log`
+    /// (``ChromiumHostCrashRecord/logTail(of:)``) when the exit is not clean. The lines are read off the main thread
+    /// before the end is posted: the next host starts only after the end, and its Chromium writes the same log.
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void)
     /// Reaps an ended `pid`.
     func reap(_ pid: pid_t)
     /// SIGKILL to `pid`, a host this spawner started and nobody reaped yet.

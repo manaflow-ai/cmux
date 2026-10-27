@@ -5,6 +5,7 @@
 // (scripts/cmux-next/tests/chromium-host-dispatch.test.sh).
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,6 +38,15 @@ inline std::vector<std::string> HostSwitches(const std::vector<std::string>& app
   }
   out.emplace_back(kHostEnabledFeatures);
   return out;
+}
+
+// The log Chromium writes in the host: the one INITIALIZE names, else the
+// spawn's --log-file (`spawn`, ChromiumHostConfiguration). cmux's runtime
+// names none in host mode (CEFRuntimeBoot.chromiumLogFile), so the host writes
+// the log its supervisor reads the end of when it crashes
+// (ChromiumHostSupervisor). Empty: no log.
+inline std::string HostLogFile(const std::optional<std::string>& initialize, const std::string& spawn) {
+  return initialize && !initialize->empty() ? *initialize : spawn;
 }
 
 }  // namespace cmux_host

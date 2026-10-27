@@ -1,10 +1,12 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 @testable import CmuxNextApp
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
+import CmuxNextBrowserCore
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
 import Foundation
+import os
 import Testing
 
 /// p01-process-085: an end of the Chromium Host becomes one crash report in the report folder and one `debug.crashes`
@@ -47,6 +49,45 @@ import Testing
         #expect(report["start_failure"] == "could not start (exit 65): the Chromium framework did not load")
     }
 
+    /// The acceptance of p01-process-085: after a SIGTRAP, `debug.crashes` lists the host's end in `chromium_host` with
+    /// its signal, through the App's own path (the source's supervisor, cast as `DebugCrashes` casts it).
+    @Test func debugCrashesListsATrappedHostWithItsSignal() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner)
+        _ = try await supervisor.attachment()
+        supervisor.hostSaidHello()
+        supervisor.hostRuns(forkAPI: 30)
+        spawner.end(ChromiumHostExit(signal: SIGTRAP, status: nil), logTail: ["[FATAL] Check failed: <url>"])
+
+        let report = try #require(DebugCrashes.report(crash: Self.crashRecovery(), chromium: BrowserCrashLog(),
+                                                      hostSupervisor: supervisor).objectValue)
+        #expect(report["chromium_host_total"]?.intValue == 1)
+        let rows = try #require(report["chromium_host"]?.arrayValue)
+        try #require(rows.count == 1)
+        let row = try #require(rows[0].objectValue)
+        #expect(row["signal"]?.intValue == Int(SIGTRAP))
+        #expect(row["signal_name"] == "SIGTRAP")
+        #expect(row["reason"] == "crashed")
+        #expect(row["pid"]?.intValue == Int(EndingSpawner.pid))
+        #expect(row["fork_api"]?.intValue == 30)
+        #expect(row["cef_version"] == "154.0.0")
+        #expect(row["log_tail"] == .array(["[FATAL] Check failed: <url>"]))
+    }
+
+    /// In process (no host supervisor) the report has no `chromium_host` rows.
+    @Test func debugCrashesHasNoHostRowsInProcess() throws {
+        let report = try #require(DebugCrashes.report(crash: Self.crashRecovery(), chromium: BrowserCrashLog(),
+                                                      hostSupervisor: nil).objectValue)
+        #expect(report["chromium_host"] == nil)
+        #expect(report["chromium_host_total"] == nil)
+        #expect(report["chromium_total"]?.intValue == 0)
+    }
+
+    private static func crashRecovery() -> CrashRecoveryService {
+        CrashRecoveryService(bundleID: nil, marksRun: false, work: BackgroundWork(label: "test.debug-crashes"),
+                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+    }
+
     @Test func eachHostCrashWritesOneReportOffTheMainThread() throws {
         let writer = Self.writer()
         defer { try? FileManager.default.removeItem(at: writer.directory) }
@@ -68,6 +109,32 @@ import Testing
         let data = try Data(contentsOf: writer.directory.appending(path: files[0]))
         let written = try JSONValue.parse(data)
         #expect(written == JSONValue(foundation: writer.report(for: Self.trapped)))
+    }
+}
+
+/// A host that is never a process: its spawn hands out a wire with no descriptor, and the test ends it with
+/// ``end(_:logTail:)`` as the supervisor's exit watch would.
+private nonisolated final class EndingSpawner: ChromiumHostSpawning {
+    static let pid: pid_t = 4243
+    private let watched = OSAllocatedUnfairLock<(@MainActor @Sendable (ChromiumHostExit, [String]) -> Void)?>(initialState: nil)
+
+    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+        ChromiumHostSpawn(pid: Self.pid,
+                          attachment: ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
+                                                             frameworkLocales: []),
+                          logFile: nil, cefVersion: "154.0.0")
+    }
+
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void) {
+        watched.withLock { $0 = ended }
+    }
+
+    func reap(_ pid: pid_t) {}
+
+    func kill(_ pid: pid_t) {}
+
+    @MainActor func end(_ exit: ChromiumHostExit, logTail: [String]) {
+        watched.withLock { $0 }?(exit, logTail)
     }
 }
 #endif

@@ -1366,6 +1366,17 @@ void HostSwitchesFitTheHostsLoop() {
   Expect(cmux_host::HostSwitches({}), {"enable-features=TimerSlackMac"}, "TimerSlackMac with no app switches");
 }
 
+// The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
+// names none, as cmux's runtime does in host mode, so the supervisor finds a
+// crashed host's last lines there (host_switches.h, p01-process-085).
+void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
+  const std::string spawn = "/root/ChromiumHost/chromium-host.log";
+  Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string(), spawn) == spawn, "an empty log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string("/a/cef.log"), spawn) == "/a/cef.log", "INITIALIZE's log wins");
+  Check(cmux_host::HostLogFile(std::nullopt, "").empty(), "no log anywhere: none");
+}
+
 }  // namespace
 
 int main() {
@@ -1394,6 +1405,7 @@ int main() {
   WipeZeroes();
   EnergySaverReachesTheFork();
   HostSwitchesFitTheHostsLoop();
+  HostLogFileIsTheSpawnsUnlessInitializeNamesOne();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

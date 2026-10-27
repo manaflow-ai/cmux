@@ -50,6 +50,14 @@ import Testing
         #expect(supervisor.forkAPIs == [2, 3])
     }
 
+    /// p01-process-085: in host mode Chromium's log is the one the host's spawn names (`--log-file`, whose end the
+    /// supervisor keeps in a crash record), so INITIALIZE names none: the runtime's `cef.log` would take its place.
+    @Test func hostModeInitializesChromiumWithNoLogFileOfItsOwn() async throws {
+        let (_, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        #expect(HostWire.state.withLock { $0.initializeLogFiles } == [""])
+    }
+
     @Test func theNextStartAttachesTheNextHost() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime()
         defer { wire.close() }
@@ -302,6 +310,8 @@ private nonisolated enum HostWire {
         var forkAPI: Int32 = 0
         /// Each `cmux_shim_set_energy_saver` call's `enabled`.
         var energySaver: [Int32] = []
+        /// Each `cmux_shim_initialize` call's log file, nil for NULL.
+        var initializeLogFiles: [String?] = []
     }
 
     static let state = Mutex(State())
@@ -338,7 +348,11 @@ private nonisolated enum HostWire {
             UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
             UnsafePointer<UnsafePointer<CChar>?>?,
             UnsafeMutableRawPointer?, CEFShimLibrary.ScheduleFn?, CEFShimLibrary.EventFn?, CEFShimLibrary.KeyFn?
-        ) -> Int32 = { _, _, _, _, _, _, _, _, _, _, _, _, _ in 1 }
+        ) -> Int32 = { _, _, _, _, logFile, _, _, _, _, _, _, _, _ in
+            let path = logFile.map { String(cString: $0) }
+            HostWire.state.withLock { $0.initializeLogFiles.append(path) }
+            return 1
+        }
         let browserOp: @convention(c) (Int32) -> Void = { _ in HostWire.op() }
         let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { _, _ in HostWire.op() }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in

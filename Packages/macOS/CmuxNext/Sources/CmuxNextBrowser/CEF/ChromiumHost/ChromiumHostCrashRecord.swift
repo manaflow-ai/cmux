@@ -1,7 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
-import CmuxNextWakeups
 public import Foundation
 
 /// One end of the Chromium Host that was not a clean exit (task 085 of plans/cmux-next/chrome-parity/p01-process.md),
@@ -58,6 +57,19 @@ public nonisolated struct ChromiumHostCrashRecord: Sendable, Equatable {
         signal.map { BrowserProcessExit.signalName(Int($0)) ?? "signal \($0)" }
     }
 
+    /// The last ``logTailLines`` lines of `file` (``logTail(_:startsMidLine:)``), from at most its last
+    /// ``logTailBytes`` bytes; none when it cannot be read. Blocks: on a lane.
+    static func logTail(of file: URL) -> [String] {
+        guard let handle = blockingCall(.fileIO, { try? FileHandle(forReadingFrom: file) }) else { return [] }
+        defer { try? handle.close() }
+        guard let size = try? handle.blockingSeekToEnd() else { return [] }
+        let limit = UInt64(logTailBytes)
+        let start = size > limit ? size - limit : 0
+        guard (try? handle.blockingSeek(toOffset: start)) != nil,
+              let data = try? handle.blockingRead(upToCount: Int(size - start)) else { return [] }
+        return logTail(data, startsMidLine: start > 0)
+    }
+
     /// The last ``logTailLines`` lines of `data`, the end of a log, with blank lines left out and each line
     /// ``scrubbed(_:)``. `startsMidLine`: `data` begins inside a line (a read from the middle of the file), whose
     /// start is not there, so that first line is left out.
@@ -102,37 +114,6 @@ public nonisolated struct ChromiumHostCrashRecord: Sendable, Equatable {
 
     private static func isSchemeCharacter(_ character: Character) -> Bool {
         character.isASCII && (character.isLetter || character.isNumber || character == "+" || character == "-" || character == ".")
-    }
-}
-
-/// Reads the end of a host's log for its crash record; a seam so tests read without a lane.
-nonisolated protocol ChromiumHostLogReading: Sendable {
-    /// Reads the last lines of `file` (``ChromiumHostCrashRecord/logTail(_:startsMidLine:)``) off the main thread and
-    /// runs `done` with them on the main thread; no lines when the file cannot be read.
-    func readTail(of file: URL, _ done: @escaping @MainActor @Sendable ([String]) -> Void)
-}
-
-/// Reads a log's end on BackgroundWork's files lane; the lines reach the main thread as background work, which
-/// nobody waits for (Chrome's PostTaskAndReply, base/task/task_runner.h).
-nonisolated struct ChromiumHostLogTail: ChromiumHostLogReading {
-    let work: BackgroundWork
-    let mainWork: MainWorkScheduler
-
-    func readTail(of file: URL, _ done: @escaping @MainActor @Sendable ([String]) -> Void) {
-        work.run(.bestEffort, mayBlock: .files) { Self.read(file) }
-            .reply(on: mainWork, class: .background, owner: "ChromiumHostSupervisor.crashLog", done)
-    }
-
-    /// The last lines of `file`, from at most its last ``ChromiumHostCrashRecord/logTailBytes`` bytes. Blocks: on a lane.
-    static func read(_ file: URL) -> [String] {
-        guard let handle = blockingCall(.fileIO, { try? FileHandle(forReadingFrom: file) }) else { return [] }
-        defer { try? handle.close() }
-        guard let size = try? handle.blockingSeekToEnd() else { return [] }
-        let limit = UInt64(ChromiumHostCrashRecord.logTailBytes)
-        let start = size > limit ? size - limit : 0
-        guard (try? handle.blockingSeek(toOffset: start)) != nil,
-              let data = try? handle.blockingRead(upToCount: Int(size - start)) else { return [] }
-        return ChromiumHostCrashRecord.logTail(data, startsMidLine: start > 0)
     }
 }
 #endif
