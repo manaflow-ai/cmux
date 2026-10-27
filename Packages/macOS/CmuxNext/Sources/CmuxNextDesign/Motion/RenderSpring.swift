@@ -187,8 +187,9 @@ public struct RenderSpring {
 
     /// One key path's change in a group.
     public struct Move {
-        let layer: CALayer
-        let keyPath: String
+        /// The layer the move springs; with ``keyPath``, what a caller stops early (``RenderSpring/stop(_:_:)``).
+        public let layer: CALayer
+        public let keyPath: String
         let zero: Any
         let velocity: CGFloat
         /// The share of the distance covered per second at the start, toward the target (any value type).

@@ -384,11 +384,5 @@ private extension AnimatedFrame {
 extension PaneHostView {
     /// A shown view in this pane draws in its own child window (`ChildWindowContent`). One walk of the
     /// pane's views, asked in a change's turn, never on a motion frame.
-    var showsChildWindowContent: Bool { Self.drawsInChildWindow(content) }
-
-    private static func drawsInChildWindow(_ view: NSView) -> Bool {
-        guard !view.isHidden else { return false }
-        if let page = view as? any ChildWindowContent, page.drawsInChildWindow { return true }
-        return view.subviews.contains { drawsInChildWindow($0) }
-    }
+    var showsChildWindowContent: Bool { content.subtreeDrawsInChildWindow }
 }

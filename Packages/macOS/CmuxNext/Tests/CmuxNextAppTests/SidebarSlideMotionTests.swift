@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+@testable import CmuxNextTabs
 import CmuxNextWakeups
 import QuartzCore
 import Testing
@@ -144,6 +145,22 @@ struct SidebarSlideMotionTests {
         return x - layer.anchorPoint.x * width
     }
 
+    /// A Chromium page drawn in its own child window (``ChildWindowContent``).
+    final class FakePageWindowContent: NSView, ChildWindowContent {
+        var drawsInChildWindow = true
+    }
+
+    /// Sets the collapse prototype for one test; the returned closure puts the previous one back.
+    static func useCollapseMotion(_ variant: SidebarCollapseMotionVariant) -> () -> Void {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(SidebarTunables.all)
+        let key = SidebarTunables.collapseMotion.key
+        let previous = store.override(key)
+        store.set(key, .choice(variant.rawValue))
+        return { store.set(key, previous) }
+    }
+
     @Test func registersTheSlideOnTheSidebar() {
         #expect(SidebarContainerView.renderServerMotions.map(\.kind) == [.sidebarSlide])
     }
@@ -249,15 +266,11 @@ struct SidebarSlideMotionTests {
         }
     }
 
-    /// The slide-and-fade variant springs the panel's opacity in the same group: a show fades in from 0.
-    @Test func theFadeVariantSpringsOpacity() async throws {
-        let store = TunableStore.shared
-        store.activate(file: nil)
-        store.register(SidebarTunables.all)
-        let key = SidebarTunables.collapseMotion.key
-        let previous = store.override(key)
-        defer { store.set(key, previous) }
-        store.set(key, .choice(SidebarCollapseMotionVariant.slideFade.rawValue))
+    /// The slide-and-fade variant fades the panel on the short fade tokens (`fadeIn` / `fadeOut`), not on the
+    /// slide's spring, and the hide collapses the panel only once both the width and the fade landed.
+    @Test func theFadeVariantFadesOnTheFadeTokens() async throws {
+        let restoreMotion = Self.useCollapseMotion(.slideFade)
+        defer { restoreMotion() }
         let fixture = Fixture(renderServer: true)
         defer { fixture.close() }
         try fixture.requireAnimates()
@@ -267,13 +280,122 @@ struct SidebarSlideMotionTests {
         fixture.toggle(hidden: false)
         let panel = try #require(sidebar.panel.layer)
         #expect(panel.opacity == 1)
-        #expect(abs(Self.startOffset(on: panel, "opacity") + 1) < 0.001, "the show does not fade in from 0")
+        #expect(Self.springs(on: panel, "opacity").isEmpty, "the fade rides the slide's spring")
+        let fadeIn = try #require(panel.animation(forKey: "opacity") as? CABasicAnimation, "the show does not fade")
+        #expect(!(fadeIn is CASpringAnimation))
+        #expect(abs(fadeIn.duration - Motion.sidebar.duration(MotionFade.fadeIn)) < 0.001, "the fade is not the fadeIn token")
+        #expect((fadeIn.fromValue as? NSNumber)?.doubleValue == 0, "the show does not fade in from 0")
         let landed = await fixture.landed()
         #expect(landed && fixture.landings == 1)
         fixture.toggle(hidden: true)
-        #expect(panel.opacity == 0 && abs(Self.startOffset(on: panel, "opacity") - 1) < 0.001)
+        let fadeOut = try #require(panel.animation(forKey: "opacity") as? CABasicAnimation, "the hide does not fade")
+        #expect(abs(fadeOut.duration - Motion.sidebar.duration(MotionFade.fadeOut)) < 0.001, "the fade is not the fadeOut token")
+        #expect(panel.opacity == 0)
         let hid = await fixture.landed()
         #expect(hid && fixture.landings == 2 && sidebar.panel.isHidden)
+    }
+
+    /// A plain slide shows the panel opaque at once, also after a slide-and-fade hide left it transparent:
+    /// no opacity animation, as on the main thread.
+    @Test func aPlainShowAfterAFadeHideIsOpaqueAtOnce() async throws {
+        var restoreMotion = Self.useCollapseMotion(.slideFade)
+        defer { restoreMotion() }
+        let fixture = Fixture(renderServer: true)
+        defer { fixture.close() }
+        try fixture.requireAnimates()
+        let sidebar = fixture.sidebar
+        fixture.toggle(hidden: true)
+        let hid = await fixture.landed()
+        try #require(hid && sidebar.panel.isHidden && sidebar.panel.alphaValue == 0)
+        restoreMotion()
+        restoreMotion = Self.useCollapseMotion(.slide)
+        fixture.toggle(hidden: false)
+        #expect(sidebar.widthMotionBackend == .renderServer)
+        #expect(sidebar.panel.alphaValue == 1 && sidebar.panel.layer?.opacity == 1)
+        #expect(sidebar.panel.layer?.animation(forKey: "opacity") == nil && Self.springs(on: sidebar.panel.layer, "opacity").isEmpty,
+                "the plain show fades in")
+        let landed = await fixture.landed()
+        #expect(landed && !sidebar.panel.isHidden)
+    }
+
+    /// The top row moves with the slide: the toolbar band starts where it showed (0 wide after the traffic
+    /// lights with the sidebar hidden) and springs to its full width, and the leftmost strip's tabs start at
+    /// the traffic-light inset they showed with, riding the card, so they never draw under the lights.
+    @Test func aShowSpringsTheTopRowFromWhereItShowed() async throws {
+        let fixture = Fixture(renderServer: true)
+        defer { fixture.close() }
+        try fixture.requireAnimates()
+        let root = fixture.root, sidebar = fixture.sidebar
+        let strip = TabStripView.testing(model: TabStripModel(tabs: [TabItem(id: TabID("tab1"), title: "One")], selectedID: TabID("tab1")))
+        strip.autoresizingMask = [.width, .minYMargin]
+        fixture.content.addSubview(strip)
+        root.topRowStripsSlide = {
+            let slide = strip.windowControlsSlide()
+            return { slide() }
+        }
+        sidebar.restore(width: nil, presentation: .hidden)
+        root.layoutSubtreeIfNeeded()
+        strip.frame = CGRect(x: 0, y: fixture.content.bounds.height - 36, width: fixture.content.bounds.width, height: 36)
+        // sync-layout: the test reads the strip's inset with the sidebar hidden.
+        strip.layoutSubtreeIfNeeded()
+        let insetBefore = strip.windowControlsInset
+        try #require(insetBefore > 0, "the strip is not under the traffic lights with the sidebar hidden")
+        let band = try #require(root.toolbarBand.layer)
+        let bandBefore = root.toolbarBand.frame
+        let tabsBefore = strip.tabsClip.convert(strip.tabsClip.bounds, to: nil).minX
+        let cardBefore = root.contentHost.frame.minX
+        fixture.toggle(hidden: false)
+        #expect(root.toolbarBand.frame.width > bandBefore.width, "the band is not at its full width in the toggle's turn")
+        let bandStartWidth = band.bounds.width + Self.startOffset(on: band, "bounds.size.width")
+        #expect(abs(bandStartWidth - bandBefore.width) < 0.5, "the band starts \(bandStartWidth) wide, it showed \(bandBefore.width)")
+        let bandStartX = root.toolbarBand.frame.minX + Self.startOffset(on: band, "position.x")
+            - band.anchorPoint.x * (bandStartWidth - band.bounds.width)
+        #expect(abs(bandStartX - bandBefore.minX) < 0.5, "the band starts at \(bandStartX), it showed at \(bandBefore.minX)")
+        #expect(abs(Self.startOffset(on: band, "opacity") + 1) < 0.01, "the band does not fade in with its presence")
+        // At rest the strip is clear of the traffic lights; its tabs start where they showed, with the card.
+        #expect(strip.windowControlsInset == 0)
+        let clip = try #require(strip.tabsClip.layer)
+        let cardShift = Self.startOffset(on: root.contentHost.layer, "position.x")
+        let tabsStart = strip.tabsClip.convert(strip.tabsClip.bounds, to: nil).minX + cardShift
+            + Self.startOffset(on: clip, "position.x") - clip.anchorPoint.x * Self.startOffset(on: clip, "bounds.size.width")
+        #expect(abs(root.contentHost.frame.minX + cardShift - cardBefore) < 0.01)
+        #expect(abs(tabsStart - tabsBefore) < 0.5, "the tabs start at \(tabsStart), they showed at \(tabsBefore) (under the lights)")
+        let landed = await fixture.landed()
+        #expect(landed && fixture.landings == 1)
+        #expect(Self.allSprings(on: band).isEmpty && Self.allSprings(on: clip).isEmpty)
+    }
+
+    /// A Chromium page in its own child window follows the views' model frames, not a layer spring: the
+    /// slide stays on the main thread's frames while one shows, as the layout's zoom does.
+    @Test func aPageInAChildWindowKeepsTheSlideOnTheMainThread() throws {
+        let fixture = Fixture(renderServer: true)
+        defer { fixture.close() }
+        try fixture.requireAnimates()
+        let root = fixture.root, sidebar = fixture.sidebar
+        let page = FakePageWindowContent(frame: fixture.content.bounds)
+        fixture.content.addSubview(page)
+        defer { page.removeFromSuperview() }
+        fixture.toggle(hidden: true)
+        #expect(sidebar.widthMotionBackend == .cpuStep)
+        #expect(sidebar.isWidthAnimating && root.isContentAreaInMotion)
+        #expect(Self.allSprings(on: root.contentHost.layer).isEmpty && Self.allSprings(on: sidebar.clip.layer).isEmpty)
+    }
+
+    /// A restore during a render-server slide snaps every layer the slide moved, the window's card, shade
+    /// and top row too: nothing keeps sliding apart from the sidebar's edge.
+    @Test func aRestoreMidSlideStopsEverySpring() throws {
+        let fixture = Fixture(renderServer: true)
+        defer { fixture.close() }
+        try fixture.requireAnimates()
+        let root = fixture.root, sidebar = fixture.sidebar
+        fixture.toggle(hidden: true)
+        try #require(!Self.allSprings(on: root.contentHost.layer).isEmpty)
+        sidebar.restore(width: nil, presentation: .shown)
+        let layers = [root.contentHost.layer, root.mainPaneShade.shadeLayer, root.toolbarBand.layer, sidebar.clip.layer, sidebar.panel.layer]
+        for layer in layers {
+            #expect(Self.allSprings(on: layer).isEmpty, "a spring kept running after the restore: \(Self.allSprings(on: layer))")
+        }
+        #expect(!sidebar.isWidthAnimating && !sidebar.panel.isHidden)
     }
 
     /// `motion.renderServer` off: the main thread animates the width constraint, holds the content and

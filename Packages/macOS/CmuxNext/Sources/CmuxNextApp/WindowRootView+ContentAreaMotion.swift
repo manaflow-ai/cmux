@@ -31,6 +31,11 @@ extension WindowRootView {
             guard let self else { return { [] } }
             return followSidebarSlide()
         }
+        sidebar.slideCanRunOnRenderServer = { [weak self] in
+            guard let self else { return false }
+            let beside: [NSView?] = [contentHost, rightPanel]
+            return !beside.contains { $0?.subtreeDrawsInChildWindow == true }
+        }
         sidebar.onWidthMotionStart = { [weak self] from, to in self?.holdContentThroughSlide(from: from, to: to) }
         sidebar.onWidthMotionChange = { [weak self] animating in
             guard !animating, let self else { return }
@@ -66,22 +71,32 @@ extension WindowRootView {
     }
 
     /// A render-server slide (`SidebarContainerView.slideFollowers`, chrome-parity p03-rendering-100): notes
-    /// where the card and the title show before the slide's one layout; the closure, called after it,
-    /// springs each one the layout moved from there to rest on the sidebar's spring, and the shade's
-    /// cut-out with the card (its path reaches past the window's sides, so the moved shade leaves no
-    /// strip unshaded). The rail style's content sits beside the rail: the open moves nothing.
+    /// where the window's views beside the sidebar show before the slide's one layout; the closure, called
+    /// after it, springs each one the layout moved from there to rest on the sidebar's spring. The card,
+    /// the title and the shade's cut-out ride the card's shift (the shade's path reaches past the window's
+    /// sides, so the moved shade leaves no strip unshaded). The top row's toolbar band, its buttons and the
+    /// accessories after it spring their x, width and opacity from where they showed, as each frame of the
+    /// main-thread slide places them (`layout()`), and the strips under the top row spring their tabs'
+    /// traffic-light inset with the card (`topRowStripsSlide`). The rail style's content sits beside the
+    /// rail: the open moves nothing.
     func followSidebarSlide() -> () -> [RenderSpring.Move] {
         let cardX = contentHost.frame.minX, titleX = titlebar.frame.minX
+        let topRow: [NSView?] = [toolbarBand, toolbarBand.sidebarToggle, toolbarBand.backButton, toolbarBand.forwardButton,
+                                 titlebarBadge, hostPressureIndicator]
+        let places = topRow.compactMap { view in view.flatMap { RenderSpring.Start($0, keys: [.positionX, .boundsWidth, .opacity]) } }
+        let strips = topRowStripsSlide()
         return { [weak self] in
             guard let self else { return [] }
             let cardShift = cardX - contentHost.frame.minX, titleShift = titleX - titlebar.frame.minX
             let riders: [(CALayer?, CGFloat)] = [(contentHost.layer, cardShift), (mainPaneShade.shadeLayer, cardShift),
                                                  (titlebar.isHidden ? nil : titlebar.layer, titleShift)]
-            return riders.compactMap { rider -> RenderSpring.Move? in
+            let card: [RenderSpring.Move] = riders.compactMap { rider -> RenderSpring.Move? in
                 let (layer, shift) = rider
                 guard let layer, shift != 0 else { return nil }
                 return RenderSpring.Move(layer, RenderSpringKey<CGFloat>.positionX, from: layer.position.x + shift, to: layer.position.x)
             }
+            let topRowMoves: [RenderSpring.Move] = places.flatMap { $0.moves() }
+            return card + topRowMoves + strips()
         }
     }
 }

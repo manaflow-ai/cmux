@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -6,10 +7,11 @@ import QuartzCore
 /// `motion.renderServer`). The toggle's turn sets the width constant once and lays the window out once
 /// at rest, so every pane, terminal grid and page takes its final size now, once. One group of
 /// additive `RenderSpring`s then carries what moved from where it showed: the clip's frame, the panel in
-/// it, the resize handle and the window's views beside the sidebar (`slideFollowers`); the fade variant
-/// springs the panel's opacity in the same group. No display frame steps the slide and nothing lays out
-/// again for it. This is Chrome's compositor model: layout is final at once and the compositor animates
-/// the layers (`ui/compositor/layer_animator.h`, `cc/animation/keyframe_model.h`).
+/// it, the resize handle and the window's views beside the sidebar (`slideFollowers`). The fade variant
+/// fades the panel on its own short fade token, as the main-thread slide does. No display frame steps
+/// the slide and nothing lays out again for it. This is Chrome's compositor model: layout is final at
+/// once and the compositor animates the layers (`ui/compositor/layer_animator.h`,
+/// `cc/animation/keyframe_model.h`).
 struct SidebarSlideRenderMotion: RenderServerMotion {
     var kind: RenderMotionKind { .sidebarSlide }
 
@@ -39,27 +41,31 @@ extension SidebarContainerView {
     private var slideWidth: RenderSpringKey<CGFloat> { .boundsWidth }
     private var slideOpacity: RenderSpringKey<CGFloat> { .opacity }
 
-    /// Runs the pending slide (`pendingSlide`) on the render server. False when there is none.
+    /// Runs the pending slide (`pendingSlide`) on the render server. False when there is none, while a
+    /// main-thread slide runs (it keeps its backend to its landing, so a retarget starts from what it
+    /// shows), or while the window shows content a layer spring cannot carry (`slideCanRunOnRenderServer`).
     func slideOnRenderServer() -> Bool {
-        guard let slide = pendingSlide else { return false }
+        guard let slide = pendingSlide, !(isWidthAnimating && widthMotionBackend == .cpuStep), slideCanRunOnRenderServer() else {
+            return false
+        }
         let host = superview ?? self
-        if isWidthAnimating, widthMotionBackend == .cpuStep { stopMainThreadSlide() }
         widthMotionBackend = .renderServer
         // What shows now: the model values the springs start from.
         let containerX = frame.minX
         let clipX = clip.layer?.position.x, clipWidth = clip.layer?.bounds.width
         let panelX = panel.layer?.position.x
         // A fade into a panel at rest collapsed starts transparent, as the main-thread fade does; a shown
-        // panel whose width does not change (a variant switch) does not blink.
+        // panel whose width does not change (a variant switch) does not blink. Otherwise the fade starts
+        // from the opacity on screen.
         let fadesIn = slide.fadesPanel && !slide.hidden && !isWidthAnimating && widthConstraint.constant != slide.to
-        let panelOpacity = fadesIn ? 0 : panel.layer.map { CGFloat($0.opacity) }
+        let shownOpacity: CGFloat? = fadesIn ? 0 : panel.layer.map { CGFloat(($0.presentation() ?? $0).opacity) }
         let handleX = handle.convert(handle.bounds, to: host).minX
         let followers = slideFollowers?()
         isWidthAnimating = true
         onWidthMotionStart?(frame.width, slide.to)
-        let opacity: CGFloat = slide.fadesPanel && slide.hidden ? 0 : 1
+        widthCompletedGeneration = nil
+        fadeCompletedGeneration = slide.fadesPanel ? nil : slide.generation
         widthConstraint.constant = slide.to
-        panel.alphaValue = opacity
         // sync-layout: the slide's one layout; each spring starts from the frame it replaced.
         host.layoutSubtreeIfNeeded()
         var moves: [RenderSpring.Move] = []
@@ -73,8 +79,8 @@ extension SidebarContainerView {
         spring(panel.layer, slideX, from: panelX)
         let handleShift = handleX - handle.convert(handle.bounds, to: host).minX
         spring(handle.layer, slideX, from: handle.layer.map { $0.position.x + handleShift })
-        spring(panel.layer, slideOpacity, from: panelOpacity)
         moves += followers?() ?? []
+        renderSlideSprings += moves.map { (layer: $0.layer, keyPath: $0.keyPath) }
         let token: MotionSpring = slide.hidden ? .disappear : .appear
         armWidthMotionWatchdog(token)
         let generation = slide.generation, hidden = slide.hidden, fadesPanel = slide.fadesPanel
@@ -82,23 +88,46 @@ extension SidebarContainerView {
             guard finished else { return }
             self?.finishRenderSlide(generation: generation, hidden: hidden, fadesPanel: fadesPanel)
         }
+        if slide.fadesPanel {
+            fadePanel(hidden: slide.hidden, from: shownOpacity, generation: generation)
+        } else {
+            // The plain slide shows the panel opaque at once, as the main-thread slide does.
+            panel.layer?.removeAnimation(forKey: slideOpacity.path)
+            panel.alphaValue = 1
+        }
         return true
     }
 
-    /// A main-thread slide still running hands over to the render server: its animators stop where they
-    /// show, so the springs start from there.
-    private func stopMainThreadSlide() {
-        Motion.withoutAnimation {
-            Motion.animator(widthConstraint, in: self).constant = widthConstraint.constant
-            panel.animator().alphaValue = panel.alphaValue
+    /// The slide-and-fade variant's opacity leg: the panel fades from `start` on the short fade tokens, not
+    /// over the slide's full travel, as the main-thread slide's fade does. One timed fade on the render
+    /// server; its landing ends the leg (`finishRenderFade`).
+    private func fadePanel(hidden: Bool, from start: CGFloat?, generation: Int) {
+        let token: MotionFade = hidden ? .fadeOut : .fadeIn
+        let opacity: CGFloat = hidden ? 0 : 1
+        panel.alphaValue = opacity
+        guard let layer = panel.layer, let start, start != opacity, Motion.canAnimate(in: self), Motion.sidebar.duration(token) > 0 else {
+            panel.layer?.removeAnimation(forKey: slideOpacity.path)
+            return finishRenderFade(generation: generation, hidden: hidden)
         }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setMainCompletion { [weak self] in self?.finishRenderFade(generation: generation, hidden: hidden) }
+        Motion.sidebar.set(layer, slideOpacity.path, to: Float(opacity), fade: token, from: Float(start))
+        CATransaction.commit()
     }
 
-    /// Removes a render-server slide's springs from the sidebar's own layers, which show their model
-    /// values now (`snap()`).
-    func stopRenderSlide() {
-        for layer in [clip.layer, panel.layer, handle.layer].compactMap(\.self) {
-            for path in [slideX.path, slideWidth.path, slideOpacity.path] { RenderSpring.stop(layer, path) }
-        }
+    /// Removes the render-server slides' springs, the window's followers' too, and the panel's fade, so
+    /// every layer shows its model value now (`snap()`, a resize drag, a main-thread slide taking over).
+    /// Returns the sidebar's width on screen when a slide was running, else nil; the caller makes its
+    /// landings stale (`animationGeneration`). A main-thread slide's animators are not touched.
+    @discardableResult
+    func stopRenderSlide() -> CGFloat? {
+        guard widthMotionBackend == .renderServer,
+              !renderSlideSprings.isEmpty || panel.layer?.animation(forKey: slideOpacity.path) != nil else { return nil }
+        let shown = clip.layer.map { ($0.presentation() ?? $0).bounds.width } ?? frame.width
+        for spring in renderSlideSprings { RenderSpring.stop(spring.layer, spring.keyPath) }
+        renderSlideSprings = []
+        panel.layer?.removeAnimation(forKey: slideOpacity.path)
+        return shown
     }
 }

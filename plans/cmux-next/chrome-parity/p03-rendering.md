@@ -861,7 +861,10 @@ every task that changes behavior or performance and is not repeated per row.
   remove AnimatedFrame stepping for structural kinds from step(); DisplayLinkDriver starts only for gestures.
 - Acceptance: the decision text and video link are in both docs in the same PR; MQ-springs count reaches 0 or
   annotated `// input-driven:`; the PR is risk:normal with the behavior behind the tunable (off restores cpuStep until
-  the cpuStep code is deleted in a follow-up after one Nightly).
+  the cpuStep code is deleted in a follow-up after one Nightly). Deferred here from task 100: also edit
+  `.../CmuxNextSidebar/Views/SidebarContainerView.swift` and remove the sidebar slide's main-thread width animator,
+  `rg -n 'Motion\.animator\(widthConstraint' .../CmuxNextSidebar` = 0; the tunable off restores cpuStep for the
+  structural layout kinds only (the sidebar slides on the render server, or lands in one frame with the gate off).
 - Test phase: full DC2/DC3 set on 26 and 27; every-action sweep motion rows.
 - Size M. Depends: 022b, 023-033, 036, 098, 106, 007.
 
@@ -1551,7 +1554,8 @@ every task that changes behavior or performance and is not repeated per row.
   resize); RenderSpring slides the sidebar panel layer (position.x) and the content host (additive position.x from
   the old offset to 0); fade variant on panel layer opacity; isWidthAnimating clears in the completion; watchdog
   stays. Registered as a MotionBackend kind.
-- Acceptance: diff removes `Motion.animator(widthConstraint`; test: constant set once, layout passes = 1, grids per
+- Acceptance (the removal of `Motion.animator(widthConstraint` is deferred to task 022c: until the default flips,
+  the main-thread slide is the switch-off fallback, and this task adds no `Motion.animator(` site); test: constant set once, layout passes = 1, grids per
   terminal = 1, completion once, gate off one frame; frame_sets frames 2..n = 0.
 - Test phase: motion-main-work.py and motion-hitches.py sidebar-toggle light and STRESS: main p99 <= 0.5 ms, 0
   hitches; bench-terminal-resize.py reflows per toggle = 1.

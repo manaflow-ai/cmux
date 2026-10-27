@@ -48,13 +48,14 @@ public final class SidebarContainerView: NSView {
     /// intermediate constants, so compare against this instead. Internal for
     /// the same reason as `panelWidth`.
     var targetWidth: CGFloat
-    /// Bumped per width animation; a stale completion does nothing.
-    private var animationGeneration = 0
+    /// Bumped per width animation; a stale completion does nothing. Internal, not private, with the two
+    /// gates below: a render-server slide starts its legs from its own file (`SidebarContainerView+RenderSlide`).
+    var animationGeneration = 0
     /// Completion gates for the optional opacity leg. Width and opacity use
     /// separate tokens, so a reduced-motion fade can finish after the width
     /// snaps without exposing a panel that is not ready to be hidden.
-    private var widthCompletedGeneration: Int?
-    private var fadeCompletedGeneration: Int?
+    var widthCompletedGeneration: Int?
+    var fadeCompletedGeneration: Int?
     /// The collapse prototype used by the current transition. Keeping it
     /// alongside the width target lets a Debug Settings change retarget a
     /// transition already in flight without changing the default geometry.
@@ -89,6 +90,10 @@ public final class SidebarContainerView: NSView {
     /// Whether the slide runs on the render server (`motion.renderServer`, off by default; the window
     /// passes the app's switch), read in each slide's turn.
     public var rendersMotionOnServer: () -> Bool = { false }
+    /// Whether the window can show this slide on the render server now, read in each slide's turn: false
+    /// while content beside the sidebar draws in its own child window, which follows the views' model
+    /// frames and not a layer spring (the window's `ChildWindowContent` rule, as the layout's zoom).
+    public var slideCanRunOnRenderServer: () -> Bool = { true }
     /// The window's part of a render-server slide: called in its turn before its one layout, to note
     /// where the views beside the sidebar show; the closure it returns, called after the layout, returns
     /// the springs that carry them from there to rest (`SidebarContainerView+RenderSlide`).
@@ -98,6 +103,9 @@ public final class SidebarContainerView: NSView {
         SidebarContainerView.renderServerMotions, renderServer: { [weak self] in self?.rendersMotionOnServer() ?? false })
     /// The slide the running `apply()` starts, for its render-server variant; nil outside `apply()`.
     var pendingSlide: SidebarSlide?
+    /// The layers and key paths the render-server slides since the last landing spring, the window's
+    /// followers too, so a snap or a drag stops all of them (`stopRenderSlide`).
+    var renderSlideSprings: [(layer: CALayer, keyPath: String)] = []
     /// Paces hover refreshes while the width animates. Hover follows views
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
@@ -365,7 +373,8 @@ public final class SidebarContainerView: NSView {
         hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { [weak self] in self?.refreshHover() }
     }
 
-    /// Sets every constraint and visibility for the model without animating.
+    /// Sets every constraint and visibility for the model without animating. The caller bumps
+    /// `animationGeneration`, so a render-server slide stopped here lands as nothing.
     private func snap() {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
@@ -391,7 +400,9 @@ public final class SidebarContainerView: NSView {
         if handle.isDragging, !hidden {
             targetWidth = target
             targetCollapseMotion = collapseMotion
-            // A drag is the person's own frame-by-frame resize, not an animation.
+            // A drag is the person's own frame-by-frame resize, not an animation. A render-server
+            // slide still running stops where it rests, so the edge stays under the pointer.
+            if stopRenderSlide() != nil { animationGeneration += 1 }
             isWidthAnimating = false
             widthConstraint.constant = target
             return
@@ -405,6 +416,9 @@ public final class SidebarContainerView: NSView {
         pendingSlide = SidebarSlide(to: target, hidden: hidden, fadesPanel: collapseMotion.fadesPanel, generation: generation)
         defer { pendingSlide = nil }
         if motionBackends.begin(on: self, policy: Motion.sidebar.policy).contains(.sidebarSlide) { return }
+        // A render-server slide still running (a page window showed or the switch turned off mid-slide)
+        // stops; the main thread's slide starts from the width it showed.
+        if let shown = stopRenderSlide() { widthConstraint.constant = shown }
         widthMotionBackend = .cpuStep
         // The slide-and-fade prototype starts an expansion transparent and
         // lets the same timed transition reveal it. Slide keeps the current
@@ -450,14 +464,21 @@ public final class SidebarContainerView: NSView {
         }
     }
 
-    /// A render-server slide landed: its width and its fade end together, in one group of springs.
+    /// A render-server slide's springs landed (the newest slide's): the width leg is done.
     func finishRenderSlide(generation: Int, hidden: Bool, fadesPanel: Bool) {
         guard generation == animationGeneration else { return }
         widthCompletedGeneration = generation
-        fadeCompletedGeneration = generation
+        renderSlideSprings = []
         isWidthAnimating = false
         refreshHover()
         finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: fadesPanel)
+    }
+
+    /// A render-server slide's panel fade ended: the opacity leg is done.
+    func finishRenderFade(generation: Int, hidden: Bool) {
+        guard generation == animationGeneration else { return }
+        fadeCompletedGeneration = generation
+        finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: true)
     }
 
     /// Hides a collapsed panel only after each active leg reaches its target.

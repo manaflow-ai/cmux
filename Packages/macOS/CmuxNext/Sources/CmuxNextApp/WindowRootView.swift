@@ -237,6 +237,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The strips under the top row in a render-server sidebar slide (`followSidebarSlide`): called before
+    /// the slide's one layout; the closure it returns, called after it, springs each strip's tabs from the
+    /// traffic-light inset they showed with (`TabStripView.windowControlsSlide`). The window sets it.
+    var topRowStripsSlide: () -> () -> [RenderSpring.Move] = { { [] } }
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a

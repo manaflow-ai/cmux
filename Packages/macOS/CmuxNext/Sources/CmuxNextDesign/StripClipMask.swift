@@ -32,6 +32,17 @@ public protocol ChildWindowContent: NSView {
     var drawsInChildWindow: Bool { get }
 }
 
+extension NSView {
+    /// A shown view in this subtree draws in its own child window (``ChildWindowContent``), so a layer
+    /// spring of this view would leave that window behind. One walk of the shown views, asked in a
+    /// change's turn, never on a motion frame.
+    public var subtreeDrawsInChildWindow: Bool {
+        guard !isHidden else { return false }
+        if let page = self as? any ChildWindowContent, page.drawsInChildWindow { return true }
+        return subviews.contains { $0.subtreeDrawsInChildWindow }
+    }
+}
+
 /// That mask's layer: an opaque rect. A pane in front is ordered above it in the layer tree, so the
 /// mask carries no holes for it; a page in a child window leaves those parts out of its own clip
 /// shape (`PageCoverSource`, `ChildWindowPageFallback`).
