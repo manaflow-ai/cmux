@@ -281,6 +281,9 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 }
 /// Pages one older read takes at most (about 2 MB, more when a single record is larger).
 const OLDER_PAGES_PER_ASK = 8;
+/// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
+/// This keeps the reader responsive while preserving the eight-page cap for large turns.
+const OLDER_MIN_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
@@ -6517,7 +6520,7 @@ export class AcpmuxDirectClient {
     // still moves `historyFrom`, which makes the transcript ask again.
     for (
       let before = this.firstSeq, pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && !older.some(opensOlderTurn);
+      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !older.some(opensOlderTurn));
       pages++
     ) {
       const result = await this.typed("_acpmux/events", {
