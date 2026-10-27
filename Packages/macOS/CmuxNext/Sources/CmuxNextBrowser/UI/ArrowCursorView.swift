@@ -129,7 +129,10 @@ extension ArrowCursorView {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_KEEPER"] == "off" { return }
         #endif
-        cursorKeeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { _ in ArrowCursorView.keepCursor() }
+        // It sets the cursor only, so the commit-boundary audit does not count it as late.
+        cursorKeeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max, drawsNothingAfterCommit: true) { _ in
+            ArrowCursorView.keepCursor()
+        }
     }
 
     /// With a top-level key window it returns after one property read. While
