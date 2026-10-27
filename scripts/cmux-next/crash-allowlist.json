@@ -4,7 +4,6 @@
   "swift.as_bang",
   "swift.assume_isolated",
   "swift.async_closure_default_arg@CmuxIrxTransport",
-  "swift.dump_will_be_check",
   "swift.fatal_error",
   "swift.force_unwrap",
   "swift.index_subscript@CMUXMobileCore",
@@ -27,7 +26,6 @@
   "swift.int_conversion@CmuxTerminalSizing",
   "swift.int_conversion@MessagesLabHome",
   "swift.int_conversion@MessagesLabSidebar",
-  "swift.invariant_check",
   "swift.iuo",
   "swift.objc_observer",
   "swift.objc_selector",
@@ -606,7 +604,7 @@
    "path": "Packages/Shared/CmuxSafeConcurrency/Sources/CmuxSafeConcurrency/Invariant.swift",
    "class": "swift.fatal_error",
    "count": 1,
-   "reason": "Invariant.trap: the one trap of the Invariant API (Chrome's CHECK / NotFatalUntil, base/check.h). Every Invariant.check site is itself banned (swift.invariant_check) and needs its own entry; notFatalUntil reaches it only from its named build on.",
+   "reason": "Invariant.trap: the one trap of the Invariant API (Chrome's CHECK / NotFatalUntil, base/check.h). Every Invariant.check site needs its own entry in invariant-allowlist.json (guardrails.py's local-only invariant-site rule); notFatalUntil reaches it only from its named build on.",
    "reviewer": "p10-stability-099 design (plans/cmux-next/chrome-parity/p10-stability.md section D)"
   }
  ]

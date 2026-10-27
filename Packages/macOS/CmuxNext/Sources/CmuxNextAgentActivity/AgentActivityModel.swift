@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Observation
 
 /// Where the pane's data comes from. The App fills it from the local CUA host
@@ -62,11 +63,17 @@ public final class AgentActivityModel {
     @ObservationIgnored public var onChange: (() -> Void)?
 
     @ObservationIgnored private let source: any AgentActivitySource
+    /// Where an operation's answer lands: the rest of the person's action, one `userBlocking` task.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private var followed: [String] = []
     @ObservationIgnored private var extraFollowed: Set<String> = []
 
-    public init(source: any AgentActivitySource) {
+    /// - Parameters:
+    ///   - source: Where the sessions and events come from and the operations go.
+    ///   - mainWork: The app's one main-thread scheduler.
+    public init(source: any AgentActivitySource, mainWork: MainWorkScheduler) {
         self.source = source
+        self.mainWork = mainWork
     }
 
     public func start() {
@@ -209,16 +216,29 @@ public final class AgentActivityModel {
             if on { watching.insert(session) } else { watching.remove(session) }
             notifyChange()
         }
-        Task { @MainActor [source] in
-            do {
-                try await source.perform(op)
-                self.lastOperationError = nil
-                self.notifyChange()
-            } catch {
-                self.lastOperationError = String(describing: error)
-                self.notifyChange()
+        let mainWork = mainWork
+        // The host's answer is the rest of the person's operation: one userBlocking task (Chrome kUserBlocking).
+        Task { @concurrent [weak self] in
+            guard let result = await self?.send(op) else { return }
+            await mainWork.apply(.userBlocking, owner: "AgentActivityModel.operation") { [weak self] () -> Void in
+                self?.operationEnded(result)
             }
         }
+    }
+
+    /// Sends `op` to its host; the failure, if any.
+    private func send(_ op: AgentActivityUserOp) async -> Result<Void, any Error> {
+        do {
+            try await source.perform(op)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func operationEnded(_ result: Result<Void, any Error>) {
+        if case .failure(let error) = result { lastOperationError = String(describing: error) } else { lastOperationError = nil }
+        notifyChange()
     }
 
     public func image(for frame: AgentActivityFrameRef) async -> NSImage? {
