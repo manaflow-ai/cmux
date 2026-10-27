@@ -32,27 +32,41 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     }
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
-        var start = launchDate
-        if let cursor {
-            let parts = cursor.split(separator: ":")
-            if parts.count == 2, Int32(parts[0]) == processID, let ms = Double(parts[1]) {
-                start = Date(timeIntervalSince1970: ms / 1000)
-            }
-        }
+        let saved = cursor.flatMap { Self.cursorMilliseconds($0, processID: processID) }
+        let start = saved.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? launchDate
         // logd filters: entries below error are never decoded here. Reading every level cost the
         // app 2.6 to 4.4 mW in the windows a harvest fell in, with 20 hidden Chromium tabs (msg 2654).
         let entries = try reader.entries(since: start, matching: Self.errorsAndFaults)
         var events: [ErrorEvent] = []
-        var newest = start
+        var newest: Date?
         for entry in entries where entry.date > start {
             guard entry.level == .error || entry.level == .fault else { continue }
-            newest = max(newest, entry.date)
+            newest = max(newest ?? entry.date, entry.date)
             events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
                                      isFault: entry.level == .fault, message: entry.message, date: entry.date))
             if events.count >= 5000 { break }
         }
-        let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
+        // A harvest with nothing newer keeps the saved milliseconds as they were: the cursor's value never
+        // goes through a Double conversion (`7:1e300` trapped in Int64(_:)).
+        let ms = newest.map(Self.milliseconds) ?? saved ?? Self.milliseconds(launchDate)
         return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
+    }
+
+    /// The milliseconds since 1970 a saved cursor (`<pid>:<ms>`, as ``collect(after:)`` writes it) names, or nil
+    /// when it is another launch's or damaged (`cursors.json` is a file: no whole number, a fraction, `nan`,
+    /// `1e300`); the harvest then starts at launch.
+    static func cursorMilliseconds(_ cursor: String, processID: Int32) -> Int64? {
+        let parts = cursor.split(separator: ":")
+        guard parts.count == 2, let pid = parts.first.flatMap({ Int32($0, radix: 10) }), pid == processID,
+              let ms = parts.last.flatMap({ Int64($0, radix: 10) }) else { return nil }
+        return ms
+    }
+
+    /// `date` in whole milliseconds since 1970, rounded up (the cursor names the newest entry harvested).
+    private static func milliseconds(_ date: Date) -> Int64 {
+        // decode-trap-allow: a log store entry's date or the launch date, read from this Mac's clock; a saved
+        // cursor never reaches it (cursorMilliseconds).
+        Int64((date.timeIntervalSince1970 * 1000).rounded(.up))
     }
 
     /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes it).

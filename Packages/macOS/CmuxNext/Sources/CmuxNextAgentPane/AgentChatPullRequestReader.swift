@@ -1,6 +1,9 @@
 import CmuxNextCompat
 public import Foundation
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
 /// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
@@ -221,6 +224,11 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
+///
+/// Each read runs off the main actor, and its answers land in the cache as one task on the app's
+/// scheduler (Chromium's `PostTaskAndReplyWithResult` onto a typed UI task runner,
+/// base/task/task_runner_util.h): `background` for a reply's prefetch, which no card shows yet,
+/// `visible` for a link a card asked for.
 @MainActor
 public final class AgentReplyPullRequests {
     private struct Entry {
@@ -251,13 +259,19 @@ public final class AgentReplyPullRequests {
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
     private let retry: Duration
+    private let mainWork: MainWorkScheduler
+    /// The owner of the reads' answers, interned once.
+    private let owner: MainTaskOwner
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
 
     /// The App makes one (`AppServices.replyPullRequests`): every chat's cards and the changelog's
-    /// read through it, with the App's one gh reader.
-    public init(reader: AgentChatPullRequestReader, freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
+    /// read through it, with the App's one gh reader; `mainWork` is the app's scheduler the answers land on.
+    public init(reader: AgentChatPullRequestReader, mainWork: MainWorkScheduler, freshness: Duration = .seconds(60),
+                retry: Duration = .seconds(300)) {
         self.reader = reader
+        self.mainWork = mainWork
+        owner = mainWork.board.owner("AgentReplyPullRequests.read")
         self.freshness = freshness
         self.retry = retry
     }
@@ -282,13 +296,7 @@ public final class AgentReplyPullRequests {
             wanted.append(url)
         }
         guard !wanted.isEmpty else { return }
-        let reader = reader
-        let addresses = wanted.map(\.absoluteString)
-        // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
-        let task = Task { [weak self] in
-            let answers = await reader.read(urls: addresses)
-            self?.absorb(answers, for: wanted)
-        }
+        let task = fetch(wanted, as: .background)
         for url in wanted { inflight[url] = task }
     }
 
@@ -312,20 +320,35 @@ public final class AgentReplyPullRequests {
     private func startRead(_ url: URL) -> Task<Void, Never>? {
         if let task = inflight[url] { return task }
         guard stale(url) else { return nil }
-        // task-owner: one gh read per stale link; everyone waiting on it shares this task.
-        let task = Task { await self.perform(url) }
+        let task = fetch([url], as: .visible)
         inflight[url] = task
         return task
     }
 
-    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// Reads `urls` off the main actor and lands their answers in the cache as one `workClass` task; the
+    /// returned task ends once they landed (or the scheduler dropped them), so a waiter reads the cache then.
+    ///
+    /// One link is read the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
     /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
     /// only one of the two that reads the base branch's checks — a card refreshed through
     /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
     /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
-    private func perform(_ url: URL) async {
-        let answers = await reader.read(urls: [url.absoluteString])
-        absorb(answers, for: [url])
+    private func fetch(_ urls: [URL], as workClass: BudgetedWorkClass) -> Task<Void, Never> {
+        let reader = reader, mainWork = mainWork, owner = owner, addresses = urls.map(\.absoluteString)
+        let absorb: @MainActor @Sendable ([String: AgentPanePullRequest?]) -> Void = { [weak self] answers in
+            self?.absorb(answers, for: urls)
+        }
+        // task-owner: one read for every link asked at once, off main; everyone waiting on it shares this task.
+        return Task { @concurrent in
+            let answers = await reader.read(urls: addresses)
+            // Abandoned only when the scheduler itself is gone (released with the task unrun): nothing is left to show.
+            _ = try? await withOnceContinuation { (landed: OnceContinuation<Void, OnceContinuationError>) in
+                mainWork.postFromAnyThread(workClass, owner: owner) {
+                    absorb(answers)
+                    landed.resume(returning: ())
+                }
+            }
+        }
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate

@@ -164,6 +164,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
 fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs is plain integers; all-zero is a valid value.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: a NUL-terminated path and a writable statvfs.
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
@@ -198,7 +199,7 @@ fn ram_total() -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 fn ram_total() -> Option<u64> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let text = cmux_blocking::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = text
         .lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))?
@@ -245,7 +246,7 @@ fn swap() -> Option<(u64, u64)> {
 
 #[cfg(target_os = "linux")]
 fn swap() -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let text = cmux_blocking::fs::read_to_string("/proc/meminfo").ok()?;
     let kb = |key: &str| -> Option<u64> {
         text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
     };

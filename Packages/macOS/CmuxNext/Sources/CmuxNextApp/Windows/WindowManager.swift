@@ -27,7 +27,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
+    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange(); services.crashKeys?.noteWindows(controllers.count) } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
@@ -76,6 +76,8 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    /// The launch window waits for the launch snapshot's read (`restoreWhenLoaded`): a reopen meanwhile is answered by it.
+    private(set) var launchWindowWaiting = false
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -201,19 +203,21 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens one window at once (from the launch snapshot, else in the
-    /// connecting state, outside the registry), then restores the saved
+    /// Opens one window once the launch snapshot's read has ended, never waiting (from the snapshot, else in the
+    /// connecting state, outside the registry; p08-startup-074), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
     /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
     /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
     func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
         if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
-        if controllers.isEmpty, launchPicture == nil, !LaunchSnapshotWindow(manager: self).show() {
-            let id = UUID().uuidString.lowercased()
-            launchWindowID = id
-            makeController(for: WindowRegistry.Window(id: id))
-        }
+        launchWindowWaiting = true
+        services.daemon.launchSnapshot.whenSettled { [weak self] in self?.openThenRestore() }
+    }
+
+    private func openThenRestore() {
+        launchWindowWaiting = false
+        LaunchSnapshotWindow(manager: self).openLaunchWindow()
         let store = services.daemon.store
         // The restore awaits the saved window state off main; `restore` runs once (`restored`).
         loadObservation = ServiceObservation(.visible, owner: "WindowManager.restoreWhenLoaded", on: services.mainWork) {
