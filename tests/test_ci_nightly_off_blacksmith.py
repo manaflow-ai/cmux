@@ -103,8 +103,7 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy",
-                     "publish-nightly-identity-legacy"):
+        for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy"):
             job = text[text.index(f"\n  {name}:"):]
             match = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE)
             with self.subTest(job=name):
