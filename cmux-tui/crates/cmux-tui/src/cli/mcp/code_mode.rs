@@ -269,6 +269,7 @@ pub(super) fn exec(
     if script.len() > MAX_SCRIPT_BYTES {
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
+    // unbounded-allow: at most one request (the script waits for each answer) and the final Done
     let (to_server, from_script) = mpsc::channel();
     let engine = std::thread::Builder::new()
         .name("cmux-mcp-code-mode".into())
@@ -484,6 +485,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                         &format!("a script runs at most {} s", limits.total.as_secs()),
                     );
                 }
+                // unbounded-allow: one message, the answer to this call
                 let (reply, answer) = mpsc::channel();
                 let value = if to_server.send(ToServer::Request(request, reply)).is_ok() {
                     answer.recv().unwrap_or_else(|_| closed())

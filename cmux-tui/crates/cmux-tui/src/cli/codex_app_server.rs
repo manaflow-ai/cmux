@@ -14,10 +14,13 @@
 use cmux_process::{Child, Command, Stdio};
 use std::io::{BufRead, BufReader, Write};
 use std::process::ChildStdin;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+/// Output lines of the proxy held for the client.
+const LINE_QUEUE: usize = 1024;
 
 /// One delivery, from starting the proxy to the daemon's answer.
 const DEADLINE: Duration = Duration::from_secs(8);
@@ -156,7 +159,8 @@ impl Client {
             .map_err(|error| format!("cannot run codex: {error}"))?;
         let stdin = child.stdin.take().ok_or("codex app-server proxy has no stdin")?;
         let stdout = child.stdout.take().ok_or("codex app-server proxy has no stdout")?;
-        let (sender, lines) = channel();
+        // A full queue stops the reader, and the proxy then waits on its pipe.
+        let (sender, lines) = sync_channel(LINE_QUEUE);
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };

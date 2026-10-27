@@ -176,6 +176,7 @@ pub(crate) fn candidates(status: &Status) -> Vec<Node> {
 /// Probes every candidate at once; each probe has its own bound, so the
 /// whole list takes about one probe's time.
 pub(crate) fn probe_all(nodes: Vec<Node>, port: u16) -> Vec<Found> {
+    // unbounded-allow: one message per probed node, at most `count`
     let (tx, rx) = mpsc::channel();
     let count = nodes.len();
     for node in nodes {

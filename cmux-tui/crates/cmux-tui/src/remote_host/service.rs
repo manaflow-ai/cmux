@@ -114,6 +114,7 @@ pub(crate) fn stop_running() {
 
 fn lock_released_within(bound: Duration) -> bool {
     let Ok(Some(file)) = open_lock(false) else { return true };
+    // unbounded-allow: one message, the lock result
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(file.lock().is_ok());
@@ -197,6 +198,7 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
 
 #[cfg(unix)]
 fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
+    // unbounded-allow: one message, the readiness line
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut line = String::new();

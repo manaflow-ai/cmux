@@ -347,6 +347,7 @@ pub(super) struct SignalWait;
 impl RecordWait for SignalWait {
     fn wait(&self, duration: Duration) -> Waited {
         let deadline = Instant::now() + duration;
+        // unbounded-allow: one message, the signal
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
         std::thread::Builder::new()

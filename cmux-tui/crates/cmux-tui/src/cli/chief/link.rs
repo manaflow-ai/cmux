@@ -7,7 +7,7 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport::Stream;
@@ -179,7 +179,7 @@ impl Link {
         mut self,
         conversation: &str,
         tail: usize,
-        sink: Sender<super::Input>,
+        sink: SyncSender<super::Input>,
     ) -> Result<EventsHandle, LinkError> {
         let stream_id = format!("stream_{}", uuid::Uuid::new_v4().simple());
         let params =
@@ -229,7 +229,7 @@ impl Link {
         mut self,
         conversation: &str,
         tail: usize,
-        sink: Sender<super::Input>,
+        sink: SyncSender<super::Input>,
     ) -> Result<EventsHandle, LinkError> {
         let capabilities = super::backend::cloud_event_capabilities();
         // Best effort: an older daemon without typing still streams the rest.

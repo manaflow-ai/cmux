@@ -24,6 +24,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+/// Output lines of an upstream server held for its next request.
+const LINE_QUEUE: usize = 1024;
+
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
 pub(super) const ENV: &str = "CMUX_MCP_UPSTREAMS";
@@ -316,7 +319,8 @@ impl Upstream {
         &self,
         output: impl std::io::Read + Send + 'static,
     ) -> Result<mpsc::Receiver<String>, String> {
-        let (tx, lines) = mpsc::channel();
+        // A full queue stops the reader, and the server then waits on its pipe.
+        let (tx, lines) = mpsc::sync_channel(LINE_QUEUE);
         std::thread::Builder::new()
             .name(format!("cmux-mcp-upstream-{}", self.prefix))
             .spawn(move || {

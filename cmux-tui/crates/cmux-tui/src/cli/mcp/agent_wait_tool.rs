@@ -173,6 +173,7 @@ pub(super) struct Ticker {
 impl Ticker {
     pub(super) fn start(progress: Option<Progress>, total: Duration) -> Self {
         let Some(progress) = progress else { return Self { stop: None, thread: None } };
+        // unbounded-allow: stop signal: at most one message, then the sender drops
         let (stop, stopped) = mpsc::channel::<()>();
         let started = Instant::now();
         let spawned =

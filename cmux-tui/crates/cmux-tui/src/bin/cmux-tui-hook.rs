@@ -758,6 +758,7 @@ mod detach {
         drop(stdin);
         // A reader thread plus a bounded channel wait gives one absolute
         // deadline on every platform (Windows pipe reads have no timeout).
+        // unbounded-allow: one message, the reader thread's outcome
         let (sender, receiver) = mpsc::channel();
         let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];

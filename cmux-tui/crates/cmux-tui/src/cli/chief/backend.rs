@@ -9,7 +9,7 @@
 
 use std::io::Read as _;
 use std::path::Path;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 
 use serde_json::{Value, json};
 
@@ -243,7 +243,7 @@ impl ChatClient {
         self,
         conversation: &str,
         tail: usize,
-        sink: Sender<super::Input>,
+        sink: SyncSender<super::Input>,
     ) -> Result<super::link::EventsHandle, LinkError> {
         match self.owner {
             Owner::Local => self.link.into_events(conversation, tail, sink),

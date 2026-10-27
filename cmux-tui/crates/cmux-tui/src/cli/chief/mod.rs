@@ -34,7 +34,7 @@ mod turn;
 mod usage;
 
 use std::io::IsTerminal;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
 use serde_json::{Value, json};
 
@@ -56,6 +56,9 @@ pub(super) enum Input {
 /// How long pipe mode waits for the Chief's turn by default: a Chief turn
 /// can take long, but a script must never wait forever.
 pub(super) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
+
+/// Inputs (chat events and keys) held while the chat handles one.
+const INPUT_QUEUE: usize = 1024;
 
 /// The client kind of an open `cmux chief` chat (pipe or terminal), in `client.list`.
 const CHAT_CLIENT_KIND: &str = "chief-chat";
@@ -301,7 +304,7 @@ struct Session {
     chief: String,
     socket: std::path::PathBuf,
     derived: bool,
-    tx: Sender<Input>,
+    tx: SyncSender<Input>,
     rx: Receiver<Input>,
     /// Ends the current event stream when replaced or dropped.
     _events: Option<link::EventsHandle>,
@@ -349,7 +352,10 @@ impl Session {
                 (1, script_text::text().lease_failed.replace("{reason}", &e.to_string()))
             })?;
         }
-        let (tx, rx) = channel();
+        // Bounded: a full queue makes the event and key threads wait. The
+        // daemon ends a stream that falls this far behind with `gap`, and the
+        // chat reopens it from its tail.
+        let (tx, rx) = sync_channel(INPUT_QUEUE);
         Ok(Self {
             client,
             conversation: String::new(),

@@ -158,6 +158,7 @@ impl Progress {
         let Some(total) = timeout.filter(|total| shows && *total > FIRST_NOTE_AFTER) else {
             return Self { started, stop: None, thread: None };
         };
+        // unbounded-allow: stop signal: at most one message, then the sender drops
         let (stop, stopped) = mpsc::channel::<()>();
         let what = what.to_owned();
         let spawned = std::thread::Builder::new().name("app-wait-notes".into()).spawn(move || {
