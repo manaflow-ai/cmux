@@ -306,6 +306,14 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_next_compile_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_next_linux_compile_status.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
@@ -698,6 +706,18 @@ path = "tests/test_ci_pr_size_advisory.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_call_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
@@ -974,6 +994,10 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1051,6 +1075,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1269,6 +1301,10 @@ path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_hybrid_ref_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1482,6 +1518,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1726,6 +1766,10 @@ path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_legacy_publish_linux.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_edge_feed.py"
 lane = "linux-guard"
 
@@ -1956,4 +2000,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_delivery_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_landing_place.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_landing_workflow.py"
 lane = "linux-guard"
