@@ -9,6 +9,7 @@ use super::ClientRegistry;
 use super::ClientSizeUpdate;
 use super::DaemonHandoffReservation;
 use super::DetachedSurface;
+use super::MessageWriter;
 use super::OutboundStream;
 use super::RETIRED_VIEW_LEASE_CAPACITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
@@ -374,6 +375,26 @@ impl ClientRegistry {
                 record.retired_surfaces.remove(&expired);
             }
         }
+    }
+
+    /// The writer of `client` and every attach stream it holds on `surface`,
+    /// committed or pending: the views (leases) of one client that a kick of
+    /// its participant on this terminal ends.
+    pub(super) fn surface_view_streams(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(MessageWriter, Vec<(u64, OutboundStream)>)> {
+        let state = self.state.lock().recover_poison();
+        let record = state.clients.get(&client)?;
+        let attached = record.attached.get(&surface)?;
+        let streams = attached
+            .streams
+            .iter()
+            .chain(&attached.pending_streams)
+            .map(|(stream, outbound)| (*stream, outbound.clone()))
+            .collect();
+        Some((record.writer.clone(), streams))
     }
 
     pub(super) fn detach_surface(
