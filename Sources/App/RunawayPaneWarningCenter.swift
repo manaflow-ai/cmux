@@ -234,7 +234,7 @@ final class RunawayPaneWarningCenter {
     #else
     @Sendable
     #endif
-    nonisolated static func measure(
+    private nonisolated static func measure(
         descriptors: [PaneMemoryDescriptor],
         selector: RunawaySessionSelector,
         policy: RunawaySessionWarningPolicy,
