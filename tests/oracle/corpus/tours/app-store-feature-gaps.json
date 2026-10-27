@@ -1,0 +1,186 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "app-store-feature-gaps",
+  "suite": "tours",
+  "title": "Tour: App Store Features: Channels and sidebar launchers",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "tours-app-store-feature-gaps-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "the main window is 1440 x 900 pt"
+  ],
+  "requires": [
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "01-launch",
+      "op": "snapshot"
+    },
+    {
+      "id": "02-app-store-features-with-channels-and-the",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "action",
+          "run",
+          "appStore.show",
+          "--tab",
+          "features",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "settleMaxMs": 10000,
+      "note": "no snapshot value appStore.show is sure to change"
+    },
+    {
+      "id": "03-channels-on-its-card-says-on-and-channel",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "home.channelsEnabled",
+          "true"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "04-new-terminal-added-to-the-sidebar-its-ca",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "action",
+          "run",
+          "sidebar.item.add",
+          "--item",
+          "new_terminal"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the sidebar.item.add flag name may differ): the settle barrier alone, since the step may not do its work"
+    },
+    {
+      "id": "05-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"dark\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+    },
+    {
+      "id": "06-back-to-the-system-appearance",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"system\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+    },
+    {
+      "id": "07-channels-removed-its-card-says-get",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "unset",
+          "home.channelsEnabled"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    }
+  ],
+  "invariants": [
+    "each step's settled snapshot is the model state of the tour's picture of that step",
+    "no step waits on a clock: each ends on its waitFor value or the settle barrier"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+  ]
+}
