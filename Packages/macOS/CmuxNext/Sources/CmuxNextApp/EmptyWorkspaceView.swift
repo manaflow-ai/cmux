@@ -73,6 +73,7 @@ final class EmptyWorkspaceView: NSView {
         super.layout()
     }
 
+    // visibility-walk-allow: two label color stores in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

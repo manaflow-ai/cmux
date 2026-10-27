@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "attention": {
+      "flash": true
+    }
+  }
+}

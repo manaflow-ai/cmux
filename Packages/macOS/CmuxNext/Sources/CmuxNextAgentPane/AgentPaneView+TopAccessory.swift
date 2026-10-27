@@ -52,7 +52,7 @@ public import AppKit
         bar.autoresizingMask = [.width, pane.isFlipped ? .maxYMargin : .minYMargin]
         bar.frame = NSRect(x: pane.bounds.minX, y: pane.isFlipped ? pane.bounds.minY : pane.bounds.maxY - height,
                            width: pane.bounds.width, height: height)
+        // The page takes the rest of the pane in the window's next pass: nothing in this turn reads it.
         pane.needsLayout = true
-        pane.layoutSubtreeIfNeeded()
     }
 }

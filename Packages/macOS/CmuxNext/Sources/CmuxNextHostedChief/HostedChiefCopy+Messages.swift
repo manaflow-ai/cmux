@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -25,7 +26,7 @@ extension HostedChiefCopy {
         let latest = now.addingTimeInterval(240)
         for message in local.sorted(by: { $0.seq < $1.seq }) where ids[message.author] != nil {
             guard let data = try? encoder.encode(message),
-                  let raw = (try? JSONSerialization.jsonObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
+                  let raw = (try? JSONSerialization.blockingJSONObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
             // The owner's id form (msg_ and 1 to 40 letters or digits); another local id keeps its letters and digits.
             let plain = String(String.UnicodeScalarView(message.id.unicodeScalars.filter { $0.isASCII && CharacterSet.alphanumerics.contains($0) }))
             let messageID = message.id.range(of: #"^msg_[A-Za-z0-9]{1,40}$"#, options: .regularExpression) != nil ? message.id : "msg_" + String(plain.prefix(40))
@@ -83,12 +84,16 @@ extension HostedChiefCopy {
     }
 
     /// Replaces exact string values and object keys found in `ids` (never text that only contains one).
+    /// A renamed key that lands on a key the object already has replaces it: the renamed entry is the copied one.
     nonisolated private static func mapIDs(_ value: Any, _ ids: [String: String]) -> Any {
         switch value {
         case let text as String: return ids[text] ?? text
         case let list as [Any]: return list.map { mapIDs($0, ids) }
         case let object as [String: Any]:
-            return Dictionary(uniqueKeysWithValues: object.map { (ids[$0.key] ?? $0.key, mapIDs($0.value, ids)) })
+            var mapped: [String: Any] = [:]
+            for (key, item) in object where ids[key] == nil { mapped[key] = mapIDs(item, ids) }
+            for (key, item) in object { if let renamed = ids[key] { mapped[renamed] = mapIDs(item, ids) } }
+            return mapped
         default: return value
         }
     }

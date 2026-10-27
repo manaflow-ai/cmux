@@ -38,7 +38,7 @@ struct HomeNarrowSidebarTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         let content = NSView()
-        let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults), mainWork: linklessMainWork())
         split.windowKey = { "w" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)

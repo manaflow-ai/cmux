@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -30,6 +31,7 @@ struct ChannelDaemonSessionTests {
         // Application Support and the remembered socket in this test's root.
         func appLauncher(_ bundleID: String) throws -> DaemonLauncher.Configuration {
             try DaemonLauncher.forApp(
+                work: BackgroundWork(label: "test.daemon-launcher"),
                 build: BuildIdentity(bundleID: bundleID, bundledTag: nil), terminalEnvironment: [:],
                 processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
                 socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: defaultsSuite) ?? .standard }),
@@ -54,7 +56,7 @@ struct ChannelDaemonSessionTests {
             configuration.runtimeBase = runtime
             configuration.stateDirectory = configuration.stateDirectory ?? root.appendingPathComponent("default/sessions")
             try #require(configuration.stateDirectory?.path.hasPrefix(root.path + "/") == true)
-            return DaemonLauncher(configuration: configuration, environment: { environment })
+            return DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
         }
         let releaseLauncher = try isolated(release)
         let nightlyLauncher = try isolated(nightly)

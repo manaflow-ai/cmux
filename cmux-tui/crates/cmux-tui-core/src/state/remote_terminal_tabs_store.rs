@@ -193,6 +193,7 @@ fn browser_subject(browser_id: &str) -> JournalSubject {
 /// Apply `update` to the record of `browser_id`. A title or session name
 /// change also rewrites the frontend row's title (what a restart restores)
 /// and appends one presentation record; the snapshot is stored silently.
+#[track_caller]
 pub(crate) fn update_remote_terminal(
     registry: &mut WorkspaceRegistry,
     browser_id: &str,

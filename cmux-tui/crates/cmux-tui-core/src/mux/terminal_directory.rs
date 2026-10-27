@@ -4,6 +4,7 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 impl Mux {
     /// Commit terminal cwd under the same registry -> state fence as topology.
     /// A late reader from a replaced runtime cannot update its successor.
+    #[track_caller]
     pub(crate) fn publish_terminal_directory(
         &self,
         source: &Surface,

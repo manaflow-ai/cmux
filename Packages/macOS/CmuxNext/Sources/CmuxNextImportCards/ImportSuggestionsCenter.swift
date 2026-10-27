@@ -118,12 +118,12 @@ public final class ImportSuggestionsCenter {
 
     /// This Mac's sources, read off the main thread.
     static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
-        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        let environment = ImportEnvironment.live()
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
         // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-        return await Task.detached(priority: .utility) {
+        let classic = await Task.detached(priority: Task.currentPriority) { await ClassicWorkspaceCount().count() }.value
+        return await Task.detached(priority: Task.currentPriority) {
             ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
                           importedProfiles: imported, classicWorkspaces: { classic }).scan()
         }.value

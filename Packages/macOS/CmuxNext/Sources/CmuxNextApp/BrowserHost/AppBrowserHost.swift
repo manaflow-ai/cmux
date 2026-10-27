@@ -5,9 +5,10 @@ import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
-import Observation
 import os
 
 /// The app as the browser host's engine provider (plans/cmux-next/browser-host.md,
@@ -29,9 +30,15 @@ final class AppBrowserHost {
     private var inputObservation: ProviderInputObservation?
     private var inputLeaseObservation: ProviderLeaseObservation?
     /// Follows `browser.showAgentCursor` (`follow(_:)`).
-    private var agentCursorSettingObservation: Task<Void, Never>?
+    private var agentCursorSettingObservation: ServiceObservation<Bool>?
     /// The agent cursor of `cmux browser <tab>` page commands.
     let pageInputCursor: AppPageInputCursor
+    /// A person's key downs and scroll events from the input tap, before dispatch (``start()``).
+    private var inputSubscription: InputSubscription?
+    /// The local daemon's connection state (``watchDaemonConnection()``).
+    private var connectionWatch: FrameObservation<Void>?
+    /// Fresh credentials asked of the provider for connection changes (tests count the deliveries).
+    private(set) var credentialRequests = 0
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -54,7 +61,7 @@ final class AppBrowserHost {
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         relay.renderWindows = tabs.renderWindows
-        let driver = WebKitDriver(provider: tabs)
+        let driver = WebKitDriver(provider: tabs, mainWork: services.mainWork)
         driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
@@ -76,7 +83,7 @@ final class AppBrowserHost {
             })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
-            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, opener: tabs)
+            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, mainWork: services.mainWork, opener: tabs, capture: tabs)
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }
@@ -88,7 +95,9 @@ final class AppBrowserHost {
             Self.report(item, tab: tab, to: provider)
         }
         services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider] child, opener in
+            // view-observation-allow: a surface's tab is one keyed lookup in the store's index (R-index's target), not an observation
             guard let services, let provider, let tab = services.locateTab(surface: child),
+                  // view-observation-allow: as above, the opener's keyed lookup
                   let parent = services.locateTab(surface: opener) else { return }
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
@@ -125,15 +134,17 @@ final class AppBrowserHost {
     /// Follows `browser.showAgentCursor`: off, agent inputs draw nothing and
     /// every window's agent cursors go; on again, the next input draws.
     func follow(_ settings: SettingsController) {
-        agentCursorSettingObservation?.cancel()
-        // task-owner: lives as long as the host; event-driven (Observation)
-        agentCursorSettingObservation = Task { [weak self] in
-            for await shown in ObservationStream({ settings.snapshot.browserShowAgentCursor }) {
-                guard let self else { return }
-                self.inputBridge.isEnabled = shown
-                if !shown, let services = self.services {
-                    for slot in AgentCursorWiring.slots(in: services) { slot.removeAll() }
-                }
+        guard let services else { return }
+        // A service observation: it writes the input bridge and every window's cursors, with or without a
+        // window on screen. `visible`: the cursors show or go; a person's toggle flushes before its frame.
+        agentCursorSettingObservation = ServiceObservation(.visible, owner: "AppBrowserHost.showAgentCursor",
+                                                           on: services.mainWork) {
+            settings.snapshot.browserShowAgentCursor
+        } apply: { [weak self] shown in
+            guard let self else { return }
+            inputBridge.isEnabled = shown
+            if !shown, let services = self.services {
+                for slot in AgentCursorWiring.slots(in: services) { slot.removeAll() }
             }
         }
     }
@@ -150,27 +161,25 @@ final class AppBrowserHost {
         // AppServices.settings follows from its didSet; a controller set before the host is followed here.
         if let settings = services?.settings { follow(settings) }
         watchDaemonConnection()
-        let application = NSApp as? CmuxApplication
-        let earlier = application?.inputObserver
-        application?.inputObserver = { [weak self] event in
-            earlier?(event)
+        inputSubscription = services?.inputTap.subscribe(class: [.key, .scroll]) { [weak self] event in
             if event.type == .keyDown || event.type == .scrollWheel { self?.noteInput(event) }
         }
     }
 
     /// Each daemon connection (a launch, a reconnect, a new daemon) may bring a new browser
     /// host: the provider asks for fresh credentials and reconnects when they differ. Event
-    /// driven: it re-arms an observation of the store's connection state.
+    /// driven, in the automation class: agents and remote pages use the provider with no window
+    /// on screen, and the class needs no display link.
     private func watchDaemonConnection() {
-        guard let store = services?.daemon.store else { return }
-        withObservationTracking {
-            _ = store.connectionState
-        } onChange: { [weak self] in
-            // task-owner: one hop per observed change, re-arms itself; ends with the host
-            Task { @MainActor [weak self] in
-                self?.provider.credentialsChanged()
-                self?.watchDaemonConnection()
-            }
+        guard let services else { return }
+        let store = services.daemon.store
+        connectionWatch = FrameObservation<Void>(owner: "browser-host.daemon-connection", delivery: .automation,
+                                                 on: services.mainWork) { [weak store] in
+            _ = store?.connectionState
+        } onChange: { [weak self] _ in
+            guard let self else { return }
+            credentialRequests += 1
+            provider.credentialsChanged()
         }
     }
 

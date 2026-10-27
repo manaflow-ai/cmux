@@ -28,6 +28,7 @@ pub(crate) struct EnsuredHome {
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn state_ensure_home(self: &Arc<Self>) -> anyhow::Result<EnsuredHome> {
         if let Some((workspace_id, _)) = self.read_registry_state(home_store::live_home)? {
             let revision = self.with_state(|state| state.resource_revision);

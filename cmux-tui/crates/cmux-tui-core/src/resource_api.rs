@@ -534,6 +534,17 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
+    public_session_snapshot_at_cut(mux, |_| ())
+        .map(|(snapshot, journal_head, ())| (snapshot, journal_head))
+}
+
+/// [`public_session_snapshot_with_journal_head`] plus `visit`'s value, read
+/// from the same `State` in the same projection lock, so all three are one
+/// cut (`oracle-state` reads its runtime counts this way).
+pub(crate) fn public_session_snapshot_at_cut<R>(
+    mux: &Mux,
+    visit: impl FnOnce(&crate::model::State) -> R,
+) -> Result<(Value, u64, R), ResourceError> {
     mux.publish_pending_terminal_directories();
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
@@ -837,7 +848,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             });
             Ok(())
         })?;
-        Ok((snapshot, journal_head))
+        Ok((snapshot, journal_head, visit(state)))
     })
     .map_err(operation_failed)
 }

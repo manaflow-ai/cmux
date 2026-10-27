@@ -1,4 +1,5 @@
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import Foundation
 
 /// What the browser-data import offer remembers: Not Now, and an import
@@ -14,7 +15,7 @@ struct BrowserImportOfferState: Codable, Equatable {
 
     static func load(from defaults: UserDefaults) -> BrowserImportOfferState {
         guard let data = defaults.data(forKey: defaultsKey) else { return BrowserImportOfferState() }
-        return (try? JSONDecoder().decode(BrowserImportOfferState.self, from: data)) ?? BrowserImportOfferState()
+        return (try? JSONDecoder().blockingDecode(BrowserImportOfferState.self, from: data)) ?? BrowserImportOfferState()
     }
 
     func save(to defaults: UserDefaults) {

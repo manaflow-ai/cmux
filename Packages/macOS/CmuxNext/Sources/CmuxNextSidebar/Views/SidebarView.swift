@@ -1,6 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextInput
 public import CmuxNextResources
+public import CmuxNextWakeups
 import CmuxNextCompat
 import CmuxNextIcons
 import Observation
@@ -23,7 +25,7 @@ public final class SidebarView: NSView {
     /// Height reserved at the top for the window's traffic lights (the
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
-    public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
+    public var titlebarHeightOverride: CGFloat? { didSet { if titlebarHeightOverride != oldValue { needsLayout = true } } }
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
@@ -36,7 +38,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    private(set) lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -60,6 +62,8 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press hands it to ``onSearch`` as the palette's anchor. `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// Energy Saver's leaf at the footer's trailing end while the saver is on (p14-energy-026).
+    let energyIndicator = SidebarEnergyIndicator()
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     let priorityBellDot = CALayer()
@@ -75,7 +79,7 @@ public final class SidebarView: NSView {
     /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
     var editBar: SidebarEditBar?
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
-    /// The card slot's height as the list lays out: springs when a card comes or goes.
+    /// The card slot's room: the list's bottom edge springs on the render server when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
@@ -85,8 +89,15 @@ public final class SidebarView: NSView {
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
-    var observation: Task<Void, Never>?
-    private var clipObservers: [any NSObjectProtocol] = []
+    /// The list's draw (`render`), only while ``visibility`` renders (p06-scheduler.md rule 4).
+    var observation: VisibleObservation<ObservationTrigger<RenderState>>?
+    /// The list settings and the selection's reveal reach the model while the sidebar is hidden too (rule 3).
+    var listSettingsWatch: ServiceObservation<ListSettings>?
+    var selectionWatch: ServiceObservation<Set<WorkspaceID>>?
+    /// The sidebar's place in the visibility tree: its window's node, hidden with the sidebar (a collapsed panel).
+    let visibility = ViewVisibility("sidebar")
+    /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
+    var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
     /// The sections the list showed at the last render (for the space slide and the provisional check).
     var lastSections: [SidebarSection] = []
@@ -98,16 +109,46 @@ public final class SidebarView: NSView {
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
     let design: DesignSettings
-    public init(model: SidebarModel, design: DesignSettings = .shared) {
+    /// The app's one input tap (the App injects it): the list hears the app's left presses and releases there,
+    /// so a press whose release went elsewhere ends (`SidebarListView+PointerEnd`).
+    public var inputTap: InputEventTap? {
+        get { list.inputTap }
+        set { list.inputTap = newValue }
+    }
+    /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
+    /// the rows the list draws on screen stay armed. Nil observes every row.
+    public var rowFeed: SidebarRowFeed? {
+        get { list.rowFeed }
+        set {
+            // The feed it leaves observes every row again.
+            list.rowFeed?.follow(visibility: nil)
+            list.rowFeed?.watch(drawn: nil, SidebarRowFeed.Viewport())
+            list.rowFeed = newValue
+            newValue?.follow(visibility: list.visibility)
+            list.watchRows(layoutChanged: true)
+        }
+    }
+    /// The app's sidebar document store (the App injects it): the list follows its events (`SidebarListView.docStore`).
+    public var docStore: SidebarDocStore? {
+        get { list.docStore }
+        set { list.docStore = newValue }
+    }
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - design: The `sidebar.*` settings it draws from.
+    ///   - mainWork: The app's main-thread scheduler: the list draws through it while the sidebar shows.
+    ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
+    public init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        list.newRows = newRows
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
-        observe()
+        observe(on: mainWork)
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -118,10 +159,24 @@ public final class SidebarView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
-            for token in clipObservers { NotificationCenter.default.removeObserver(token) }
+            listSettingsWatch?.cancel()
+            selectionWatch?.cancel()
         }
     }
     nonisolated override public var isFlipped: Bool { true }
+    // R-hide: AppKit's moves, hides and unhides only reach the node; its observation follows the node.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
+    }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
@@ -144,6 +199,7 @@ public final class SidebarView: NSView {
                 titlebarAccessory.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(titlebarAccessory)
             }
+            // invalidate: another accessory (the guard above) takes the titlebar row.
             needsLayout = true
         }
     }
@@ -157,11 +213,13 @@ public final class SidebarView: NSView {
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
+            // invalidate: an app section's view invalidated its intrinsic size (`AppSectionProvider`); the bands lay out again.
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             bandsDirty = true
+            // invalidate: another provider draws the app sections (set once per window).
             needsLayout = true
         }
     }
@@ -171,10 +229,12 @@ public final class SidebarView: NSView {
     /// popover does not open and the Updated card does not show.
     public var updateSurfaces: (any SidebarUpdateSurfaces)? {
         didSet {
+            // invalidate: the Updated card's page reports a new height (`UpdateSurfaceIsland.setHeight` on a change only).
             updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }
             // Each page is made once its card shows.
             updateCardView.surfaces = updateSurfaces
             updatedCardView.surfaces = updateSurfaces
+            // invalidate: other update surfaces (set once per window) may show another card.
             needsLayout = true
         }
     }
@@ -185,7 +245,7 @@ public final class SidebarView: NSView {
     /// The Search button while it is on screen (shown, in a window, not inside a collapsed
     /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
     public var searchAnchor: NSView? {
-        let button = searchButton
+        let button = searchButton // visibility-walk-allow: a popover anchor read once per Search open, as a hit test
         guard button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty else { return nil }
         return button
     }
@@ -231,15 +291,13 @@ public final class SidebarView: NSView {
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
+        // The clip the edge fade and scroll fit share, in place before anything below holds the clip view;
+        // it pushes its scrolls and resizes here too (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: scrollView).addClient(self)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        scrollView.contentView.postsFrameChangedNotifications = true
-        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
-            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
-            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
-            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
-        ]
+        // The app's one scroll-bar setting observer: it restyles the scroller (followThin), then the list fits the clip.
+        SystemScrollers.observe(self) { [weak self] _ in self?.syncListSize() }
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -253,25 +311,14 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        installEnergyIndicator()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
     }
 
-    private func clipBoundsChanged() {
-        list.realizeVisibleRows()
-        // The list updates row hover as rows move. A window-wide refresh here
-        // rescans every chrome target on every scroll tick and adds no state
-        // change for the sidebar's fixed chrome.
-    }
-
-    private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.nativeStyle
-        syncListSize()
-    }
-
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
-    private func syncListSize() { list.fitToClip() }
+    func syncListSize() { list.fitToClip() }
 
     override public func layout() {
         super.layout()
@@ -315,24 +362,28 @@ public final class SidebarView: NSView {
             updateBands()
         }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
+        // The list makes room for a card (and takes it back) on a render-server spring; the card
+        // sits at its place (SidebarCardSlotMotion).
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
-        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
+        let room = cardSlotMotion.room(toward: slotHeight, in: self), scrolledFrom = scrollView.contentView.bounds.minY
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let priorityHeight = layoutPriority(top: y + spacesHeight, width: b.width)
-        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + room.list + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
-        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - slotHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
+        footerBand.placeEnergy()
         edgeFade.frame = listFrame
-        layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
+        let shownList = cardSlotMotion.didLayOut(room, listFrame: listFrame, edge: edgeFade, document: list,
+                                                 scrolled: scrollView.contentView.bounds.minY - scrolledFrom, in: self)
+        layoutEditBar(over: shownList)
         // Everything above may have moved under a still pointer (cx-3wu5).
         PointerHover.refresh(in: window)
     }

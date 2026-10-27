@@ -1,5 +1,7 @@
 import Foundation
 
+// memory: fixed: one entry per installed extension folder listed in the bubble, each a few flags and
+// host patterns read from its manifest (no images, no file contents).
 /// The manifest facts of the listed extensions (``ExtensionManifestFacts``), read off the main
 /// thread once per extension folder. The toolbar prepares the bubble ahead of a click, so the
 /// facts are usually in before the bubble opens; a load that finishes later calls ``onLoad`` and

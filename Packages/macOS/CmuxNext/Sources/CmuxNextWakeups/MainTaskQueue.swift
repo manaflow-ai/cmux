@@ -7,7 +7,7 @@
 /// Work posted here runs in its class on the ``MainWorkScheduler`` (in class order, within the
 /// class budget, yielding to a person's input) while the queue may run. Whether it may run depends
 /// on the node:
-/// - Visible: every task runs, in post order.
+/// - Visible, or held by a capture vote (``VisibilityNode/wantsFrames``): every task runs, in post order.
 /// - Hidden or occluded: `visible` and `automation` tasks are held until the node shows; nothing a
 ///   person cannot see is drawn or applied for them. `background` tasks run at the scheduler's
 ///   aligned hidden wakes (``MainWorkScheduler/hiddenWake``; 1 s, Blink's `WakeUpBudgetPool`
@@ -68,7 +68,8 @@ public final class MainTaskQueue {
     private struct Item {
         var work: (@MainActor () -> Void)?
         var key: AnyHashable?
-        var site: MainPostSite
+        /// Its site and enqueue time; the node state is filled in when it runs.
+        var post: MainTaskPost
     }
 
     init(node: VisibilityNode, workClass: BudgetedWorkClass, owner: String, on work: MainWorkScheduler) {
@@ -87,7 +88,7 @@ public final class MainTaskQueue {
     ///   - line: The posting line (leave the default).
     ///   - body: The task. The queue holds it until it runs or the queue is released.
     public func post(file: StaticString = #fileID, line: UInt = #line, _ body: @escaping @MainActor () -> Void) {
-        append(Item(work: body, key: nil, site: MainPostSite(file: file, line: line)))
+        append(Item(work: body, key: nil, post: MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: work.budget.nowNanos)))
     }
 
     /// Queues `body`, or replaces the body of the pending task posted with the same `key` (which
@@ -103,12 +104,14 @@ public final class MainTaskQueue {
         let key = AnyHashable(key)
         let site = MainPostSite(file: file, line: line)
         if let index = keyed[key] {
+            // The pending task keeps its place and its enqueue time: its wait counts from the first post.
+            let held = pending[index - dropped].post
             pending[index - dropped].work = body
-            pending[index - dropped].site = site
+            pending[index - dropped].post = MainTaskPost(site: site, enqueueNanos: held.enqueueNanos)
             return
         }
         keyed[key] = dropped + pending.count
-        append(Item(work: body, key: key, site: site))
+        append(Item(work: body, key: key, post: MainTaskPost(site: site, enqueueNanos: work.budget.nowNanos)))
     }
 
     /// Tasks posted and not run yet (keyed posts count once).
@@ -156,9 +159,9 @@ public final class MainTaskQueue {
 
     // MARK: Node changes
 
-    /// The node flipped, froze or unfroze (``VisibilityNode`` calls it).
+    /// The node flipped, a capture vote came or went, or the node froze or unfroze (``VisibilityNode`` calls it).
     func nodeDidChange() {
-        if node.isVisible { released = 0 }
+        if node.wantsFrames { released = 0 }
         schedule()
     }
 
@@ -166,7 +169,7 @@ public final class MainTaskQueue {
 
     private var mayRunNow: Bool {
         guard isEnabled, !node.isFrozen else { return false }
-        return node.isVisible || released > 0
+        return node.wantsFrames || released > 0
     }
 
     private func append(_ item: Item) {
@@ -178,35 +181,40 @@ public final class MainTaskQueue {
     /// background tasks that may not.
     private func schedule() {
         guard pendingCount > 0, isEnabled, !node.isFrozen else { return }
-        if node.isVisible {
+        if node.wantsFrames {
             postPumps(upTo: pendingCount)
         } else if workClass == .background {
             if released > 0 { postPumps(upTo: released) } else { requestHiddenWake() }
         }
     }
 
+    /// Pumps carry no post: the one that runs a task names that task's post
+    /// (``MainFrameBudget/notePost(_:)``), and one that runs none stays out of the ledger.
     private func postPumps(upTo wanted: Int) {
+        let budget = work.budget
         while pumps < min(wanted, pendingCount) {
-            let site = pending[head + pumps].site
             pumps += 1
-            work.post(workClass, owner: owner, site: site) { [weak self] in self?.pump() }
+            work.post(workClass, owner: owner, post: nil) { [weak self] in
+                guard let self else { return budget.noteRanNothing() }
+                pump()
+            }
         }
     }
 
     /// One scheduler task: runs the head task if the queue may run now, else leaves it held.
     private func pump() {
         pumps -= 1
-        guard pendingCount > 0, mayRunNow else { return }
-        if !node.isVisible { released -= 1 }
+        guard pendingCount > 0, mayRunNow else { return work.budget.noteRanNothing() }
+        if !node.wantsFrames { released -= 1 }
         let item = pending[head]
-        pending[head] = Item(work: nil, key: nil, site: item.site)
+        pending[head] = Item(work: nil, key: nil, post: item.post)
         head += 1
         if let key = item.key { keyed[key] = nil }
         compact()
-        work.board.notePostedFrom(item.site)
+        work.budget.notePost(item.post.starting(in: MainTaskPost.NodeState(node.effective)))
         runsByNodeState[node.effective.rawValue] += 1
         item.work?()
-        if !node.isVisible, released == 0 { schedule() }
+        if !node.wantsFrames, released == 0 { schedule() }
     }
 
     private func requestHiddenWake() {
@@ -219,7 +227,7 @@ public final class MainTaskQueue {
     /// posted after it wait for the next wake.
     private func hiddenWakeFired() {
         wakeRequested = false
-        guard !node.isVisible else { return }
+        guard !node.wantsFrames else { return }
         released = pendingCount
         schedule()
     }

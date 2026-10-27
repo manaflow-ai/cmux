@@ -1,5 +1,7 @@
 public import AppKit
 import QuartzCore
+import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// Sleepy Mode's night sky: 90 twinkling stars and three Zs rising from the moon's corner, as
 /// Core Animation layers whose loops run in the render server.
@@ -13,6 +15,9 @@ import QuartzCore
 /// The stars sit at fixed spots (a seeded walk, the same on every launch); the look matches the
 /// canvas: a star's opacity follows `0.35 + 0.65 * (0.5 + 0.5 * sin(1.3 t + phase))`, and each Z
 /// rises 90 points over 3 s, drifting right and wobbling, from 18 to 36 points while it fades.
+/// Both loops are ambient: they ask the render server for 30 frames a second when the panes
+/// gate paces loops (``MotionPolicy/pacesLoops``). They run through ``LoopVisibility``: off while the
+/// sky is out of its window, hidden, or its window is occluded, and back in phase when it shows.
 ///
 /// ```swift
 /// let sky = NightSkyView()
@@ -25,6 +30,8 @@ public final class NightSkyView: NSView {
     }
 
     private let root = CALayer()
+    private let loopVisibility = LoopVisibility("nightSky")
+    private var loopNode: VisibilityNode { loopVisibility.node }
     private var stars: [CALayer] = []
     private var zs: [CATextLayer] = []
     private var builtSize: CGSize = .zero
@@ -69,6 +76,21 @@ public final class NightSkyView: NSView {
         if bounds.size != builtSize { rebuild() }
     }
 
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        loopVisibility.place(in: window)
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        loopNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        loopNode.set(.visible)
+    }
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
@@ -91,8 +113,11 @@ public final class NightSkyView: NSView {
             star.frame = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
             star.cornerRadius = radius
             star.opacity = Float(Self.starAlpha(time: 0, phase: phase))
-            star.removeAllAnimations()
-            if loops { star.add(Self.twinkle(phase: phase), forKey: "twinkle") }
+            if loops {
+                loopVisibility.attach(star, key: Self.twinkleKey) { Self.twinkle(phase: phase, Motion.panes.policy) }
+            } else {
+                loopVisibility.detach(star, key: Self.twinkleKey)
+            }
         }
         let origin = CGPoint(x: size.width / 2 + 60, y: size.height / 2 + 150)
         for (index, z) in zs.enumerated() {
@@ -100,13 +125,18 @@ public final class NightSkyView: NSView {
             z.position = Self.zPoint(origin: origin, progress: start)
             z.opacity = Float(1 - start)
             z.setAffineTransform(Self.zScale(progress: start))
-            z.removeAllAnimations()
-            if loops { z.add(Self.rise(origin: origin, offset: start * Self.risePeriod), forKey: "rise") }
+            if loops {
+                loopVisibility.attach(z, key: Self.riseKey) { Self.rise(origin: origin, offset: start * Self.risePeriod, Motion.panes.policy) }
+            } else {
+                loopVisibility.detach(z, key: Self.riseKey)
+            }
         }
     }
 
     // MARK: The scene's look
 
+    static let twinkleKey = "twinkle"
+    static let riseKey = "rise"
     private static let starCount = 90
     private static let zCount = 3
     private static let zText = "z"
@@ -141,7 +171,7 @@ public final class NightSkyView: NSView {
     }
 
     /// A star's opacity between 0.35 and 1, eased like a sine, at the phase it has at time 0.
-    private static func twinkle(phase: Double) -> CAAnimation {
+    private static func twinkle(phase: Double, _ policy: MotionPolicy) -> CAAnimation {
         // motion: allow Sleepy Mode's own star loop; added only while Motion.panes.animatesLoops (SleepySceneView)
         let twinkle = CABasicAnimation(keyPath: "opacity")
         twinkle.fromValue = 0.35
@@ -156,11 +186,11 @@ public final class NightSkyView: NSView {
         // Local time 0 is the darkest point, sin(1.3 t + phase) = -1; at time 0 the star is
         // (π/2 + phase) / 1.3 seconds past it.
         twinkle.timeOffset = ((.pi / 2 + phase) / 1.3).truncatingRemainder(dividingBy: twinklePeriod)
-        return twinkle
+        return Motion.paced(twinkle, policy)
     }
 
     /// A Z's rise, drift, growth and fade, `offset` seconds into its 3 s loop.
-    private static func rise(origin: CGPoint, offset: CFTimeInterval) -> CAAnimation {
+    private static func rise(origin: CGPoint, offset: CFTimeInterval, _ policy: MotionPolicy) -> CAAnimation {
         let steps = (0...riseSteps).map { Double($0) / Double(riseSteps) }
         // motion: allow Sleepy Mode's own Z loop; added only while Motion.panes.animatesLoops (SleepySceneView)
         let path = CAKeyframeAnimation(keyPath: "position")
@@ -179,6 +209,6 @@ public final class NightSkyView: NSView {
         group.repeatCount = .infinity
         group.isRemovedOnCompletion = false
         group.timeOffset = offset
-        return group
+        return Motion.paced(group, policy)
     }
 }

@@ -49,6 +49,9 @@ enum SurfaceDiagnosticsReport {
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))
+                    // What the pane shows over the terminal: the status banner and the dead-tab Restart button.
+                    object["status_text"] = entry.session.view.statusText.map(JSONValue.string) ?? .null
+                    object["restart_offered"] = .bool(entry.session.view.offersRestart)
                     let diagnostics = entry.session.diagnostics
                     object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
                     object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
@@ -132,6 +135,10 @@ enum SurfaceDiagnosticsReport {
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
+            "urgent_passes_total": JSONValue(hibernation.urgentPasses),
+            "last_urgent_discard": hibernation.lastUrgentPass.discards.first.map { candidate -> JSONValue in
+                ["key": .string(candidate.key), "kind": .string(candidate.kind.rawValue)]
+            } ?? .null,
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
             "snapshots": JSONValue(hibernation.snapshots.count),
             "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),

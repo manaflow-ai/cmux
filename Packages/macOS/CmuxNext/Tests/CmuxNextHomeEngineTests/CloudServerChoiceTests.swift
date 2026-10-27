@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import os
 import Testing
@@ -19,14 +20,15 @@ struct CloudServerChoiceTests {
     private func link(tokens: FakeLeaseTokens, source: CloudHomeSource) -> HomeCloudLink {
         let lease = HomeCloudLease(tokens: tokens, apiBaseURL: Self.hostedAPI, clientVersion: "1.2.3",
                                    logger: Logger(subsystem: "CmuxNextHomeEngineTests", category: "lease"))
-        return HomeCloudLink(lease: lease, source: source, localID: CloudSourceHarness.me.id, stackProjectID: "stack-project")
+        return HomeCloudLink(lease: lease, source: source, localID: CloudSourceHarness.me.id, stackProjectID: "stack-project",
+                             deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
     }
 
     @Test func selfHostedLeasesTheServerWithTailscaleAndNoToken() async throws {
         let daemon = FakeCloudDaemon()
         await daemon.answerSelfHost(Self.info)
         let tokens = FakeLeaseTokens(subject: "stack-user-1", signedIn: false)
-        let source = CloudHomeSource(me: CloudSourceHarness.me, attachmentCache: CloudSourceHarness.temporaryDirectory())
+        let source = CloudHomeSource(me: CloudSourceHarness.me, work: CloudSourceHarness.work, attachmentCache: CloudSourceHarness.temporaryDirectory())
         let linker = link(tokens: tokens, source: source)
         await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: nil, displayName: "",
                                               server: .selfHosted(Self.server)))
@@ -48,7 +50,7 @@ struct CloudServerChoiceTests {
     @Test func selfHostedEventsOfTheServersUserAreThisAccounts() async throws {
         let daemon = FakeCloudDaemon()
         await daemon.answerSelfHost(Self.info)
-        let source = CloudHomeSource(me: CloudSourceHarness.me, attachmentCache: CloudSourceHarness.temporaryDirectory())
+        let source = CloudHomeSource(me: CloudSourceHarness.me, work: CloudSourceHarness.work, attachmentCache: CloudSourceHarness.temporaryDirectory())
         let linker = link(tokens: FakeLeaseTokens(subject: "stack-user-1"), source: source)
         await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: "stack-user-1", displayName: "Me",
                                               server: .selfHosted(Self.server)))
@@ -60,7 +62,7 @@ struct CloudServerChoiceTests {
     @Test func hostedStillLeasesTheStackToken() async throws {
         let daemon = FakeCloudDaemon()
         let tokens = FakeLeaseTokens(subject: "stack-user-1")
-        let source = CloudHomeSource(me: CloudSourceHarness.me, attachmentCache: CloudSourceHarness.temporaryDirectory())
+        let source = CloudHomeSource(me: CloudSourceHarness.me, work: CloudSourceHarness.work, attachmentCache: CloudSourceHarness.temporaryDirectory())
         let linker = link(tokens: tokens, source: source)
         await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: "stack-user-1", displayName: "Me"))
         await linker.settle()
@@ -77,7 +79,7 @@ struct CloudServerChoiceTests {
     @Test func switchingToSelfHostedReplacesTheHostedLease() async throws {
         let daemon = FakeCloudDaemon()
         await daemon.answerSelfHost(Self.info)
-        let source = CloudHomeSource(me: CloudSourceHarness.me, attachmentCache: CloudSourceHarness.temporaryDirectory())
+        let source = CloudHomeSource(me: CloudSourceHarness.me, work: CloudSourceHarness.work, attachmentCache: CloudSourceHarness.temporaryDirectory())
         let linker = link(tokens: FakeLeaseTokens(subject: "stack-user-1"), source: source)
         await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: "stack-user-1", displayName: "Me"))
         await linker.settle()
@@ -91,7 +93,7 @@ struct CloudServerChoiceTests {
     @Test func aServerThatIsNotSelfHostedLeavesNoLease() async throws {
         let daemon = FakeCloudDaemon()
         await daemon.answerSelfHost(nil)
-        let source = CloudHomeSource(me: CloudSourceHarness.me, attachmentCache: CloudSourceHarness.temporaryDirectory())
+        let source = CloudHomeSource(me: CloudSourceHarness.me, work: CloudSourceHarness.work, attachmentCache: CloudSourceHarness.temporaryDirectory())
         let linker = link(tokens: FakeLeaseTokens(subject: "stack-user-1"), source: source)
         await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: nil, displayName: "",
                                               server: .selfHosted(Self.server)))

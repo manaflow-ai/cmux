@@ -5,7 +5,7 @@ public struct ResizeSurfaceRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var accepted: Bool
     }
-    public static let command = "resize-surface"
+    public static let commandName: DaemonCommandName = "resize-surface"
     public var surface: SurfaceID
     public var cols: Int
     public var rows: Int
@@ -25,7 +25,7 @@ public struct ResizeAttachedViewRequest: DaemonRequest {
         public var accepted: Bool
         public var outcome: LeaseOutcome?
     }
-    public static let command = "resize-attached-view"
+    public static let commandName: DaemonCommandName = "resize-attached-view"
     public var surface: SurfaceID
     public var lease: String
     public var cols: Int

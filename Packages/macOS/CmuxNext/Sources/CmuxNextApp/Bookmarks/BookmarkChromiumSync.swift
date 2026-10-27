@@ -26,23 +26,29 @@ final class BookmarkChromiumSync {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
     private var waiting: [String: String] = [:]
-    private var scheduled: [String: DemandTimer] = [:]
-    private var homeObservation: Task<Void, Never>?
+    /// Each store's settle, then its sync in idle time. `background`: Chromium's model serves extensions,
+    /// which nobody watches redraw.
+    private let settles: BookmarkSyncSettle
+    private var homeObservation: ServiceObservation<String>?
 
     init(service: BookmarkService) {
         self.service = service
+        let mainWork = service.services.mainWork
+        settles = BookmarkSyncSettle(settle: Self.settle, maxDelay: Self.idleMaxDelay,
+                                     deadlines: service.services.mainDeadlines) { owner, maxDelay, body in
+            mainWork.postIdle(owner: owner, maxDelay: maxDelay) { _ in body() }
+        }
         bridge.onEvent = { [weak self] profile, store, event in
             self?.handle(event, profile: BrowserProfileRecord.wireID(for: profile), store: store)
         }
-        // task-owner: lives as long as the service; event-driven (Observation).
         // The file becomes the truth once the home daemon answered or gave
-        // up; a reconnect lets a failed read start again.
+        // up; a reconnect lets a failed read start again. A service: the
+        // stores sync whether or not a browser tab shows.
         let home = service.services.machines.local
-        homeObservation = Task { [weak self] in
-            for await _ in ObservationStream({ "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)" }) {
-                guard let self else { return }
-                retryWaiting()
-            }
+        homeObservation = ServiceObservation(.background, owner: "BookmarkChromiumSync.home", on: mainWork) {
+            "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)"
+        } apply: { [weak self] _ in
+            self?.retryWaiting()
         }
     }
 
@@ -122,16 +128,15 @@ final class BookmarkChromiumSync {
         }
     }
 
-    /// Syncs `store` once its events have settled for `settle`; a later
-    /// call starts the wait again.
+    /// Syncs `store` in the main thread's idle time once its events have
+    /// settled for `settle`; a later call starts the wait again. The sync
+    /// serializes the whole tree, which is idle work (``BookmarkSyncSettle``).
     private func schedule(_ store: String, profile: String) {
-        // One debounce per store: a later schedule replaces the pending deadline.
-        let timer = scheduled[store] ?? DemandTimer(owner: "BookmarkChromiumSync.settle")
-        scheduled[store] = timer
-        timer.schedule(after: Self.settle) { @MainActor [weak self] in
-            self?.sync(store, profile: profile)
-        }
+        settles.schedule(store) { [weak self] in self?.sync(store, profile: profile) }
     }
+
+    /// The longest a settled sync waits for idle time before it runs as background work.
+    static let idleMaxDelay: Duration = .seconds(2)
 
     /// Syncs once cmux's tree of `profile` is loaded: a sync before would
     /// empty Chromium's model. Reading the tree starts its fetch, whose
@@ -144,8 +149,9 @@ final class BookmarkChromiumSync {
             return
         }
         waiting[store] = nil
-        if bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) < 0 {
-            logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
+        // The reason tells a refusal (the store is forgotten) from no answer in time (it stays).
+        bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) { [logger] failure in
+            logger.error("chrome.bookmarks sync not applied (\(String(describing: failure), privacy: .public)) for a store of \(profile, privacy: .public)")
         }
     }
 

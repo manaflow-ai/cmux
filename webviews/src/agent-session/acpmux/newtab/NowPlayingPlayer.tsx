@@ -9,7 +9,8 @@
 // Next, Previous, Open in the app that plays, then Hide Now Playing (`tabs.newTabNowPlaying` off,
 // with an Undo in its place) and Now Playing Settings…. Items the source cannot do are disabled.
 // The bars and the progress line hold still under prefers-reduced-motion (screen.css).
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { type NowPlayingTrack, progress, useNowPlaying } from "./nowPlaying";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -34,14 +35,12 @@ function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note"
   );
 }
 
-/// The played share now, again each second while it plays (one timer, only while shown and playing).
+/// The played share now, again each second while it plays and the page shows (usePageInterval). A
+/// hidden page's line rests and reads the time again when it shows.
 function useProgress(track: NowPlayingTrack): number | null {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!track.playing || track.duration === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [track.playing, track.duration, track.positionDate]);
+  const ticking = track.playing && track.duration !== undefined;
+  usePageInterval(() => setNow(Date.now()), ticking ? 1000 : null, { catchUpOnShow: true });
   return progress(track, Math.max(now, track.positionDate));
 }
 

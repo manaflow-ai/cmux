@@ -380,7 +380,8 @@ check it.
 - Merge conflicts. Family-scoped ids avoid collisions; api-compat-check before every push; hot files serialized
   (rule 11); sniffer tasks edit only their own ROUTES.
 - Build time. Generated Swift is limited to `clients: macos` methods, in a leaf target, per-family files; task
-  194 measures leaf-edit and schema-edit rebuilds before and after.
+  194 measures leaf-edit and schema-edit rebuilds before and after. The method table (023) is one file: it is
+  small data, and every output is rewritten on any schema edit, so per-family files would gain nothing.
 - Head-of-line. Streams stay off by default (095) until 056, 072, 086, 087, 099 and 144 land and B1 shows IPC-8;
   task 094 flips the default with that evidence.
 - Scope. The CLI-to-app control socket, cmux-pane-protocol and acpmux keep their own framing in this push.
@@ -682,6 +683,10 @@ lists dictionary-valued fields whose bytes change on purpose. Test: SWIFT(CmuxNe
 Change: `DaemonWireEvent` with a case per event plus `unknown(name, raw)`; `decode(line:)` finds the name with a
 byte scan (full-parse fallback) then decodes once; `decode(eventID:payload:)` for TYPED_EVENT. Acceptance: a
 counting decoder over 20 fixture lines shows 1 decode per event. Test: SWIFT(CmuxNextWireGenTests).
+A TYPED_EVENT payload is the event's JSON object, `event` included; an id the table does not know is `unknown`,
+never an error. CmuxNextWireGenPlugin builds the fixture schema's `DaemonWireEvent` into CmuxNextIPCTests
+(`--event-output`), where the counted decode runs. Follow-up p05-ipc-195 (after 020) passes `--event-output` for
+CmuxNextIPC itself, once TypeEmitter's payload types build.
 
 **p05-ipc-023 method tables.** Files: cmux-tui/crates/cmux-ipc/build.rs, cmux-tui/crates/cmux-ipc/src/methods.rs,
 app:CmuxNextWireGen/TableEmitter.swift, app:CmuxNextIPC/MethodTable.swift. Change: per-family dense arrays

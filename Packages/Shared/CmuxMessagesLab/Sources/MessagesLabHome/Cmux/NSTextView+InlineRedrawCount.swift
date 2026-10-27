@@ -4,11 +4,11 @@ import ObjectiveC
 
 extension NSTextView {
     /// The updates this field made for pictures whose thumbnails arrived (HomeComposerPastePicturesCostTests).
-    var inlineRedrawUpdates: Int { (objc_getAssociatedObject(self, inlineRedrawCountKey.pointer) as? Int) ?? 0 }
+    var inlineRedrawUpdates: Int { (inlineRedrawCountKey.value(on: self) as? Int) ?? 0 }
 
     /// Counts one update for arrived thumbnails.
     func countInlineRedraw() {
-        objc_setAssociatedObject(self, inlineRedrawCountKey.pointer, inlineRedrawUpdates + 1, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        inlineRedrawCountKey.set(inlineRedrawUpdates + 1, on: self)
     }
 }
 

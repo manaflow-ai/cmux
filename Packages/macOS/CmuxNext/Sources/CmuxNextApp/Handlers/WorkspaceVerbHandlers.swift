@@ -60,7 +60,7 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
             let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
-            try sidebar(showing: workspace, context).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
+            try sidebar(showing: workspace, context, builds: true).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
         })
 
@@ -117,15 +117,15 @@ enum WorkspaceVerbHandlers {
         spawn.placesBySetting = then == nil
         spawn.opensNewTabPage = newTabPage
         spawn.firstChat = firstChat
-        let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
-        context.services.registry.track(Task {
-            do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                return nil
-            } catch {
-                return ActionWorkFailure("new workspace", error)
-            }
-        })
+        let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }, created = spawn
+        // The create is awaited off main; its failure is the run's, in one task on main.
+        context.services.registry.trackWork(owner: "WorkspaceVerbHandlers.spawn",
+                                            on: context.services.mainWork) {
+            _ = try await windows.createWorkspace(created, on: daemon, into: target)
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure("new workspace", error)
+        }
     }
 
     /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
@@ -137,17 +137,22 @@ enum WorkspaceVerbHandlers {
         let services = context.services, windows = services.windows
         let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
-        services.registry.track(result: Task {
-            do {
-                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                // The store lists it (its `ws_` id and name) once it applied the create's events.
-                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+        // The create and the store's catch-up are awaited off main; the answer is read in one task on main.
+        services.registry.trackResultWork(owner: "WorkspaceVerbHandlers.newWorkspaceOnMachine",
+                                          on: services.mainWork) {
+            let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+            // The store lists it (its `ws_` id and name) once it applied the create's events.
+            if let connection = await daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+            return id
+        } then: { result in
+            switch result {
+            case .success(let id):
                 return .success(createdFields(id, on: daemon, services: services))
-            } catch {
+            case .failure(let error):
                 daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return .failure(ActionWorkFailure("new workspace on machine", error))
             }
-        })
+        }
     }
 
     /// `action.run`'s `result` for a workspace made on `daemon`: its public id (`ws_…` on
@@ -183,7 +188,7 @@ enum WorkspaceVerbHandlers {
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
         let ids = try WindowMembershipHandlers.workspaces(invocation, context)
-        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
+        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context, builds: true), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
     }
 
@@ -218,16 +223,19 @@ enum WorkspaceVerbHandlers {
         return (try? group(of: workspace, context)) != nil
     }
 
-    /// The sidebar of the window that lists `workspace`, else the active one.
-    static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarBridge {
+    /// The sidebar of the window that lists `workspace`, else the active one. `builds`: a run that acts in
+    /// that sidebar builds the window when it waits for its launch build; a title, visibility or choices
+    /// read never does.
+    static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext, builds: Bool = false) throws -> SidebarBridge {
         let windows = context.services.windows
-        if let owner = windows.registry.value.owner(of: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
+        if let owner = windows.registry.value.owner(of: workspace.id),
+           let controller = builds ? windows.controllerBuildingIfWaiting(for: owner) : windows.controller(for: owner) { return controller.sidebar }
         return try context.sidebar()
     }
 
-    /// The sidebar group listing `workspace` in its window, if any.
-    static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
+    /// The sidebar group listing `workspace` in its window, if any (`builds` as in ``sidebar(showing:_:builds:)``).
+    static func group(of workspace: WorkspaceModel, _ context: AppActionContext, builds: Bool = false) throws -> SidebarGroup? {
+        let sections = try sidebar(showing: workspace, context, builds: builds).model.sections
         for section in sections {
             for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
                 return group
@@ -259,6 +267,7 @@ enum WorkspaceVerbHandlers {
     private static func sort(by key: WorkspaceSortKey, only: GroupID? = nil, _ context: AppActionContext) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         let bridge = window.sidebar
+        bridge.rowFeed.refreshAll() // a row off screen may hold an old title (feature sidebarRowsNearViewport)
         let before = bridge.model.sections
         var names: [String: String] = [:], directories: [String: String] = [:]
         for workspace in bridge.model.allWorkspaces {

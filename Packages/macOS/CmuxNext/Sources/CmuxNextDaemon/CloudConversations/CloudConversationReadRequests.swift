@@ -7,7 +7,7 @@ import Foundation
 /// `cloud-inbox-list`: the account inbox (UserDO `inbox.list`).
 public struct CloudInboxListRequest: DaemonRequest {
     public typealias Response = CloudInboxList
-    public static let command = "cloud-inbox-list"
+    public static let commandName: DaemonCommandName = "cloud-inbox-list"
     public static let maxLimit = 200
     public var limit: Int?
     public var includeArchived: Bool?
@@ -15,12 +15,16 @@ public struct CloudInboxListRequest: DaemonRequest {
         self.limit = limit.map { min(max($0, 1), Self.maxLimit) }
         self.includeArchived = includeArchived
     }
+
+    enum CodingKeys: String, CodingKey {
+        case limit, includeArchived = "include_archived"
+    }
 }
 
 /// `cloud-conversation-snapshot`: the head and the newest `tail` (1...50) messages.
 public struct CloudConversationSnapshotRequest: DaemonRequest {
     public typealias Response = CloudConversationSnapshot
-    public static let command = "cloud-conversation-snapshot"
+    public static let commandName: DaemonCommandName = "cloud-conversation-snapshot"
     /// The owner returns at most this many messages.
     public static let maxTail = 50
     public var conversation: String
@@ -34,7 +38,7 @@ public struct CloudConversationSnapshotRequest: DaemonRequest {
 /// `cloud-conversation-history`: up to `limit` (1...200) messages before `beforeSeq`, ascending.
 public struct CloudConversationHistoryRequest: DaemonRequest {
     public typealias Response = CloudConversationHistory
-    public static let command = "cloud-conversation-history"
+    public static let commandName: DaemonCommandName = "cloud-conversation-history"
     public static let maxLimit = 200
     public var conversation: String
     public var beforeSeq: UInt64
@@ -43,5 +47,9 @@ public struct CloudConversationHistoryRequest: DaemonRequest {
         self.conversation = conversation
         self.beforeSeq = beforeSeq
         self.limit = min(max(limit, 1), Self.maxLimit)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, beforeSeq = "before_seq", limit
     }
 }

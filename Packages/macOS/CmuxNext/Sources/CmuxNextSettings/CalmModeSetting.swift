@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `ui.calm` in cmux.json: "off" (default), "calm" or "still" (``CalmMode``).
 /// It overrides the motion and hover-card settings while on and leaves them

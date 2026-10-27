@@ -153,6 +153,47 @@ class SixKindsTests(unittest.TestCase):
         self.assertEqual(sig.process, "cmux_pty")
         self.assertEqual(sig.frames, ["cmux_pty-0a1b2c3d4e5f6a7b+0x1234"])
 
+    def test_sanitizer_frame_keeps_its_file_module_and_offset(self):
+        frame = cs._sanitizer_frame
+        self.assertEqual(frame("0x5c in <alloc::alloc::Global as core::alloc::Allocator>::allocate "
+                               "/rustc/07e5/library/alloc/src/alloc.rs:575:14"),
+                         cs.Frame(function="<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+                                  file="/rustc/07e5/library/alloc/src/alloc.rs"))
+        # `%L` on a frame with no source: module and offset, without the per-build BuildId.
+        self.assertEqual(frame("0x5c in __rustc::__rdl_alloc (/w/deps/ws-52c34744ed7e30b6+0x2cca35) (BuildId: c845)"),
+                         cs.Frame(function="__rustc::__rdl_alloc", image="ws-52c34744ed7e30b6", offset=0x2cca35))
+        self.assertEqual(frame("0x56 (/usr/lib/libz.so.1+0x1f00) (BuildId: 9a9a)"),
+                         cs.Frame(function="", image="libz.so.1", offset=0x1f00))
+        self.assertEqual(frame("0x5c in __rust_try test.73e075bfb260dd19-cgu.01"),
+                         cs.Frame(function="__rust_try", file="test.73e075bfb260dd19-cgu.01"))
+        self.assertEqual(frame("0x5c in malloc <null>"), cs.Frame(function="malloc"))
+        self.assertEqual(frame("0x5c in ws::tests::a /Users/me/My Projects, x/ws/src/lib.rs:43:26"),
+                         cs.Frame(function="ws::tests::a", file="/Users/me/My Projects, x/ws/src/lib.rs"))
+
+    def test_unsymbolized_frames_of_two_libraries_stay_apart(self):
+        def report(module: str) -> cs.Signature:
+            text = ("==7==ERROR: AddressSanitizer: SEGV on unknown address 0x0 (pc 0x1 bp 0x2 sp 0x3 T0)\n"
+                    f"    #0 0x7f01 ({module}+0x1f00) (BuildId: 9a9a)\n")
+            return cs.signatures_from_text(text, "asan.log", IGNORE)[0]
+        self.assertEqual(report("/usr/lib/libz.so.1").frames, ["libz.so.1+0x1f00"])
+        self.assertNotEqual(report("/usr/lib/libz.so.1").hash12, report("/usr/lib/libgit2.so.1").hash12)
+
+    def test_std_inlined_and_libtest_frames_are_dropped_from_sanitizer_stacks(self):
+        r = "/rustc/07e526db9df34143c99ec8064acc8ad543f69b30/library"
+        text = ("==7==ERROR: LeakSanitizer: detected memory leaks\n\n"
+                "Direct leak of 16 byte(s) in 1 object(s) allocated from:\n"
+                "    #0 0x1 in malloc (/w/deps/ws-52c34744ed7e30b6+0x16cd04) (BuildId: c845)\n"
+                f"    #1 0x2 in alloc_impl_runtime {r}/alloc/src/alloc.rs:335:73\n"
+                f"    #2 0x2 in <alloc::vec::Vec<u8>>::with_capacity {r}/alloc/src/vec/mod.rs:519:9\n"
+                "    #3 0x2 in sorted /src/cmux-tui/crates/acpmux/src/server/sessions.rs:40:9\n"
+                f"    #4 0x3 in <ws::tests::a::{{closure#0}} as core::ops::function::FnOnce<()>>::call_once "
+                f"{r}/core/src/ops/function.rs:250:5\n"
+                "    #5 0x4 in test::__rust_begin_short_backtrace::<fn()> (/w/deps/ws-52c34744ed7e30b6+0x19c69a)\n"
+                "    #6 0x5 in <test::types::RunnableTest>::run (/w/deps/ws-52c34744ed7e30b6+0x1db373)\n")
+        [sig] = cs.signatures_from_text(text, "lsan.log", IGNORE, process="ws")
+        self.assertEqual(sig.frames, ["sorted (acpmux/src/server/sessions.rs)"])
+        self.assertEqual(sig.process, "ws")
+
     def test_asan_multi_word_error_types_stay_apart(self):
         def report(header: str) -> cs.Signature:
             text = (f"==42==ERROR: AddressSanitizer: {header}\n"

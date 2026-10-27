@@ -12,8 +12,11 @@ import UniformTypeIdentifiers
 @Suite(.serialized)
 struct WorkspaceBlockingSeamTests {
     #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// Each seam runs its call through `blockingCall`, so its site also carries the call's wall time (the
+    /// injected clock measures every timed call as ``TickClock/tick``).
     @MainActor @Test func eachWorkspaceSeamOnTheMainThreadRecordsOneSiteAtItsCaller() async {
-        let table = BlockingViolationTable(mode: .record)
+        let clock = TickClock()
+        let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
         let expected = BlockingViolationTable.$scoped.withValue(table) { callEachWorkspaceSeam() }
         await table.flush()
 
@@ -40,7 +43,8 @@ struct WorkspaceBlockingSeamTests {
 private nonisolated func callEachWorkspaceSeam() -> [BlockingSite] {
     var expected: [BlockingSite] = []
     func seam(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ call: () -> Void) {
-        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1))
+        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1,
+                                     totalNanos: TickClock.tick, maxNanos: TickClock.tick))
         call()
     }
 
@@ -54,6 +58,19 @@ private nonisolated func callEachWorkspaceSeam() -> [BlockingSite] {
     seam(.systemCall) { _ = workspace.blockingIcon(forFile: hosts.path) }
     seam(.systemCall) { _ = workspace.blockingIcon(for: UTType.plainText) }
     return expected
+}
+
+/// A clock that moves ``tick`` nanoseconds per read, so each timed call (two reads) measures ``tick``.
+private nonisolated final class TickClock: Sendable {
+    static let tick: UInt64 = 1_000
+    private let now = Mutex(UInt64(0))
+
+    func read() -> UInt64 {
+        now.withLock { now in
+            now += Self.tick
+            return now
+        }
+    }
 }
 
 /// The same calls on a named serial queue, a context where blocking is allowed (not the cooperative pool

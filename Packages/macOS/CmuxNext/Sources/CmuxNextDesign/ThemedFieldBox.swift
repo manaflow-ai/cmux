@@ -17,7 +17,7 @@ public final class ThemedFieldBox: NSView {
     public var onEditingChange: ((Bool) -> Void)?
     private var editing = false
     /// Increase Contrast changes the focus border's width; the setting is not observable otherwise.
-    private var contrastObserver: (any NSObjectProtocol)?
+    private var contrastWatch: AppearanceSignals.Subscription?
     private var heightConstraint: NSLayoutConstraint?
 
     /// The box's height; a change (a live density change) resizes it.
@@ -73,19 +73,16 @@ public final class ThemedFieldBox: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let contrastObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(contrastObserver)
-            self.contrastObserver = nil
-        }
+        contrastWatch = nil
         if window != nil {
-            contrastObserver = NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.applyTheme() }
+            contrastWatch = DesignSettings.shared.signals.subscribe([.displayOptions], owner: "ThemedFieldBox") { [weak self] in
+                self?.applyTheme()
             }
         }
         applyTheme()
     }
 
+    // visibility-walk-allow: three layer stores (fill, border color, border width); no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

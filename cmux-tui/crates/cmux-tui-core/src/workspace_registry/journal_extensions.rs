@@ -809,6 +809,7 @@ impl WorkspaceRegistry {
     /// current producer manifest. A retry can carry an older manifest version
     /// after a producer upgrade, but an ingress that has never committed must
     /// still pass current admission below.
+    #[track_caller]
     pub(crate) fn replay_journal_ingress(
         &self,
         ingress: &JournalIngress,
@@ -844,6 +845,7 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub(crate) fn journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<JournalProducerManifest>> {
@@ -860,6 +862,7 @@ impl WorkspaceRegistry {
     /// The reserved cmux hook manifest remains in the internal table because
     /// the journal kernel and checkpoint code need it, but it uses the legacy
     /// `agent` namespace and is not a userland `plugin.<id>` manifest.
+    #[track_caller]
     pub(crate) fn userland_journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<JournalProducerManifest>> {
@@ -874,6 +877,7 @@ impl WorkspaceRegistry {
         })
     }
 
+    #[track_caller]
     pub(crate) fn put_journal_producer(
         &mut self,
         manifest: &JournalProducerManifest,
@@ -989,6 +993,7 @@ impl WorkspaceRegistry {
         Ok(JournalAppendCommit { sequence, event_id, replayed: false })
     }
 
+    #[track_caller]
     pub(crate) fn append_journal_ingress(
         &mut self,
         ingress: &JournalIngress,
@@ -1142,6 +1147,7 @@ fn append_journal_ingress_transaction(
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub(crate) fn journal_hook_states(&self) -> anyhow::Result<Vec<JournalHookState>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -1166,6 +1172,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(crate) fn journal_events_caused_by_hooks(
         &self,
         hook_ids: &[String],
@@ -1191,6 +1198,7 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    #[track_caller]
     pub(crate) fn put_journal_hook(
         &mut self,
         manifest: &JournalHookManifest,
@@ -1304,6 +1312,7 @@ impl WorkspaceRegistry {
         Ok(JournalAppendCommit { sequence, event_id, replayed: false })
     }
 
+    #[track_caller]
     pub(crate) fn schedule_journal_hook_deliveries(
         &mut self,
         scans: &[JournalHookScan],
@@ -1368,6 +1377,7 @@ impl WorkspaceRegistry {
 
     /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
     /// enabled hook: the dispatcher's next retry deadline.
+    #[track_caller]
     pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
         let next: Option<i64> = self.connection.get().query_row(
             "SELECT MIN(d.next_attempt_at_ms)
@@ -1381,6 +1391,7 @@ impl WorkspaceRegistry {
         Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
     }
 
+    #[track_caller]
     pub(crate) fn pending_journal_hook_deliveries(
         &self,
         now_ms: u64,
@@ -1439,6 +1450,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(crate) fn start_journal_hook_deliveries(
         &mut self,
         deliveries: &[JournalHookDelivery],
@@ -1492,6 +1504,7 @@ impl WorkspaceRegistry {
         Ok(attempts)
     }
 
+    #[track_caller]
     pub(crate) fn finish_journal_hook_deliveries(
         &mut self,
         results: &[JournalHookDeliveryResult],
@@ -1582,6 +1595,7 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub(crate) fn journal_checkpoint_receipt(
         &self,
         origin: &str,
@@ -1613,6 +1627,7 @@ impl WorkspaceRegistry {
         Ok(Some(JournalCheckpointCommit { checkpoint, journal }))
     }
 
+    #[track_caller]
     pub(crate) fn create_journal_checkpoint(
         &mut self,
         source_sequence: u64,
@@ -1747,6 +1762,7 @@ impl WorkspaceRegistry {
     }
 
     /// Load and verify one terminal's exit snapshot, decoded to replay bytes.
+    #[track_caller]
     pub(crate) fn terminal_exit_snapshot(
         &self,
         terminal_id: &str,
@@ -1836,6 +1852,7 @@ impl WorkspaceRegistry {
         Ok(Some(TerminalExitSnapshot { generation, covered_through, cols, rows, replay_bytes }))
     }
 
+    #[track_caller]
     pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpointSummary>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -1886,36 +1903,65 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(crate) fn journal_checkpoint(
         &self,
         selector: &str,
     ) -> anyhow::Result<Option<JournalCheckpoint>> {
-        let checkpoint_id = if selector == "latest" {
-            self.connection
-                .get()
-                .query_row(
-                    "SELECT checkpoint_id FROM journal_checkpoints
-                     ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-        } else {
-            Some(selector.to_string())
-        };
-        checkpoint_id
-            .as_deref()
-            .map(|id| query_journal_checkpoint(&self.connection.get(), id))
-            .transpose()
-            .map(Option::flatten)
+        let site = std::panic::Location::caller();
+        query_selected_journal_checkpoint(&self.connection.get_at(site), selector, None)
     }
 }
 
+#[cfg(any(debug_assertions, feature = "oracle"))]
+impl SessionJournalReader {
+    /// [`WorkspaceRegistry::journal_checkpoint`] on this reader's own
+    /// read-only connection, with no registry lock (`oracle-restore-preview`);
+    /// `latest` is the latest at or before `through` when it is given.
+    pub(crate) fn journal_checkpoint(
+        &self,
+        selector: &str,
+        through: Option<u64>,
+    ) -> anyhow::Result<Option<JournalCheckpoint>> {
+        query_selected_journal_checkpoint(&self.connection, selector, through)
+    }
+}
+
+/// The checkpoint `selector` names (`latest` at or before `through`, or a
+/// checkpoint id) on `connection`: the registry writer's, or a
+/// `SessionJournalReader`'s own.
+fn query_selected_journal_checkpoint(
+    connection: &Connection,
+    selector: &str,
+    through: Option<u64>,
+) -> anyhow::Result<Option<JournalCheckpoint>> {
+    let checkpoint_id = if selector == "latest" {
+        let through = through.map_or(Ok(i64::MAX), i64::try_from)?;
+        connection
+            .query_row(
+                "SELECT checkpoint_id FROM journal_checkpoints WHERE source_sequence <= ?1
+                 ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
+                [through],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    } else {
+        Some(selector.to_string())
+    };
+    checkpoint_id
+        .as_deref()
+        .map(|id| query_journal_checkpoint(connection, id))
+        .transpose()
+        .map(Option::flatten)
+}
+
 impl WorkspaceRegistry {
+    #[track_caller]
     pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
+    #[track_caller]
     pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
@@ -1924,6 +1970,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -1960,6 +2007,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
         let end = self.connection.get().query_row(
             "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
@@ -1969,6 +2017,7 @@ impl WorkspaceRegistry {
         Ok(u64::try_from(end)?)
     }
 
+    #[track_caller]
     pub(crate) fn begin_journal_segment_seal(
         &mut self,
         requested_through: u64,
@@ -2038,6 +2087,7 @@ impl WorkspaceRegistry {
         }))
     }
 
+    #[track_caller]
     pub(crate) fn commit_journal_segment_seal(
         &mut self,
         prepared: PreparedJournalSegmentSeal,

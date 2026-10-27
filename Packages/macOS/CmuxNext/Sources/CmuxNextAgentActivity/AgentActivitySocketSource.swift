@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Network
@@ -83,6 +84,20 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         connect()
     }
 
+    /// Ends the subscription, its reconnects and the socket folder's watch: the page closed or was
+    /// discarded. Its pending drain finds no subscription and starts no reconnect.
+    public func stop() {
+        sink = nil
+        let connection = subscription
+        subscription = nil
+        connection?.cancel()
+        reconnect?.cancel()
+        reconnect = nil
+        directoryWatch?.cancel()
+        directoryWatch = nil
+        followed.removeAll()
+    }
+
     public func follow(session: String, _ on: Bool) {
         if on {
             followed.insert(session)
@@ -95,7 +110,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     public func image(for frame: AgentActivityFrameRef) async -> NSImage? {
         guard let reply = try? await request("activity_frame", ["blob": frame.blob, "size": "thumb"]),
               let base64 = reply["data_base64"] as? String, let data = Data(base64Encoded: base64) else { return nil }
-        return NSImage(data: data)
+        return blockingNSImage(data)
     }
 
     public func perform(_ op: AgentActivityUserOp) async throws {
@@ -129,7 +144,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func handle(_ line: Data) {
-        guard let reply = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        guard let reply = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return }
         guard reply["ok"] as? Bool == true, let result = reply["result"] as? [String: Any] else {
             sink?(.connection(machine: config.machine, .unreachable))
             return

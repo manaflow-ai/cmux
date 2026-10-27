@@ -24,7 +24,7 @@ extension NotificationCenterService {
     /// revision, which moves only when a workspace comes or goes (CLAUDE.md "Go past Chrome where
     /// cmux is scripted").
     func followStatusRuns(_ store: DaemonStore) -> Task<Void, Never> {
-        Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
+        Task { [weak self] in // task-owner: start() keeps the handle in tasks
             // concurrency-allow: one element per status change of a live workspace; this main-actor loop drains it every turn
             let (changes, sink) = AsyncStream<StatusRunChange>.makeStream()
             let membership = Task { // task-owner: cancelled when this follower ends

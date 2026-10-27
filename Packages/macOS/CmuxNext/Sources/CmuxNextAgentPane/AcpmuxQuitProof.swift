@@ -49,7 +49,7 @@ public nonisolated struct AcpmuxQuitProof {
             let fallback = file.deletingPathExtension().lastPathComponent
             // concurrency-allow: nonisolated; the app calls it only from @concurrent AcpmuxQuit paths, off the main actor
             guard let data = try? Data(contentsOf: file),
-                  let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let record = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
                   let session = record["session_id"] as? String,
                   let nonce = record["start_nonce"] as? String, isPathComponent(session), isPathComponent(nonce) else {
                 unknown.append(fallback)
@@ -142,7 +142,8 @@ public nonisolated struct AcpmuxQuitProof {
     /// app's next findOrStart retries (acpmux's own host probe has the same
     /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
-        let fd = open(url.path, O_RDWR | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
         defer { close(fd) }
         // One retry covers an interrupted call (EINTR); anything else decides.

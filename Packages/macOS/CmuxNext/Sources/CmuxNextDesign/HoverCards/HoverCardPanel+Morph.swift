@@ -82,6 +82,7 @@ extension HoverCardPanel {
         let margin = PopupStyle.standard.shadowMargin + travel
         restCardFrame = rest
         setFrame(bigFrame.insetBy(dx: -margin, dy: -margin), display: false)
+        // sync-layout: the shadow springs below start from `glass.frame` laid out in the larger window.
         host.layoutSubtreeIfNeeded()
 
         Self.morphGeneration += 1
@@ -109,7 +110,7 @@ extension HoverCardPanel {
             let rect = CGRect(x: cardInHost.minX + corner.x * (cardInHost.width - size.width),
                               y: cardInHost.minY + corner.y * (cardInHost.height - size.height), width: size.width, height: size.height)
             let radius = host.cornerRadius
-            return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            return CGPath.roundedRect(rect, cornerWidth: radius, cornerHeight: radius)
         }
         func cutout(_ size: CGSize) -> CGPath {
             let path = CGMutablePath()
@@ -142,6 +143,7 @@ extension HoverCardPanel {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         setFrame(restCardFrame.insetBy(dx: -margin, dy: -margin), display: true)
+        // sync-layout: the callers' place() measures the glass next, at the rest frame this lays out.
         host?.layoutSubtreeIfNeeded()
         CATransaction.commit()
     }

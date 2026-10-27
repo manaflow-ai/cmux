@@ -10,12 +10,14 @@ import CmuxNextWebUpdates
 import Observation
 
 extension UpdaterService {
-    /// Wires the updater to the App: the sheet (failure details, managed
+    /// Wires the updater to the App in `AppServices.init`: the sheet (failure details, managed
     /// policy, required version), and a relaunch into an update that keeps
     /// every terminal and agent (no quit sheet; the footer pill's tooltip
     /// says so, SIDEBAR-FOOTER-MINIMAL). `simulating` is Debug Settings
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
-    func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
+    /// Closures and the What's New record only, so the first frame's cards
+    /// (Updated, tips) and their links work; the reads are `startAttachedWork()`.
+    func wire(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
@@ -39,25 +41,32 @@ extension UpdaterService {
             SidebarCardFeed.openUpdateLink(url, services: services)
             return true
         }
-        // What's New after an update: bundled documents and this feed's digests.
+        // What's New after an update: the record (UserDefaults) decides the first frame's
+        // Updated card; the bundled documents and this feed's digests load in its task.
         whatsNew.load()
-        // The Updated card's change list when the update record has none (2026-10-20).
-        loadCurrentBuildNotesIfNeeded()
         runAllowListedAction = { [weak services] id in
             guard PageDescriptor.changelogTryItActions.contains(id) else { return }
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
-        attachTips(registry: services.registry)
+        wireTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
         #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarnessProbe.install(updater: self)
+        UpdateHarnessProbe.install(updater: self, mainWork: services.mainWork, appEvents: services.appEvents)
         #endif
+    }
+
+    /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post, p08-startup-031):
+    /// the Updated card's change list when its record has none (2026-10-20; a network read), and the
+    /// tip's re-pick when cmux becomes active again.
+    func startAttachedWork() {
+        loadCurrentBuildNotesIfNeeded()
+        refreshTipOnActivation()
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog
     /// action as the user's own; the user's own runs mark features used
-    /// (local only); a return to cmux may pick the next day's tip.
-    func attachTips(registry: ActionRegistry) {
+    /// (local only). A return to cmux may pick the next day's tip (`startAttachedWork()`).
+    func wireTips(registry: ActionRegistry) {
         runTipAction = { [weak registry] action in
             guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
@@ -66,7 +75,6 @@ extension UpdaterService {
             guard invocation.origin == .user else { return }
             self?.markTipActionUsed(id.rawValue)
         }
-        refreshTipOnActivation()
     }
 
     /// Follows `updates.*` in cmux.json (R114): the gate's preferences and

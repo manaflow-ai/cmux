@@ -12,6 +12,8 @@ extension Signposter {
         static let missed: UInt64 = 1
         /// The work ran a nested run loop that waited for the person (`loop=nested`).
         static let nestedLoop: UInt64 = 2
+        /// Committed after asking another process to draw, before it presented (`end=page_activated`).
+        static let pageActivated: UInt64 = 3
 
         /// The code of a ``CommitBoundary`` end.
         static func of(_ outcome: CommitBoundary.Outcome) -> UInt64 {
@@ -32,23 +34,39 @@ extension Signposter {
     }
 
     /// Writes the begin record when `name`'s category is on; returns the slice the end must close, or nil when
-    /// the write recorded nothing. The category is read once, by the write itself.
-    func traceBegin(_ name: SignpostName, id: OSSignpostID, beginNanos: UInt64, arg0: UInt64) -> SignpostInterval.Ring? {
+    /// the write recorded nothing. The category is read once, by the write itself. `arg1` goes in a thread
+    /// slice's begin; an async slice's `arg1` is its id.
+    func traceBegin(_ name: SignpostName, id: OSSignpostID, beginNanos: UInt64, arg0: UInt64,
+                    arg1: UInt64 = 0) -> SignpostInterval.Ring? {
         if name.opensThreadSlice {
-            return trace.begin(name, arg0: arg0) ? .thread : nil
+            return trace.begin(name, arg0: arg0, arg1: arg1) ? .thread : nil
         }
         let asyncID = Self.asyncID(id, beginNanos: beginNanos)
         return trace.asyncBegin(name, id: asyncID, arg0: arg0) ? .async(id: asyncID) : nil
     }
 
     /// Writes the end record of a begin that wrote one, whatever the category flags are now: a recorded begin
-    /// always gets its end, and an unrecorded one never does.
-    func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64) {
-        switch interval.ring {
+    /// always gets its end, and an unrecorded one never does. Only a thread slice's end has `arg1` free (an async
+    /// slice's `arg1` is its id).
+    func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64, arg1: UInt64 = 0) {
+        closeRing(name, interval.ring, arg0: arg0, arg1: arg1)
+    }
+
+    /// ``closeInterval(_:_:arg0:arg1:)`` for the slice `ring` a begin returned (the plain-value intervals).
+    func closeRing(_ name: SignpostName, _ ring: SignpostInterval.Ring?, arg0: UInt64, arg1: UInt64 = 0) {
+        switch ring {
         case nil: return
-        case .thread: trace.endRecorded(name, arg0: arg0)
-        case .async(let id): trace.asyncEndRecorded(name, id: id, arg0: arg0)
+        case .thread: trace.endRecorded(name, arg0: arg0, arg1: arg1)
+        case .async(let id):
+            assert(arg1 == 0, "\(name) is an async slice: its arg1 is the async id")
+            trace.asyncEndRecorded(name, id: id, arg0: arg0)
         }
+    }
+
+    /// A scheduled main task's numbers in `arg0` (`stall.main_task` begin, `stall.over_budget`): `ownerID` in
+    /// bits 0-31 and the class's code in bits 32-39.
+    static func taskArg0(classCode: UInt64, ownerID: UInt32) -> UInt64 {
+        UInt64(ownerID) | classCode << 32
     }
 
     /// The async id of an interval: its `OSSignpostID`, or its begin time when the log system handed out no
@@ -74,7 +92,8 @@ extension SignpostName {
     var opensThreadSlice: Bool {
         switch self {
         case .actionPerform, .stallMainTask, .motionFrame, .motionDragFrame, .keyOmnibarSuggest, .keyPaletteSearch,
-             .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen, .taskRun, .ghosttyRender:
+             .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen, .taskRun, .ghosttyRender,
+             .launchStartupTask, .cefMemoryPressureVote, .launchActionCatalogFirstMainAccess:
             true
         default:
             false
@@ -93,6 +112,16 @@ extension ScrollFramePhase {
         case .ended: 4
         case .momentum: 5
         case .wheel: 6
+        }
+    }
+}
+
+extension KeyFrameSignpost.Target {
+    /// The target's number in a ``SignpostName/keyToFrame`` begin record (bits 0-7 of `arg0`). Fixed and nonzero.
+    var traceCode: UInt64 {
+        switch self {
+        case .view: 1
+        case .terminal: 2
         }
     }
 }

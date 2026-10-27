@@ -633,4 +633,7 @@ mod api_compat {
             assert_eq!(&*compat.translate("m", 1, 0, b"{}").unwrap(), b"{}");
         }
     }
+
+    /// Wire id rules (p05-ipc-012).
+    mod wire;
 }

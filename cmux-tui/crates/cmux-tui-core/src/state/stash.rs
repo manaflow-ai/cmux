@@ -92,6 +92,7 @@ fn refusal(tab: &str, why: &Refusal) -> anyhow::Error {
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn state_stash_create(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -236,6 +237,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(crate) fn state_stash_restore(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -316,6 +318,7 @@ impl Mux {
     /// The commit of a restore: `restored_ids` leave the stash, and each
     /// reopened whole workspace takes its stashed row (group, sidebar place,
     /// theme) and its agent-home folder.
+    #[track_caller]
     fn commit_restore(
         &self,
         mutation: &WorkspaceMutation,
@@ -376,6 +379,7 @@ impl Mux {
     /// its own. A surface another client closes meanwhile is left out of a
     /// second try; a close that still fails is logged, and the restore's own
     /// error is what the caller sees.
+    #[track_caller]
     fn roll_back_restore(self: &Arc<Self>, mutation: &WorkspaceMutation, created: &[SurfaceId]) {
         let mut last_error = None;
         for _ in 0..2 {
@@ -415,6 +419,7 @@ impl Mux {
     /// end of `pane`, and nowhere else. When both are gone by the time the
     /// member reopens, it is refused (`resource.not_found`) and stays in the
     /// stash; it never opens in the active pane instead.
+    #[track_caller]
     pub(super) fn restore_member_here(
         self: &Arc<Self>,
         actor: &Actor,
@@ -462,6 +467,7 @@ impl Mux {
     /// It starts with a shell (every new workspace does), which closes once
     /// the pages are in, unrecorded (`session_end`). The shell is recorded
     /// as created, so a failed restore closes it with the pages.
+    #[track_caller]
     fn restore_in_new_workspace(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -502,6 +508,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(crate) fn state_stash_delete(
         &self,
         mutation: &WorkspaceMutation,
@@ -549,6 +556,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn state_stash_import(
         &self,
         mutation: &WorkspaceMutation,

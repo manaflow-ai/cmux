@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 /// Stash (`stash-v1`; cmux-tui/spec/resource-operations-v2.json `stash.*`):
@@ -67,13 +68,13 @@ extension StateResourceClient {
     /// Closes browser tabs `tabs` into one stash named after the first one's workspace.
     @discardableResult
     public func stashTabs(_ tabs: [ResourceID]) async throws -> StashCreated {
-        try await stateMutation("stash.create", ["tabs": Self.ids(tabs)], as: StashCreated.self)
+        try await stateMutation(V2StashCreateRequest(tabs: tabs.map { V2TabID(rawValue: $0.rawValue) }), as: StashCreated.self)
     }
 
     /// Closes workspace `workspace`'s unpinned web pages into one stash; its other tabs stay.
     @discardableResult
     public func stashWorkspace(_ workspace: ResourceID) async throws -> StashCreated {
-        try await stateMutation("stash.create", ["workspace": .string(workspace.rawValue)], as: StashCreated.self)
+        try await stateMutation(V2StashCreateRequest(workspace: V2WorkspaceID(rawValue: workspace.rawValue)), as: StashCreated.self)
     }
 
     /// Closes workspaces `workspaces` whole (every tab, ending their terminals) into one stash
@@ -81,16 +82,13 @@ extension StateResourceClient {
     /// `DaemonCapability.stashWorkspaces`.
     @discardableResult
     public func stashWorkspaces(_ workspaces: [ResourceID], name: String? = nil) async throws -> StashCreated {
-        var params: [String: JSONValue] = ["workspaces": Self.ids(workspaces)]
-        if let name { params["name"] = .string(name) }
-        return try await stateMutation("stash.create", params, as: StashCreated.self)
+        let request = V2StashCreateRequest(name: name, workspaces: workspaces.map { V2WorkspaceID(rawValue: $0.rawValue) })
+        return try await stateMutation(request, as: StashCreated.self)
     }
 
     /// Every stash, newest first (`stash.list`).
     public func stashes() async throws -> [StashRecord] {
-        try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "stash.list", params: [:], idempotencyKey: nil)
-        }, as: [StashRecord].self)
+        try await stateRead(V2StashListRequest(), as: [StashRecord].self)
     }
 
     /// Reopens stash `id`'s members named `members` (member ids; every member for nil); they
@@ -99,33 +97,32 @@ extension StateResourceClient {
     @discardableResult
     public func restoreStash(_ id: String, members: [String]? = nil, target: StashTarget = .here,
                              pane: ResourceID? = nil) async throws -> ReopenedItem {
-        var params: [String: JSONValue] = ["stash": .string(id), "target": .string(target.rawValue)]
-        if let members { params["members"] = .array(members.map { .string($0) }) }
-        if let pane { params["pane"] = .string(pane.rawValue) }
-        return try await stateMutation("stash.restore", params, as: ReopenedItem.self)
+        try await stateMutation(Self.stashRestoreRequest(id, members: members, target: target, pane: pane),
+                                as: ReopenedItem.self)
+    }
+
+    static func stashRestoreRequest(_ id: String, members: [String]?, target: StashTarget,
+                                    pane: ResourceID?) -> V2StashRestoreRequest {
+        V2StashRestoreRequest(members: members, pane: pane.map { V2PaneID(rawValue: $0.rawValue) }, stash: id,
+                              target: V2StashRestoreRequest.Target(rawValue: target.rawValue))
     }
 
     /// Deletes stash `id`'s members named `members` (member ids), or the whole stash for nil.
     public func deleteStash(_ id: String, members: [String]? = nil) async throws {
-        var params: [String: JSONValue] = ["stash": .string(id)]
-        if let members { params["members"] = .array(members.map { .string($0) }) }
-        try await stateMutation("stash.delete", params)
+        try await stateMutation(V2StashDeleteRequest(members: members, stash: id))
     }
 
     /// Imports OneTab groups as stashes whose pages reopen in `engine` (`webkit`, `cef`).
     @discardableResult
     public func importOneTab(_ groups: [StashImportGroup], engine: String?) async throws -> StashImported {
-        let wire: [JSONValue] = groups.map { group in
-            var object: [String: JSONValue] = ["tabs": .array(group.pages.map { page in
-                var tab: [String: JSONValue] = ["url": .string(page.url)]
-                if let title = page.title { tab["title"] = .string(title) }
-                return .object(tab)
-            })]
-            if let name = group.name { object["name"] = .string(name) }
-            return .object(object)
+        try await stateMutation(Self.oneTabImportRequest(groups, engine: engine), as: StashImported.self)
+    }
+
+    static func oneTabImportRequest(_ groups: [StashImportGroup], engine: String?) -> V2StashImportRequest {
+        let wire = groups.map { group in
+            V2StashImportGroup(name: group.name, tabs: group.pages.map { V2StashImportTab(title: $0.title, url: $0.url) })
         }
-        var params: [String: JSONValue] = ["source": .string("onetab"), "groups": .array(wire)]
-        if let engine { params["engine"] = .string(engine) }
-        return try await stateMutation("stash.import", params, as: StashImported.self)
+        return V2StashImportRequest(engine: engine.map { V2StashImportRequest.Engine(rawValue: $0) }, groups: wire,
+                                    source: .onetab)
     }
 }

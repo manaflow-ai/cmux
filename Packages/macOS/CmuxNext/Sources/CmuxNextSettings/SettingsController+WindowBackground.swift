@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// Settings > Window Background: Material "Ghostty" (both keys unset) takes
 /// opacity and blur from the Ghostty config. Moving Opacity leaves Ghostty for

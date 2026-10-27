@@ -4,6 +4,7 @@
 //! up root-relative, with no `.`, `..` or `.git` component (in any case), and
 //! are always taken literally.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::{Map, Value};
@@ -111,7 +112,7 @@ fn inside(path: &Path, root: &Path) -> Option<String> {
     let mut existing = path.to_path_buf();
     let mut missing: Vec<std::ffi::OsString> = Vec::new();
     let resolved: PathBuf = loop {
-        if let Ok(real) = std::fs::canonicalize(&existing) {
+        if let Ok(real) = files::canonicalize(&existing) {
             break real;
         }
         missing.push(existing.file_name()?.to_os_string());
