@@ -112,7 +112,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
         self.assertEqual(uses, [])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
-        self.assertEqual(steps, ['pick-nightly-build-runner'])
+        # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
+        self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
 
     def test_ghostty_helper_takes_owned_macos_26_then_blacksmith_macos_26(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with
