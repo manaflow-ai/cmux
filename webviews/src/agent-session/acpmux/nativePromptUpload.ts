@@ -1,4 +1,3 @@
-import { postNative } from "./native";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { finishedPromptUpload, type PromptUploadState } from "./promptUploadState";
 
@@ -23,7 +22,7 @@ type NativePost = <T>(op: string, params: Record<string, unknown>) => Promise<T>
 export function createNativePromptUploadTransport(
   post: NativePost = (op, params) => {
     const page = pageHostClient();
-    if (!page) return postNative(op, params);
+    if (!page) return Promise.reject(new Error("Native prompt uploads are unavailable"));
     return page.call(op.startsWith("cmux.agent.") ? op : `cmux.agent.${op}`, params);
   },
   ready: () => Promise<void> = async () => {
