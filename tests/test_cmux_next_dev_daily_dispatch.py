@@ -100,6 +100,18 @@ check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
+# A feat-cmux-next push run hands over its landing compile's app (cmux-next.yml
+# dev-landing-publish); its only producer is that job, and a DEV dispatch run must
+# still be finished and named for the SHA it built.
+check('.event == "push"' in sign_text and '.head_branch == "feat-cmux-next"' in sign_text
+      and '.path == ".github/workflows/cmux-next.yml"' in sign_text,
+      "the publisher must accept a feat-cmux-next push run of cmux-next.yml")
+check('(.event == "workflow_dispatch" and .status == "completed"' in sign_text,
+      "a DEV dispatch source run must still be finished")
+check("SOURCE_LANDING_PRODUCER_JOB: cmux NEXT DEV Release compile (landing)" in publish_text
+      and '[[ "$SOURCE_EVENT" != push ]] || producers="$SOURCE_LANDING_PRODUCER_JOB"' in sign_text
+      and 'done <<< "$producers"' in sign_text,
+      "a push run's only app producer is its landing compile")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
 # verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
@@ -128,8 +140,10 @@ const calls = [];
 const github = { rest: {
   git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
   actions: {
-    listWorkflowRuns: async ({ workflow_id }) => ({ data: { workflow_runs:
-      workflow_id === 'cmux-next.yml' ? fixture.sourceRuns : fixture.publishRuns } }),
+    listWorkflowRuns: async ({ workflow_id, event, head_sha }) => ({ data: { workflow_runs:
+      workflow_id !== 'cmux-next.yml' ? fixture.publishRuns
+        : event === 'push' ? fixture.pushRuns.filter((run) => !head_sha || run.head_sha === head_sha)
+        : fixture.sourceRuns } }),
     listJobsForWorkflowRun: async ({ run_id }) => {
       calls.push(['jobs', run_id]);
       return { data: { jobs: fixture.jobs[String(run_id)] || [] } };
@@ -156,8 +170,8 @@ def app_job(conclusion):
             {"name": "cmux-next path routing", "conclusion": "success"}]
 
 
-def run(source_runs, jobs, publish_runs=()):
-    fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs),
+def run(source_runs, jobs, publish_runs=(), push_runs=()):
+    fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs), "pushRuns": list(push_runs),
                "jobs": {str(k): v for k, v in jobs.items()}}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
@@ -200,8 +214,8 @@ calls = run([dev_run(8, "8" * 40, "success")], {8: app_job("success")},
               "status": "completed", "conclusion": "skipped"}])
 check(published(calls) == ["8"], f"a skipped publisher must be retried, got {published(calls)}")
 
-# A DEV build started under five minutes ago is still running: a push kick
-# for a newer tip waits for the next push or tick instead of starting another.
+# No spacing: a DEV build of an older landing, however young, never holds the
+# tip back (dispatch lag p50 10.2 min, p90 34.6 min on 2026-10-26 with it).
 def built(calls):
     return [c[2]["dev_daily_sha"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next.yml"]
 
@@ -213,21 +227,50 @@ def active_run(run_id, sha, age_s, status="in_progress", title=None, name="cmux-
             "name": name, "display_title": title or f"cmux NEXT DEV daily · {sha}"}
 
 
+check("spacingMs" not in text, "the dispatcher must not space DEV builds")
 for status in ("queued", "requested", "waiting", "pending", "in_progress"):
     calls = run([active_run(20, "2" * 40, 60, status=status)], {})
-    check(built(calls) == [], f"a {status} DEV build under five minutes old must space the next one, got {built(calls)}")
-calls = run([active_run(20, "2" * 40, 60, title="cmux-next", name=f"cmux NEXT DEV daily · {'2' * 40}")], {})
-check(built(calls) == [], f"a DEV build named by run.name must space the next one, got {built(calls)}")
-for title in ("cmux NEXT DEV daily · publish 123", "cmux NEXT DEV daily · abc", f"cmux NEXT DEV daily · {'2' * 40} extra"):
-    calls = run([active_run(20, "2" * 40, 60, title=title)], {})
-    check(built(calls) == [TIP], f"{title!r} is not a dispatched DEV build and must not space the tip, got {built(calls)}")
-calls = run([active_run(21, "2" * 40, 6 * 60)], {})
-check(built(calls) == [TIP], f"a DEV build over five minutes old must not hold the tip, got {built(calls)}")
-finished = dev_run(22, "2" * 40, "failure")
-finished["created_at"] = active_run(22, "2" * 40, 60)["created_at"]
-calls = run([finished], {22: app_job("failure")})
-check(built(calls) == [TIP], f"a finished DEV build must not space the next one, got {built(calls)}")
+    check(built(calls) == [TIP], f"a {status} DEV build of an older landing must not hold the tip, got {built(calls)}")
+calls = run([active_run(23, TIP, 60)], {})
+check(built(calls) == [], f"a running DEV build of the tip itself covers it, got {built(calls)}")
 check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running the tip is built")
+
+
+# The tip's push run compiles its own DEV app (cmux-next.yml dev-landing-compile).
+def push_run(run_id, status="in_progress", sha=TIP):
+    return {"id": run_id, "head_sha": sha, "status": status, "conclusion": None if status != "completed" else "success",
+            "name": "cmux-next", "display_title": f"cmux-next · {sha}"}
+
+
+def landing_jobs(place=("completed", "success"), compile_=None):
+    jobs = [{"name": "cmux NEXT DEV landing placement", "status": place[0], "conclusion": place[1]}]
+    if compile_:
+        jobs.append({"name": "cmux NEXT DEV Release compile (landing)", "status": compile_[0], "conclusion": compile_[1]})
+    return jobs
+
+
+for label, jobs in (("placing", landing_jobs(place=("in_progress", None))),
+                    ("placed, compile not yet created", landing_jobs()),
+                    ("compiling", landing_jobs(compile_=("in_progress", None))),
+                    ("compile queued", landing_jobs(compile_=("queued", None)))):
+    calls = run([], {30: jobs}, push_runs=[push_run(30)])
+    check(built(calls) == [] and published(calls) == [],
+          f"a landing compile that is {label} covers the tip: no DEV build, got {calls}")
+calls = run([], {31: landing_jobs(compile_=("completed", "success"))}, push_runs=[push_run(31)])
+check(built(calls) == [] and published(calls) == ["31"],
+      f"a finished landing compile is handed to the publisher instead of a DEV build, got {calls}")
+calls = run([], {32: landing_jobs(compile_=("completed", "success"))}, push_runs=[push_run(32)],
+            publish_runs=[{"name": "x", "display_title": "cmux NEXT DEV daily · publish 32", "status": "in_progress"}])
+check(built(calls) == [] and published(calls) == [],
+      f"a landing app already handed over is not handed over again, got {calls}")
+for label, jobs, status in (("failed", landing_jobs(compile_=("completed", "failure")), "completed"),
+                            ("skipped (no tree)", landing_jobs(compile_=("completed", "skipped")), "completed"),
+                            ("off", [], "in_progress"),
+                            ("placement failed", landing_jobs(place=("completed", "failure")), "completed")):
+    calls = run([], {33: jobs}, push_runs=[push_run(33, status=status)])
+    check(built(calls) == [TIP], f"a landing compile that is {label} leaves the tip to a DEV build, got {calls}")
+calls = run([], {34: landing_jobs(compile_=("in_progress", None))}, push_runs=[push_run(34, sha="3" * 40)])
+check(built(calls) == [TIP], f"another commit's landing compile does not cover the tip, got {calls}")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],
