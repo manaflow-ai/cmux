@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxHomeCore
 import Testing
 @testable import MessagesLabHome
 
@@ -6,12 +7,15 @@ import Testing
 @MainActor
 @Suite(.serialized) struct NoBreathingDotTests {
     @Test func nativeHomeSpinsAndStopsOnReduceMotionAndTypingEnd() async throws {
+        let savedGate = MessagesLabHomeView.voiceMotionGate
+        defer { MessagesLabHomeView.voiceMotionGate = savedGate }
+        MessagesLabHomeView.voiceMotionGate = { true }
         let saved = MessagesLabHomeView.reduceMotionOverride
         MessagesLabHomeView.reduceMotionOverride = false
         defer { MessagesLabHomeView.reduceMotionOverride = saved }
         let rig = try await HomeChatRig()
         defer { rig.stop() }
-        rig.store.typing[HomeChatRig.conversation] = [rig.chief]
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, true))
         rig.frame()
         let demo = try #require(rig.view.controller.demo)
         let row = try #require(demo.collection.visibleCells.compactMap { $0 as? RowCell }.first {
@@ -22,7 +26,13 @@ import Testing
         #expect(loopPaths(in: row.layer).isEmpty)
         MessagesLabHomeView.reduceMotionOverride = false
         #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
-        rig.store.typing[HomeChatRig.conversation] = []
+        MessagesLabHomeView.voiceMotionGate = { false }
+        rig.view.applyReduceMotion()
+        #expect(loopPaths(in: row.layer).isEmpty)
+        MessagesLabHomeView.voiceMotionGate = { true }
+        rig.view.applyReduceMotion()
+        #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, false))
         rig.frame()
         #expect(loopPaths(in: row.layer).isEmpty, "The fading typing row must no longer loop")
         row.prepareForReuse()
