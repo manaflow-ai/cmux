@@ -260,6 +260,7 @@
         "CmuxNextChromiumRuntime",
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
+        "CmuxNextCloudCredentials",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -384,6 +385,7 @@
         "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
+        "CmuxNextCloudCredentials",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextCookieImport",
@@ -445,6 +447,7 @@
         "CmuxVNC"
       ],
       "reads": [
+        ".claude/settings.json",
         "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Resources/cmux-themes/",
@@ -457,6 +460,7 @@
         "scripts/cmux-next/web-bundle-key.py",
         "tests/fixtures/classic-to-next/",
         "web/scripts/cloud-vm/cmux-tui-upgrade.sh",
+        "web/services/vms/images/devbox/agent-auth.sh",
         "webviews/test/fixtures/new-tab-intents.json"
       ]
     },
@@ -730,6 +734,16 @@
         "CmuxAuthRuntime",
         "CmuxInstallAuthCore"
       ]
+    },
+    "CmuxNextCloudCredentials": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
     },
     "CmuxNextCodeRouter": {
       "kind": "regular",

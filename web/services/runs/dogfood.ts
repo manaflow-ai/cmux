@@ -6,7 +6,7 @@ import { isProviderDeletionConfirmed } from "../vms/providerErrors";
 import { createVm, destroyVm, runVmWorkflow } from "../vms/workflows";
 import type { VmEntitlements } from "../vms/entitlements";
 import type { AuthedUser } from "../vms/auth";
-import { CloudVmRunAdapter } from "../vms/cloudVmRunAdapter";
+import { CloudVmRunAdapter, type CloudVmAgent } from "../vms/cloudVmRunAdapter";
 import { attachAttemptToRuntime, createRuntime, getRuntime, updateRuntime } from "../vms/runtimeRepository";
 import {
   claimAttemptLease,
@@ -22,10 +22,13 @@ import {
   ingestRunEvent,
   listActiveCloudVmAttempts,
   recordAttemptProviderHandle,
+  recordSandboxOutcome,
   renewAttemptLease,
   scheduleAttemptRetention,
   type RunSource,
 } from "./repository";
+import { SANDBOX_VM_MARKER_KEY, sandboxVmIdempotencyKey } from "./model";
+import { runSandboxAttempt, sandboxJournalKind, sandboxJournalPayload } from "./sandboxLauncher";
 
 /**
  * The first internal dogfood adapter deliberately goes through the existing
@@ -362,4 +365,114 @@ export async function launchQueuedCloudVmAttempts(input: {
     source: input.source,
     recipe: input.recipe,
   })));
+}
+
+
+/**
+ * Launch a sandboxed Run's one attempt (hq#3367): boot the Run's pinned image with no durable
+ * home, run the task, journal it through the fenced event API, then destroy the VM on every path.
+ * Runs after the create response, so its timeout stays inside that route's budget.
+ */
+export async function launchSandboxRun(input: {
+  readonly user: AuthedUser;
+  readonly entitlements: VmEntitlements;
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly image: { readonly id: string; readonly version: string | null; readonly size: Parameters<typeof createVm>[0]["imageSize"] | null };
+  readonly task: string;
+  readonly agent: CloudVmAgent;
+  readonly timeoutMs: number;
+  readonly requestedAt: number;
+}): Promise<void> {
+  const provider = defaultProviderId();
+  const adapter = new CloudVmRunAdapter(getProvider(provider));
+  const teamId = input.entitlements.billingTeamId;
+  const ids = { runId: input.runId, attemptId: input.attemptId };
+  // The lease covers the whole timeout plus boot; the loop's events renew it for as long again.
+  const leaseTtlMs = 15 * 60 * 1000;
+  let runtimeId: string | undefined;
+  await runSandboxAttempt({ ...ids, task: input.task, agent: input.agent, timeoutMs: input.timeoutMs, requestedAt: input.requestedAt }, {
+    claimLease: () => claimAttemptLease({ ...ids, workerId: `sandbox:${input.user.id}`, ttlMs: leaseTtlMs }),
+    // The runtime row is bookkeeping: the launcher bounds it and goes on without it on failure.
+    recordRuntime: async () => {
+      const runtime = await createRuntime({
+        ownerTeamId: teamId,
+        kind: "ephemeral",
+        lifecycleState: "provisioning",
+        idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}:runtime`,
+      });
+      runtimeId = runtime.id;
+      await attachAttemptToRuntime({ ownerTeamId: teamId, ...ids, runtimeId: runtime.id });
+    },
+    createVm: async () => {
+      const vm = await runVmWorkflow(createVm({
+        userId: input.user.id,
+        billingCustomerType: input.entitlements.billingCustomerType,
+        billingTeamId: teamId,
+        billingPlanId: input.entitlements.planId,
+        maxActiveVms: input.entitlements.maxActiveVms,
+        provider,
+        image: input.image.id,
+        imageVersion: input.image.version,
+        imageSize: input.image.size ?? undefined,
+        // No durable home: nothing of a sandbox outlives its VM.
+        idempotencyKey: sandboxVmIdempotencyKey(input.runId, input.attemptId),
+        // The marker that, with the key, makes pause, snapshot and fork refuse this VM.
+        providerMetadata: { [SANDBOX_VM_MARKER_KEY]: sandboxVmIdempotencyKey(input.runId, input.attemptId) },
+        modelPlane: vmModelPlaneGatewayFor({ teamId, stackUserId: input.user.id }),
+        origin: "create",
+      }));
+      if (runtimeId) await updateRuntime({ ownerTeamId: teamId, runtimeId, lifecycleState: "running" }).catch(() => undefined);
+      return { providerVmId: vm.providerVmId };
+    },
+    recordStarted: async (lease, providerVmId) => {
+      await ingestRunEvent({
+        ...ids, ...lease, externalId: "attempt-started", attemptSequence: 0, kind: "attempt.started",
+        payload: { provider, providerVmId, environment: "sandboxed" },
+      });
+    },
+    prepare: (spec) => adapter.prepareAttempt(spec),
+    start: (prepared) => adapter.start(prepared),
+    recordHandles: async (lease, attempt) => {
+      await recordAttemptProviderHandle({
+        ...ids, ...lease, providerVmId: attempt.vmId, providerWorkspaceId: attempt.workspaceId, providerTerminalId: attempt.terminalId,
+      });
+    },
+    events: (attempt, signal) => adapter.events(attempt, 0, signal),
+    ingest: async (lease, event) => {
+      const current = await renewAttemptLease({ ...ids, ...lease, ttlMs: leaseTtlMs });
+      // The renewal above fences a cancel even for an event that is not journaled.
+      const kind = sandboxJournalKind(event);
+      if (!kind) return;
+      await ingestRunEvent({
+        ...ids,
+        leaseToken: current.leaseToken,
+        leaseGeneration: current.leaseGeneration,
+        externalId: event.eventId,
+        attemptSequence: event.seq,
+        kind,
+        payload: sandboxJournalPayload(event),
+      });
+    },
+    closeTerminal: (attempt) => adapter.cancel(attempt),
+    recordFailure: async (lease, error, sequence, providerVmId) => {
+      await ingestRunEvent({
+        ...ids, ...lease, externalId: "attempt-failed", attemptSequence: sequence, kind: "attempt.failed",
+        payload: { error, ...(providerVmId ? { providerVmId } : {}) },
+      });
+    },
+    scheduleCleanup: async (lease, providerVmId) => {
+      await scheduleAttemptRetention({ ...ids, ...lease, providerVmId, retentionMs: 0 });
+    },
+    destroyNow: async () => {
+      const result = await reapExpiredCloudVmAttempts({ runId: input.runId });
+      if (result.errors > 0) throw new Error(`${result.errors} sandbox VM destroy(s) failed`);
+      if (runtimeId) await updateRuntime({ ownerTeamId: teamId, runtimeId, lifecycleState: "released" }).catch(() => undefined);
+    },
+    recordOutcome: async (lease, outcome) => {
+      await recordSandboxOutcome({ ...ids, ...lease, outcome });
+    },
+    now: () => Date.now(),
+    log: (message, error) => console.error(message, error),
+  });
 }
