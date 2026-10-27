@@ -16,22 +16,34 @@ pub(super) fn set_nonblock_cloexec(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-/// Writes all of `data` to a socket, waiting for room. Only used right
-/// before exec, when nothing else needs the loop.
-pub(super) fn write_all_blocking(fd: RawFd, mut data: &[u8], deadline: std::time::Instant) {
-    while !data.is_empty() && std::time::Instant::now() < deadline {
+/// Writes all of `data` to a socket, waiting for room until `deadline`. Only
+/// used right before exec, when nothing else needs the loop. Each wait is one
+/// `poll` for the rest of the deadline, which returns when the reader makes
+/// room. Returns how many times it waited.
+pub(super) fn write_all_blocking(fd: RawFd, mut data: &[u8], deadline: std::time::Instant) -> u32 {
+    let mut waits = 0;
+    while !data.is_empty() {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
         // SAFETY: data is a valid slice.
         let n = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
         if n > 0 {
             data = &data[n as usize..];
         } else if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+            waits += 1;
+            // Round up so a sub-millisecond remainder waits instead of spinning.
+            let timeout = libc::c_int::try_from(remaining.as_micros().div_ceil(1000))
+                .unwrap_or(libc::c_int::MAX);
             let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
             // SAFETY: one valid pollfd.
-            unsafe { libc::poll(&mut pfd, 1, 100) };
+            unsafe { libc::poll(&mut pfd, 1, timeout) };
         } else {
-            return;
+            break;
         }
     }
+    waits
 }
 
 pub(super) fn set_winsize(fd: RawFd, cols: u16, rows: u16) {
@@ -188,6 +200,46 @@ pub(super) fn raise_nofile() {
             let want = if max > 0 { (max as libc::rlim_t).min(lim.rlim_max) } else { lim.rlim_max };
             lim.rlim_cur = want;
             libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::fd::RawFd;
+    use std::time::{Duration, Instant};
+
+    use super::{set_nonblock_cloexec, write_all_blocking};
+
+    /// A socket pair whose first end is non-blocking with its send buffer full.
+    fn full_socket() -> (RawFd, RawFd) {
+        let mut fds = [0; 2];
+        // SAFETY: room for the two descriptors socketpair returns.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        set_nonblock_cloexec(fds[0]).unwrap();
+        let chunk = [0u8; 4096];
+        // SAFETY: a valid slice and an open descriptor.
+        while unsafe { libc::write(fds[0], chunk.as_ptr().cast(), chunk.len()) } > 0 {}
+        (fds[0], fds[1])
+    }
+
+    #[test]
+    fn a_blocked_exec_handoff_write_waits_once_for_its_deadline() {
+        let (writer, reader) = full_socket();
+        let started = Instant::now();
+
+        let waits = write_all_blocking(writer, b"frame", started + Duration::from_millis(500));
+
+        // The fixed 100 ms poll woke five times before this deadline.
+        assert!(waits <= 2, "the write woke {waits} times while its reader made no room");
+        assert!(started.elapsed() >= Duration::from_millis(500));
+        // SAFETY: closing the two descriptors this test opened.
+        unsafe {
+            libc::close(writer);
+            libc::close(reader);
         }
     }
 }

@@ -4,7 +4,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use cmux_tui_core::{MuxEvent, SurfaceId};
 use crossbeam_channel::Sender as SyncSender;
@@ -213,11 +212,7 @@ pub(super) fn start_ordered_session_inner(
     let worker_stop = stop.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
-            while !worker_start.load(Ordering::Acquire)
-                && !worker_events.cancellation.stop.load(Ordering::Acquire)
-            {
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
+            park_until_started(&worker_start, &worker_events.cancellation.stop);
             if worker_events.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
@@ -237,6 +232,20 @@ pub(super) fn start_ordered_session_inner(
         mux_titles,
         mux_recovery_generation,
     ))
+}
+
+/// Parks the mux worker until its starter activates or stops it. Both
+/// store their flag first and then unpark this thread
+/// ([`SessionEventWorker::activate`]), so the wait costs no wakeup while the
+/// session stays prepared. Returns how many times the thread parked: one per
+/// unpark or spurious wakeup, never a period.
+pub(super) fn park_until_started(start: &AtomicBool, stop: &AtomicBool) -> u32 {
+    let mut parks = 0;
+    while !start.load(Ordering::Acquire) && !stop.load(Ordering::Acquire) {
+        std::thread::park();
+        parks += 1;
+    }
+    parks
 }
 
 #[derive(Default)]
@@ -363,5 +372,40 @@ impl PtyFailureIngress {
         let mut state = self.state.lock().unwrap();
         state.wake_queued = false;
         std::mem::take(&mut state.failures)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use super::park_until_started;
+
+    /// Leaves a parked worker idle for `idle`, then sets its start or stop
+    /// flag and unparks it the way `SessionEventWorker::activate` does.
+    fn parks_while_idle(idle: Duration, set_stop: bool) -> u32 {
+        let start = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (worker_start, worker_stop) = (start.clone(), stop.clone());
+        let worker = std::thread::spawn(move || park_until_started(&worker_start, &worker_stop));
+        std::thread::sleep(idle);
+        if set_stop { &stop } else { &start }.store(true, Ordering::Release);
+        worker.thread().unpark();
+        worker.join().unwrap()
+    }
+
+    #[test]
+    fn mux_ingress_prepared_worker_parks_without_a_period_until_started() {
+        // The 1 ms park_timeout loop woke about 100 times in this window.
+        let parks = parks_while_idle(Duration::from_millis(100), false);
+        assert!(parks <= 3, "the prepared mux worker woke {parks} times before it was started");
+    }
+
+    #[test]
+    fn mux_ingress_prepared_worker_parks_without_a_period_until_stopped() {
+        let parks = parks_while_idle(Duration::from_millis(100), true);
+        assert!(parks <= 3, "the prepared mux worker woke {parks} times before it was stopped");
     }
 }

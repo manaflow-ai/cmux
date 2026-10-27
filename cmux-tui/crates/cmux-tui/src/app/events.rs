@@ -216,8 +216,13 @@ pub(super) struct SessionEventWorker {
 }
 
 impl SessionEventWorker {
+    /// Starts the prepared worker: it parks untimed until this store
+    /// (or `stop_and_join`, which also comes here) unparks it.
     pub(super) fn activate(&self) {
         self.start.store(true, Ordering::Release);
+        if let Some(mux) = &self.mux {
+            mux.thread().unpark();
+        }
     }
 
     pub(super) fn stop_and_join(&mut self) {

@@ -708,6 +708,44 @@ fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
 }
 
 #[test]
+fn terminal_host_snapshot_blocks_on_a_geometry_writer_without_polling() {
+    let host = exited_host_fixture();
+    // A resize writer holds the geometry for 100 ms.
+    let size = host.size.lock().unwrap();
+    let waiter_host = host.clone();
+    let waiter = thread::spawn(move || {
+        waiter_host.lock_snapshot(Duration::from_secs(2)).map(|locks| locks.attempts)
+    });
+    thread::sleep(Duration::from_millis(100));
+    drop(size);
+
+    let attempts = waiter.join().unwrap().unwrap();
+    // The try-lock loop parked 1 ms per pass: about 100 passes here.
+    assert_eq!(attempts, 1, "the snapshot polled the geometry lock {attempts} times");
+}
+
+#[test]
+fn terminal_host_snapshot_holds_no_geometry_while_it_waits_for_the_parser() {
+    let host = exited_host_fixture();
+    host.term.lock().unwrap().vt_write(b"\xce");
+    let waiter_host = host.clone();
+    let waiter = thread::spawn(move || {
+        waiter_host.lock_snapshot(Duration::from_secs(2)).map(|locks| locks.attempts)
+    });
+    thread::sleep(Duration::from_millis(50));
+    // A resize or cell-metric writer is not held behind the unfinished sequence.
+    let held = "the snapshot held geometry while it waited for a parser boundary";
+    assert!(host.viewer_sizes.try_lock().is_ok(), "{held}");
+    assert!(host.size.try_lock().is_ok(), "{held}");
+    assert!(host.cell_pixels.try_lock().is_ok(), "{held}");
+
+    host.term.lock().unwrap().vt_write(b"\xbb");
+    host.note_parser_progress();
+    let attempts = waiter.join().unwrap().unwrap();
+    assert_eq!(attempts, 1, "the snapshot passed its lock loop {attempts} times");
+}
+
+#[test]
 fn snapshot_boundary_protects_legacy_and_smart_bootstraps() {
     for smart in [false, true] {
         let host = exited_host_fixture();

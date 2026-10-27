@@ -9,44 +9,120 @@
 //!
 //! So a write that does not fit the room left (`FIONREAD` on the master counts the queued input on
 //! macOS) writes only what fits, cut before an ESC, and waits for room for a sequence it cannot
-//! start whole. Input that fits, the common case, is one plain `write`.
+//! start whole. Input that fits, the common case, is one plain `write`. The wait wakes when the
+//! program reads ([`ReadWaiter`]), never on a timer.
 
 use std::fs::File;
 use std::io::{self, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 /// The input a macOS PTY queues for its program (`TTYHOG` less two).
 pub(crate) const CAPACITY: usize = 1022;
 /// The longest an escape sequence waits for room before it is written as the kernel takes it.
 const ROOM_WAIT: Duration = Duration::from_millis(250);
-/// How often a waiting write checks for room. A bounded delay, only while the program reads
-/// nothing and the next sequence cannot start whole.
-const ROOM_POLL: Duration = Duration::from_millis(1);
 
 const ESC: u8 = 0x1b;
 
 /// One `Write::write` on the master: returns how many bytes of `buffer` went to the queue.
 pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
-    let Some(pending) = queued(file) else { return file.write(buffer) };
+    write_waiting(file, buffer, ROOM_WAIT).0
+}
+
+/// [`write`] with its room wait, and how many times it waited for the program to read.
+fn write_waiting(file: &mut File, buffer: &[u8], room_wait: Duration) -> (io::Result<usize>, u32) {
+    let mut waits = 0;
+    let Some(pending) = queued(file) else { return (file.write(buffer), waits) };
     let mut room = CAPACITY.saturating_sub(pending);
     if buffer.len() <= room {
-        return file.write(buffer);
+        return (file.write(buffer), waits);
     }
-    let deadline = Instant::now() + ROOM_WAIT;
+    let deadline = Instant::now() + room_wait;
+    let mut reads: Option<ReadWaiter> = None;
     loop {
-        match cut(buffer, room) {
-            Cut::Write(length) => return file.write(&buffer[..length]),
-            Cut::Wait if Instant::now() >= deadline => return file.write(buffer),
-            Cut::Wait => {
-                std::thread::sleep(ROOM_POLL);
-                let Some(pending) = queued(file) else { return file.write(buffer) };
-                room = CAPACITY.saturating_sub(pending);
-                if buffer.len() <= room {
-                    return file.write(buffer);
-                }
+        if let Cut::Write(length) = cut(buffer, room) {
+            return (file.write(&buffer[..length]), waits);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return (file.write(buffer), waits);
+        }
+        let waiter = match reads {
+            Some(ref waiter) => waiter,
+            None => match ReadWaiter::new(file.as_raw_fd()) {
+                Ok(waiter) => reads.insert(waiter),
+                Err(_) => return (file.write(buffer), waits),
+            },
+        };
+        waits += 1;
+        if waiter.wait(remaining).is_err() {
+            return (file.write(buffer), waits);
+        }
+        let Some(pending) = queued(file) else { return (file.write(buffer), waits) };
+        room = CAPACITY.saturating_sub(pending);
+        if buffer.len() <= room {
+            return (file.write(buffer), waits);
+        }
+    }
+}
+
+/// Wakes when the program reads from the master's input queue.
+///
+/// An edge-triggered (`EV_CLEAR`) `EVFILT_WRITE` on the master fires on each read the program
+/// makes: XNU's `ptsread` calls `ptcwakeup(tp, FWRITE)` (bsd/kern/tty_dev.c). A level-triggered
+/// `poll(POLLOUT)` would not do: it is ready while the queue has any room, so it would return at
+/// once while the room is too small for the next sequence. The first wait may return at once (the
+/// filter is active when added with room left); each later one waits for a read or the timeout.
+struct ReadWaiter {
+    queue: OwnedFd,
+}
+
+impl ReadWaiter {
+    fn new(master: RawFd) -> io::Result<Self> {
+        // SAFETY: kqueue takes no arguments; a non-negative result is a new descriptor we own.
+        let queue = unsafe { libc::kqueue() };
+        if queue < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `queue` is the open descriptor kqueue just returned, owned by nothing else.
+        let queue = unsafe { OwnedFd::from_raw_fd(queue) };
+        let change = libc::kevent {
+            ident: master as libc::uintptr_t,
+            filter: libc::EVFILT_WRITE,
+            flags: libc::EV_ADD | libc::EV_CLEAR,
+            fflags: 0,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        // SAFETY: one valid change record, no event list, no timeout; both descriptors are open.
+        let status = unsafe {
+            libc::kevent(queue.as_raw_fd(), &change, 1, std::ptr::null_mut(), 0, std::ptr::null())
+        };
+        if status < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { queue })
+    }
+
+    /// Returns after the program reads, a signal, or `timeout`.
+    fn wait(&self, timeout: Duration) -> io::Result<()> {
+        let timeout = libc::timespec {
+            tv_sec: libc::time_t::try_from(timeout.as_secs()).unwrap_or(libc::time_t::MAX),
+            tv_nsec: libc::c_long::from(timeout.subsec_nanos()),
+        };
+        // SAFETY: an all-zero kevent is a valid value of this plain C struct.
+        let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+        // SAFETY: no change list, room for one event in `event`, a valid timespec.
+        let count = unsafe {
+            libc::kevent(self.queue.as_raw_fd(), std::ptr::null(), 0, &mut event, 1, &timeout)
+        };
+        if count < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
             }
         }
+        Ok(())
     }
 }
 
@@ -98,7 +174,12 @@ pub(crate) fn cut(buffer: &[u8], room: usize) -> Cut {
 
 #[cfg(test)]
 mod tests {
-    use super::{CAPACITY, Cut, cut};
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::time::Duration;
+
+    use super::{CAPACITY, Cut, cut, write_waiting};
 
     #[test]
     fn whole_sequences_go_in_up_to_the_last_one_that_starts_in_the_room() {
@@ -128,5 +209,60 @@ mod tests {
         let mut long = vec![0x1b, b']'];
         long.extend(std::iter::repeat_n(b'x', CAPACITY + 10));
         assert_eq!(cut(&long, 100), Cut::Write(100));
+    }
+
+    const WHEEL_UP: &[u8] = b"\x1b[<65;30;7M";
+
+    /// A raw-mode PTY pair from `openpty`: (master, slave).
+    fn raw_pty() -> (File, File) {
+        let (mut master, mut slave) = (-1, -1);
+        // SAFETY: two out-pointers to live c_ints; no name, termios or window size.
+        let status = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(status, 0, "openpty: {}", std::io::Error::last_os_error());
+        // SAFETY: openpty returned two open descriptors that nothing else owns.
+        let (master, slave) = unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) };
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
+        // SAFETY: an open tty descriptor and room for one termios.
+        assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), termios.as_mut_ptr()) }, 0);
+        // SAFETY: tcgetattr filled the termios.
+        let mut termios = unsafe { termios.assume_init() };
+        // SAFETY: a live termios.
+        unsafe { libc::cfmakeraw(&mut termios) };
+        // SAFETY: an open tty descriptor and a live termios.
+        assert_eq!(unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) }, 0);
+        (master, slave)
+    }
+
+    #[test]
+    fn a_waiting_write_wakes_when_the_program_reads_not_on_a_timer() {
+        let (mut master, mut slave) = raw_pty();
+        // The program is busy: the queue holds 1,021 bytes, one short of full.
+        master.write_all(&[b'x'; 1021]).unwrap();
+        let program = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let mut got = Vec::new();
+            let mut buffer = [0u8; 2048];
+            while got.len() < 1021 + WHEEL_UP.len() {
+                let read = slave.read(&mut buffer).unwrap();
+                got.extend_from_slice(&buffer[..read]);
+            }
+            got
+        });
+
+        let (written, waits) = write_waiting(&mut master, WHEEL_UP, Duration::from_secs(2));
+
+        assert_eq!(written.unwrap(), WHEEL_UP.len());
+        // The 1 ms poll checked the queue about 100 times while the program was busy.
+        assert!(waits <= 3, "the waiting write woke {waits} times before the program read");
+        let got = program.join().unwrap();
+        assert_eq!(&got[1021..], WHEEL_UP, "the wheel report arrived changed");
     }
 }

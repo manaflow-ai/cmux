@@ -66,7 +66,36 @@ const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::fr
 pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+/// The first wait before connecting again to a host that has not bound its
+/// endpoint yet; each later wait doubles, up to [`HOST_CONNECT_RETRY_MAX`].
+const HOST_CONNECT_RETRY_FIRST: std::time::Duration = std::time::Duration::from_millis(2);
+const HOST_CONNECT_RETRY_MAX: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Calls `connect` until it succeeds, fails with an error `retry` refuses, or
+/// `window` ends, and returns its last result. A host still starting has not
+/// bound its endpoint, and nothing signals when it does, so the attempts are
+/// spaced by the shared [`crate::backoff::Backoff`]: about a dozen in the
+/// window, where a fixed 10 ms interval made a hundred.
+fn connect_host_with_backoff<T>(
+    window: std::time::Duration,
+    mut connect: impl FnMut() -> std::io::Result<T>,
+    retry: impl Fn(&std::io::Error) -> bool,
+) -> std::io::Result<T> {
+    let deadline = std::time::Instant::now() + window;
+    let mut backoff =
+        crate::backoff::Backoff::new(HOST_CONNECT_RETRY_FIRST, HOST_CONNECT_RETRY_MAX);
+    loop {
+        let error = match connect() {
+            Ok(stream) => return Ok(stream),
+            Err(error) => error,
+        };
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() || !retry(&error) {
+            return Err(error);
+        }
+        crate::request_path::sleep(backoff.next_delay().min(remaining));
+    }
+}
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
@@ -757,6 +786,39 @@ pub fn enter_terminal_host_process() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use ghostty_vt::CursorShape;
+
+    #[test]
+    fn terminal_host_connect_retries_back_off_instead_of_polling() {
+        let mut attempts = 0;
+        let started = std::time::Instant::now();
+        let result = connect_host_with_backoff(
+            std::time::Duration::from_millis(300),
+            || {
+                attempts += 1;
+                Err::<(), _>(std::io::Error::from(std::io::ErrorKind::NotFound))
+            },
+            |_| true,
+        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(started.elapsed() >= std::time::Duration::from_millis(300));
+        // The fixed 10 ms interval made about 30 attempts in this window.
+        assert!(attempts <= 12, "a host still starting was polled {attempts} times");
+    }
+
+    #[test]
+    fn terminal_host_connect_stops_at_a_refused_error() {
+        let mut attempts = 0;
+        let result = connect_host_with_backoff(
+            std::time::Duration::from_secs(5),
+            || {
+                attempts += 1;
+                Err::<(), _>(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            },
+            |error| error.kind() != std::io::ErrorKind::PermissionDenied,
+        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(attempts, 1);
+    }
 
     #[test]
     fn colors_payload_is_versioned_bounded_full_sparse_state() {

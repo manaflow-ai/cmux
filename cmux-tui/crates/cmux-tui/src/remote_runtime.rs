@@ -64,10 +64,8 @@ const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const UNIX_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
-const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
-const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
@@ -1672,42 +1670,6 @@ fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
 }
 
 #[cfg(unix)]
-async fn acquire_client_socket_lock(
-    path: &Path,
-    mut shutdown: Option<&mut watch::Receiver<bool>>,
-) -> anyhow::Result<OwnerFileLock> {
-    use std::os::fd::AsRawFd;
-
-    let file = open_owner_lock_file(path, "client socket lock")?;
-
-    loop {
-        // SAFETY: `file` is open for the call and flock takes no pointer.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(OwnerFileLock { file });
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        if error.kind() != std::io::ErrorKind::WouldBlock {
-            return Err(error)
-                .with_context(|| format!("could not lock client socket path {}", path.display()));
-        }
-        match shutdown.as_deref_mut() {
-            Some(shutdown) => {
-                tokio::select! {
-                    _ = tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY) => {}
-                    _ = wait_for_shutdown(shutdown) => {
-                        return Err(anyhow!("remote client startup was cancelled"));
-                    }
-                }
-            }
-            None => tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY).await,
-        }
-    }
-}
-
-#[cfg(unix)]
 fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
     ensure_secure_directory(path, DirectoryAccess::OwnerControlled)?;
     let metadata = fs::symlink_metadata(path)?;
@@ -2509,40 +2471,6 @@ async fn recover_inactive_predecessor_state(
     Ok(())
 }
 
-async fn load_daemon_auth_during_handoff(
-    state_dir: &Path,
-    daemon_name: &str,
-    shutdown: &mut watch::Receiver<bool>,
-    retry_timeout: Duration,
-) -> anyhow::Result<Arc<AuthDatabase>> {
-    let deadline = tokio::time::Instant::now() + retry_timeout;
-    loop {
-        match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
-            Ok(auth) => return Ok(auth),
-            Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if *shutdown.borrow() {
-                    return Err(anyhow!("remote daemon startup was cancelled"));
-                }
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if remaining.is_zero() {
-                    return Err(anyhow::Error::new(IdentityError::Io(error)).context(
-                        "remote daemon authorization state is still owned by another process",
-                    ));
-                }
-                tokio::select! {
-                    _ = tokio::time::sleep(
-                        DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
-                    ) => {}
-                    _ = wait_for_shutdown(shutdown) => {
-                        return Err(anyhow!("remote daemon startup was cancelled"));
-                    }
-                }
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
 fn verify_previous_shutdown_outcome(
     state_dir: &Path,
     lifecycle_fenced: bool,
@@ -3213,6 +3141,11 @@ fn remove_shutdown_recovery_evidence(
     }
     Ok(())
 }
+
+mod lock_retry;
+#[cfg(unix)]
+use lock_retry::acquire_client_socket_lock;
+use lock_retry::load_daemon_auth_during_handoff;
 
 #[cfg(test)]
 mod tests {

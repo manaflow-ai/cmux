@@ -29,7 +29,7 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_TERMINATE, ResetEvent, SetEvent, TerminateProcess, WaitForSingleObject,
 };
 
-use super::super::super::{HOST_CONNECT_RETRY_INTERVAL, HOST_CONNECT_RETRY_WINDOW};
+use super::super::super::{HOST_CONNECT_RETRY_WINDOW, connect_host_with_backoff};
 use super::super::{HostStream, LeaseProbe, PrivateOpen};
 use super::endpoint;
 use super::liveness::{LeaseKind, lock_file, unlock_file};
@@ -304,14 +304,23 @@ pub(crate) fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
 }
 
 /// Connect to a host endpoint whose socket file is owned by our token user
-/// (`connect_same_user`), retrying a host still starting.
+/// (`connect_same_user`), retrying a host still starting. An owner refusal
+/// is final.
 pub(crate) fn connect_with_retry(path: &Path) -> anyhow::Result<HostStream> {
-    Ok(cmux::local_socket::connect_with_deadline(
-        path,
+    let connected: io::Result<HostStream> = connect_host_with_backoff(
         HOST_CONNECT_RETRY_WINDOW,
-        HOST_CONNECT_RETRY_INTERVAL,
-        || Ok(()),
-    )?)
+        || cmux::local_socket::connect_same_user(path),
+        |error| error.kind() != io::ErrorKind::PermissionDenied,
+    );
+    match connected {
+        Ok(stream) => Ok(stream),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Err(error.into()),
+        Err(error) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("connect {}: {error}", path.display()),
+        )
+        .into()),
+    }
 }
 
 /// The host's accept-loop waker: a manual-reset event.

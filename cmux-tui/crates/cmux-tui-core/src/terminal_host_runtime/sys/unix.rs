@@ -8,9 +8,8 @@ use std::io as std_io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
-use super::super::{HOST_CONNECT_RETRY_INTERVAL, HOST_CONNECT_RETRY_WINDOW};
+use super::super::{HOST_CONNECT_RETRY_WINDOW, connect_host_with_backoff};
 use super::{HostStream, LeaseProbe, PrivateOpen};
 
 pub(crate) use super::super::unix::PtyCustody;
@@ -288,20 +287,11 @@ pub(crate) fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
 /// Connect to a host endpoint. Hosts run as this user, so a listener
 /// owned by anyone else never receives the owner capability.
 pub(crate) fn connect_with_retry(path: &Path) -> anyhow::Result<HostStream> {
-    let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
-    loop {
-        match HostStream::connect(path) {
-            Ok(stream) => {
-                crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
-                return Ok(stream);
-            }
-            Err(error) => {
-                let now = Instant::now();
-                if now >= deadline {
-                    return Err(error.into());
-                }
-                crate::request_path::sleep(HOST_CONNECT_RETRY_INTERVAL.min(deadline - now));
-            }
-        }
-    }
+    let stream = connect_host_with_backoff(
+        HOST_CONNECT_RETRY_WINDOW,
+        || HostStream::connect(path),
+        |_| true,
+    )?;
+    crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+    Ok(stream)
 }

@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
-use std::sync::{Arc, TryLockError};
+use std::sync::{Arc, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -173,6 +173,57 @@ pub(crate) fn send_snapshot_resync(
     let _ = write_frame(stream, &resync);
 }
 
+/// The geometry and the terminal of one snapshot, locked together at a parser
+/// boundary ([`HostShared::lock_snapshot`]).
+pub(crate) struct SnapshotLocks<'a> {
+    pub(crate) viewer_sizes: MutexGuard<'a, ViewerSizes>,
+    pub(crate) size: MutexGuard<'a, (u16, u16)>,
+    pub(crate) cell_pixels: MutexGuard<'a, (u16, u16)>,
+    pub(crate) term: MutexGuard<'a, ghostty_vt::Terminal>,
+    /// Passes of the lock loop: one, plus one per parser step that left the
+    /// stream mid-sequence between the boundary wait and the geometry locks.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) attempts: u32,
+}
+
+impl HostShared {
+    /// Locks a snapshot's state in the host's one lock order (`viewer_sizes`,
+    /// `size`, `cell_pixels`, then `term`, as `apply_viewer_minimum` and the
+    /// cell-metric commits take them), blocking, never try-locking on a timer.
+    /// The parser-boundary wait runs before the geometry locks, so a stalled
+    /// escape sequence never holds resize or cell-metric writers; with the
+    /// geometry held, the terminal is checked at the boundary once more and
+    /// the loop waits again only if the parser moved off it meanwhile.
+    pub(crate) fn lock_snapshot(&self, timeout: Duration) -> anyhow::Result<SnapshotLocks<'_>> {
+        let deadline = Instant::now() + timeout;
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                anyhow::bail!("terminal snapshot geometry did not stabilize before timeout");
+            }
+            drop(self.terminal_at_snapshot_boundary(remaining)?);
+            let viewer_sizes = self
+                .viewer_sizes
+                .lock()
+                .map_err(|_| anyhow::anyhow!("terminal snapshot viewer-size state is poisoned"))?;
+            let size = self
+                .size
+                .lock()
+                .map_err(|_| anyhow::anyhow!("terminal snapshot size state is poisoned"))?;
+            let cell_pixels = self
+                .cell_pixels
+                .lock()
+                .map_err(|_| anyhow::anyhow!("terminal snapshot cell-pixel state is poisoned"))?;
+            let term = self.term.lock().recover_poison();
+            if term.vt_stream_is_ground() {
+                return Ok(SnapshotLocks { viewer_sizes, size, cell_pixels, term, attempts });
+            }
+        }
+    }
+}
+
 pub(crate) fn serve_client(host: Arc<HostShared>, stream: HostStream) -> anyhow::Result<()> {
     serve_client_with_snapshot_timeout(host, stream, HOST_SNAPSHOT_BOUNDARY_TIMEOUT)
 }
@@ -282,71 +333,14 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
-        // Wait for a parser boundary without blocking resize or cell-metric
-        // writers. Try-locking geometry while the safe parser guard is held
-        // gives the snapshot one atomic state without reversing the normal
-        // blocking lock order.
-        let snapshot_deadline = Instant::now() + snapshot_timeout;
-        let (mut viewer_sizes, size, cell_pixels, mut term) = loop {
-            let remaining = snapshot_deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                send_snapshot_resync(&host, &mut stream, smart_renderer);
-                anyhow::bail!("terminal snapshot geometry did not stabilize before timeout");
-            }
-            let term = match host.terminal_at_snapshot_boundary(remaining) {
-                Ok(term) => term,
+        let SnapshotLocks { mut viewer_sizes, size, cell_pixels, mut term, .. } =
+            match host.lock_snapshot(snapshot_timeout) {
+                Ok(locks) => locks,
                 Err(error) => {
                     send_snapshot_resync(&host, &mut stream, smart_renderer);
                     return Err(error);
                 }
             };
-            let viewer_sizes = match host.viewer_sizes.try_lock() {
-                Ok(guard) => guard,
-                Err(TryLockError::WouldBlock) => {
-                    drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
-                    continue;
-                }
-                Err(TryLockError::Poisoned(_)) => {
-                    drop(term);
-                    send_snapshot_resync(&host, &mut stream, smart_renderer);
-                    anyhow::bail!("terminal snapshot viewer-size state is poisoned");
-                }
-            };
-            let size = match host.size.try_lock() {
-                Ok(guard) => guard,
-                Err(TryLockError::WouldBlock) => {
-                    drop(viewer_sizes);
-                    drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
-                    continue;
-                }
-                Err(TryLockError::Poisoned(_)) => {
-                    drop(viewer_sizes);
-                    drop(term);
-                    send_snapshot_resync(&host, &mut stream, smart_renderer);
-                    anyhow::bail!("terminal snapshot size state is poisoned");
-                }
-            };
-            let cell_pixels = match host.cell_pixels.try_lock() {
-                Ok(guard) => guard,
-                Err(TryLockError::WouldBlock) => {
-                    drop(size);
-                    drop(viewer_sizes);
-                    drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
-                    continue;
-                }
-                Err(TryLockError::Poisoned(_)) => {
-                    drop(size);
-                    drop(viewer_sizes);
-                    drop(term);
-                    send_snapshot_resync(&host, &mut stream, smart_renderer);
-                    anyhow::bail!("terminal snapshot cell-pixel state is poisoned");
-                }
-            };
-            break (viewer_sizes, size, cell_pixels, term);
-        };
         let replay = term
             .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)?;
         let colors = term.color_overrides();
@@ -554,6 +548,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     {
                         // The injected late receipt is a wait, not a hang.
                         hang_watch.invalidate_active();
+                        // wakeup-allow: fixture the injected late receipt, only with CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set.
                         thread::sleep(Duration::from_millis(delay.min(5_000)));
                     }
                     if launch_owner_claimed {
