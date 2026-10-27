@@ -38,20 +38,26 @@
       "args": {
         "method": "tab_group.update",
         "params": {
-          "tab_group": "",
-          "name": "oracle"
+          "tab_group": "oracle-missing",
+          "name": "renamed",
+          "color": "red",
+          "collapsed": true
         },
         "idempotencyKey": "tab-group-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "tab_group",
+          "id": "oracle-missing"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no group: nothing changes"
     }
   ],
   "invariants": [

@@ -30,8 +30,13 @@ final class ProfileBarView: NSView {
     private var paging = false
     static let plusIndex = -1
     /// The bar's hover moves (`ProfileBarView+Hover`).
-    private(set) lazy var hoverMoves = PointerFrameHover(owner: "ProfileBarView.hover", view: self) { [weak self] point in
+    private(set) lazy var frameInputHover = PointerFrameHover(owner: "ProfileBarView.hover", view: self) { [weak self] point in
         self?.hover(atWindowPoint: point)
+    }
+    /// A pressed dot's drag (`ProfileBarView+DotDrag`), once per frame on the window's drag frames.
+    private(set) lazy var dotMoves = PointerFrameDrag(owner: "ProfileBarView.dotDrag", view: self) { [weak self] point in
+        guard let self else { return }
+        dragDot(to: convert(point, from: nil))
     }
 
     /// The current space's chip; it slides on a switch.
@@ -231,6 +236,7 @@ final class ProfileBarView: NSView {
         if model.activeProfileID != shownActive {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
+                // sync-layout: the crossfade below reads the marks' new contents.
                 marks.display()
                 if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }
@@ -257,17 +263,17 @@ final class ProfileBarView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     override func mouseEntered(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         isPointerInside = true
     }
 
     override func mouseExited(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         setHovered(nil)
         isPointerInside = false
     }
@@ -300,7 +306,8 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        hoverMoves.flush() // the frame's pending hover lands before the press
+        frameInputHover.flush() // the frame's pending hover lands before the press
+        dotMoves.began()
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
         setPressed(index(at: point))
@@ -308,10 +315,11 @@ final class ProfileBarView: NSView {
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
     override func mouseDragged(with event: NSEvent) {
-        dragDot(to: convert(event.locationInWindow, from: nil))
+        dotMoves.dragged(event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        dotMoves.ended() // the frame's pending dot position lands before the drop
         defer {
             pressed = nil
             pressPoint = nil
@@ -325,6 +333,7 @@ final class ProfileBarView: NSView {
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
     /// list, and a mouse wheel pages on either axis (nothing here scrolls).
+    // local-monitor-allow: each trackpad delta and its phase pages the spaces in order, 1:1 with the fingers (a forwarded event keeps its order and count)
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
             if let onWheelPage, !event.hasPreciseScrollingDeltas {

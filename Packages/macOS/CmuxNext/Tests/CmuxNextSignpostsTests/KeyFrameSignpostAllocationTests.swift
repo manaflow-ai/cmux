@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextMetrics
 @testable import CmuxNextSignposts
 import CmuxNextSignpostsC
 @testable import CmuxNextTrace
@@ -84,11 +85,15 @@ private final class StubRecords: Sendable {
 struct KeyFrameSignpostAllocationTests {
     private let mirror = SignpostMetricKitMirror()
 
-    /// A signposter for `category` whose ring records go to a real heap ring with `category` on.
+    /// A signposter for `category` whose ring records go to a real heap ring with `category` on, and whose runtime
+    /// has a metrics store, so a key's `key.frame` sample is counted too (task 054).
     private func ringSignposter(_ category: SignpostCategory) -> Signposter {
         let runtime = TraceRuntime(role: .app)
         runtime.attach(TraceRing(records: 4_096, role: .app))
         runtime.setCategoryMask(1 << UInt64(category.traceBit))
+        let profile = MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "dev", osVersion: "26.1.0",
+                                     hardwareClass: "Mac16,10", buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 26))
+        MetricsStore(role: .app, profile: profile).attach(to: runtime)
         return Signposter(category: category, mirror: mirror, trace: runtime)
     }
 

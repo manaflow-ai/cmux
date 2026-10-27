@@ -502,6 +502,7 @@ mod unix {
 
     impl Drop for SpawnedPtyChild {
         fn drop(&mut self) {
+            // SAFETY: getpgrp takes no arguments, cannot fail and touches no memory.
             let host_group = unsafe { libc::getpgrp() };
             let groups = validated_process_groups(self.process_groups, host_group);
             let groups_signaled = signal_validated_process_groups(
@@ -654,6 +655,8 @@ mod unix {
 
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
+#[cfg(any(unix, windows))]
+pub(crate) use shared::attachment::HostReaper;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]

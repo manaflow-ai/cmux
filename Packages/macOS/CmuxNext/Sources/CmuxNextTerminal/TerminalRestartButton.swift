@@ -31,6 +31,7 @@ final class TerminalRestartButton: NSButton {
         fatalError("init(coder:) is not supported")
     }
 
+    // visibility-walk-allow: two color stores (a tint, a bezel color), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeTint()

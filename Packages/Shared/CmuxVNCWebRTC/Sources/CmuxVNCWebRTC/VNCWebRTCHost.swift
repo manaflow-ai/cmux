@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 import Network
 
@@ -5,18 +6,20 @@ import Network
 /// viewer's `rfb` data channel to a VNC server over TCP (by default this
 /// Mac's Screen Sharing, 127.0.0.1:5900). One viewer at a time; a new one
 /// replaces the old. The VNC server still authenticates the viewer.
-// crash-allow: `current` and the byte counters are read and written only under `lock`; the rest are `let`s.
-public final class VNCWebRTCHost: @unchecked Sendable {
-    // @unchecked: `current` is behind `lock`.
+public final class VNCWebRTCHost: Sendable {
     public let pairing: VNCPairing
     public let targetHost: String
     public let targetPort: UInt16
     private let log: @Sendable (String) -> Void
-    private let lock = NSLock()
-    private var current: (link: VNCPeerLink, tcp: NWConnection?, task: Task<Void, Never>)?
-    /// Bytes from the VNC server to the viewer, and the other way, this session.
-    private var serverBytes = 0
-    private var viewerBytes = 0
+
+    private struct State: Sendable {
+        var current: (link: VNCPeerLink, tcp: NWConnection?, task: Task<Void, Never>)?
+        /// Bytes from the VNC server to the viewer, and the other way, this session.
+        var serverBytes = 0
+        var viewerBytes = 0
+    }
+
+    private let state = Mutex(State())
 
     public init(pairing: VNCPairing, targetHost: String = "127.0.0.1", targetPort: UInt16 = 5900,
                 log: @escaping @Sendable (String) -> Void = { print($0) }) {
@@ -62,7 +65,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
                     let officeLAN = octets.count == 4 && octets[0] == 172 && octets[1] == 20 && (20 ... 23).contains(octets[2])
                     log("viewer candidate: \(VNCPeerLink.type(of: sdp)) \(parts.count > 2 ? String(parts[2]).lowercased() : "?") \(kind)\(kind == "private" ? (officeLAN ? " same-LAN" : " other-LAN") : "")")
                 }
-                await lock.withLock({ current?.link })?.add(candidate: message)
+                await currentLink?.add(candidate: message)
             case "peer-left":
                 log("viewer left")
                 endCurrent()
@@ -89,7 +92,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
                 }
             }
         }
-        lock.withLock { current = (link, nil, task) }
+        state.withLock { $0.current = (link, nil, task) }
         let answer = try await link.answer(offer: sdp)
         try await socket.send(SignalMessage(type: "answer", sdp: answer))
         log("viewer offered; answered")
@@ -98,11 +101,12 @@ public final class VNCWebRTCHost: @unchecked Sendable {
     /// The channel opened: connect to the VNC server and pipe server bytes back.
     private func bridge(_ link: VNCPeerLink) {
         let tcp = NWConnection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp)
-        guard lock.withLock({ () -> Bool in
-            guard current?.link === link else { return false }
-            current?.tcp = tcp
+        let adopted: Bool = state.withLock { state in
+            guard state.current?.link === link else { return false }
+            state.current?.tcp = tcp
             return true
-        }) else { return }
+        }
+        guard adopted else { return }
         log("channel open; connecting to \(targetHost):\(targetPort)")
         tcp.stateUpdateHandler = { [weak self] state in
             if case .failed = state { self?.end(link) }
@@ -116,7 +120,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
         tcp.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, complete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
-                lock.withLock { serverBytes += data.count }
+                state.withLock { $0.serverBytes += data.count }
                 Task {
                     do {
                         try await link.send(data)
@@ -135,27 +139,28 @@ public final class VNCWebRTCHost: @unchecked Sendable {
 
     private func forwardToServer(_ data: Data, from link: VNCPeerLink) {
         // The channel may deliver before TCP is up: NWConnection queues sends until ready.
-        guard let tcp = lock.withLock({ () -> NWConnection? in
-            guard current?.link === link else { return nil }
-            viewerBytes += data.count
-            return current?.tcp
-        }) else { return }
+        let tcp: NWConnection? = state.withLock { state in
+            guard state.current?.link === link else { return nil }
+            state.viewerBytes += data.count
+            return state.current?.tcp
+        }
+        guard let tcp else { return }
         tcp.send(content: data, completion: .idempotent)
     }
 
     /// Every 2 s while `link` is the session: RTT, bandwidth estimate, backlog,
     /// and the Mac's VNC output rate (`metrics:` lines in the host log).
     private func startMetrics(_ link: VNCPeerLink) {
-        lock.withLock {
-            serverBytes = 0
-            viewerBytes = 0
+        state.withLock { state in
+            state.serverBytes = 0
+            state.viewerBytes = 0
         }
         Task { [weak self] in
             var last = 0
-            while let self, lock.withLock({ current?.link === link }) {
+            while let self, currentLink === link {
                 try? await Task.sleep(for: .seconds(2)) // sampling period
                 let m = await link.metrics()
-                let (server, viewer) = lock.withLock { (serverBytes, viewerBytes) }
+                let (server, viewer) = state.withLock { ($0.serverBytes, $0.viewerBytes) }
                 let rate = Double(server - last) / 2 / 1024
                 last = server
                 func f(_ v: Double?) -> String { v.map { String(format: "%.0f", $0) } ?? "-" }
@@ -165,9 +170,9 @@ public final class VNCWebRTCHost: @unchecked Sendable {
     }
 
     private func end(_ link: VNCPeerLink) {
-        let ended = lock.withLock { () -> (NWConnection?, Task<Void, Never>)? in
-            guard let current, current.link === link else { return nil }
-            self.current = nil
+        let ended: (NWConnection?, Task<Void, Never>)? = state.withLock { state in
+            guard let current = state.current, current.link === link else { return nil }
+            state.current = nil
             return (current.tcp, current.task)
         }
         guard let ended else { return }
@@ -177,7 +182,11 @@ public final class VNCWebRTCHost: @unchecked Sendable {
         log("session ended")
     }
 
+    private var currentLink: VNCPeerLink? {
+        state.withLock { $0.current?.link }
+    }
+
     private func endCurrent() {
-        if let link = lock.withLock({ current?.link }) { end(link) }
+        if let link = currentLink { end(link) }
     }
 }

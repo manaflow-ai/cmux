@@ -4,6 +4,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
 /// the input tap's events into the journal, the invariant monitor and its
@@ -13,10 +14,16 @@ import CmuxNextInput
 final class InputVerificationService {
     /// Input invariants and desync reports; set by `start` (nil before it).
     private(set) var monitor: InputInvariantMonitor?
-    private var geometryObservers: [any NSObjectProtocol] = []
+    /// Any window's move, resize, screen and deminiaturize notices (`observeWindowGeometry`).
+    private var geometrySubscriptions: [EventSubscription] = []
+    /// Each cmux window's frame as last journaled, so a notice journals only the windows that moved.
+    private var journaledFrames: [ObjectIdentifier: NSRect] = [:]
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [MainActorObservation] = []
+    /// No-activate mode only: the guard's activation and key-window subscriptions.
+    var keyboardGuardSubscriptions: [EventSubscription] = []
+    /// No-activate mode only: another app's activation, with the app the notice names.
+    var keyboardGuardActivation: MainActorObservation?
     /// The journal's and the monitor's subscription to the input tap (before the key router).
     private var journalSubscription: InputSubscription?
     /// No-activate mode only: the keyboard guard's subscription to the person's key and mouse presses.
@@ -26,18 +33,18 @@ final class InputVerificationService {
     /// Configures the journal, subscribes it to the input tap and installs the
     /// monitor's triggers (the `InputVerification.start` launch post, p08-startup-031).
     /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
-    /// installs it (`startNoActivateGuard(tap:work:mainWork:)`), before the app activates.
+    /// installs it (`startNoActivateGuard(tap:appEvents:mainWork:work:)`), before the app activates.
     func start(services: AppServices) {
         self.services = services
         let journal = InputJournal.shared
         let tag = services.environment.tag
         journal.configure(InputJournalPolicy.resolve(isDebugBuild: ControlService.isDebugBuild, tag: tag,
                                                      environment: ProcessInfo.processInfo.environment))
-        let monitor = InputInvariantMonitor(tag: tag)
+        let monitor = InputInvariantMonitor(tag: tag, deadlines: services.mainDeadlines)
         monitor.services = services
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }
-        observeWindowGeometry(journal: journal, monitor: monitor)
+        observeWindowGeometry(services.appEvents, journal: journal, monitor: monitor)
         // M1: a mirror write outside daemon apply and the intent overlay is
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
@@ -58,32 +65,41 @@ final class InputVerificationService {
         }
     }
 
-    /// A cmux window moved or resized by any source (a drag, an
-    /// Accessibility client such as Rectangle, a display or Space change):
-    /// journal the frame and check the Chromium page geometry (G1) once it
-    /// settles; a page window that moved on its own is checked too.
-    /// Observers live as long as the app.
-    private func observeWindowGeometry(journal: InputJournal, monitor: InputInvariantMonitor) {
-        let names = [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didChangeScreenNotification, NSWindow.didDeminiaturizeNotification]
-        for name in names {
-            geometryObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let window, let controllers = self?.services?.windows.controllers else { return }
-                    if let controller = controllers.first(where: { $0.window === window }) {
-                        let frame = window.frame
-                        journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
-                        monitor.noteChange()
-                    } else if let parent = window.parent, controllers.contains(where: { $0.window === parent }),
-                              WindowOverlayLayer.isContent(window) {
-                        // A Chromium page window moved by itself (an AX client
-                        // that got the page window): check G1 too.
-                        monitor.noteChange()
-                    }
-                }
-            })
+    /// A window moved or resized by any source (a drag, an Accessibility
+    /// client such as Rectangle, a display or Space change): journal the
+    /// frame of each cmux window that moved and check the Chromium page
+    /// geometry (G1) once it settles. A page window that moved on its own (an
+    /// AX client that got the page window) is checked too: any window's
+    /// notice notes a change, and the monitor's settle deadline folds them.
+    /// The app's one observer per notice (`AppServices.appEvents`); the
+    /// subscriptions live as long as the app.
+    private func observeWindowGeometry(_ events: AppEvents, journal: InputJournal, monitor: InputInvariantMonitor) {
+        let changed: @MainActor () -> Void = { [weak self] in
+            self?.journalMovedWindows(journal)
+            monitor.noteChange()
         }
+        let owner = "InputVerification.windowGeometry"
+        geometrySubscriptions = [
+            events.subscribe(NSWindow.didMoveNotification, owner: owner, changed),
+            events.subscribe(NSWindow.didResizeNotification, owner: owner, changed),
+            events.subscribe(NSWindow.didEndLiveResizeNotification, owner: owner, changed),
+            events.subscribe(NSWindow.didChangeScreenNotification, owner: owner, changed),
+            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, changed),
+        ]
+    }
+
+    /// Journals the frame of each cmux window whose frame differs from the one last journaled.
+    private func journalMovedWindows(_ journal: InputJournal) {
+        guard let controllers = services?.windows.controllers else { return }
+        var frames: [ObjectIdentifier: NSRect] = [:]
+        for controller in controllers {
+            guard let window = controller.window else { continue }
+            let frame = window.frame, key = ObjectIdentifier(window)
+            frames[key] = frame
+            guard journaledFrames[key] != frame else { continue }
+            journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
+        }
+        journaledFrames = frames
     }
 
     /// Journals `controller`'s focus transitions (with a checkpoint every

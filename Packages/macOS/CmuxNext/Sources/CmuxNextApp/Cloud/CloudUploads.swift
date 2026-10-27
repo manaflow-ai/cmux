@@ -45,8 +45,14 @@ final class CloudUploads {
     private struct Batch { var target: Target; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private var batches: [String: Batch] = [:]
     /// One deadline for the earliest stage expiry, so an abandoned stage's folder is removed
-    /// without a sleeping task per stage (plans/cmux-next/idle-wakeups.md).
-    private let expiryTimer = DemandTimer(owner: "CloudUploads.stageExpiry")
+    /// without a sleeping task per stage (plans/cmux-next/idle-wakeups.md). Nobody waits on it:
+    /// the background class, flexible.
+    private let expiryTimer: MainDeadline
+
+    /// - Parameter deadlines: The app's one deadline scheduler.
+    init(deadlines: MainDeadlineScheduler) {
+        expiryTimer = MainDeadline(owner: "CloudUploads.stageExpiry", workClass: .background, scheduler: deadlines)
+    }
 
     /// The upload for chat tab `tab`, nil unless it is a live moved chat on a connected machine. The
     /// upload looks the chat up again when it runs.
@@ -204,7 +210,7 @@ final class CloudUploads {
     /// Arms the deadline for the earliest live stage's expiry; nothing pending when no stage is left.
     private func armExpiry() {
         guard let next = stages.values.map(\.expires).min() else { expiryTimer.cancel(); return }
-        expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
+        expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { [weak self] in
             guard let self else { return }
             purgeStages()
             armExpiry()

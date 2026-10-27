@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::stream_interrupt::StreamInterrupt;
+use bytes::Bytes;
 
 fn next_event(receiver: &AttachFrameReceiver) -> ViewerEvent {
     let interrupt = StreamInterrupt::new();
@@ -20,10 +21,10 @@ fn snapshot_viewer_starts_with_a_snapshot_then_live_bytes() {
     let (tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1024);
     assert!(is_snapshot(&next_event(&receiver)));
     receiver.finish_snapshot_locked();
-    assert!(tap.try_send(AttachFrame::Output(b"abc".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"abc"))));
     match next_event(&receiver) {
         ViewerEvent::Frame(AttachFrame::Output(bytes)) => {
-            assert_eq!(bytes, b"abc");
+            assert_eq!(&bytes[..], b"abc");
         }
         other => panic!("expected output, got {other:?}"),
     }
@@ -36,7 +37,7 @@ fn snapshot_viewer_overflow_resyncs_instead_of_disconnecting() {
     receiver.finish_snapshot_locked();
     // A slow viewer: nothing drains. Offer far more than the cap.
     for _ in 0..1000 {
-        assert!(tap.try_send(AttachFrame::Output(vec![b'x'; 1000])));
+        assert!(tap.try_send(AttachFrame::Output(vec![b'x'; 1000].into())));
         assert!(receiver.backlog_bytes() <= 4096);
     }
     assert!(!lifecycle.is_canceled());
@@ -54,7 +55,7 @@ fn legacy_viewer_overflow_still_disconnects() {
     let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 16, 4096);
     let mut accepted = true;
     for _ in 0..100 {
-        accepted &= tap.try_send(AttachFrame::Output(vec![b'x'; 1000]));
+        accepted &= tap.try_send(AttachFrame::Output(vec![b'x'; 1000].into()));
     }
     assert!(!accepted);
     assert!(lifecycle.overflowed());
@@ -65,7 +66,7 @@ fn grid_change_reaches_a_snapshot_viewer_as_a_snapshot() {
     let lifecycle = AttachLifecycle::default();
     let (tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
     receiver.finish_snapshot_locked();
-    assert!(tap.try_send(AttachFrame::Output(b"before".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"before"))));
     assert!(tap.try_send(AttachFrame::Resized {
         cols: 10,
         rows: 5,
@@ -74,7 +75,7 @@ fn grid_change_reaches_a_snapshot_viewer_as_a_snapshot() {
         kitty_state: KittyReplayState::default(),
         pending_sequence: Arc::from([]),
     }));
-    assert!(tap.try_send(AttachFrame::Output(b"after".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"after"))));
     assert!(is_snapshot(&next_event(&receiver)));
 }
 
@@ -83,7 +84,7 @@ fn stream_position_counts_output_and_grid_generations() {
     let position = SnapshotStreamPosition::default();
     position.add_output(5);
     position.observe_frame(&AttachFrame::OutputWithColors {
-        output: vec![0; 7],
+        output: vec![0; 7].into(),
         colors: Box::default(),
         flow: 0,
     });
@@ -115,7 +116,7 @@ fn duplicate_snapshot_requests_collapse_into_one_snapshot() {
     // Same or another request id while that snapshot is in flight: collapsed.
     assert_eq!(gate.request(later), SnapshotAdmission::Collapsed);
     assert_eq!(gate.request(later + Duration::from_millis(1)), SnapshotAdmission::Collapsed);
-    assert!(tap.try_send(AttachFrame::Output(b"x".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"x"))));
     assert!(is_snapshot(&next_event(&receiver)));
     receiver.finish_snapshot_locked();
     gate.sent(later);
@@ -256,10 +257,10 @@ fn a_deferred_snapshot_does_not_keep_requests_collapsed() {
     // Deferred again; the next output asks for the snapshot by itself.
     receiver.defer_snapshot();
     gate.sent(later);
-    assert!(tap.try_send(AttachFrame::Output(b"more".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"more"))));
     assert!(is_snapshot(&next_event(&receiver)));
     receiver.finish_snapshot_locked();
-    assert!(tap.try_send(AttachFrame::Output(b"live".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"live"))));
     assert!(matches!(next_event(&receiver), ViewerEvent::Frame(AttachFrame::Output(_))));
 }
 
@@ -448,10 +449,10 @@ fn a_resize_queues_a_local_ready_after_the_pending_frames() {
     let (tap, receiver) = local_viewer(1 << 20);
     receiver.finish_snapshot_locked();
     assert!(tap.wants_local_ready());
-    assert!(tap.try_send(AttachFrame::Output(b"before".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"before"))));
     let ready = local_ready(1, 6, 60);
     tap.resync_snapshot_at_cut(Some(&ready));
-    assert!(tap.try_send(AttachFrame::Output(b"after".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"after"))));
     expect_output(next_event(&receiver), b"before");
     assert!(Arc::ptr_eq(&expect_local(next_event(&receiver)), &ready));
     expect_output(next_event(&receiver), b"after");
@@ -464,7 +465,7 @@ fn a_resize_queues_a_local_ready_after_the_pending_frames() {
 fn a_resize_frame_reaches_a_local_history_viewer_as_its_local_ready() {
     let (tap, receiver) = local_viewer(1 << 20);
     receiver.finish_snapshot_locked();
-    assert!(tap.try_send(AttachFrame::Output(b"before".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"before"))));
     let ready = local_ready(1, 6, 60);
     assert!(tap.try_send_resize(resized(60), Some(&ready)));
     expect_output(next_event(&receiver), b"before");
@@ -529,7 +530,7 @@ fn a_viewer_without_local_history_ignores_local_readies() {
     receiver.finish_snapshot_locked();
     assert!(!tap.wants_local_ready());
     let ready = local_ready(1, 0, 60);
-    assert!(tap.try_send(AttachFrame::Output(b"dropped".to_vec())));
+    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"dropped"))));
     assert!(tap.try_send_resize(resized(60), Some(&ready)));
     assert_eq!(receiver.resyncs(), 1);
     assert!(is_snapshot(&next_event(&receiver)));

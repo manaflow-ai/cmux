@@ -27,11 +27,15 @@ public struct TabHoverCardGallery {
         chat.hover = TabHoverFacts(kind: .agentChat, activity: .working, since: now.addingTimeInterval(-185), model: "gpt-6.1-sol")
         let samples: [(TabItem, [Double], UInt64)] = [
             (running, [0.6, 1.2, 2.4, 3.1, 2.8, 3.4], 840), (failed, [], 0), (page, [0.05, 0.1, 0.02], 106), (blank, [], 0),
-            (chat, [0.2, 0.3, 0.25], 46),
+            (chat, [0.2, 0.3, 0.25], 46), (page, [0.08, 0.09, 0.07], 212),
         ]
-        return [("Terminal running", 0), ("Terminal failed", 1), ("Browser tab", 2), ("Blank page", 3), ("Agent chat", 4)].map { name, index in
+        let cards = [("Terminal running", 0), ("Terminal failed", 1), ("Browser tab", 2), ("Blank page", 3), ("Agent chat", 4),
+                     ("Browser tab, high energy", 5)]
+        return cards.map { name, index in
             let (item, cpu, megabytes) = samples[index]
             let card = TabHoverCardView()
+            // A hidden page over the high-energy share (p14-energy-125): the energy row and its Discard.
+            card.setHighEnergy(index == 5, discard: {})
             card.configure(.tab(item))
             card.setThumbnailVisible(false)
             for value in cpu {

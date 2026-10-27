@@ -80,6 +80,7 @@ package final class ActionLatencyHUD {
         if watch == nil {
             let runs = monitor.samples(everyRun: true)
             // task-owner: this HUD (cancelled in hide); event-driven (the monitor's stream).
+            // main-hop-allow: Debug HUD shown on request: the monitor yields each run on main, and adding its row is the HUD's only work
             watch = Task { [weak self] in
                 for await run in runs { self?.add(run) }
             }
@@ -192,6 +193,7 @@ package final class ActionLatencyHUD {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         // The title bar's close button closes the panel without hide(): stop the readers there too.
         let closeObserver = PanelCloseObserver { [weak self] in self?.hide() }
         panel.delegate = closeObserver

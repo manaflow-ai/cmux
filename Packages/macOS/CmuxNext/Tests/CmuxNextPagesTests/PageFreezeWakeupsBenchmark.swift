@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -10,7 +11,8 @@ import WebKit
 /// 11 wakeups/s while it shows) is hidden in its window and frozen (``PageWebView/freezePage()``);
 /// after WebKit's hidden-page throttling settles, its process wakes at most 0.2 times a second.
 /// The counter is `ri_interrupt_wkups` (``ProcessUsage/interruptWakeups(of:)``), the one Chrome
-/// reports as idle wakeups (base/process/process_metrics_apple.mm).
+/// reports as idle wakeups (base/process/process_metrics_apple.mm). With CMUX_PERF_RESULT_DIR both rates are
+/// result-v1 (lab story swift-page-freeze-wakeups).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(3)),
        .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_FREEZE_WAKEUPS"] != nil))
@@ -44,13 +46,17 @@ struct PageFreezeWakeupsBenchmark {
         view.frame = tab.bounds
         tab.addSubview(view)
         await view.waitUntilLoaded()
-        let pid = try #require(Self.webContentProcess(of: view.webKitView), "the page has a WebContent process")
+        let pid = try #require(Self.webContentProcess(of: view.webView), "the page has a WebContent process")
 
         let shown = try await Self.wakeupsPerSecond(of: pid, over: Self.shownWindow)
         tab.isHidden = true
         #expect(view.freezePage())
         try await Task.sleep(for: Self.settle)
         let frozen = try await Self.wakeupsPerSecond(of: pid, over: Self.frozenWindow)
+        if let results = try PerfResultWriter() {
+            try results.record("swift.page_freeze.shown_wakeups", unit: .perSecond, samples: [shown])
+            try results.record("swift.page_freeze.frozen_wakeups", unit: .perSecond, samples: [frozen])
+        }
         print("PAGE_FREEZE_WAKEUPS shown_per_s=\(shown) frozen_per_s=\(frozen) budget_per_s=\(Self.budgetPerSecond)")
         #expect(shown > 5, "the timer runs while the page shows")
         #expect(frozen <= Self.budgetPerSecond)

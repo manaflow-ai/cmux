@@ -1,7 +1,12 @@
+import AppKit
+import Carbon.HIToolbox
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import CoreGraphics
 
 /// Hover card and drag thumbnails of `TabContentCache` tabs.
@@ -104,5 +109,131 @@ extension TabContentCache {
                 capturePagePreview(entry, key: key, token: ContentLifecycle<String>.Token(generation))
             }
         }
+    }
+}
+
+/// The browser pages' pictures from the last quit (`BrowserLaunchPictures`, p08-startup-043): saved at quit for
+/// the pages on screen, drawn over their panes at launch until each page shows its first content.
+extension TabContentCache {
+    /// Uses the launch's read of the pictures when the feature `browserLaunchPictures` is on, and drops the ones no
+    /// pane took 30 s on; with it off the read's pictures go at once (the quit then deletes them from disk).
+    func useLaunchPictures(_ pictures: BrowserLaunchPictures?, enabled: Bool, deadlines: MainDeadlineScheduler) {
+        guard let pictures else { return }
+        guard enabled else { return pictures.dropUnasked() }
+        launchPictures = pictures
+        pictures.dropUnasked(after: .seconds(30), on: MainDeadline(owner: "browser.launch-pictures.keep", workClass: .background,
+                                                                   scheduler: deadlines))
+    }
+
+    /// Shows tab `key`'s page picture from the last quit over `pane`, at once, never waiting for the read, the
+    /// page or its engine: a Chromium page made after the first frame shows the picture until then, and every page
+    /// until its first content frame. A later call for the same tab (its page arrived) keeps the picture over the
+    /// page and follows the page's first content. Returns whether the pane shows one now.
+    @discardableResult
+    func showLaunchPicture(_ key: String, in pane: PaneContentView, hold: LaunchImageHold, reveal: LaunchReveal) -> Bool {
+        if (pane.launchImageView as? BrowserLaunchPictureView)?.tab != key {
+            // A crash streak's deferred pages load nothing: no picture would ever be replaced.
+            guard let launchPictures, !defersRestoredPages,
+                  let picture = launchPictures.take(key, profile: (browserProfile?(key) ?? .default).rawValue) else { return false }
+            pane.showLaunchPicture(BrowserLaunchPictureView(picture, tab: key), hold: hold)
+            reveal.release(pane.contentHost)  // its data is here before the pane region's
+            DebugTimings.markLaunch("browser.launch_picture_shown")
+        }
+        guard let view = pane.launchImageView as? BrowserLaunchPictureView else { return false }
+        // Over the browser installed since: its toolbar and theme color draw over anything under them.
+        if pane.contentHost.subviews.last !== view { pane.contentHost.addSubview(view, positioned: .above, relativeTo: nil) }
+        if let page = browsers[key]?.tab as? any BrowserFirstContentFrameReporting, view.waits(for: page) {
+            // A page in its own window (Chromium) would draw over the picture from its commit: a hole while it shows.
+            if let covered = page as? any BrowserPageCovering {
+                view.onShowsChange = { [weak covered] shows in covered?.isPageCovered = shows }
+            }
+            page.whenFirstContentFrame { [weak pane, weak view] _ in
+                guard let pane, let view, pane.launchImageView === view else { return }
+                pane.clearLaunchImage()
+            }
+        }
+        return true
+    }
+
+    /// The tabs whose page holds the keyboard while Secure Input is on (a password field). The quit reads them as
+    /// it begins, before a quit dialog takes the keyboard (p08-startup 3C: their pictures are never taken).
+    func secureInputPages() -> Set<String> {
+        secureInputPages(secureInput: IsSecureEventInputEnabled(), keyWindow: NSApp.keyWindow)
+    }
+
+    /// ``secureInputPages()`` with Secure Input on or off and `keyWindow` the app's key window (seams for tests). A
+    /// Chromium page holds the keyboard as a key child window of its window (`BrowserTab.holdsKeyboard`).
+    func secureInputPages(secureInput: Bool, keyWindow: NSWindow?) -> Set<String> {
+        guard secureInput else { return [] }
+        return Set(browsers.compactMap { key, entry in
+            guard let window = entry.tab.contentView.window, entry.tab.holdsKeyboard(in: window, keyWindow: keyWindow) else { return nil }
+            return key
+        })
+    }
+
+    /// The pictures of the pages `panes` show now (each its tab and its content area), for the next launch. One
+    /// engine capture at a time, all within one capture deadline; nothing of a withheld page is captured.
+    /// `secureInput`: the tabs that held Secure Input when the quit began (``secureInputPages()``); the ones that
+    /// hold it now are withheld too.
+    func launchPictureShots(_ panes: [(key: String, host: NSView)], secureInput: Set<String>) async -> [BrowserLaunchPictures.Shot] {
+        let deadline = ContinuousClock.now + pageCaptureDeadline
+        let secureInput = secureInput.union(secureInputPages())
+        var shots: [BrowserLaunchPictures.Shot] = []
+        for pane in panes {
+            if let shot = await launchPictureShot(pane.key, in: pane.host, secureInput: secureInput, deadline: deadline) { shots.append(shot) }
+        }
+        return shots
+    }
+
+    /// Tab `key`'s page as `host` shows it: nil for no engine page (none yet, deferred, asleep, a cmux page), one
+    /// not on screen, or one that is withheld (``withholdsLaunchPicture(_:page:in:secureInput:)``).
+    private func launchPictureShot(_ key: String, in host: NSView, secureInput: Set<String>,
+                                   deadline: ContinuousClock.Instant) async -> BrowserLaunchPictures.Shot? {
+        guard let page = browsers[key]?.tab, page is any BrowserFirstContentFrameReporting else { return nil }
+        let view = page.contentView
+        guard let window = view.window, VisiblePaneRefs.Window.isOnScreen(view), view.isDescendant(of: host),
+              view.bounds.width > 0, view.bounds.height > 0,
+              !withholdsLaunchPicture(key, page: page, in: window, secureInput: secureInput) else { return nil }
+        // The geometry before the capture: the pane may change while it runs.
+        let frame = view.convert(view.bounds, to: host), paneSize = host.bounds.size
+        let top = host.isFlipped ? frame.minY : paneSize.height - frame.maxY
+        guard let image = try? await ControlDeadline.shared.run(method: "launch-picture.capture", deadline: deadline, { @MainActor in
+            try await page.snapshot()
+        }) else { return nil }
+        let picture = BrowserLaunchPictures.Picture(image: image, paneSize: paneSize,
+                                                    pageFrame: CGRect(x: frame.minX, y: top, width: frame.width, height: frame.height))
+        return BrowserLaunchPictures.Shot(key: key, profile: page.profileID.rawValue, picture: picture)
+    }
+
+    /// The pages the windows' pictures fill for Secure Input: those that held it when the quit began (`quitBegan`,
+    /// ``secureInputPages()`` then) and those that hold it now, since it may begin while the page captures run.
+    func composeSecureInputPages(quitBegan: Set<String>) -> Set<String> {
+        composeSecureInputPages(quitBegan: quitBegan, secureInput: IsSecureEventInputEnabled(), keyWindow: NSApp.keyWindow)
+    }
+
+    /// ``composeSecureInputPages(quitBegan:)`` with Secure Input on or off and `keyWindow` the app's key window (seams
+    /// for tests).
+    func composeSecureInputPages(quitBegan: Set<String>, secureInput: Bool, keyWindow: NSWindow?) -> Set<String> {
+        quitBegan.union(secureInputPages(secureInput: secureInput, keyWindow: keyWindow))
+    }
+
+    /// What tab `key`'s browser page shows in its window's picture (`WindowPictureStore.Pane.Content(_:)` applies
+    /// the fills): the picture the quit took of it, if any, and whether it is withheld now
+    /// (``withholdsLaunchPicture(_:page:in:secureInput:)``; `secureInput` from ``composeSecureInputPages(quitBegan:)``).
+    /// A page in no window is withheld. Nil when `key` has no page.
+    func windowPictureSource(_ key: String, picture: BrowserLaunchPictures.Picture?, secureInput: Set<String>) -> WindowPictureStore.Pane.Source? {
+        guard let page = browsers[key]?.tab else { return nil }
+        let withheld = page.contentView.window.map { withholdsLaunchPicture(key, page: page, in: $0, secureInput: secureInput) } ?? true
+        return .browserPage(page.contentView, picture: picture?.image, pageFrame: picture?.pageFrame ?? .zero, withheld: withheld)
+    }
+
+    /// Whether tab `key`'s page must leave no picture on disk (p08-startup 3C): an incognito page (an off-the-record
+    /// profile or an incognito workspace), a page that holds Secure Input, a page with protected media, or a window
+    /// hidden from screen capture (`NSWindow.sharingType == .none`).
+    func withholdsLaunchPicture(_ key: String, page: any BrowserTab, in window: NSWindow, secureInput: Set<String>) -> Bool {
+        if chromium.stores.offTheRecord.isOffTheRecord(page.profileID) || browserTabs.isIncognitoTab(key) { return true }
+        if secureInput.contains(key) { return true }
+        if let tab = tabModel(key), browserTabs.reopenedForProtectedMedia(tab) { return true }
+        return window.sharingType == .none
     }
 }

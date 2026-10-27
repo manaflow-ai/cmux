@@ -14,17 +14,20 @@ final class SidebarSelectionHold {
     static let limit: Duration = .milliseconds(250)
     private let model: SidebarModel
     private var held: SidebarItem??
-    private let backstop = DemandTimer(owner: "SidebarSelectionHold.limit")
+    /// The ``limit``: `visible` work, the held selection shows.
+    private let backstop: MainDeadline
 
-    init(model: SidebarModel) {
+    /// - Parameter deadlines: The app's one main-thread deadline scheduler.
+    init(model: SidebarModel, deadlines: MainDeadlineScheduler) {
         self.model = model
+        backstop = MainDeadline(owner: "SidebarSelectionHold.limit", workClass: .visible, scheduler: deadlines)
     }
 
     /// The window's selection changed to `selected`.
     func offer(_ selected: SidebarItem?) {
         if case .workspace(let id)? = selected, model.selectedItem != selected, !model.lists(id) {
             held = .some(selected)
-            backstop.schedule(after: Self.limit) { @MainActor [weak self] in self?.flush() }
+            backstop.schedule(after: Self.limit) { [weak self] in self?.flush() }
             return
         }
         held = nil

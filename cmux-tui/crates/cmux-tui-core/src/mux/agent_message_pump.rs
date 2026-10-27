@@ -26,12 +26,13 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, MutexGuard, Weak};
 use std::time::Duration;
 
-use rusqlite::{Connection, params};
+use cmux_threads::checked;
 use serde_json::{Value, json};
 
 use super::Mux;
@@ -99,10 +100,10 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new()
-                .name("mux-agent-message-pump".into())
-                .stack_size(256 * 1024),
+        let spawned = cmux_threads::spawn_with_stack(
+            "mux-agent-message-pump",
+            cmux_tui_platform::qos::outside_request_class(),
+            256 * 1024,
             move || run(&mux, &woken),
         );
         if spawned.is_err() {
@@ -150,7 +151,8 @@ impl Mux {
         let mut skipped: Vec<String> = Vec::new();
         let mut waits = false;
         loop {
-            let Ok(page) = self.read_registry_state(|connection| queued_acp(connection, cursor))
+            let Ok(page) = self
+                .read_registry_state(|connection| messages::queued_acp(connection, cursor, PAGE))
             else {
                 self.report_internal_diagnostic("agent message pump could not read the queue");
                 return true;
@@ -329,42 +331,18 @@ impl Mux {
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
-                transaction.execute(
-                    "UPDATE agent_message_deliveries
-                     SET attempts = attempts + 1, error = ?3, updated_at_ms = ?4,
-                         via = 'acp.prompt'
-                     WHERE message_id = ?1 AND recipient = ?2 AND state = 'queued'",
-                    params![id, recipient, error, crate::state::agent_message_policy::now_ms()],
+                messages::note_queued_attempt(
+                    transaction,
+                    id,
+                    recipient,
+                    &error,
+                    crate::state::agent_message_policy::now_ms(),
                 )?;
                 Ok(StateChanges::new(Value::Null, Vec::new()))
             },
         )
         .map(|_| ())
     }
-}
-
-/// Up to [`PAGE`] queued acpmux deliveries after `cursor` (a message's
-/// sequence and the delivery's position), oldest first:
-/// `(sequence, position, message id, recipient)`.
-fn queued_acp(
-    connection: &Connection,
-    cursor: (i64, i64),
-) -> anyhow::Result<Vec<(i64, i64, String, String)>> {
-    let mut statement = connection.prepare(
-        "SELECT m.sequence, d.position, m.message_id, d.recipient
-         FROM agent_message_deliveries AS d
-         JOIN agent_messages AS m ON m.message_id = d.message_id
-         WHERE d.state = 'queued' AND d.recipient LIKE 'acp:%'
-           AND (m.sequence > ?1 OR (m.sequence = ?1 AND d.position > ?2))
-         ORDER BY m.sequence, d.position
-         LIMIT ?3",
-    )?;
-    let rows = statement
-        .query_map(params![cursor.0, cursor.1, i64::try_from(PAGE)?], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
 }
 
 /// Waits for wakes, and while a delivery waits for the retry timer, until
@@ -374,10 +352,11 @@ fn run(mux: &Weak<Mux>, woken: &Receiver<()>) {
     let mut retry: Option<Duration> = None;
     loop {
         let woke = match retry {
-            None => woken.recv().is_ok(),
-            Some(delay) => {
-                !matches!(woken.recv_timeout(delay), Err(RecvTimeoutError::Disconnected))
-            }
+            None => checked::sync::recv(woken).is_ok(),
+            Some(delay) => !matches!(
+                checked::sync::recv_timeout(woken, delay),
+                Err(RecvTimeoutError::Disconnected)
+            ),
         };
         if !woke {
             return;

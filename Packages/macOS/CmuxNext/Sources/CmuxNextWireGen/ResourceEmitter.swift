@@ -8,7 +8,8 @@ import Foundation
 ///   CodingKeys and coding, enums as open `RawRepresentable` structs, tagged unions as enums;
 /// - `V2ResourceError`, the catalog's errors with each code's typed `details`;
 /// - a `V2<Operation>Request` per operation: its params (selectors first, `machine` and
-///   `session` defaulting to `current`), its `Result` and, for a stream, `StreamItem`/`StreamEnd`.
+///   `session` defaulting to `current`; an optional nullable field as `ResourceFieldUpdate`, so
+///   `null` can clear it), its `Result` and, for a stream, `StreamItem`/`StreamEnd`.
 ///
 /// This is Chromium's Mojo bindings generator for cmux (mojo/public/tools/bindings/generators/
 /// mojom_cpp_generator.py): a typed params struct and response type per method, the message
@@ -24,7 +25,7 @@ import Foundation
 ///
 /// The hand-written half is in CmuxNextIPC: `ResourceRequestLine` (the envelope builder that
 /// replaces hand-built `ResourceRequestEnvelope`s), `ResourceResponse`, `ResourceJSON`,
-/// `ResourceSelector` and the request protocols.
+/// `ResourceSelector`, `ResourceFieldUpdate` and the request protocols.
 struct ResourceEmitter {
     /// One generated file: its name in the output directory and its source.
     struct File: Equatable {
@@ -184,7 +185,10 @@ struct ResourceEmitter {
         var nested: [ResourceDeclaration] = []
         for wireName in operation.params.fields.keys.sorted() {
             guard let field = operation.params.fields[wireName] else { continue }
-            fields.append(try renderer.field(wireName, field, path: path + ".params.fields.\(wireName)", nested: &nested))
+            var member = try renderer.field(wireName, field, path: path + ".params.fields.\(wireName)", nested: &nested)
+            // Absent keeps, `null` clears: a request needs all three states (`workspace.update`'s `title`).
+            if member.presence == .optional, case .nullable = field.type { member.presence = .optionalNullable }
+            fields.append(member)
         }
         var header = ["public static let resourceOperation = \(ResourceSourceWriter.literal(name))"]
         header += try associatedType("Result", operation.result, path: path + ".result", nested: &nested)

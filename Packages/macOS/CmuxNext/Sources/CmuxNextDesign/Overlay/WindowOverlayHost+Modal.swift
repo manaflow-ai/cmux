@@ -1,11 +1,12 @@
-import AppKit
+public import AppKit
 import CmuxNextInput
 
 extension WindowOverlayHost {
     // MARK: Modal
 
-    /// The panel takes the keyboard; Tab cycles inside the overlay (the
-    /// panel's key view loop holds only overlay views); the previous key
+    /// The overlay takes the keyboard (the panel becomes key, or in the window's
+    /// top layer the window's first responder moves into it); Tab cycles inside
+    /// the overlay (its key view loop holds only overlay views); the previous key
     /// window and first responder are kept for `endModal`.
     func beginModal(_ handle: OverlayHandle) {
         if !handles.dropLast().contains(where: { $0.options.isModal }) {
@@ -30,7 +31,7 @@ extension WindowOverlayHost {
                     // The overlay taking the keyboard back cancels a move. The overlay's own window
                     // becoming key is the app coming back to the front (dogfood 2026-10-08, C3),
                     // not a move: a click into it shows as a first responder change instead.
-                    if window == ObjectIdentifier(self.panel) {
+                    if let panel = self.madePanel, window == ObjectIdentifier(panel) {
                         self.otherWindowTookKey = false
                     } else if ![self.restoreWindow, self.window].contains(where: { $0.map(ObjectIdentifier.init) == window }) {
                         self.otherWindowTookKey = true
@@ -39,25 +40,62 @@ extension WindowOverlayHost {
             }
         }
         if handle.options.modalRegion != nil { modalLeftWindowUsable = true }
-        panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
-        panel.autorecalculatesKeyViewLoop = false
         let keyViews = Self.keyViews(in: handle.content)
         for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
+        guard usesPanel else { return giveKeyboard(to: handle) }
+        panel.acceptsKey = true
+        panel.autorecalculatesKeyViewLoop = false
         if panel.isVisible { panel.makeKey() }
         let first = keyViews.first ?? handle.content
         panel.initialFirstResponder = first
         panel.makeFirstResponder(first)
     }
 
+    /// `handle`, the newest modal, takes the keyboard where it draws: its window becomes key (the panel,
+    /// or the main window for the top layer in it) and the first responder moves into it unless it is there.
+    func giveKeyboard(to handle: OverlayHandle) {
+        guard let overlayWindow else { return }
+        if overlayWindow.isVisible, !overlayWindow.isKeyWindow { overlayWindow.makeKey() }
+        if let responder = overlayWindow.firstResponder as? NSView, responder.isDescendant(of: handle.content) { return }
+        overlayWindow.makeFirstResponder(Self.keyViews(in: handle.content).first ?? handle.content)
+    }
+
+    /// The keyboard is in the window's top layer while a modal shows there: an overlay's control is the
+    /// window's first responder. The window's key routing treats the window as a panel over it then (no
+    /// content shortcut runs), as it did while the overlay panel was key.
+    public var keyboardIsInWindowTopLayer: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return false }
+        return holdsKeyboardInWindowTopLayer(responder)
+    }
+
+    /// `view` is a control of the window's top layer while a modal shows there (a dialog's field or button).
+    public func holdsKeyboardInWindowTopLayer(_ view: NSView) -> Bool {
+        isTopLayerInWindow && handles.contains { $0.options.isModal } && view.isDescendant(of: topLayer)
+    }
+
+    /// The window must not make `responder` its first responder: a view of the window's top layer while no
+    /// modal shows (a popover, a toast's action, a menu). The overlay panel took the keyboard only while a
+    /// modal showed (``beginModal(_:)``); a click on any other overlay leaves the keyboard in the pane.
+    public func refusesFirstResponder(_ responder: NSResponder?) -> Bool {
+        guard isTopLayerInWindow, let view = responder as? NSView, view.isDescendant(of: topLayer) else { return false }
+        return !handles.contains { $0.options.isModal }
+    }
+
+    /// Tab or Shift-Tab reached the window (a field editor's `insertTab`) while the keyboard is in a modal
+    /// in its top layer: focus moves within the modal. False: the window's own key view loop runs.
+    public func cycleKeyViewInWindowTopLayer(forward: Bool) -> Bool {
+        keyboardIsInWindowTopLayer && cycleKeyView(forward: forward)
+    }
+
     func endModal() {
         guard !handles.contains(where: { $0.options.isModal }) else {
             if let top = handles.last(where: { $0.options.isModal }) {
-                panel.makeFirstResponder(Self.firstKeyView(in: top.content) ?? top.content)
+                overlayWindow?.makeFirstResponder(Self.firstKeyView(in: top.content) ?? top.content)
             }
             return
         }
-        panel.acceptsKey = false
+        madePanel?.acceptsKey = false
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
         // Give the keyboard back only when no other window took it while the
@@ -98,10 +136,14 @@ extension WindowOverlayHost {
     /// one the modal took the keyboard from.
     var focusMoved: Bool {
         if otherWindowTookKey { return true }
-        guard modalLeftWindowUsable, let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
-        var current = window.firstResponder
+        guard modalLeftWindowUsable, let keyWindow = restoreWindow ?? window, let saved = restoreResponder else { return false }
+        var current = keyWindow.firstResponder
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSResponder }
-        return current !== saved
+        guard current !== saved else { return false }
+        // In the window's top layer the overlay holds the window's keyboard, and the window itself holds it
+        // once the overlay's view left: neither is a move.
+        guard !usesPanel, keyWindow === window else { return true }
+        return !(current == nil || current === keyWindow || (current as? NSView)?.isDescendant(of: topLayer) == true)
     }
 
     /// Escape reaches the panel only while it is key (a modal overlay). For
@@ -133,14 +175,14 @@ extension WindowOverlayHost {
 
     /// Tab inside the newest modal overlay: the next (or previous) control, wrapping.
     func cycleKeyView(forward: Bool) -> Bool {
-        guard let top = handles.last(where: { $0.options.isModal }) else { return false }
+        guard let top = handles.last(where: { $0.options.isModal }), let overlayWindow else { return false }
         let views = Self.keyViews(in: top.content)
         guard !views.isEmpty else { return true }
-        var current = panel.firstResponder as? NSView
+        var current = overlayWindow.firstResponder as? NSView
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSView }
         let index = current.flatMap { view in views.firstIndex { $0 === view } } ?? (forward ? views.count - 1 : 0)
         let next = views[(index + (forward ? 1 : views.count - 1)) % views.count]
-        panel.makeFirstResponder(next)
+        overlayWindow.makeFirstResponder(next)
         return true
     }
 
@@ -178,17 +220,13 @@ extension WindowOverlayHost {
 extension WindowOverlayHost {
     /// An Escape for `target`, a window the panel is not: true when an overlay took it. The
     /// newest modal overlay takes it back while the keyboard did not move on (the person came
-    /// back from another app and the window became key); else the newest non-modal overlay that
-    /// dismisses on Escape goes.
+    /// back from another app and the window became key; in the window's top layer, every Escape
+    /// while the modal shows); else the newest non-modal overlay that dismisses on Escape goes.
     func routeEscape(_ event: NSEvent, in target: NSWindow?) -> Bool {
-        guard !panel.isKeyWindow, let target, isAppHost || target === window || target.parent === window else { return false }
-        if handles.contains(where: { $0.options.isModal }), !focusMoved {
-            if panel.isVisible { panel.makeKey() }
-            if let top = handles.last(where: { $0.options.isModal }),
-               !((panel.firstResponder as? NSView)?.isDescendant(of: top.content) ?? false) {
-                panel.makeFirstResponder(Self.keyViews(in: top.content).first ?? top.content)
-            }
-            panel.sendEvent(Self.retargeted(event, to: panel))
+        guard madePanel?.isKeyWindow != true, let target, isAppHost || target === window || target.parent === window else { return false }
+        if let top = handles.last(where: { $0.options.isModal }), !focusMoved, let overlayWindow {
+            giveKeyboard(to: top)
+            overlayWindow.sendEvent(Self.retargeted(event, to: overlayWindow))
             return true
         }
         guard let handle = handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return false }

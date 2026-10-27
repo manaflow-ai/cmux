@@ -42,10 +42,7 @@ import Testing
                 if rng.oneIn(64) { pixels[index] = 0xFF00_0000 }
             }
         }
-        let screens = pixels.withUnsafeBufferPointer { buffer -> [CGRect] in
-            guard let base = buffer.baseAddress else { return [] }
-            return VNCScreenLayout().screens(pixels: base, width: width, height: height, rowPixels: width)
-        }
+        let screens = VNCScreenLayout().screens(pixels: pixels, width: width, height: height, rowPixels: width)
         let bounds = CGRect(x: 0, y: 0, width: width, height: height)
         try FuzzRun.check(screens.count != 1, "one display is no layout")
         try FuzzRun.check(screens.allSatisfy { !$0.isEmpty && bounds.contains($0) }, "displays \(screens) outside \(bounds)")

@@ -1,3 +1,5 @@
+// memory: consumer via TabHoverCardController (a value type: its owner registers `tab-hover-cards`, whose
+// limit scales both bounds here and whose release trims to them).
 import CoreGraphics
 
 /// Hover card thumbnails of recently hovered tabs (R131): a retarget to a

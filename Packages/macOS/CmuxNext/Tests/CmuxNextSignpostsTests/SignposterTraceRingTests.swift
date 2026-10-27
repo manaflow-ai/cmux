@@ -293,7 +293,7 @@ struct SignposterTraceRingTests {
             #expect(!name.opensThreadSlice, "\(name) ends at a CommitBoundary")
         }
         for name: SignpostName in [.actionPerform, .stallMainTask, .cefPump, .motionFrame, .stallCreateSurface, .taskRun,
-                                   .ghosttyRender, .launchStartupTask] {
+                                   .ghosttyRender, .launchStartupTask, .cefMemoryPressureVote] {
             #expect(name.opensThreadSlice, "\(name)")
         }
     }

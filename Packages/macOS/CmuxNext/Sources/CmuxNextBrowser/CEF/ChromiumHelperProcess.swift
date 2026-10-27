@@ -1,6 +1,7 @@
 public import Darwin
 import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// One Chromium helper process of this app and what it does, read from its
 /// argv (`--type`, `--utility-sub-type`, `--extension-process`,
@@ -71,6 +72,15 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         return out
     }
 
+    /// Each live tab renderer with its counters now (the Energy Saver's busy hidden pages, p14-energy-039). Blocking
+    /// syscalls (``ProcessUsage/sample(_:)`` per renderer): call it off the main actor.
+    public static func tabRendererUsage(parent: pid_t = getpid()) -> [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] {
+        list(parent: parent).compactMap { helper -> (renderer: ProcessUsage.Renderer, usage: ProcessUsage)? in
+            guard case .renderer(let client) = helper.kind, let usage = ProcessUsage.sample(helper.pid) else { return nil }
+            return (renderer: ProcessUsage.Renderer(pid: helper.pid, clientID: client), usage: usage)
+        }
+    }
+
     /// The kind of a helper from its argv; nil for a process that is not a
     /// Chromium helper (or whose argv is not readable yet).
     public static func classify(_ arguments: [String]) -> Kind? {
@@ -96,10 +106,13 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
     private static let cache = Mutex<[Int32: Kind]>([:])
 
     private static func childPIDs(of pid: pid_t) -> [Int32] {
-        let count = proc_listchildpids(pid, nil, 0)
+        // SAFETY: a NULL buffer of size 0 only asks for the count.
+        let count = unsafe proc_listchildpids(pid, nil, 0)
         guard count > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: Int(count) + 16)
-        let filled = proc_listchildpids(pid, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        let room = Int32(pids.count * MemoryLayout<pid_t>.size)
+        // SAFETY: the kernel writes at most `room` bytes, the array's size, into its buffer during the call.
+        let filled = unsafe proc_listchildpids(pid, &pids, room)
         guard filled > 0 else { return [] }
         return Array(pids.prefix(Int(filled)).filter { $0 > 0 })
     }

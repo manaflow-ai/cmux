@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6ee91cefdca789ee18e94753ea8301875cf2019c96e0764ae99594b35cd42f61. */
+/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
 
 
 import type * as T from "./types.js";
@@ -613,6 +613,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "snapshot_images"?: boolean;
   "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
+  "stream"?: (number) | null;
   "surface"?: (T.Id) | null;
   "viewer_backlog_bytes"?: (bigint) | null;
 }
@@ -788,6 +789,12 @@ export interface CancelRequestRequest extends CmuxRequestBase {
 }
 export type CancelRequestResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface CancelStreamRequest extends CmuxRequestBase {
+  cmd: "cancel-stream";
+  "stream": number;
+}
+
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
   cmd: "chief-inspect";
@@ -827,6 +834,7 @@ export type ClientFocusResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ClientHelloRequest extends CmuxRequestBase {
   cmd: "client-hello";
+  "features"?: (T.ClientHelloFeatures) | null;
   "install_id"?: string;
   "page"?: (string) | null;
   "proof"?: string;
@@ -1659,6 +1667,12 @@ export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
 }
 export type CreateWorkspaceGroupResult = T.JsonValue;
 
+/** Protocol v12; authority: local-admin. */
+export interface DebugDaemonLocksRequest extends CmuxRequestBase {
+  cmd: "debug-daemon-locks";
+}
+export type DebugDaemonLocksResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface DeleteBookmarkRequest extends CmuxRequestBase {
   cmd: "delete-bookmark";
@@ -1733,6 +1747,7 @@ export type DeleteWorkspaceGroupResult = T.JsonValue;
 export interface DetachAttachedViewRequest extends CmuxRequestBase {
   cmd: "detach-attached-view";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2701,6 +2716,7 @@ export type RegisterBrowserProviderResult = T.BrowserProviderSnapshot;
 export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
   cmd: "release-attached-view-size";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2844,6 +2860,7 @@ export interface ResizeAttachedViewRequest extends CmuxRequestBase {
   "identity"?: (T.SizingIdentity) | null;
   "lease"?: (string) | null;
   "rows": number;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -3003,10 +3020,22 @@ export interface SendKeyRequest extends CmuxRequestBase {
 export type SendKeyResult = T.EmptyResult;
 
 /** Protocol v12; authority: local-admin. */
+export interface ServerBlockingRequest extends CmuxRequestBase {
+  cmd: "server-blocking";
+}
+export type ServerBlockingResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface ServerThreadsRequest extends CmuxRequestBase {
+  cmd: "server-threads";
+}
+export type ServerThreadsResult = T.JsonValue;
 
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
@@ -3278,6 +3307,7 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
   "have"?: (T.SnapshotRequestHave) | null;
   "reason"?: (string) | null;
   "request_id"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
 }
 
@@ -3704,6 +3734,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | CancelRequestRequest
+  | CancelStreamRequest
   | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
@@ -3780,6 +3811,7 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | CreateWorkspaceGroupRequest
+  | DebugDaemonLocksRequest
   | DeleteBookmarkRequest
   | DeleteBrowserProfileRequest
   | DeletePersonalGroupRequest
@@ -3923,7 +3955,9 @@ export type CmuxRequest =
   | SelectWorkspaceRequest
   | SendRequest
   | SendKeyRequest
+  | ServerBlockingRequest
   | ServerStatsRequest
+  | ServerThreadsRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -4570,6 +4604,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "cancel-request-v1";
     stream: null;
   };
+  "cancel-stream": {
+    request: CancelStreamRequest;
+    result: T.CancelStreamResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
+    stream: null;
+  };
   "chief-inspect": {
     request: ChiefInspectRequest;
     result: ChiefInspectResult;
@@ -5176,6 +5218,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "debug-daemon-locks": {
+    request: DebugDaemonLocksRequest;
+    result: DebugDaemonLocksResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "delete-bookmark": {
@@ -6322,12 +6372,28 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "server-blocking": {
+    request: ServerBlockingRequest;
+    result: ServerBlockingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-threads-v1";
+    stream: null;
+  };
   "server-stats": {
     request: ServerStatsRequest;
     result: T.ServerStatsResult;
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "server-threads": {
+    request: ServerThreadsRequest;
+    result: ServerThreadsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-threads-v1";
     stream: null;
   };
   "set-cell-pixels": {

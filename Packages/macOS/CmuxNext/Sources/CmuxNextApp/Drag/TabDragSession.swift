@@ -31,14 +31,27 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: MainActorObservation?
+    /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+    var resignObserver: EventSubscription?
     /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
     let motionSignposter: Signposter
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a drag's moves hit-test on a frame
+    /// interval's first move and once more at its frame. Nil: every move hit-tests.
+    let moveFrames: FrameInputCoalescers?
+    /// Makes a drag's resampler on its start (feature `resampledDrags`): the ghost is drawn at the pointer resampled
+    /// at each frame's time. Nil (and without ``moveFrames``): the ghost follows the real pointer.
+    let makeResampler: () -> DragResampler?
 
-    /// - Parameter motionSignposter: The `motion` category's signposter (the app's: ``Signposter/motion``; tests pass
-    ///   one on their own trace runtime).
-    init(services: AppServices, motionSignposter: Signposter = .motion) {
+    /// - Parameters:
+    ///   - moveFrames: The app's ``AppServices/dragFrameInput``.
+    ///   - makeResampler: The app's ``AppServices/dragResampler`` off under Reduce Motion.
+    ///   - motionSignposter: The `motion` category's signposter (the app's: ``Signposter/motion``; tests pass
+    ///     one on their own trace runtime).
+    init(services: AppServices, moveFrames: FrameInputCoalescers? = nil, makeResampler: @escaping () -> DragResampler? = { nil },
+         motionSignposter: Signposter = .motion) {
         self.services = services
+        self.moveFrames = moveFrames
+        self.makeResampler = makeResampler
         self.motionSignposter = motionSignposter
         super.init()
     }
@@ -117,7 +130,14 @@ final class TabDragSession: NSObject {
         drag.input = services.inputTap.subscribe(class: Self.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        // Its moves on the ghost window's coalescer (feature `pointerFrameDrags`), each delivery with its frame's time
+        // for the resampled ghost (feature `resampledDrags`).
+        drag.moves = moveFrames?.coalescer(for: ghost.panel).frameTimedConsumer(owner: Self.movesOwner) { [weak self, weak drag] input, frame in
+            guard let self, let drag else { return }
+            self.deliverMoves(input, at: frame, drag: drag)
+        }
+        drag.resampler = drag.moves == nil ? nil : makeResampler()
+        resignObserver = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TabDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -185,9 +205,12 @@ final class TabDragSession: NSObject {
     func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
-            update(Self.screenPoint(of: event))
+            move(event)
             return .consume
         case .leftMouseUp:
+            // The release hit-tests once, at its own point, and draws the ghost there: a move still waiting for its
+            // frame is older, so it is dropped.
+            drag?.moves?.cancel()
             update(Self.screenPoint(of: event))
             drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
@@ -205,6 +228,38 @@ final class TabDragSession: NSObject {
         }
     }
 
+    /// The coalescer owner of a drag's moves.
+    static let movesOwner = "TabDragSession.moves"
+
+    /// One pointer move of the drag; every move feeds the release velocity. With ``Drag/moves`` the hit test and the
+    /// ghost follow a frame interval's first move at once and the frame's latest move at its frame (Chromium's
+    /// rAF-aligned input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`); without it
+    /// every move hit-tests.
+    func move(_ event: NSEvent) {
+        guard let drag else { return }
+        let point = Self.screenPoint(of: event)
+        guard let moves = drag.moves else { return update(point) }
+        drag.samplePointer(point, at: CACurrentMediaTime())
+        moves.post(Self.moveRecord(at: point, time: event.timestamp))
+    }
+
+    /// A move of the drag in screen coordinates and in no window: the ghost crosses windows, so its samples merge
+    /// and resample in one space.
+    static func moveRecord(at point: CGPoint, time: TimeInterval) -> InputEventRecord {
+        let location = InputPoint(x: point.x, y: point.y)
+        return InputEventRecord(type: .leftMouseDragged, timestamp: time, location: location, screenLocation: location)
+    }
+
+    /// One delivery of the drag's moves: a hit test at its latest real point, and the ghost drawn at the pointer
+    /// resampled at `frame` while a resampler runs (Chromium's `MainThreadEventQueue::HandleEventResampling`,
+    /// `ui/base/prediction/linear_resampling.cc`). A drag that ended before it gets none.
+    func deliverMoves(_ input: PointerCoalescedInput, at frame: PointerFrameTime, drag: Drag) { // perf-hot: 2ms drag-frame (each leading or trailing delivery)
+        guard self.drag === drag else { return }
+        let real = CGPoint(x: input.latest.location.x, y: input.latest.location.y)
+        let shown = drag.resampler?.points(for: input, at: frame).visualPoint
+        retarget(real, shown: shown.map { CGPoint(x: $0.x, y: $0.y) }, drag: drag)
+    }
+
     /// The event's own location, so events posted to this process (tests,
     /// automation) work without moving the real cursor.
     static func screenPoint(of event: NSEvent) -> CGPoint {
@@ -214,10 +269,19 @@ final class TabDragSession: NSObject {
 
     // MARK: Hit testing
 
-    func update(_ point: CGPoint) {
+    /// The pointer is at `point` now: a sample for the release velocity, then a hit test there. `shown` is where the
+    /// ghost is drawn (nil: at `point`).
+    func update(_ point: CGPoint, shown: CGPoint? = nil) {
         guard let drag else { return }
-        drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
+        retarget(point, shown: shown, drag: drag)
+    }
+
+    /// One hit test of `drag` at the real `point` (drop target, autoscroll, window order), with the ghost drawn at
+    /// `shown` (nil: at `point`).
+    func retarget(_ point: CGPoint, shown: CGPoint?, drag: Drag) {
+        drag.point = point
+        drag.shownPoint = shown
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let context = liveContext(drag)
         let order = windowOrder(for: drag)
@@ -314,6 +378,7 @@ final class TabDragSession: NSObject {
         // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
         for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
+            // visibility-walk-allow: hit test: a strip takes the drop only where AppKit draws it under the pointer (a pane's node says nothing of a hidden tab bar)
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)
             if frame.contains(point) { list.append(strip) }
