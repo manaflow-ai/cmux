@@ -11,6 +11,9 @@ import IOSurface
 /// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
 /// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
 /// content is parsed and drawn.
+///
+/// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
+/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
 @MainActor
 final class TerminalFrameHold {
     /// The longest the old frame stays once the content it waits for is queued: a surface that
@@ -76,7 +79,8 @@ final class TerminalFrameHold {
         generation &+= 1
         surface = fresh
         view.show(held, like: source, frame: fresh.frame)
-        // Above the surface, under the banner, scroller and find bar over it.
+        // Above the surface, so above the leaf its renderer presents into (a sublayer of the
+        // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
     }
 

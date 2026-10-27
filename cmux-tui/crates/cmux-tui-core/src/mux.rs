@@ -1,6 +1,10 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+// std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
+// them (cmux-tui/clippy.toml, p02-threads.md task 227).
+#![cfg_attr(not(test), deny(clippy::disallowed_types))]
+
 mod agent_hook_errors;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
@@ -380,6 +384,7 @@ pub use terminal_reap::{
 };
 pub(crate) use workspace_close_guard::workspace_not_empty_code;
 
+use cmux_threads::sync::{Condvar, Mutex};
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -387,7 +392,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 

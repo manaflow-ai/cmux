@@ -34,6 +34,9 @@ final class CEFHostStart {
     /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
     /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
     var drawsSuggestions = false
+    /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
+    /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
+    let files: ChromiumHostFiles?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
@@ -54,9 +57,11 @@ final class CEFHostStart {
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
+         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
+         open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        files = fileDialogs.map { ChromiumHostFiles(panels: $0) }
         self.showsWidgets = showsWidgets
         self.takesDrags = takesDrags
         self.fencesResizes = fencesResizes
@@ -93,6 +98,7 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
+        files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
 

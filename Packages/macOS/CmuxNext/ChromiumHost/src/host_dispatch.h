@@ -48,7 +48,10 @@
 //                                              (HandleLayerHosting)
 //   kOpBrowserSetPageVisibility                 the generated case; the host also keeps
 //                                              the value (KeepPageVisibility) and applies
-//                                              it when it detaches the page window
+//                                              it when it detaches the page window, and
+//                                              holds its App Nap activity while a page is
+//                                              shown (host_page_activity.h, task
+//                                              p14-energy-128)
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
@@ -99,6 +102,7 @@
 #include "chromium_host_wire.h"
 #include "host_energy_saver.h"
 #include "host_mirror.h"
+#include "host_page_activity.h"
 #include "host_resize.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
@@ -311,6 +315,13 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // What the shown page count holds (browser_host_main.mm, before Attach):
+  // the count goes to it after each kOpBrowserSetPageVisibility, at each
+  // browser's close and once initialize returned; nullptr holds nothing.
+  void SetPageShowActivity(PageShowActivity* activity) { page_activity_ = activity; }
+  // Chromium windows cmux shows (PageWindowVisibility).
+  size_t shown_pages() const { return page_windows_.shown(); }
+
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
   struct HeldEvent {
@@ -339,8 +350,17 @@ class HostContext {
   bool HandleLayerHosting(const control::Message& message);
   // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
   // value for the browser, since the fork takes none until the page window
-  // is detached (task p01-process-220). False past kMaxPageVisibilities.
+  // is detached (task p01-process-220), and keeps it for the browser's
+  // Chromium window in page_windows_, so a page that shows has the activity
+  // before the fork draws it. False past kMaxPageVisibilities.
   bool KeepPageVisibility(const control::Message& message);
+  // After `client`'s event changed HostMirrors' windows: page_windows_
+  // follows the tab into its window and drops `window_before` (its window
+  // before the event) or `event_window` (a TAB_EVENT's window, else 0) when
+  // no tab is left in it.
+  void FollowPageWindows(int32_t client, int64_t window_before, int64_t event_window);
+  // Hands page_windows_' shown count to page_activity_.
+  void UpdatePageActivity();
   // Keeps `geometry` as `client_id`'s newest until its creation; past
   // kMaxPendingBinds held ids it is dropped (unplaced).
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
@@ -465,6 +485,10 @@ class HostContext {
   // cmux's last page visibility (cmux_shim_page_visibility_t) by client id,
   // applied again when HandleLayerHosting detaches that browser's page window.
   std::unordered_map<int32_t, int32_t> page_visibility_;
+  // The same posts by Chromium window, which the fork applies them to: the
+  // shown count page_activity_ holds on.
+  PageWindowVisibility page_windows_;
+  PageShowActivity* page_activity_ = nullptr;
   GeometryStats geometry_stats_;
 };
 

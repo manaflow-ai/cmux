@@ -83,6 +83,13 @@ fails, a waived row above it is printed as a recorded waiver.
                       or an overload without the parameter
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
+    invariant_check   Invariant.check( (CmuxSafeConcurrency, p10-stability-099): traps in every
+                      build. Banned: each site needs an allowlist entry whose reason says what
+                      shared or persisted state going on would corrupt
+    dump_will_be_check  Invariant.dumpWillBeCheck( (p10-stability-099): reports and never traps.
+                      Banned: each site needs an allowlist entry whose reason names the code
+                      that recovers. Invariant.notFatalUntil is not a class: it traps from its
+                      named build on
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
                       the baseline and not waived by crash-allow: only the call sites in
                       env-write-allowlist.json (path, call, count, reason) pass. libghostty
@@ -105,8 +112,8 @@ that brings it to zero (moving its reviewed crash-allow lines into the allowlist
 REPORT-ONLY classes (--report CLASS[,CLASS]; plans/cmux-next/chrome-parity/p10-stability.md, implementer rule 1):
 counted over every package's Sources and printed as JSON {class: {"total": N, "modules": {module: hits}}}, never
 compared, never in crash-safety-baseline.json, and never read by the CI compare mode (no flag, --baseline-against,
---update-baseline). A crash-allow does not hide a hit from the report. guardrails.py refuses new hits before a push
-(local only).
+--update-baseline). A crash-allow does not hide a hit from the report. guardrails.py judges them before a push
+(local only): raw_continuation is banned there, every hit in a file the push changes is refused (p10-stability-089).
     raw_continuation  with(Checked|Unsafe)(Throwing)?Continuation: a raw continuation traps on a second resume
                       and leaks its task when dropped. Use CmuxSafeConcurrency's withOnceContinuation /
                       withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which
@@ -150,6 +157,8 @@ SWIFT = {
     "unchecked": re.compile(r"nonisolated\(unsafe\)|@unchecked\s+Sendable"),
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
+    "invariant_check": re.compile(r"\bInvariant\.check\("),
+    "dump_will_be_check": re.compile(r"\bInvariant\.dumpWillBeCheck\("),
 }
 # Report-only classes (--report): counted for the report, never in the baseline or the CI compare. Each class's
 # scope is every package's Sources less REPORT_OWNERS[class], the package that implements its safe replacement.

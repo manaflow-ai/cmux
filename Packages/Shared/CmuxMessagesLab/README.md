@@ -124,7 +124,13 @@ and render-server field animation, blurred header and native scrolling.
   `FixtureTheme` (cmux theme to Fixture colours), `MemorySafeCalls`
   (the Core Graphics, Core Text and AppKit calls that take a pointer the
   transcript does not use, each wrapped once with its SAFETY argument),
-  `MessagesLabHomeView` (the public view).
+  `MessagesLabHomeView` (the public view), `FrameTick` (work at the next
+  display frame, from the host's `FrameTickSource`: CmuxNext passes its
+  FrameScheduler, so Home makes no display link of its own).
+- `Sources/MessagesLabHome/Standalone/`: what a host without CmuxNext's
+  schedulers gets by default (tests, standalone MessagesLab):
+  `DisplayLinkFrameTicks`, FrameTick's frames from a display link of the
+  view's own. The cmux app never uses it.
 
 ## Blocker patches
 

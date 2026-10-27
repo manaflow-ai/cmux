@@ -2,6 +2,8 @@ public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A ``PageChromiumHosting`` that hands out ``FakeChromiumPage``s, or fails.
 @MainActor
@@ -38,7 +40,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public var heldBrowsers: Int { browserWaiters.count }
     /// Runs each time a ``makePage(_:chatOpen:window:)`` call starts to wait (tests wait on it).
     public var onBrowserHeld: (() -> Void)?
-    private var browserWaiters: [CheckedContinuation<Void, any Error>] = []
+    private var browserWaiters: [OnceContinuation<Void, any Error>] = []
 
     /// The error ``makePage(_:chatOpen:window:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
@@ -68,7 +70,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
         -> any PageChromiumPage {
         if fails { throw Refused() }
         if holdsBrowsers {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 browserWaiters.append(continuation)
                 onBrowserHeld?()
             }

@@ -253,9 +253,8 @@ fn resize_stream_serialization_reserves_budget_before_queueing() {
         pending_sequence: Arc::from([]),
     };
 
-    let error = writer
-        .send_attach_frame_backpressured(7, &frame, AttachWireShape::default(), &stream)
-        .unwrap_err();
+    let encoded = writer.encode_attach_frame(7, &frame, AttachWireShape::default());
+    let error = writer.send_encoded_backpressured(encoded, &stream).unwrap_err();
 
     assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     assert!(outbound.try_pop().is_none());

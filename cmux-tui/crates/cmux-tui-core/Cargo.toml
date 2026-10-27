@@ -70,6 +70,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 anyhow.workspace = true
 base64.workspace = true
+# Attach output: one shared buffer per PTY read for every viewer (surface/attach_tap.rs);
+# attach frame payloads share it (server/attach_frames.rs).
+bytes.workspace = true
 libc.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
