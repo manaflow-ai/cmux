@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
@@ -21,6 +22,7 @@ import CmuxNextUpdater
 /// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
 /// Share cmux modal and `{action: "share-copy"}` presses its Copy Link.
 /// `{action: "feedCards"}` posts sample installed-update Feed cards (cmux and Claude Code).
+/// `{action: "chromium-runtime", path?}`: ``chromiumRuntime(_:_:)`` (host mode, p01-process-087).
 @MainActor
 enum DebugUpdater {
     static func run(_ params: [String: JSONValue], _ services: AppServices,
@@ -67,9 +69,38 @@ enum DebugUpdater {
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
+        case "chromium-runtime":
+            return try chromiumRuntime(params, services)
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"feedCards\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"feedCards\", \"share\", \"share-copy\" or \"chromium-runtime\"")
         }
+    }
+
+    /// `{action: "chromium-runtime", path?}` (host mode, p01-process-087): with `path`, the Chromium runtime in that
+    /// Frameworks folder replaces the one the Chromium Host runs, as a ChromiumRuntimeStore install does, and the host
+    /// restarts on it at an idle moment (feature `chromiumHostRuntimeUpdate`). Reports the update's state, the runtime
+    /// each host started from and the running host's pid.
+    static func chromiumRuntime(_ params: [String: JSONValue], _ services: AppServices) throws -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let source = services.chromiumRuntime.source
+        guard let supervisor = source.hostSupervisor as? ChromiumHostSupervisor else {
+            throw ControlError.invalidParams("debug.updater chromium-runtime: Chromium does not run in the Chromium Host")
+        }
+        var updated = false
+        if let path = params["path"]?.stringValue {
+            guard let layout = CEFRuntimeLayout.at(URL(filePath: path), fallbackMainBundle: Bundle.main.bundleURL) else {
+                throw ControlError.invalidParams("debug.updater chromium-runtime: no Chromium runtime in \(path)")
+            }
+            updated = source.updateHostRuntime(layout)
+        }
+        let update = services.cache.chromium.built?.hostRuntimeUpdate
+        return .object(["updated": .bool(updated), "state": .string(update?.state ?? "none"),
+                        "restarts": .number(Double(update?.restarts ?? 0)),
+                        "host_runtimes": .array(supervisor.hostRuntimes.map { .string($0) }),
+                        "host_pid": supervisor.hostPID.map { .number(Double($0)) } ?? .null])
+        #else
+        throw ControlError.invalidParams("debug.updater chromium-runtime: Debug and bench builds only")
+        #endif
     }
 
     static func terminate() {

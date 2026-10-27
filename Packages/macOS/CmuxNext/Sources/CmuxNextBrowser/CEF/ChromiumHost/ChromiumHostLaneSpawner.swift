@@ -12,11 +12,13 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
     var remoteShim: URL
     var frameworkLocales: [String]
 
-    /// The host this app bundles (`Contents/MacOS/<App> Chromium Host`, embed-cef.sh) with the remote shim beside
-    /// the framework, or nil when the build has neither. Reads the disk: on a lane.
-    static func bundled(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
+    /// The host this app bundles (`Contents/MacOS/<App> Chromium Host`, embed-cef.sh) over `layout`, the runtime the
+    /// app picked (nil: the one it bundles), with the remote shim beside the framework, or nil when the build has
+    /// neither. Reads the disk: on a lane.
+    static func bundled(layout picked: CEFRuntimeLayout? = nil, bundle: Bundle = .main,
+                        environment: [String: String] = ProcessInfo.processInfo.environment,
                         fileManager: FileManager = .default) -> ChromiumHostLaunchPlan? {
-        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment, fileManager: fileManager),
+        guard let layout = picked ?? CEFRuntimeLayout.locate(bundle: bundle, environment: environment, fileManager: fileManager),
               let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let identifier = bundle.bundleIdentifier ?? "cmux"
         guard let configuration = ChromiumHostConfiguration.bundled(
@@ -37,25 +39,25 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
     let work: BackgroundWork
     let mainWork: MainWorkScheduler
     let fencesResizes: Bool
-    /// What each spawn starts; read on the lane (it checks the disk).
-    let plan: @Sendable () -> ChromiumHostLaunchPlan?
+    /// What each spawn starts from the runtime it is given; read on the lane (it checks the disk).
+    let plan: @Sendable (CEFRuntimeLayout?) -> ChromiumHostLaunchPlan?
     /// Exit watching, reaping and kills (the spawn is ``ChromiumHostLauncher/spawnControlled(executable:arguments:priority:)``).
     private let processes = ChromiumHostLauncher(exitQueue: DispatchQueue(label: "com.cmuxterm.chromium-host.supervisor", qos: .utility))
 
     init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool,
-         plan: @escaping @Sendable () -> ChromiumHostLaunchPlan?) {
+         plan: @escaping @Sendable (CEFRuntimeLayout?) -> ChromiumHostLaunchPlan?) {
         self.work = work
         self.mainWork = mainWork
         self.fencesResizes = fencesResizes
         self.plan = plan
     }
 
-    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+    func spawn(layout: CEFRuntimeLayout?) async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
         let (plan, fencesResizes) = (plan, fencesResizes)
         let started: Result<ChromiumHostSpawn, ChromiumHostAttachError>
         do {
             // userBlocking: the first Chromium tab waits for this host.
-            started = try await work.run(.userBlocking, mayBlock: .system) { Self.start(plan(), fencesResizes: fencesResizes) }
+            started = try await work.run(.userBlocking, mayBlock: .system) { Self.start(plan(layout), fencesResizes: fencesResizes) }
         } catch {
             throw .cannotStart("the start was dropped (\(error))")
         }

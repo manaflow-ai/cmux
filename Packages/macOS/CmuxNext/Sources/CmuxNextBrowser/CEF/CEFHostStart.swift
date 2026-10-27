@@ -54,6 +54,8 @@ final class CEFHostStart {
     private(set) var hostGone = false
     /// The pages of a crashed host that come back on the next one (task 083, ``CEFRuntime/restorePagesOnNextHost(_:reading:)``).
     let pageRestores = CEFHostPageRestores()
+    /// A newer Chromium runtime waiting for an idle moment to restart the host on (task 087, `CEFRuntime.hostRuntimeChanged`).
+    let runtimeUpdate = CEFHostRuntimeUpdate()
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -103,6 +105,17 @@ final class CEFHostStart {
         files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
+
+    /// cmux ends the attached host on purpose (quit, a runtime update; task 087): its wire closes, which ends the host
+    /// as its quit op does, and this returns once it is gone, `limit` at most (the supervisor then SIGKILLs it).
+    func endHost(within limit: Duration) async {
+        remote?.detach()
+        remote = nil
+        await supervisor.endHost(within: limit)
+    }
+
+    /// Each tab's saved navigation for its page on the next host: the supervisor's (``ChromiumHostExitReporting``).
+    var savedNavigation: ChromiumHostSavedNavigation? { (supervisor as? any ChromiumHostExitReporting)?.savedNavigation }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
     /// nil when the call sent nothing or no host is attached.

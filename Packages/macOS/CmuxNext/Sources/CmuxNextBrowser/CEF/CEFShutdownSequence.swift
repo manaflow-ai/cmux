@@ -12,6 +12,12 @@ nonisolated struct CEFShutdownSequence: Equatable, Sendable {
         case readyToShutdown
     }
 
+    /// Host mode (task 087 of plans/cmux-next/chrome-parity/p01-process.md): after the browsers closed, how long quit
+    /// waits for the Chromium Host to be gone before it is SIGKILLed. The app's engine stop limit
+    /// (`QuitDeadline.engineStopLimit`, 15 s) less the close wait (`CEFEngine.shutdown`, 3 s) and 2 s of margin, so no
+    /// wait runs past the quit deadline and no host outlives the app.
+    static let hostEndLimit: Duration = .seconds(10)
+
     private(set) var phase: Phase = .running
     private var liveBrowsers: Int
     /// -1 when the fork API has no window count (stock CEF): skip that wait.

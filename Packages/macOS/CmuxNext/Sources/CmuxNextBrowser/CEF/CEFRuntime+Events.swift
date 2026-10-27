@@ -387,8 +387,8 @@ extension CEFRuntime {
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, then calls
     /// CefShutdown. The App awaits this from `applicationShouldTerminate`
-    /// (terminate-later), so the run loop keeps pumping CEF meanwhile.
-    func shutdown(timeout: Duration) async {
+    /// (terminate-later, through ``shutdown(timeout:)``), so the run loop keeps pumping CEF meanwhile.
+    func closeBrowsersAndShutDown(timeout: Duration) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown

@@ -203,6 +203,7 @@ final class CEFPaneHost {
         guard visibleTab === tab else { return }
         visibleTab = nil
         suggestionsFollowShownBrowser(nil)
+        runtime.hostPageConcealed()
     }
 
     // MARK: Creation

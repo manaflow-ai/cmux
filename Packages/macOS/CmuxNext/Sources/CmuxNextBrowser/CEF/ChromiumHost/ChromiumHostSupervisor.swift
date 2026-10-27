@@ -2,6 +2,9 @@
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import CmuxNextWakeups
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The one Chromium Host of host mode (``BrowserBackend/host``; task 080 of
 /// plans/cmux-next/chrome-parity/p01-process.md): every Chromium tab of every profile runs in it, as Chrome runs
@@ -22,6 +25,11 @@ import Darwin
 /// - Restart: each crash spends Chrome's GPU crash budget (``ChromiumHostRestartPolicy``, task 081). With
 ///   `restoresPages` (feature `chromiumHostRestoreTabs`, task 083) a crash within it sets ``lastEndRestoresPages``,
 ///   and the runtime starts the next host at once and brings back every tab from its saved history.
+/// - Ends of cmux's own (task 087): quit, an app update and a Chromium runtime update end the host with
+///   ``endHost(within:)``, which waits until it is gone (SIGKILL at the limit); such an end spends no crash and reports
+///   nothing. Each host starts from ``runtimeLayout``, the runtime the App picked; a newer one while a host runs reaches
+///   the ``observeRuntimeChanges(_:)`` observers (feature `chromiumHostRuntimeUpdate`), and the runtime restarts the host
+///   on it at an idle moment.
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -39,6 +47,10 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public private(set) var lastEndRestoresPages = false
     /// Each tab's saved navigation from its daemon record, for its page on the next host. The App sets it.
     public var savedNavigation: ChromiumHostSavedNavigation?
+    /// The Chromium runtime the next host starts from (``runtimeChanged(_:)``); nil: the one this app bundles.
+    public private(set) var runtimeLayout: CEFRuntimeLayout?
+    /// The Chromium framework folder each started host ran from, oldest first ("bundled" for the app's own).
+    public private(set) var hostRuntimes: [String] = []
 
     private struct Host {
         let pid: pid_t
@@ -47,6 +59,8 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         let attachment: ChromiumHostAttachment
         /// It said hello (``hostSaidHello(_:)``); an end before that is a host that could not start.
         var saidHello = false
+        /// The runtime it started from (nil: the bundled one).
+        let layout: CEFRuntimeLayout?
     }
 
     private let spawner: any ChromiumHostSpawning
@@ -58,6 +72,17 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     private var generation: UInt64 = 0
     private var starting = false
     private var endObservers: [@MainActor () -> Void] = []
+    /// A runtime change while a host runs reaches ``runtimeObservers`` (feature `chromiumHostRuntimeUpdate`).
+    private let restartsOnRuntimeUpdate: Bool
+    private var runtimeObservers: [@MainActor () -> Void] = []
+    /// cmux asked for the running host's end (``endHost(within:)``): it is cmux's own, not a crash.
+    private var endingOnPurpose = false
+    private var endWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+    /// The app's deadline scheduler (`AppServices.mainDeadlines`, set by the App): ``endHost(within:)`` SIGKILLs a host
+    /// that is not gone at its limit on it. Nil: the end waits for the host's exit alone.
+    public var deadlines: MainDeadlineScheduler?
+    /// The running ``endHost(within:)``'s kill.
+    private var endDeadline: MainDeadline?
 
     /// The host this app bundles, spawned on `work`'s `.system` lane; each host's end reaches the main thread on
     /// `mainWork` (class visible: its pages show the crash).
@@ -66,18 +91,21 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     ///   - fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
     ///   - restoresPages: A crash within the restart budget brings the host's pages back on a new host (feature
     ///     `chromiumHostRestoreTabs`).
+    ///   - restartsOnRuntimeUpdate: A newer Chromium runtime while a host runs asks the runtime to restart the host on
+    ///     it at idle (feature `chromiumHostRuntimeUpdate`).
     public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false,
-                            restoresPages: Bool = false) {
+                            restoresPages: Bool = false, restartsOnRuntimeUpdate: Bool = false) {
         self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
-            ChromiumHostLaunchPlan.bundled()
-        }, restoresPages: restoresPages)
+            ChromiumHostLaunchPlan.bundled(layout: $0)
+        }, restoresPages: restoresPages, restartsOnRuntimeUpdate: restartsOnRuntimeUpdate)
     }
 
     init(spawner: any ChromiumHostSpawning, policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
-         restoresPages: Bool = false) {
+         restoresPages: Bool = false, restartsOnRuntimeUpdate: Bool = false) {
         self.spawner = spawner
         self.policy = policy
         self.restoresPages = restoresPages
+        self.restartsOnRuntimeUpdate = restartsOnRuntimeUpdate
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -89,11 +117,13 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         if let running = host { supersede(running) }
         starting = true
         defer { starting = false }
-        let spawned = try await spawner.spawn()
+        let layout = runtimeLayout
+        let spawned = try await spawner.spawn(layout: layout)
         generation &+= 1
-        let started = Host(pid: spawned.pid, generation: generation, attachment: spawned.attachment)
+        let started = Host(pid: spawned.pid, generation: generation, attachment: spawned.attachment, layout: layout)
         host = started
         hostsStarted += 1
+        hostRuntimes.append(layout?.frameworksDirectory.path ?? "bundled")
         watch(started)
         return spawned.attachment
     }
@@ -105,6 +135,36 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public func hostSaidHello(_ attachment: ChromiumHostAttachment) {
         guard host?.attachment == attachment else { return }
         host?.saidHello = true
+    }
+
+    public func endHost(within limit: Duration) async {
+        guard let running = host else { return }
+        endingOnPurpose = true
+        let (spawner, generation, pid) = (spawner, running.generation, running.pid)
+        // A deadline, not a wait: the end cancels it. Visible: the person's quit waits for it.
+        endDeadline?.cancel()
+        endDeadline = deadlines.map { MainDeadline(owner: "ChromiumHostSupervisor.endHost", workClass: .visible, scheduler: $0) }
+        endDeadline?.schedule(after: limit) { [weak self] in
+            guard self?.host?.generation == generation else { return }
+            spawner.kill(pid)
+        }
+        // A waiter dropped unresumed (the supervisor went away) ends the wait as the end does.
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+            endWaiters.append(waiter)
+        }
+    }
+
+    /// ``endHost(within:)`` waits for the running host to be gone.
+    var awaitsHostEnd: Bool { !endWaiters.isEmpty }
+
+    public func runtimeChanged(_ layout: CEFRuntimeLayout) {
+        runtimeLayout = layout
+        guard restartsOnRuntimeUpdate, let running = host, running.layout != layout else { return }
+        runtimeObservers.forEach { $0() }
+    }
+
+    public func observeRuntimeChanges(_ changed: @escaping @MainActor () -> Void) {
+        runtimeObservers.append(changed)
     }
 
     /// Waits for `started` to end off the main thread, then handles the end on it.
@@ -122,9 +182,14 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         // A superseded host's end was handled when it was superseded.
         guard let current = host, current.generation == ended.generation else { return }
         host = nil
+        endDeadline?.cancel()
+        endDeadline = nil
+        let onPurpose = endingOnPurpose
+        endingOnPurpose = false
+        defer { resumeEndWaiters() }
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
-        guard !isQuitting(), let pageExit = exit.pageExit else { return }
+        guard !onPurpose, !isQuitting(), let pageExit = exit.pageExit else { return }
         // A host that died before its hello, or with a start failure (kExit*), could not start: it spends no crash,
         // and no host starts again (a new one would die the same way).
         let decision = policy.hostEnded(exit, saidHello: current.saidHello, cause: .crash)
@@ -138,6 +203,15 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         spawner.kill(running.pid)
         host = nil
         endObservers.forEach { $0() }
+        resumeEndWaiters()
+    }
+
+    /// The host ``endHost(within:)`` waited for is gone.
+    private func resumeEndWaiters() {
+        endingOnPurpose = false
+        let waiters = endWaiters
+        endWaiters = []
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }
 #endif

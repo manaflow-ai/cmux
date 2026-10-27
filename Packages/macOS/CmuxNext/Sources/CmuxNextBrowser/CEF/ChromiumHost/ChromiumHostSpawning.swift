@@ -10,8 +10,8 @@ nonisolated struct ChromiumHostSpawn: Sendable {
 
 /// Starts and ends the supervisor's hosts; a seam so tests start a stand-in.
 nonisolated protocol ChromiumHostSpawning: Sendable {
-    /// Starts a host off the main thread and returns its pid and wire.
-    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn
+    /// Starts a host off the main thread from `layout` (nil: the runtime this app bundles) and returns its pid and wire.
+    func spawn(layout: CEFRuntimeLayout?) async throws(ChromiumHostAttachError) -> ChromiumHostSpawn
     /// Watches `pid` off the main thread (``ChromiumHostLaunching/exit(of:)``: it stays a zombie, not reaped) and runs
     /// `ended` with its exit on the main thread, posted in a stated class.
     func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void)

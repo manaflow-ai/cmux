@@ -8,8 +8,10 @@
 /// Chromium creates it with no layout and a pending reason, reports progress
 /// with ``update(pending:)``, and calls ``install(_:)`` once the pack is in:
 /// the next Chromium tab then starts Chromium. Chromium can start only once
-/// per process, so the layout never changes after it is set, and the backend
-/// never changes at all.
+/// per process, so in process the layout never changes after it is set, and the
+/// backend never changes at all. In host mode Chromium runs in the Chromium Host,
+/// so a newer installed runtime replaces the layout (``updateHostRuntime(_:)``):
+/// the supervisor starts the next host from it.
 public final class CEFRuntimeSource {
     /// The runtime to start, nil until one is available.
     public private(set) var layout: CEFRuntimeLayout?
@@ -56,6 +58,7 @@ public final class CEFRuntimeSource {
         self.layout = layout
         self.pending = layout == nil ? pending : nil
         self.hostSupervisor = hostSupervisor
+        if let layout { hostSupervisor?.runtimeChanged(layout) }
     }
 
     /// Where Chromium's browser process runs: in the Chromium Host when the
@@ -76,6 +79,22 @@ public final class CEFRuntimeSource {
         guard self.layout == nil else { return false }
         self.layout = layout
         pending = nil
+        hostSupervisor?.runtimeChanged(layout)
+        return true
+    }
+
+    /// Host mode: a newer runtime is installed while Chromium may run from the old one (a ChromiumRuntimeStore update,
+    /// task 087 of plans/cmux-next/chrome-parity/p01-process.md). The next host starts from it, and a running host is
+    /// restarted on it at an idle moment (`CEFRuntime.hostRuntimeChanged`). In process nothing changes: Chromium
+    /// already mapped this process's runtime, and the new one is used from the next launch.
+    ///
+    /// - Returns: True when `layout` became the source's layout.
+    @discardableResult
+    public func updateHostRuntime(_ layout: CEFRuntimeLayout) -> Bool {
+        guard let hostSupervisor, layout != self.layout else { return false }
+        self.layout = layout
+        pending = nil
+        hostSupervisor.runtimeChanged(layout)
         return true
     }
 

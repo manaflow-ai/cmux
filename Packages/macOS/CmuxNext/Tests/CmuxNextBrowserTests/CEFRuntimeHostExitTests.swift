@@ -421,7 +421,7 @@ private nonisolated final class PreparingThreads: Sendable {
 /// initialize (succeeds); the fork API version and `set_energy_saver` (recorded); `reload`, `load_url`,
 /// `close` and `create_window`, which count the ops sent while no wire is attached. Every other export
 /// does nothing and returns 0.
-private nonisolated enum HostWire {
+nonisolated enum HostWire {
     private static let abiCString: StaticString = "host-exit-spy-abi"
     static let abi = "\(abiCString)"
 

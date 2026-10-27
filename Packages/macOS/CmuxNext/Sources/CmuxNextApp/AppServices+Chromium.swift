@@ -103,7 +103,8 @@ extension AppServices {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         guard BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == .host else { return nil }
         return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
-                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
+                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs),
+                                      restartsOnRuntimeUpdate: features.isEnabled(.chromiumHostRuntimeUpdate))
         #else
         return nil
         #endif
@@ -115,6 +116,7 @@ extension AppServices {
         // A host that ends while cmux quits reports nothing (quit ends it).
         let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
         supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        supervisor?.deadlines = mainDeadlines  // an end cmux asks for kills a host that outlives its limit (p01-process-087)
         // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
         supervisor?.savedNavigation = { [weak self] tab, url in
             guard let tabs = self?.cache.browserTabs else { return nil }

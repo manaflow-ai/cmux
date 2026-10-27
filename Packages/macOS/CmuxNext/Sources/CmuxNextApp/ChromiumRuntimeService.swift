@@ -175,7 +175,8 @@ final class ChromiumRuntimeService {
         case .installed(let installation):
             let trust = downloadedTrust ?? .downloaded(teamID: nil)
             if let layout = CEFRuntimeLayout.at(installation.frameworksDirectory, fallbackMainBundle: mainBundle, trust: trust) {
-                source.install(layout)
+                // In host mode a newer pack replaces the one a host may run (p01-process-087): the next host uses it.
+                if !source.install(layout) { source.updateHostRuntime(layout) }
             } else {
                 source.update(pending: .downloadFailed("missing: \(installation.frameworksDirectory.path)"))
             }

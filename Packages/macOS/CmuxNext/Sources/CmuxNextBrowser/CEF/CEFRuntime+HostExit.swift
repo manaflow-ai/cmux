@@ -20,12 +20,22 @@ extension CEFRuntime {
         guard let hostStart, state == .ready, shutdownSequence == nil else { return }
         logger.error("chromium host ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tabs=\(self.tabsByBrowser.count)")
         crashLog.append(BrowserCrashRecord(processType: "chromium-host", reason: exit.reason, code: exit.code, source: .process))
+        let tabs = forgetHost(hostStart)
+        for tab in tabs { tab.hostEnded(exit) }
+        // The spares' placeholders went with the host (their tabs forgot their browsers above).
+        spareWindow.hostEnded(runtime: self)
+        if restoresPages { restorePagesOnNextHost(tabs, reading: savedNavigation) } else { hostStart.pageRestores.endAll() }
+    }
+
+    /// The attached host is gone, or going (a crash above, a runtime update's restart): the runtime leaves `.ready` and
+    /// forgets every browser, window and context of that host, and the remote shim gives up its wire. Returns the pages
+    /// that were on it: its browsers, the tabs whose browser it was still making, and those a restore brings to it.
+    func forgetHost(_ hostStart: CEFHostStart) -> [CEFTab] {
         // Every awaited reply fails with hostGone; each proxied profile's proxy goes to the next host again.
         hostGone()
         hostStart.hostEnded()
         shim = nil
         state = .idle
-        // The pages on the host: its browsers, the tabs whose browser it was still making, and those a restore brings to it.
         let restores = hostStart.pageRestores
         let tabs = Array(tabsByBrowser.values) + hosts.values.flatMap(\.tabs).filter {
             $0.browserID == nil && ($0.isCreationPending || restores.phase(of: $0) != nil)
@@ -35,10 +45,7 @@ extension CEFRuntime {
         // The new host has none of the old one's contexts.
         offTheRecordContexts = [:]
         for host in hosts.values { host.hostEnded() }
-        for tab in tabs { tab.hostEnded(exit) }
-        // The spares' placeholders went with the host (their tabs forgot their browsers above).
-        spareWindow.hostEnded(runtime: self)
-        if restoresPages { restorePagesOnNextHost(tabs, reading: savedNavigation) } else { restores.endAll() }
+        return tabs
     }
 
     /// The host ended and no new one is attached yet (``hostEnded(_:)``): a page's Reload waits for one.
@@ -90,6 +97,8 @@ extension CEFRuntime {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
+        // A newer Chromium runtime while a host runs: the host restarts on it at an idle moment (task 087).
+        supervisor.observeRuntimeChanges { [weak self] in self?.hostRuntimeChanged() }
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self, weak reporting] exit in
             self?.hostEnded(exit, restoresPages: reporting?.lastEndRestoresPages == true, savedNavigation: reporting?.savedNavigation)

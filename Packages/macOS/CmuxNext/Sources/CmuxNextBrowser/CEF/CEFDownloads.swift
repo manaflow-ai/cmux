@@ -71,6 +71,8 @@ final class CEFDownloads {
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
 
     private var items: [Int32: BrowserDownload] = [:]
+    /// A download runs: the Chromium Host it runs in must not restart for a runtime update (task 087).
+    var hasRunning: Bool { !items.isEmpty }
     /// Files the person chose (Save Link As…), waiting for their download.
     private var chosen: [(browser: Int32, url: String, destination: URL)] = []
     /// Links cmux itself downloads (`download`), waiting for their download.

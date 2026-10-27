@@ -24,11 +24,34 @@ public protocol ChromiumHostSupervising: AnyObject {
     /// Only after it does an end count as a crash of the restart budget; a host that dies before it could not start,
     /// as Chrome's GPU process that failed to initialize (`did_fail_initialize_`, content/browser/gpu/gpu_process_host.cc).
     func hostSaidHello(_ attachment: ChromiumHostAttachment)
+
+    /// cmux ends its running host on purpose (quit, an app update, a Chromium runtime update; task 087 of
+    /// plans/cmux-next/chrome-parity/p01-process.md): the host was told to quit (its wire closed), and this returns
+    /// once it is gone, SIGKILLing it at `limit`. Its end spends no crash and shows no page a crash state. Chrome's
+    /// browser ends every child process before it exits (`BrowserChildProcessHostImpl::TerminateAll`,
+    /// content/browser/browser_child_process_host_impl.cc): a host left running would still hold the app bundle Sparkle
+    /// replaces and its data folder, which the next host needs.
+    func endHost(within limit: Duration) async
+
+    /// The Chromium runtime the next host starts from (``CEFRuntimeSource``'s, as it is picked or updated). A running
+    /// host keeps its own; the ``observeRuntimeChanges(_:)`` observers hear of a change while one runs.
+    func runtimeChanged(_ layout: CEFRuntimeLayout)
+
+    /// Runs `changed` on the main thread when ``runtimeChanged(_:)`` gives a runtime while a host runs on another one.
+    func observeRuntimeChanges(_ changed: @escaping @MainActor () -> Void)
 }
 
 extension ChromiumHostSupervising {
     /// A supervisor with no restart budget does not tell its hosts apart by their hello.
     public func hostSaidHello(_ attachment: ChromiumHostAttachment) {}
+
+    /// A supervisor that starts no process has nothing to end.
+    public func endHost(within limit: Duration) async {}
+
+    /// A supervisor that starts its hosts from one runtime ignores another.
+    public func runtimeChanged(_ layout: CEFRuntimeLayout) {}
+
+    public func observeRuntimeChanges(_ changed: @escaping @MainActor () -> Void) {}
 }
 
 /// One host's wire, as the supervisor hands it to the runtime.

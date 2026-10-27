@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostRuntimeUpdate",
+  "owner": "PL-cef-helper",
+  "description": "In host mode a newer Chromium runtime (a ChromiumRuntimeStore install) restarts the Chromium Host at an idle moment (no Chromium page on screen, playing, capturing, editing a form or asking) and brings every tab back with its history on the new runtime.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["chromium-host"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": true
+}

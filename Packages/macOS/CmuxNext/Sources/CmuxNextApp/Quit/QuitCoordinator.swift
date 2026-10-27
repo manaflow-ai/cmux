@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -31,6 +32,8 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
+    /// A Chromium page's beforeunload question of this quit may show (``askPages(_:)``).
+    private(set) var askingPages = false
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
     /// no launch picture (`TabContentCache.secureInputPages`).
     private var secureInputPages: Set<String> = []
@@ -77,6 +80,7 @@ final class QuitCoordinator {
     func terminateFromSignal() {
         if let sheet { return sheet.answerKeepingSessions() }
         if let failureAlert { return failureAlert.answerQuitAnyway() }
+        if askingPages { return services.cache.chromium.answerQuitQuestions(leave: true) }  // never waits on a page
         guard !isQuitting else { return }
         requestQuit(.signal)
     }
@@ -110,13 +114,15 @@ final class QuitCoordinator {
         // question is the quit's one dialog: the sessions are not asked
         // about after it (#17501).
         let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-        guard await resolveUnsaved(origin) else {
+        // Then each Chromium page whose beforeunload would ask (p01-process-087): Stay keeps cmux running.
+        guard await resolveUnsaved(origin), case .leave(let askedPages) = await askPages(origin) else {
             isQuitting = false
             sender.reply(toApplicationShouldTerminate: false)
             return
         }
-        let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-        switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
+        let asked = askedUnsaved || askedPages
+        let facts = QuitPolicy.needsFacts(origin) && !asked ? await QuitFactsReader.read(services) : .none
+        switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: asked) {
         case .quit(let choice):
             await complete(choice, remember: false, sender)
         case .ask(let prompt):
@@ -130,6 +136,18 @@ final class QuitCoordinator {
         let window = sheetWindow()
         return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app, work: services.work,
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
+    }
+
+    /// The Chromium pages' step (feature `chromiumQuitAsksPages`): a person's quit only (Cmd-Q, the menus, an update's
+    /// relaunch), as Chrome skips beforeunload when the session ends (`chrome::SessionEnding`); an install click's
+    /// hidden windows come back for a question.
+    private func askPages(_ origin: QuitOrigin) async -> ChromiumQuitAnswer {
+        guard ![QuitOrigin.scripted, .powerOff, .signal].contains(origin), services.features.isEnabled(.chromiumQuitAsksPages) else {
+            return .leave(asked: false)
+        }
+        askingPages = true
+        defer { askingPages = false }
+        return await services.cache.chromium.askPagesBeforeQuit { [updater = services.updater] in updater.installAbandoned?() }
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the

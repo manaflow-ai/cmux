@@ -144,6 +144,14 @@ tabs in 3 windows, each with two history entries, SIGKILLs the Chromium Host wit
 and checks every tab back at its address with both entries on one new host: each window's shown tab within 2 s
 (`shown_ms`), each hidden one when it is focused (`hidden_ms`).
 
+--quit runs instead the quit row (chromium_host_lifecycle.py, p01-process-087, feature chromiumQuitAsksPages): a
+page with typed form input asks its beforeunload at an interactive quit, Stay keeps cmux and the same Chromium Host
+with the page as it was, and a quit answered Leave leaves no Chromium Host within quit's deadline. It ends cmux.
+
+--runtime-update runs instead the runtime-update row (chromium_host_lifecycle.py, p01-process-087, feature
+chromiumHostRuntimeUpdate): a newer Chromium runtime keeps the host while its page shows, restarts it once the page is
+hidden, the new host runs from the newer runtime, and the tab comes back at its address with both history entries.
+
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
@@ -172,6 +180,7 @@ import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_lifecycle  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_profiles  # noqa: E402
@@ -196,6 +205,9 @@ def parse(argv=None):
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--kill-host", action="store_true",
                         help="only the host crash rows: restore (chromium_host_restore.py, p01-process-083)")
+    parser.add_argument("--quit", action="store_true", help="only the quit row (chromium_host_lifecycle.py, p01-process-087)")
+    parser.add_argument("--runtime-update", action="store_true",
+                        help="only the runtime-update row (chromium_host_lifecycle.py, p01-process-087)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -715,6 +727,13 @@ def main():
         url = pathlib.Path(find_page).as_uri()
     if opts.kill_host:
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
+    if opts.quit:
+        quit_page = os.path.join(opts.out, "quit.html")
+        open(quit_page, "w").write(chromium_host_lifecycle.QUIT_PAGE)
+        url = pathlib.Path(quit_page).as_uri()
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_lifecycle.QUIT_FEATURES]))
+    if opts.runtime_update:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_lifecycle.RUNTIME_FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
@@ -738,7 +757,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host or opts.quit or opts.runtime_update else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -758,6 +777,14 @@ def main():
             RESULT["modes"]["kill_host"]["restore"], ok = chromium_host_restore.run(
                 rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
                 url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
+        if opts.runtime_update:
+            RESULT["modes"]["runtime_update"], ok = chromium_host_lifecycle.run_runtime_update(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                url, chromium_host_pids, chromium_host_lifecycle.runtime_copy(opts.app, opts.out), time.monotonic, time.sleep)
+        if opts.quit:
+            RESULT["modes"]["quit"], ok = chromium_host_lifecycle.run_quit(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                url, chromium_host_pids, lambda: app.process is not None and app.process.poll() is None, time.monotonic)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)

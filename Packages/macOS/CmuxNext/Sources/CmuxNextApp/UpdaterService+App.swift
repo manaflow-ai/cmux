@@ -25,6 +25,7 @@ extension UpdaterService {
         // install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willInstallStaged = { _ = handoff.hide() }
+        // Also when the relaunch's quit asks a question (a Chromium page's beforeunload): the person must see it.
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }

@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumQuitAsksPages",
+  "owner": "PL-cef-helper",
+  "description": "Quit (Cmd-Q, the Quit menu, an update's relaunch) first asks each Chromium page whose beforeunload would ask (Leave site?), one at a time; Stay keeps cmux running with every page as it was. Signal, power-off and scripted quits never ask.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["chromium-host"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": false
+}

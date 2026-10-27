@@ -51,7 +51,7 @@ import Testing
             let work = BackgroundWork(label: "test.chromium-host-supervisor")
             let mainWork = MainWorkScheduler(budget: MainFrameBudget())
             let plan = ChromiumHostSupervisorTests.plan(script)
-            supervisor = ChromiumHostSupervisor(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: false) {
+            supervisor = ChromiumHostSupervisor(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: false) { _ in
                 planOnMain.withLock { $0.append(Thread.isMainThread) }
                 return plan
             })
@@ -235,6 +235,100 @@ import Testing
     @Test func anEndWhileQuittingRestoresNothing() async throws {
         #expect(try await Self.restores(crashingAt: [0], quitting: true).isEmpty)
     }
+
+    // MARK: Ends of cmux's own and runtime updates (p01-process-087)
+
+    /// An end cmux asked for (quit, an update) returns once the host is gone: it reaches no `onHostEnded`, spends none of
+    /// the crash budget and leaves the next start free, even when the host died of a signal on its way out.
+    @Test func endHostWaitsForTheHostAndItsEndIsNotACrash() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: ManualClock()),
+                                                restoresPages: true)
+        let seen = Restores()
+        supervisor.onHostEnded = { _ in seen.values.append(true) }
+        supervisor.hostSaidHello(try await supervisor.attachment())
+        let pid = try #require(supervisor.hostPID)
+
+        let ending = Task { await supervisor.endHost(within: .seconds(10)) }
+        for _ in 0..<1_000 where !supervisor.awaitsHostEnd { await Task.yield() }
+        #expect(supervisor.awaitsHostEnd, "endHost returned with the host still running")
+        spawner.end(pid, ChromiumHostExit(signal: SIGTERM, status: nil))
+        await ending.value
+
+        #expect(seen.values.isEmpty, "an end cmux asked for showed the pages a crash")
+        #expect(supervisor.policy.recentCrashes == 0, "an end cmux asked for spent the crash budget")
+        #expect(supervisor.startFailure == nil)
+        #expect(supervisor.hostPID == nil)
+        #expect(spawner.killed.isEmpty, "a host that ended in time was killed")
+        _ = try await supervisor.attachment()
+        #expect(supervisor.hostsStarted == 2)
+    }
+
+    /// A host that is not gone at the limit is SIGKILLed: quit never waits past its deadline.
+    @Test func endHostKillsAHostThatOutlivesTheLimit() async throws {
+        let spawner = EndingSpawner()
+        let rig = IdleDeadlineRig()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner)
+        supervisor.deadlines = rig.deadlines
+        _ = try await supervisor.attachment()
+        let pid = try #require(supervisor.hostPID)
+
+        let ending = Task { await supervisor.endHost(within: .seconds(10)) }
+        for _ in 0..<1_000 where !supervisor.awaitsHostEnd { await Task.yield() }
+        rig.fire(after: .seconds(9))
+        #expect(spawner.killed.isEmpty, "the host was killed before the limit")
+        rig.fire(after: .seconds(1))
+        #expect(spawner.killed == [pid])
+        spawner.end(pid, ChromiumHostExit(signal: SIGKILL, status: nil))
+        await ending.value
+        #expect(supervisor.hostPID == nil)
+    }
+
+    /// With no host running there is nothing to wait for.
+    @Test func endHostWithNoHostReturnsAtOnce() async {
+        let supervisor = ChromiumHostSupervisor(spawner: EndingSpawner())
+        await supervisor.endHost(within: .seconds(10))
+        #expect(!supervisor.awaitsHostEnd)
+    }
+
+    /// Each host starts from the runtime the App picked last; a newer one while a host runs on another reaches the
+    /// observers (feature `chromiumHostRuntimeUpdate`); the host's own runtime, or a change with none running, does not.
+    @Test func eachHostStartsFromTheLatestRuntimeAndAChangeWhileOneRunsIsObserved() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, restartsOnRuntimeUpdate: true)
+        let changes = Restores()
+        supervisor.observeRuntimeChanges { changes.values.append(true) }
+        let old = Self.layout("old"), new = Self.layout("new")
+
+        supervisor.runtimeChanged(old)
+        #expect(changes.values.isEmpty, "a change with no host running asked for a restart")
+        _ = try await supervisor.attachment()
+        supervisor.runtimeChanged(old)
+        #expect(changes.values.isEmpty, "the host's own runtime asked for a restart")
+        supervisor.runtimeChanged(new)
+        #expect(changes.values.count == 1)
+        spawner.end(try #require(supervisor.hostPID), ChromiumHostExit(signal: nil, status: 0))
+        _ = try await supervisor.attachment()
+
+        #expect(spawner.layouts == [old, new], "a host did not start from the latest runtime")
+        #expect(supervisor.hostRuntimes == [old.frameworksDirectory.path, new.frameworksDirectory.path])
+    }
+
+    /// Without the feature a runtime change only picks the next host's runtime.
+    @Test func withoutTheFeatureARuntimeChangeIsNotObserved() async throws {
+        let supervisor = ChromiumHostSupervisor(spawner: EndingSpawner())
+        let changes = Restores()
+        supervisor.observeRuntimeChanges { changes.values.append(true) }
+        _ = try await supervisor.attachment()
+        supervisor.runtimeChanged(Self.layout("new"))
+        #expect(changes.values.isEmpty)
+        #expect(supervisor.runtimeLayout == Self.layout("new"))
+    }
+
+    private static func layout(_ name: String) -> CEFRuntimeLayout {
+        let root = URL(filePath: "/nonexistent/\(name)")
+        return CEFRuntimeLayout(frameworksDirectory: root, mainBundle: root, helperApp: root)
+    }
 }
 
 /// Each end's `lastEndRestoresPages`, as `onHostEnded` read it.
@@ -245,11 +339,23 @@ import Testing
 /// Hands out hosts with no process behind them; the test ends each one (``end(_:_:)``) on the main thread, as the lane
 /// spawner's exit post does.
 private nonisolated final class EndingSpawner: ChromiumHostSpawning {
-    private let state = Mutex<(next: pid_t, watchers: [pid_t: @MainActor @Sendable (ChromiumHostExit) -> Void])>((next: 40_000, watchers: [:]))
+    private struct State {
+        var next: pid_t = 40_000
+        var watchers: [pid_t: @MainActor @Sendable (ChromiumHostExit) -> Void] = [:]
+        var layouts: [CEFRuntimeLayout?] = []
+        var killed: [pid_t] = []
+    }
 
-    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+    private let state = Mutex(State())
+    /// The runtime each spawn was given.
+    var layouts: [CEFRuntimeLayout?] { state.withLock { $0.layouts } }
+    /// The pids SIGKILLed.
+    var killed: [pid_t] { state.withLock { $0.killed } }
+
+    func spawn(layout: CEFRuntimeLayout?) async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
         let pid = state.withLock { state in
             state.next += 1
+            state.layouts.append(layout)
             return state.next
         }
         let attachment = ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
@@ -263,7 +369,9 @@ private nonisolated final class EndingSpawner: ChromiumHostSpawning {
 
     func reap(_ pid: pid_t) {}
 
-    func kill(_ pid: pid_t) {}
+    func kill(_ pid: pid_t) {
+        state.withLock { $0.killed.append(pid) }
+    }
 
     @MainActor func end(_ pid: pid_t, _ exit: ChromiumHostExit) {
         let ended = state.withLock { $0.watchers.removeValue(forKey: pid) }
