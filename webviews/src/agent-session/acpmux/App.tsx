@@ -6057,8 +6057,11 @@ function AcpmuxPane() {
     inspectorSummary !== undefined &&
     !inspectorSummary.peer &&
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
-  // Save in its Environment keeps the machine and folder as a New Tab environment.
-  const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
+  // Save in its Environment keeps the machine and folder as a New Tab environment, only for a chat
+  // in a project (a scratch folder has none).
+  const environmentDraft = quick
+    ? undefined
+    : environmentToSave(inspectorSummary, snapshot.peerKinds, githubRepository);
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
@@ -6108,8 +6111,8 @@ function AcpmuxPane() {
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
-    // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
-    // this Mac.
+    // The project opens in the Files tree as a tab right of the chat (AgentBesidePlacement); a remote
+    // or cloud chat's folders are not on this Mac.
     onOpenFolder:
       quick || !inspectorLocal
         ? undefined
