@@ -61,7 +61,11 @@ afterEach(async () => {
   saved.clear();
 });
 
-const pr = (repo: string, number: number, state: SummaryPullRequest["state"] = "open"): SummaryPullRequest => ({
+const pr = (
+  repo: string,
+  number: number,
+  state: SummaryPullRequest["state"] = "open",
+): SummaryPullRequest => ({
   url: `https://github.com/${repo}/pull/${number}`,
   repo,
   number,
@@ -77,11 +81,19 @@ async function render(
 ) {
   await act(async () => {
     root ??= createRoot(container);
-    root.render(<ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenBeside} />);
+    root.render(
+      <ChangesSection
+        pullRequests={pullRequests}
+        statuses={statuses}
+        onOpenBeside={onOpenBeside}
+      />,
+    );
   });
 }
 
-const rows = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+const rows = (container: HTMLElement) => [
+  ...container.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr"),
+];
 const refs = (container: HTMLElement) =>
   rows(container).map((row) => row.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent);
 const fold = (container: HTMLElement) =>
@@ -118,7 +130,9 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
     expect(line).not.toMatch(/Merged|Closed|Open|Draft|conflicts/);
   }
   expect(container.querySelector(".acpmux-chat-inspector-pr__state")).toBeNull();
-  expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
+  expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe(
+    "Merged",
+  );
 });
 
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
@@ -138,7 +152,9 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
     [green.url]: { title: "README: point design references", checks: "passing", comments: 0 },
   });
   const [first, second, third] = rows(container);
-  expect(first!.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("cmux-next: backgrounds batch");
+  expect(first!.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe(
+    "cmux-next: backgrounds batch",
+  );
   const line = first!.querySelector(".acpmux-chat-inspector-pr__line")!;
   expect([...line.children].map((child) => child.className)).toEqual([
     "acpmux-chat-inspector-pr__ref",
@@ -146,11 +162,15 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
     "acpmux-chat-inspector-pr__comments",
     "acpmux-chat-inspector-pr__checks",
   ]);
-  expect(line.querySelector(".acpmux-chat-inspector-pr__comments")?.textContent).toBe("13Comments: 13");
+  expect(line.querySelector(".acpmux-chat-inspector-pr__comments")?.textContent).toBe(
+    "13Comments: 13",
+  );
   expect(line.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("11 failing");
   // Green checks: a dot with no text, and no comment count at zero.
   expect(second!.querySelector(".acpmux-chat-inspector-pr__comments")).toBeNull();
-  expect(second!.querySelector('.acpmux-chat-inspector-pr__checks[data-checks="passing"]')).not.toBeNull();
+  expect(
+    second!.querySelector('.acpmux-chat-inspector-pr__checks[data-checks="passing"]'),
+  ).not.toBeNull();
   // Nothing read yet: its number stands in for the title, and the end of the line is empty.
   expect(third!.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("#22523");
   expect(third!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
@@ -207,9 +227,14 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
   expect(opened).toEqual([one.url]);
   // The row's own padding and gap light on hover too, so the link's hit area covers the whole row
   // (JSDOM lays nothing out, so this reads the rule that does it), with the ⋯ button above it.
-  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url),
+    "utf8",
+  );
   expect(css).toMatch(/\.acpmux-chat-inspector-pr \{\s*position: relative;/);
-  expect(css).toMatch(/\.acpmux-chat-inspector-pr__link::before \{[^}]*position: absolute;[^}]*inset: 0;/);
+  expect(css).toMatch(
+    /\.acpmux-chat-inspector-pr__link::before \{[^}]*position: absolute;[^}]*inset: 0;/,
+  );
   expect(css).toMatch(/\.acpmux-chat-inspector-pr__more \{\s*position: relative;/);
   // The link's own content stays above that overlay, so its tooltips (the state glyph's and the
   // check dot's titles, the line counts' by-kind breakdown) still get the pointer.
@@ -218,8 +243,16 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
 
 test("open ones come first, the most recently touched first, then the merged and closed", () => {
   // A merged and a closed one newer than the open ones still go after them.
-  const list = [pr("a/x", 1), pr("a/x", 2, "merged"), pr("a/x", 3), pr("a/x", 4, "closed"), pr("a/x", 5)];
-  const order = changesOrder(list, { [list[4]!.url]: { state: "merged" } }).map((item) => item.number);
+  const list = [
+    pr("a/x", 1),
+    pr("a/x", 2, "merged"),
+    pr("a/x", 3),
+    pr("a/x", 4, "closed"),
+    pr("a/x", 5),
+  ];
+  const order = changesOrder(list, { [list[4]!.url]: { state: "merged" } }).map(
+    (item) => item.number,
+  );
   // #5 the App reads as merged since: it goes with the ended ones, newest first.
   expect(order).toEqual([3, 1, 5, 4, 2]);
   // Where the chat last touched or named each one decides, not where it first did.
@@ -258,5 +291,14 @@ test("visible Changes excludes read-only PR references", () => {
     },
   ] as never)[0]!;
   const edited = { ...pr("a/x", 3), opened: false, changed: true };
-  expect(visibleChanges([created, inspected, edited], {})).toEqual([created, edited]);
+  const mutatedIssue = {
+    url: "https://github.com/a/x/issues/4",
+    repo: "a/x",
+    number: 4,
+    kind: "issue" as const,
+    opened: false,
+    changed: true,
+    state: "open" as const,
+  };
+  expect(visibleChanges([created, inspected, edited, mutatedIssue], {})).toEqual([created, edited]);
 });

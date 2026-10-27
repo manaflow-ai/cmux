@@ -36,7 +36,10 @@ const ROW_ICON = rowIconSize(12);
 export type SummaryChanges = {
   additions: number;
   deletions: number;
-  files?: readonly Pick<TurnFile, "path" | "displayPath" | "canonical" | "additions" | "deletions" | "created">[];
+  files?: readonly Pick<
+    TurnFile,
+    "path" | "displayPath" | "canonical" | "additions" | "deletions" | "created"
+  >[];
 };
 
 export function SummaryBody({
@@ -109,9 +112,14 @@ export function SummaryBody({
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
+    // Reject checkpoints outside the project before matching by display suffix; otherwise an
+    // unrelated same-named checkpoint can replace the allowed output.
+    const inProject =
+      summary.cwd === undefined || projectPathAllowed(file.canonical ?? file.path, summary.cwd);
+    if (summary.cwd !== undefined && !inProject) continue;
     const output = outputOf(file);
     if (output === undefined) {
-      if (projectPathAllowed(file.canonical ?? file.path, summary.cwd)) checkpointOnly.push(file);
+      if (inProject) checkpointOnly.push(file);
     } else if (!turnOf.has(output)) turnOf.set(output, file);
   }
   const outputs = [
@@ -210,7 +218,11 @@ export function SummaryBody({
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (
-              <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
+              <a
+                className="acpmux-summary-row acpmux-summary-link"
+                href={source.url}
+                onClick={onFollow}
+              >
                 <Icon name="link.web" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>

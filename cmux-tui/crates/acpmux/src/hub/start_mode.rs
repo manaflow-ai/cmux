@@ -633,8 +633,11 @@ impl Hub {
         if refused.is_none() && self.managed_off_runs_full_access(off, session) {
             refused = Some(full_access_off());
         }
+        // Whether MDM's off stops it is the start's one read of the off (`off`), taken before the
+        // mode change above awaited: an unset that landed meanwhile does not make it the person's
+        // own off (review 2 of #26257).
         if let Some(e) = refused {
-            self.stop_full_access_agent(session).await;
+            self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
@@ -643,10 +646,26 @@ impl Hub {
     }
 
     /// Stops `session`'s agent, which runs in a full access the setting does not allow; the chat
-    /// stays open and idle, and its next prompt starts an agent under the setting.
-    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>) {
-        // Taken first: the child slot's lock is not held while the agent ends.
-        let started = session.child.lock().await.take();
+    /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
+    /// off stops it (now, or one that held as the agent started).
+    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
+        // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
+        // or option report it still has queued is not applied to the agent after it, and none it
+        // sent is counted. With MDM unset nothing changes.
+        let started = {
+            let mut slot = session.child.lock().await;
+            let started = slot.take();
+            if let Some(started) = started.as_ref().filter(|_| managed) {
+                session.floor.retired_through.fetch_max(started.generation, Ordering::SeqCst);
+            }
+            started
+        };
+        if managed && started.is_some() {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         if let Some(started) = started {
             // Bounded: a host whose link stopped reading never takes the terminate; it is then
             // ended by its nonce below (review 31 of #23322).

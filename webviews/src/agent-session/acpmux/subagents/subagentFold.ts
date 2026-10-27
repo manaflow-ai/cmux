@@ -2,6 +2,7 @@ import type { AcpmuxRow } from "../model";
 import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
+  markTranscriptSummaryVersion,
   markTranscriptSourceVersion,
 } from "../summary/transcriptPullRequests";
 import { childRows, type ChildEntry } from "./childRows";
@@ -116,7 +117,7 @@ type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
-type ViewRevisions = { activity: symbol; command: symbol; source: symbol };
+type ViewRevisions = { activity: symbol; command: symbol; summary: symbol; source: symbol };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
 /// between two pieces of its own text draw as one group row where the first one started; their
@@ -547,12 +548,20 @@ export class SubagentFold {
         drawn = { version, rows: childRows(id, entries, this.agents, version) };
         this.drawn.set(id, drawn);
       }
-      const revisions = this.viewRevisions.get(id);
-      if (revisions) {
-        markPullRequestActivityVersion(drawn.rows, revisions.activity);
-        markPullRequestCommandVersion(drawn.rows, revisions.command);
-        markTranscriptSourceVersion(drawn.rows, revisions.source);
-      }
+      // A child can start with streamed message chunks before any settled event bumps its view.
+      // Give it a stable producer revision immediately, so every streamed snapshot reuses the
+      // derived rows instead of falling back to an O(rows) scan.
+      const revisions = this.viewRevisions.get(id) ?? {
+        activity: Symbol(),
+        command: Symbol(),
+        summary: Symbol(),
+        source: Symbol(),
+      };
+      this.viewRevisions.set(id, revisions);
+      markPullRequestActivityVersion(drawn.rows, revisions.activity);
+      markPullRequestCommandVersion(drawn.rows, revisions.command);
+      markTranscriptSummaryVersion(drawn.rows, revisions.summary);
+      markTranscriptSourceVersion(drawn.rows, revisions.source);
       views[id] = drawn.rows;
     }
     return views;
@@ -573,7 +582,7 @@ export class SubagentFold {
   }
 
   private bumpViewRevision(id: string): void {
-    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), source: Symbol() });
+    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: Symbol(), source: Symbol() });
   }
 
   private settleView(agent: Subagent): void {

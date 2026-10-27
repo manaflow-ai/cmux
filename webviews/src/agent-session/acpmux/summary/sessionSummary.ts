@@ -9,6 +9,7 @@ import { editedPaths } from "../toolPaths";
 import {
   transcriptPullRequestKey,
   transcriptPullRequests,
+  transcriptSummaryVersion,
   transcriptSourceVersion,
   type SummaryPullRequest,
 } from "./transcriptPullRequests";
@@ -93,10 +94,18 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
     });
 }
 
-const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:\/[^\s]*)?$/;
-const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/[^\s]*)?$/;
+const GITHUB_PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s]*)?$/;
+const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
 let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
+let summaryCache:
+  | {
+      revision: symbol;
+      repository?: string | null;
+      cwd?: string;
+      summary: SessionSummary;
+    }
+  | undefined;
 let pullRequestCache:
   | {
       revision: string | symbol;
@@ -168,15 +177,32 @@ function sources(
         kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
       });
     }
+  const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  const knownIssues = new Map(pullRequests.filter((pr) => pr.kind === "issue").map((pr) => [pr.url, pr]));
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
-      if (GITHUB_PR_URL.test(url)) continue;
-      add({
-        url,
-        label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""),
-        kind: GITHUB_ISSUE_URL.test(url) ? "issue" : "url",
-      });
+      const pr = GITHUB_PR_URL.exec(url);
+      if (pr) {
+        const canonical = `https://github.com/${pr[1]}/${pr[2]}/pull/${pr[3]}`;
+        const known = knownPullRequests.get(canonical);
+        if (known?.changed || known?.opened) continue;
+        add({
+          url: canonical,
+          label: known?.title ?? `${pr[1]}/${pr[2]} #${pr[3]}`,
+          kind: "pullRequest",
+        });
+        continue;
+      }
+      if (GITHUB_ISSUE_URL.test(url)) {
+        const issue = GITHUB_ISSUE_URL.exec(url)!;
+        const canonical = `https://github.com/${issue[1]}/${issue[2]}/issues/${issue[3]}`;
+        const known = knownIssues.get(canonical);
+        if (known?.changed || known?.opened) continue;
+        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "issue" });
+      } else {
+        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "url" });
+      }
     }
   };
   for (const tool of all) {
@@ -246,6 +272,14 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
+  const producerRevision = transcriptSummaryVersion(rows);
+  if (
+    producerRevision &&
+    summaryCache?.revision === producerRevision &&
+    summaryCache.repository === repository &&
+    summaryCache.cwd === cwd
+  )
+    return summaryCache.summary;
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
@@ -261,7 +295,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
       : undefined;
   const pullRequests = cached ?? transcriptPullRequests(rows, { folder, replies: inspector });
   if (!cached) pullRequestCache = { revision, folder, replies: inspector, pullRequests };
-  return {
+  const result = {
     ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
@@ -270,6 +304,8 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
     sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
+  if (producerRevision) summaryCache = { revision: producerRevision, repository, cwd, summary: result };
+  return result;
 }
 
 export const isEmptySummary = (summary: SessionSummary) =>

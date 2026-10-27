@@ -87,6 +87,7 @@ import { recordedConversationEvents } from "./conversation/exportEvents";
 import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
+  markTranscriptSummaryVersion,
   markTranscriptSourceVersion,
   pullRequestRowKey,
   transcriptSourceRowKey,
@@ -957,6 +958,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private snapshot: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
+  private transcriptSummaryVersion = Symbol();
   private transcriptSourceVersion = Symbol();
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
@@ -989,6 +991,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.pullRequestActivityVersion = Symbol();
     if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestCommandVersion = Symbol();
+    if (!unchanged && !(row.kind === "assistant" && row.streaming)) this.transcriptSummaryVersion = Symbol();
     if (!unchanged && transcriptSourceRowKey(previous) !== transcriptSourceRowKey(row))
       this.transcriptSourceVersion = Symbol();
     if (!unchanged) this.snapshot = undefined;
@@ -1025,6 +1028,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.ordered = undefined;
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = Symbol();
     this.transcriptSourceVersion = Symbol();
   }
 
@@ -1053,6 +1057,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.has(id)) return false;
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = Symbol();
     this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
@@ -1064,6 +1069,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override clear(): void {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = Symbol();
     this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
@@ -1086,6 +1092,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   placeLocalLast(): void {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = Symbol();
     this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
@@ -1105,6 +1112,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.snapshot = this.ordered.slice();
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
+      markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
       markTranscriptSourceVersion(this.snapshot, this.transcriptSourceVersion);
     }
     return this.snapshot;
