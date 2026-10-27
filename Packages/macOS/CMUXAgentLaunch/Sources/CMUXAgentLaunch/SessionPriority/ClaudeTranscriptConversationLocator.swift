@@ -11,20 +11,39 @@ public enum ClaudeTranscriptConversationLocator {
         configDirectory: String,
         fileManager: FileManager = .default
     ) throws -> Bool {
-        guard !sessionID.isEmpty,
-              sessionID.unicodeScalars.allSatisfy({ scalar in
-                  switch scalar {
-                  case "a"..."z", "A"..."Z", "0"..."9", "_", "-": return true
-                  default: return false
-                  }
-              })
-        else { return false }
-        guard let location = ClaudeTranscriptForkSeeder.findSourceTranscript(
+        guard let path = transcriptPath(
+            sessionID: sessionID,
+            workingDirectory: workingDirectory,
+            configDirectory: configDirectory,
+            fileManager: fileManager
+        ) else { return false }
+        return try ClaudeTranscriptConversationProbe.containsConversation(atPath: path)
+    }
+
+    /// The transcript file of `sessionID` under `configDirectory/projects`, looked up first in
+    /// the working directory's project, or `nil` when there is none. A session id outside
+    /// `^[A-Za-z0-9_-]+$` is `nil` without touching the disk.
+    public static func transcriptPath(
+        sessionID: String,
+        workingDirectory: String,
+        configDirectory: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard isSafeSessionID(sessionID) else { return nil }
+        return ClaudeTranscriptForkSeeder.findSourceTranscript(
             sessionID: sessionID,
             sourceWorkingDirectory: workingDirectory,
             projectsRoot: configDirectory + "/projects",
             fileManager: fileManager
-        ) else { return false }
-        return try ClaudeTranscriptConversationProbe.containsConversation(atPath: location.path)
+        )?.path
+    }
+
+    private static func isSafeSessionID(_ sessionID: String) -> Bool {
+        !sessionID.isEmpty && sessionID.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9", "_", "-": return true
+            default: return false
+            }
+        }
     }
 }

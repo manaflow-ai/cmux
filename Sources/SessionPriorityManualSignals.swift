@@ -12,13 +12,16 @@ enum SessionPriorityManualSignal: String, Sendable {
     case launchEnvironmentEffort
     /// The workspace environment sets `CLAUDE_CODE_EFFORT_LEVEL`.
     case workspaceEnvironmentEffort
-    /// The screen shows the result of a `/effort` or `/model` command.
+    /// The user ran `/effort` or `/model`: the screen shows its result, or the conversation
+    /// transcript records it after cmux last restarted the pane or was asked to adjust it
+    /// again. The raw value is the wire value from before the transcript was read.
     case userCommandOnScreen
 }
 
 enum SessionPriorityManualSignals {
-    /// What Claude Code prints after `/effort` and `/model`.
-    static let screenMarkers = ["Effort level set to", "Model set to"]
+    /// What Claude Code prints after `/effort` and `/model`, the same text the transcript probe
+    /// looks for.
+    static let screenMarkers = ClaudeTranscriptLocalCommandProbe.changeMarkers
 
     /// The first signal found, in ``SessionPriorityManualSignal`` order, or `nil`.
     static func detect(
