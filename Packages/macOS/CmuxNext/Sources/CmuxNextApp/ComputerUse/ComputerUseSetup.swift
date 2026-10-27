@@ -37,6 +37,8 @@ final class ComputerUseSetup {
         case unavailable
         /// On, and the helper is starting (or has not answered yet).
         case starting
+        /// The helper did not answer within the read budget, or kept exiting.
+        case failed
         /// The helper answered: `permissions` are its grants.
         case ready
         /// The helper answered in another protocol version: the grants are unknown.
@@ -48,6 +50,8 @@ final class ComputerUseSetup {
         var disabledByPolicy: Bool
         var enabled: Bool
         var helper: ComputerUseHelperDaemon.State
+        /// The driver chosen: this model reads the legacy helper only.
+        var driver: ComputerUseDriver = .legacy
     }
 
     /// One `permissions_status` read.
@@ -65,12 +69,17 @@ final class ComputerUseSetup {
     /// The signed helper the grants belong to (the running one, else the one
     /// that would start). Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// The driver chosen (`computerUse.driver`): the phase and grants are
+    /// the legacy helper's, so a reader under the helper v2 knows they say nothing.
+    private(set) var driver: ComputerUseDriver = .legacy
 
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
     @ObservationIgnored private let read: @Sendable (AgentActivitySocketSource.Configuration) async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let requestGrant: @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void
+    @ObservationIgnored private let restartHelper: @MainActor () async -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
@@ -80,9 +89,11 @@ final class ComputerUseSetup {
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var resolvedFor: URL??
+    /// The helper whose answer `permissions` holds (a restarted helper has another pid).
+    @ObservationIgnored private var answeredBy: pid_t?
     /// The inputs `start()` applied, until the input stream's first value.
     @ObservationIgnored private var appliedAtStart: Inputs?
-    /// Reads after a helper start that has not answered yet.
+    /// Maximum reads per check while the helper has not answered.
     static let maximumRetries = 6
 
     /// macOS posts this (distributed) when any process's Accessibility trust changes.
@@ -93,6 +104,10 @@ final class ComputerUseSetup {
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
+         requestGrant: @escaping @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void = {
+             await ComputerUseSetup.socketRequestGrant($0, $1)
+         },
+         restartHelper: @escaping @MainActor () async -> Void = {},
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -102,6 +117,8 @@ final class ComputerUseSetup {
         self.read = read
         self.resolveHelper = resolveHelper
         self.openURL = openURL
+        self.requestGrant = requestGrant
+        self.restartHelper = restartHelper
         self.enableSetting = enableSetting
         self.notifications = notifications
         self.distributed = distributed
@@ -144,16 +161,61 @@ final class ComputerUseSetup {
         })
     }
 
-    /// Reads the grants again now (Settings opened, the step showed, the app came back).
+    /// Reads the grants again with a fresh budget (Settings, onboarding or an app event).
     func recheck() {
         apply(inputs())
     }
 
+    /// Shows progress now and returns the shared restart work for the action or step.
+    func prepareRestart() -> (@MainActor () async -> Void)? {
+        let current = inputs()
+        guard current.enabled, !current.disabledByPolicy, current.driver == .legacy else { return nil }
+        generation &+= 1
+        let restartGeneration = generation
+        reading?.cancel()
+        reading = nil
+        settle(.starting, running: nil)
+        return { [weak self] in
+            guard let self, self.generation == restartGeneration else { return }
+            let current = self.inputs()
+            guard current.enabled, !current.disabledByPolicy, current.driver == .legacy else { return }
+            await self.restartHelper()
+            self.recheck()
+        }
+    }
+
     /// Opens the Privacy & Security list for `pane` in System Settings; the
     /// read on the app's next activation picks up the change.
+    /// When the helper runs, it first raises macOS's own request for the
+    /// grant, attributed to the helper (`request_system_permission`, host
+    /// only). On macOS 26 the Screen Recording toggle alone is not enough: the
+    /// helper must ask once ("bypass the system private window picker"), or
+    /// its capture check stays false (seen 2026-10-27 on macOS 26.6).
     func open(_ pane: ComputerUsePermissionPane) {
+        if phase == .ready, driver == .legacy, let configuration = configuration() {
+            let requestGrant = requestGrant
+            // task-owner: one host request to the helper; the next read (app activation, trust change) shows the answer.
+            Task { await requestGrant(configuration, pane) }
+        }
         guard let url = Self.settingsURL(pane) else { return }
         openURL(url)
+    }
+
+    /// One `request_system_permission` to the helper with the host token.
+    /// It answers at once and raises the prompt itself; a refusal (an older
+    /// helper) only means no prompt.
+    static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
+                                   _ pane: ComputerUsePermissionPane) async {
+        let name = switch pane {
+        case .accessibility: "accessibility"
+        case .screenRecording: "screen_recording"
+        }
+        do {
+            _ = try await CuaSocketClient(configuration: configuration).send("request_system_permission", name: name,
+                                                                             deadline: .seconds(2))
+        } catch {
+            setupLogger.notice("cmux Computer Use helper did not take the \(name, privacy: .public) request: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Turns Computer Use on (the person's own click in onboarding). The
@@ -177,6 +239,7 @@ final class ComputerUseSetup {
         case .ready: permissions
         case .versionMismatch: .helperVersionMismatch
         case .off: .off
+        case .failed: .helperFailed
         case .disabledByPolicy, .unavailable, .starting: .none
         }
     }
@@ -184,6 +247,7 @@ final class ComputerUseSetup {
     // MARK: Phase
 
     private func apply(_ inputs: Inputs) {
+        driver = inputs.driver
         generation &+= 1
         reading?.cancel()
         reading = nil
@@ -191,13 +255,14 @@ final class ComputerUseSetup {
         guard inputs.enabled else { return settle(.off, running: nil) }
         switch inputs.helper {
         case .unavailable: settle(.unavailable, running: nil)
+        case .failed: settle(.failed, running: nil)
         // On, and ComputerUseHelperDaemon is starting the helper.
         case .off: settle(.starting, running: nil)
-        case .running:
+        case .running(let pid):
             guard let configuration = configuration() else { return settle(.starting, running: nil) }
-            // Until the helper answers, the grants are being read, not off.
-            if phase != .ready { phase = .starting }
-            readGrants(configuration, generation: generation)
+            // Until this helper answers, the grants are being read, not off.
+            if phase != .ready || answeredBy != pid { settle(.starting, running: nil) }
+            readGrants(configuration, pid: pid, generation: generation)
         }
     }
 
@@ -209,19 +274,20 @@ final class ComputerUseSetup {
         resolve(running: running)
     }
 
-    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, generation current: Int) {
+    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, pid: pid_t, generation current: Int) {
         let read = read
         let clock = clock
         // task-owner: one read (plus bounded retries while a started helper is not up yet); a newer apply cancels it.
         reading = Task { [weak self] in
             var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(4))
-            for attempt in 0...Self.maximumRetries {
+            for attempt in 0..<Self.maximumRetries {
                 let result = await read(configuration)
                 guard let self, !Task.isCancelled, self.generation == current else { return }
                 switch result {
                 case .answered(let granted, let helper):
                     phase = .ready
                     permissions = granted
+                    answeredBy = pid
                     resolve(running: helper)
                     return
                 case .versionMismatch:
@@ -230,8 +296,9 @@ final class ComputerUseSetup {
                     return
                 case .noAnswer:
                     // A helper that answered before keeps its rows until a read succeeds.
-                    if phase != .ready { settle(.starting, running: nil) }
-                    guard attempt < Self.maximumRetries else { return }
+                    let hasRetry = attempt + 1 < Self.maximumRetries
+                    if phase != .ready { settle(hasRetry ? .starting : .failed, running: nil) }
+                    guard hasRetry else { return }
                     // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
                     do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
                 }
@@ -280,11 +347,16 @@ final class ComputerUseSetup {
                                screenRecording: status["screen_recording"] as? Bool ?? false)
     }
 
-    /// The Developer ID signed helper for `running`, else the installed one that would start.
+    /// The Developer ID signed helper for `running`, else the one that would
+    /// start: its verified copy outside this app (the app the grants belong
+    /// to, ComputerUseHelperStaging), or the installed source before the
+    /// first copy is made.
     @concurrent nonisolated static func signedHelper(_ running: URL?) async -> URL? {
-        CuaHelperIdentity().resolve(running: running,
-                                    installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
+        let resolved = CuaHelperIdentity().resolve(running: running,
+                                                   installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
             .helperURL
+        guard running == nil, resolved != nil else { return resolved }
+        return await ComputerUseHelperDaemon.stagedHelper() ?? resolved
     }
 }
 
@@ -297,9 +369,11 @@ extension ComputerUseSetup {
             inputs: { [weak services] in
                 Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                        enabled: services?.settings?.snapshot.computerUse.enabled ?? false,
-                       helper: helper.state)
+                       helper: helper.state,
+                       driver: services?.settings?.snapshot.computerUse.driver ?? .legacy)
             },
             configuration: { helper.configuration },
+            restartHelper: { await helper.restartLegacy() },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
@@ -317,8 +391,11 @@ extension ComputerUseSetup {
 
 extension ComputerUseSetup {
     /// The Settings page's Computer Use card (`cmux.settings.host.lists`
-    /// `computer_use`): live through `cmux.settings.host.changed`, since the
-    /// host lists read this observable model. Grants are null while unknown.
+    /// `computer_use`) and `computer_use.status`: live through
+    /// `cmux.settings.host.changed`, since the host lists read this
+    /// observable model. Grants are null while unknown. `driver` tells a
+    /// reader (the agent setup check in `cmux mcp serve`) whether the grants
+    /// belong to the helper that runs.
     var pageJSON: CmuxNextSettings.JSONValue {
         let known = phase == .ready
         return [
@@ -326,6 +403,7 @@ extension ComputerUseSetup {
             "accessibility": known ? .bool(permissions.accessibility) : .null,
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
+            "driver": .string(driver.rawValue),
         ]
     }
 }

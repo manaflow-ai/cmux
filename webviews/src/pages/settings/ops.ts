@@ -277,7 +277,14 @@ export type IPhoneHostState = {
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
-export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+export type ComputerUsePhase =
+  | "disabled_by_policy"
+  | "off"
+  | "unavailable"
+  | "starting"
+  | "failed"
+  | "ready"
+  | "version_mismatch";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -990,6 +997,7 @@ export const settingsPageActions = [
   "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
+  "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
   "import.card",
