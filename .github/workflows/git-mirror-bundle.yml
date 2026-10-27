@@ -11,8 +11,10 @@ name: git mirror bundle
 #
 # Layout (scripts/ci/r2-cache.sh, namespace `any`): v1/any/objects/<key>.tar.zst
 # holding cmux.bundle, and v1/any/latest/git-mirror-cmux- naming the newest key.
-# Keys are git-mirror-cmux-<UTC YYYYMMDDHH>-<feat-cmux-next sha12>; r2_cache_prune.py
-# keeps them a day, and always the one the pointer names.
+# Keys are git-mirror-cmux-<UTC YYYYMMDDHH>.<feat-cmux-next sha12>, with no dash after
+# the stable prefix: r2-cache.sh writes one pointer per dash-terminated prefix, and the
+# pruner keeps every pointer's target, so a dash there would pin each bundle for good.
+# r2_cache_prune.py keeps them a day, and always the one the pointer names.
 #
 # It writes at most every BUNDLE_INTERVAL_HOURS: a push between finds the newest
 # bundle fresh and stops after one HEAD request. Measured 2026-10-27 on Blacksmith
@@ -52,7 +54,7 @@ jobs:
           pointer="$CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/latest/git-mirror-cmux-"
           key="$(curl --fail --silent --show-error --location --max-time 30 "$pointer" | head -c 512 | tr -d '[:space:]' || true)"
           due=true
-          if [[ "$key" =~ ^git-mirror-cmux-([0-9]{10})-[0-9a-f]{12}$ ]] && [[ "${{ github.event_name }}" != workflow_dispatch ]]; then
+          if [[ "$key" =~ ^git-mirror-cmux-([0-9]{10})\.[0-9a-f]{12}$ ]] && [[ "${{ github.event_name }}" != workflow_dispatch ]]; then
             stamp="${BASH_REMATCH[1]}"
             written="$(date -u -d "${stamp:0:8} ${stamp:8:2}:00" +%s)"
             age_hours=$(( ($(date -u +%s) - written) / 3600 ))
@@ -78,7 +80,7 @@ jobs:
             +refs/heads/nightly-next:refs/heads/nightly-next
           echo "fetched in $((SECONDS - started)) s"
           head="$(git -C "$repo" rev-parse refs/heads/feat-cmux-next)"
-          echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H)-${head:0:12}" >> "$GITHUB_OUTPUT"
+          echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H).${head:0:12}" >> "$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/bundle"
           started=$SECONDS
           git -C "$repo" bundle create --quiet "$RUNNER_TEMP/bundle/cmux.bundle" --branches

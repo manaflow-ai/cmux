@@ -33,7 +33,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(env["CI_CACHE_R2_NAMESPACE"], "any")
         fetch = STEPS["Fetch the mirrored branches"]["run"]
         self.assertIn("bundle/cmux.bundle", fetch)
-        self.assertIn('echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H)-${head:0:12}"', fetch)
+        self.assertIn('echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H).${head:0:12}"', fetch)
         for branch in ("main", "feat-cmux-next", "nightly-next"):
             self.assertIn(f"+refs/heads/{branch}:refs/heads/{branch}", fetch)
         # Full history: a shallow bundle could not seed a never-shallow mirror.
@@ -47,7 +47,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(save["with"]["key"], "${{ steps.fetch.outputs.key }}")
         due = STEPS["Is a bundle due"]["run"]
         self.assertIn("latest/git-mirror-cmux-", due)
-        self.assertIn(r"^git-mirror-cmux-([0-9]{10})-[0-9a-f]{12}$", due)
+        self.assertIn(r"^git-mirror-cmux-([0-9]{10})\.[0-9a-f]{12}$", due)
 
     def test_only_feat_cmux_next_writes_with_the_next_writer(self) -> None:
         self.assertEqual(DOC["permissions"], {})
@@ -61,7 +61,11 @@ class Contract(unittest.TestCase):
         self.assertTrue(re.search(r"blacksmith-\d+vcpu-ubuntu", JOB["runs-on"]))
 
     def test_prune_keeps_a_day_and_the_pointed_one(self) -> None:
-        self.assertEqual(prune.retention_days("git-mirror-cmux-2026102709-0123456789ab"), 1)
+        key = "git-mirror-cmux-2026102709.0123456789ab"
+        self.assertEqual(prune.retention_days(key), 1)
+        # r2-cache.sh pins one pointer per dash-terminated prefix, and the pruner keeps every pointer's
+        # target: past the stable prefix the key has no dash, so no per-hour pointer pins a bundle for good.
+        self.assertNotIn("-", key.removeprefix("git-mirror-cmux-"))
 
 
 if __name__ == "__main__":
