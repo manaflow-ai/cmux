@@ -4,6 +4,9 @@ public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextInput
+#endif
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -74,6 +77,11 @@ public final class WebKitEngine: BrowserEngine {
     public var urlFilter: BrowserURLFilter = .none
     /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
     public var rendererStability = RendererStability()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
+    /// presented time (p04-input-099). The App sets it once, before the first tab.
+    public var pageInputTiming: WebPageInputTiming?
+    #endif
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
     /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
