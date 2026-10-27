@@ -1323,8 +1323,8 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("attempt 2", why)
 
-    def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None):
-        fake = FakeGitHub({r["id"]: dict(r) for r in runs}, jobs)
+    def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=()):
+        fake = FakeGitHub({r["id"]: dict(r) for r in [*runs, *extra_runs]}, jobs)
         fake.completed["nightly.yml"] = list(completed)
         fake.prs = prs or {}
         if rejob:  # what the re-read right before the cancel sees
@@ -1362,11 +1362,22 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertIn("on re-read", decided[old["id"]].note)
         self.assertEqual(fake.posts(), [])
 
+    def test_a_replacement_that_fails_before_the_cancel_keeps_the_old_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.runs[tip["id"]].update(status="completed", conclusion="cancelled")  # what the re-read sees
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
+        self.assertEqual({d.run["id"]: d.action for d in decisions}[old["id"]], "keep")
+        self.assertEqual(fake.posts(), [])
+
     def test_a_finished_newer_run_is_found_by_one_branch_listing(self):
         old = nightly_run("864dceb6", 70)
         done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}
         built = gate_jobs(20, build={"status": "completed", "conclusion": "success", "runner_name": "mini-1"})
-        fake, decided, _ = self.sweep([old], {old["id"]: gate_jobs(70)}, completed=[done], rejob={done["id"]: built})
+        fake, decided, _ = self.sweep([old], {old["id"]: gate_jobs(70)}, completed=[done], rejob={done["id"]: built},
+                                      extra_runs=[done])
         self.assertEqual(decided[old["id"]].action, "cancel")
         self.assertEqual([p for m, p in fake.log if "/actions/workflows/" in p],
                          ["/repos/manaflow-ai/cmux/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=20"])

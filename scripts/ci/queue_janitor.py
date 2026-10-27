@@ -204,7 +204,8 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
-from delivery_workflows import is_delivery_run, build_started, superseded_unstarted  # noqa: E402
+from delivery_workflows import REPLACEMENT_JOB_READS, build_started, is_delivery_run  # noqa: E402
+from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -2386,16 +2387,20 @@ def skip_superseded_delivery(
             decisions.append(SupersededDecision(run, "cancel", f"would cancel: {why}"))
             cancels += 1
             continue
-        # The jobs again, right before the cancel: a run whose build started since is kept.
+        # Right before the cancel, the run, its jobs and the newer runs that may replace it (each run and its jobs)
+        # are read again: a run whose build started since, or whose replacement failed or was cancelled, is kept.
         try:
             current, jobs = github.run(run_id), github.jobs(run_id)
+            pool = [*runs, *[r for rs in listed.values() for r in rs]]
+            fresh_runs = [github.run(other["id"]) for other in newer_head_runs(current, pool)[:REPLACEMENT_JOB_READS]]
+            fresh_jobs = {other["id"]: github.jobs(other["id"]) for other in fresh_runs}
         except RateLimited:
             raise
         except RuntimeError as error:
             failures += 1
             decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
             continue
-        ok, why = superseded_unstarted(current, jobs, [*runs, *[r for rs in listed.values() for r in rs]], jobs_of)
+        ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")))
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
