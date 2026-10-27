@@ -16,6 +16,8 @@ final class PageStatusViews {
     var certificateWarningRouter: ((CertificateWarningCommand) -> Bool)?
     /// The view the status views are in; a shown card asks it for a layout.
     private weak var parent: NSView?
+    /// The tab whose state the views show (``render(tab:)``); its crash page may show before the next render.
+    private weak var shownTab: (any BrowserTab)?
 
     /// The views currently shown (occlusion holes).
     var shown: [NSView] {
@@ -44,6 +46,14 @@ final class PageStatusViews {
         goneView.onReload = { tab()?.reload() }
         unresponsiveView.onWait = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: false) }
         unresponsiveView.onExit = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: true) }
+    }
+
+    /// Shows `tab`'s state, and shows its crash page as soon as its process ends
+    /// (``BrowserCrashPageHosting``): the chrome renders the tab it binds through here.
+    func render(tab: any BrowserTab) {
+        shownTab = tab
+        if let hosting = tab as? any BrowserCrashPageHosting { hosting.crashPagePresenter = self }
+        render(tab.state)
     }
 
     func render(_ state: BrowserTabState) {
@@ -87,5 +97,16 @@ final class PageStatusViews {
 
     private func place(_ view: NSView, at frame: CGRect) {
         if view.frame != frame { view.frame = frame }
+    }
+}
+
+extension PageStatusViews: BrowserCrashPagePresenter {
+    /// `tab`'s process (or the Chromium Host) ended in this turn: its crash page shows in this turn's
+    /// frame, while the tab is the one shown here. The parent's layout, before this turn's commit,
+    /// places it and gives a child-window page its hole there.
+    func showCrashPage(of tab: any BrowserTab) {
+        guard shownTab === tab, tab.state.processExit != nil else { return }
+        render(tab.state)
+        parent?.needsLayout = true // invalidate: the crash page shows; the parent's layout makes its page hole
     }
 }

@@ -83,13 +83,13 @@ extension CEFRuntime {
 }
 
 extension CEFPaneHost {
-    /// The Chromium Host ended (``CEFRuntime/hostEnded(_:)``): this pane's Chromium window went with
-    /// it, so the next tab shown here asks the next host for a new one.
+    /// The Chromium Host ended (``CEFRuntime/hostEnded(_:)``): this pane's Chromium window went with it, so the
+    /// next tab shown here asks the next host for a new one, and the page view drops all the host gave it in
+    /// this turn, under each tab's sad tab (``CEFTab/hostEnded(_:)``). The next host numbers browsers anew.
     func hostEnded() {
-        (window, windowTab, lastActivated, popupWindow) = (.none, nil, nil, nil)
+        (window, windowTab, lastActivated, popupWindow, pageCursors) = (.none, nil, nil, nil, [:])
         hostView.layerHosting.windowBrowsersChanged([])
-        hostedPageView?.show(contextID: 0)
-        hostedPageView?.suggestions.hostEnded()
+        hostedPageView?.hostEnded()
     }
 
     /// After a new host was attached, `tab`, shown here with no browser (its own went with the old

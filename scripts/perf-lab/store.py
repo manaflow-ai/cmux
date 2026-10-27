@@ -180,6 +180,22 @@ MIGRATIONS: tuple[Migration, ...] = (
             bytes BLOB NOT NULL,
             stored_at TEXT NOT NULL)""",
     )),
+    # What each waterfall story run said (harness_alerts.py, task 214): an errored story stores no result row, so
+    # its errors live here, one row per (story, host, batch, status). A pass with results also has its results rows.
+    (4, "story outcomes", (
+        """CREATE TABLE story_outcomes (
+            id INTEGER PRIMARY KEY,
+            story TEXT NOT NULL,
+            host_class TEXT NOT NULL,
+            host TEXT NOT NULL,
+            batch_pos INTEGER NOT NULL,
+            sha TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pass', 'error', 'env-invalid')),
+            reason TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL,
+            UNIQUE (story, host_class, host, batch_pos, status))""",
+        "CREATE INDEX story_outcomes_by_story ON story_outcomes (story, host_class, batch_pos)",
+    )),
 )
 
 

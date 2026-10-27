@@ -6,6 +6,7 @@ import { TimelineView } from "./TimelineView";
 import { TreeView } from "./TreeView";
 import { nextPath } from "./model";
 import type { Status, TurnPrompt, TurnRow } from "./types";
+import { MIN_REFRESH_MS } from "./store";
 import { useApi } from "./useApi";
 
 export type Tab = "prompt" | "tree" | "timeline" | "live";
@@ -22,7 +23,7 @@ export function App({ initialTab = "prompt" }: { initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [turn, setTurn] = useState("now");
   const [path, setPath] = useState<string[]>([]);
-  const status = useApi<Status>("/api/status", tab === "live" ? 2000 : undefined);
+  const status = useApi<Status>("/api/status", tab === "live" ? MIN_REFRESH_MS : undefined);
   const turns = useApi<{ turns: TurnRow[] }>("/api/turns").data?.turns ?? [];
   const now = useApi<TurnPrompt>(tab === "tree" ? "/api/turn?key=now" : null);
   const zoom = (name: string) => {

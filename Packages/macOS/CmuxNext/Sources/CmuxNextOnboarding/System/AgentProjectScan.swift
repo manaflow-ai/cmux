@@ -280,7 +280,7 @@ public struct RecentProjectScan: Sendable {
     /// Returns recent projects, merging agent sessions, explicit cwd hints and
     /// bounded git repositories under the common development roots.
     public nonisolated func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
-        var byPath = Dictionary(uniqueKeysWithValues: projects.run(now: now).map { ($0.id, $0) })
+        var byPath = Dictionary(projects.run(now: now).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         for hint in hints {
             guard let folder = normalizedFolder(hint), projects.keeps(folder: folder) else { continue }
