@@ -258,6 +258,8 @@ struct CloudCreationFlow {
             let outcome = await script.start(name: creation.request.name, on: machine)
             creation.awaitBootstrapCompletion(outcome, attempt: attempt) { await script.waitForCompletion(on: machine) }
         }
+        // A flow cancelled (Retry, Dismiss) while the start was out applies nothing: its Retry applies it.
+        guard !Task.isCancelled, !creation.isTornDown else { return }
         // After the bootstrap's start: the applier waits for its lock, so a --repo clone is there first.
         if let config = creation.request.machineConfig, needsMachineConfig(creation) {
             creation.noteMachineConfig(await config.apply(on: machine))

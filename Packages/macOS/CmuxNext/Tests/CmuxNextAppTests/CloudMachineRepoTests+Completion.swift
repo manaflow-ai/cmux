@@ -236,6 +236,23 @@ extension CloudMachineRepoTests {
         #expect(creation.bootstrapCompletion == nil, "a torn-down creation publishes no completion")
     }
 
+    @MainActor @Test func aFlowCancelledDuringTheStartAppliesNoMachineConfig() async {
+        var request = CloudMachineRequest(repo: Self.repo)
+        request.script = withRepo
+        request.machineConfig = CloudMachineConfig(contents: nil)
+        let creation = CloudCreations().begin(window: nil, request: request), others = Fired()
+        let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
+            // The start goes out, then the flow is cancelled (a Retry) before it comes back.
+            if command.contains("echo started") { withUnsafeCurrentTask { $0?.cancel() } }
+            else if !command.contains("mkdir -p") { others.fire() }
+            return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+        })
+        await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine) }.value
+        #expect(creation.machineConfig == nil && !others.on, "the apply waits for the Retry")
+        #expect(CloudCreationFlow.needsMachineConfig(creation))
+        creation.tearDown()
+    }
+
     @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
         // The flow was cancelled while `start` was out on the machine; its outcome comes back afterwards.
         let creation = CloudMachineCreation(windowID: nil)
