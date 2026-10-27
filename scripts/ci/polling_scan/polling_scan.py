@@ -41,8 +41,6 @@ import block_polling  # noqa: E402
 DEFAULT_ALLOWLIST = ".github/polling-allowlist.json"
 SHELL_EXT = {".sh", ".bash", ".zsh", ".ksh"}
 SHEBANG = re.compile(r"^#!\s*\S*?(?:/env\s+(?:-\S+\s+)*)?\S*\b(?:ba|z|da|k)?sh\b")
-RUN_KEY = re.compile(r"^(\s*)(?:-\s+)?(run):\s*(.*?)\s*$")
-SHELL_KEY = re.compile(r"^\s*(?:-\s+)?shell:\s*(\S+)")
 EXPR = re.compile(r"\$\{\{.*?\}\}")
 
 
@@ -57,8 +55,6 @@ def is_workflow(rel):
 def is_shell(path, rel):
     if Path(rel).suffix in SHELL_EXT:
         return True
-    if Path(rel).suffix:
-        return False
     try:
         with open(path, "rb") as f:
             first = f.readline(200)
@@ -67,68 +63,71 @@ def is_shell(path, rel):
     return bool(SHEBANG.match(first.decode("utf-8", "replace")))
 
 
+# Shells whose run: text is not shell. Anything else (bash, sh, a path, `/usr/bin/env bash {0}`, an expression,
+# an unknown) is scanned: a wrong guess here could only let a loop through.
+NOT_SHELL = {"python", "python3", "pwsh", "powershell", "cmd", "node", "ruby", "perl", "deno", "bun"}
+
+
+def base_name(word):
+    return word.rsplit("/", 1)[-1]
+
+
+def is_posix_shell(shell):
+    """False only for a shell that is clearly not POSIX (python, pwsh, ...), with its path and options."""
+    words = str(shell or "").strip("'\"").split()
+    if words and base_name(words[0]) == "env":
+        words = words[1:]
+        if any(w.startswith("-") or "=" in w for w in words):
+            return True  # env with options or assignments: which word runs is not certain, so scan it
+    words = [w for w in words if not w.startswith("-")]
+    return not words or base_name(words[0]) not in NOT_SHELL
+
+
+def load_yaml():
+    try:
+        import yaml
+    except ImportError:  # fail closed: a workflow nobody parsed is not a clean workflow
+        sys.exit("polling_scan: PyYAML is required to read workflows (pip install pyyaml)")
+    return yaml
+
+
 def run_blocks(text):
-    """(start line, shell text) for every `run:` in workflow YAML that a POSIX shell runs."""
-    lines = text.split("\n")
+    """(start line, shell text) for every step `run:` in workflow or action YAML that a POSIX shell runs,
+    read with a real YAML parser (any spelling: quoted keys, flow mappings, folded scalars, any indent).
+    A step is skipped only when its own `shell:` is clearly not POSIX; `defaults:` never skips one."""
+    yaml = load_yaml()
+    try:
+        root = yaml.compose(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError as e:
+        raise ValueError("not valid YAML: %s" % e)
     out = []
-    i = 0
-    while i < len(lines):
-        m = RUN_KEY.match(lines[i])
-        if not m:
-            i += 1
-            continue
-        key_col = lines[i].index("run:")
-        value = m.group(3)
-        if shell_of(lines, i, key_col) not in (None, "bash", "sh", "zsh"):
-            i += 1
-            continue
-        if value[:1] in ("|", ">"):
-            body, j = [], i + 1
-            while j < len(lines) and (not lines[j].strip() or indent(lines[j]) > key_col):
-                body.append(lines[j])
-                j += 1
-            cut = min((indent(b) for b in body if b.strip()), default=0)
-            out.append((i + 2, "\n".join(b[cut:] for b in body)))
-            i = j
-            continue
-        j = i + 1
-        while j < len(lines) and lines[j].strip() and indent(lines[j]) > key_col:
-            j += 1  # a plain or quoted scalar continued on more-indented lines (YAML folds them with spaces)
-        if j > i + 1:
-            value = " ".join([value] + [line.strip() for line in lines[i + 1:j]])
-        if value[:1] in ("'", '"') and value[-1:] == value[:1]:
-            value = value[1:-1]
-        out.append((i + 1, value))
-        i = j
+
+    def walk(node):
+        if isinstance(node, yaml.MappingNode):
+            keys = {k.value: v for k, v in node.value if isinstance(k, yaml.ScalarNode)}
+            run = keys.get("run")
+            shell = keys.get("shell")
+            if isinstance(run, yaml.ScalarNode) and not (isinstance(shell, yaml.ScalarNode)
+                                                        and not is_posix_shell(shell.value)):
+                block = run.style in ("|", ">")
+                out.append((run.start_mark.line + (2 if block else 1), run.value))
+            for _, v in node.value:
+                walk(v)
+        elif isinstance(node, yaml.SequenceNode):
+            for v in node.value:
+                walk(v)
+
+    if root is not None:
+        walk(root)
     return [(n, EXPR.sub("GH_EXPR", t)) for n, t in out]
-
-
-def indent(line):
-    return len(line) - len(line.lstrip(" "))
-
-
-def shell_of(lines, i, key_col):
-    """The `shell:` of the step holding the run key at lines[i], or None."""
-    dash = key_col - 2
-    begin = i
-    while begin >= 0 and not (indent(lines[begin]) == dash and lines[begin].lstrip().startswith("- ")):
-        if lines[begin].strip() and indent(lines[begin]) < key_col and begin != i:
-            break
-        begin -= 1
-    end = i + 1
-    while end < len(lines) and (not lines[end].strip() or indent(lines[end]) >= key_col):
-        end += 1
-    for j in range(max(begin, 0), end):
-        line = lines[j]
-        m = SHELL_KEY.match(line)
-        if m and (indent(line) == key_col or (indent(line) == dash and line.lstrip().startswith("- "))):
-            return m.group(1).split("{")[0].strip("'\"")
-    return None
 
 
 def scan_text(rel, text):
     """[(line, loop's first line, message)] for one file."""
-    pieces = run_blocks(text) if is_workflow(rel) else [(1, text)]
+    try:
+        pieces = run_blocks(text) if is_workflow(rel) else [(1, text)]
+    except ValueError as e:  # a workflow that does not parse is reported, never passed
+        return [(1, "", "scanner could not read this workflow: %s" % e)]
     file_lines = text.split("\n")
     found = []
     for start, shell in pieces:

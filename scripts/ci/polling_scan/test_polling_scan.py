@@ -160,6 +160,118 @@ class PollingScanTests(unittest.TestCase):
         rc, out = Repo({"scripts/perl.sh": script}).scan()
         self.assertEqual(rc, 0, out)
 
+    def test_a_shell_script_with_another_suffix_is_scanned_by_its_shebang(self):
+        rc, out = Repo({"tools/runner.py": LOOP_SCRIPT}).scan()
+        self.assertEqual(rc, 1, out)
+
+    def test_shell_paths_options_and_defaults_are_shell(self):
+        loop = "          while true; do gh run view 1; sleep 1; done\n"
+        wf = ("defaults:\n  run:\n    shell: bash -e {0}\njobs:\n  a:\n    steps:\n"
+              "      - shell: /bin/bash\n        run: |\n" + loop +
+              "      - shell: bash -euo pipefail {0}\n        run: |\n" + loop +
+              "      - run: |\n" + loop)
+        rc, out = Repo({".github/workflows/s.yml": wf}).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("3 violations", out)
+
+    def test_defaults_never_skip_a_block(self):
+        loop = "          while true; do gh run view 1; sleep 1; done\n"
+        wf = ("defaults:\n  run:\n    shell: python\njobs:\n  a:\n    steps:\n      - run: |\n" + loop +
+              "    defaults: # use bash\n      run:\n        shell: bash\n")
+        rc, out = Repo({".github/workflows/d.yml": wf}).scan()
+        self.assertEqual(rc, 1, out)
+
+    def test_env_with_options_is_scanned(self):
+        wf = ("jobs:\n  a:\n    steps:\n      - shell: /usr/bin/env -u python bash {0}\n        run: |\n"
+              "          while true; do gh run view 1; sleep 1; done\n")
+        rc, out = Repo({".github/workflows/u.yml": wf}).scan()
+        self.assertEqual(rc, 1, out)
+
+    def test_a_steps_own_python_shell_is_not_scanned(self):
+        wf = ("jobs:\n  a:\n    steps:\n      - shell: python\n        run: |\n"
+              "          while true; do gh run view 1; sleep 1; done\n")
+        rc, out = Repo({".github/workflows/p.yml": wf}).scan()
+        self.assertEqual(rc, 0, out)
+
+    def test_unusual_yaml_spellings_are_read(self):
+        loop = "while true; do gh run view 1; sleep 1; done"
+        wf = ("jobs:\n  a:\n    steps:\n"
+              "      -   name: Python\n          shell: python\n          run: print(1)\n"
+              "      -   run: |\n            " + loop + "\n          shell: bash\n"
+              "      - {shell: bash, run: '" + loop + "'}\n"
+              "      - 'run': '" + loop + "'\n")
+        rc, out = Repo({".github/workflows/y.yml": wf}).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("3 violations", out)
+
+    def test_a_workflow_that_does_not_parse_fails(self):
+        rc, out = Repo({".github/workflows/bad.yml": "jobs: [\n"}).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("could not read this workflow", out)
+
+    def test_judge_gaps_from_review(self):
+        files = {
+            "a.sh": "#!/bin/bash\nwhile [ 1 ]; do gh api x; done\n",
+            "b.sh": "#!/bin/bash\nwhile :; do gh api x -f seen=\"$SECONDS\"; done\n",
+            "c.sh": ("#!/bin/bash\npython3 - <<'PY'\nimport subprocess, time\nfor _ in range(60):\n"
+                     "    subprocess.run([\"gh\", \"api\", \"x\"])\n    time.sleep(10)\nPY\n"),
+            "d.sh": "#!/bin/bash\nwhile [[ 1 ]]; do gh api x; done\n",
+        }
+        rc, out = Repo(files).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("4 violations", out)
+
+    def test_loop_words_in_a_python_string_are_not_a_loop(self):
+        script = ("#!/bin/bash\npython3 - <<'PY'\nimport subprocess, time\nprint(\"Waiting for GitHub\")  # while it starts\n"
+                  "time.sleep(1)\nsubprocess.run([\"gh\", \"api\", \"rate_limit\"])\nPY\n")
+        rc, out = Repo({"scripts/once.sh": script}).scan()
+        self.assertEqual(rc, 0, out)
+
+    def test_interpreter_loops_are_read_as_code(self):
+        def py(code):
+            return "#!/bin/bash\npython3 - <<'PY'\n" + code + "PY\n"
+
+        def js(code):
+            return "#!/bin/bash\nnode - <<'JS'\n" + code + "JS\n"
+        polls = {
+            "p1.sh": py("import subprocess, time\nfor _ in range(60):\n    subprocess.run([\"gh\", \"api\", \"x\"])\n"
+                        "    time.sleep(10)\n"),
+            "j1.sh": js("const x = 0; for (;;) { setTimeout(f, 9); fetch(\"https://api.github.com/x\"); }\n"),
+        }
+        rc, out = Repo(polls).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("2 violations", out)
+        once = {
+            "p2.sh": py('"""\nfor x in values:\n    time.sleep(1)\n"""\nimport subprocess, time\ntime.sleep(1)\n'
+                        'subprocess.run(["gh", "api", "rate_limit"])\n'),
+            "j2.sh": js("// for (;;) setInterval(\nconsole.log(\"setInterval(\"); setTimeout(f, 1);\n"
+                        "fetch(\"https://api.github.com/x\");\n"),
+        }
+        rc, out = Repo(once).scan()
+        self.assertEqual(rc, 0, out)
+
+    def test_indented_gh_commands_and_docstrings(self):
+        def py(code):
+            return "#!/bin/bash\npython3 - <<'PY'\n" + code + "PY\n"
+        poll = py("import subprocess, time\nwhile True:\n    subprocess.run(\"\\n  gh api rate_limit\", shell=True)\n"
+                  "    time.sleep(5)\n")
+        rc, out = Repo({"p.sh": poll}).scan()
+        self.assertEqual(rc, 1, out)
+        doc = py("import time\nfor i in range(3):\n    def f():\n        \"\"\"api.github.com\"\"\"\n"
+                 "    \"\"\"see api.github.com\"\"\"\n    time.sleep(1)\n")
+        rc, out = Repo({"d.sh": doc}).scan()
+        self.assertEqual(rc, 0, out)
+
+    def test_a_one_line_wrapper_with_a_trailing_comment_counts(self):
+        script = "#!/bin/bash\napi() { gh api \"$@\"; }  # helper\nwhile :; do api x; sleep 9; done\n"
+        rc, out = Repo({"scripts/c.sh": script}).scan()
+        self.assertEqual(rc, 1, out)
+
+    def test_a_comment_right_after_a_substitution_opens_is_data(self):
+        script = "#!/bin/bash\nx=$(# it's (odd\necho hi)\necho \"$x\"\n"
+        rc, out = Repo({"scripts/d.sh": script}).scan()
+        self.assertEqual(rc, 0, out)
+
     def test_file_wait_loops_fail(self):
         script = "#!/bin/bash\nuntil [ -s out.txt ]; do sleep 5; done\n"
         rc, out = Repo({"scripts/f.sh": script}).scan()

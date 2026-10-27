@@ -221,7 +221,7 @@ def split_command(src, depth=0, line0=1):
             if c == "\\":
                 j += 2
                 continue
-            if c == "#" and (j == start or src[j - 1] in " \t\n;"):
+            if c == "#" and (j == start or src[j - 1] in " \t\n;(|&"):
                 k = src.find("\n", j)  # a comment: its quotes and parens are not code
                 j = n if k < 0 else k
                 continue
@@ -448,7 +448,7 @@ FUNC_DEF = re.compile(r"^([ \t]*)(?:function[ \t]+([A-Za-z_][\w:-]*)(?:[ \t]*\(\
                       re.M)
 # `name() { body; }` on one line
 FUNC_INLINE = re.compile(r"^[ \t]*(?:function[ \t]+([A-Za-z_][\w:-]*)(?:[ \t]*\(\))?|([A-Za-z_][\w:-]*)[ \t]*\(\))[ \t]*"
-                         r"\{(.*)\}[ \t]*;?[ \t]*$", re.M)
+                         r"\{(.*)\}[ \t]*;?[ \t]*(?:#.*)?$", re.M)
 
 
 def is_github(argv):
@@ -518,8 +518,11 @@ def is_read_loop(cmds):
     return False
 
 
+CONSTANT_CONDS = ([":"], ["true"], ["[", "1", "]"], ["[[", "1", "]]"], ["test", "1"])
+
+
 def is_constant(cond):
-    return not cond or all(strip_wrappers(c)[:1] in ([":"], ["true"], ["[", "1", "]"]) for c in cond)
+    return not cond or all(list(strip_wrappers(c)) in CONSTANT_CONDS for c in cond)
 
 
 def verdict(loop):
@@ -531,7 +534,7 @@ def verdict(loop):
     gh_cmds = [c for c in everything if is_github(c)]
     if kind in ("while", "until"):
         iterating = is_read_loop(everything)
-        bounded = any(is_bound(c) for c in everything)
+        bounded = any(is_bound(c) for c in cond) or any(c and c[0] in BOUND_MARKERS for c in body)
         if gh_cmds:
             if sleeps:
                 if min(sleeps) < long_sleep():
@@ -603,8 +606,71 @@ def judge_commands(cmds):
     return next((msg for _, msg in iter_violations(cmds)), None)
 
 
+GH_TEXT = re.compile(r"^\s*gh\s*$|(?:^|[\s;&|(])gh\s+[a-z]|api\.github\.com")
+
+
+def python_polls(tree):
+    """A for/while loop in a python AST whose body calls something named *sleep and names GitHub
+    (a "gh" argv word, a "gh ..." command string, or an api.github.com URL)."""
+    import ast
+    for loop in ast.walk(tree):
+        if not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)):
+            continue
+        sleeps = github = False
+        docstrings = {id(d.body[0].value) for d in ast.walk(loop)
+                      if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and d.body
+                      and isinstance(d.body[0], ast.Expr) and isinstance(d.body[0].value, ast.Constant)}
+        docstrings |= {id(e.value) for e in ast.walk(loop) if isinstance(e, ast.Expr) and isinstance(e.value, ast.Constant)}
+        for node in ast.walk(loop):
+            if id(node) in docstrings:
+                continue
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue  # a bare string statement is a comment, not a call argument
+            if isinstance(node, ast.Call):
+                f = node.func
+                name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+                sleeps = sleeps or name.endswith("sleep")
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and GH_TEXT.search(node.value):
+                github = True
+        if sleeps and github:
+            return True
+    return False
+
+
+C_LIKE_TOKEN = re.compile(r"""//[^\n]*|/\*.*?\*/|#[^\n]*|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`""", re.S)
+
+
+def interp_polls_strict(body):
+    """File mode: python is read as python (its strings and comments are data); anything else has its
+    comments and string literals blanked before looking for loop and sleep syntax."""
+    import ast
+    try:
+        tree = ast.parse(body)
+    except (SyntaxError, ValueError):
+        tree = None
+    if tree is not None:
+        return python_polls(tree)
+    strings = []
+
+    def blank(m):
+        tok = m.group(0)
+        if tok[0] in "'\"`":
+            strings.append(tok[1:-1])
+            return '""'
+        return " "
+    code = C_LIKE_TOKEN.sub(blank, body)
+    looping = re.search(r"\b(?:for|while)\s*\(|\bdo\s*\{|\bsetInterval\s*\(", code)
+    sleeping = re.search(r"\b(?:sleep|setTimeout)\s*\(", code)
+    github = any(GH_TEXT.search(t) for t in strings) or re.search(r"\bgh\s+[a-z]", code)
+    return bool(looping and sleeping and github)
+
+
 def interp_polls(body):
-    """Whether interpreter text (python -c, node -e, a heredoc fed to python) loops on GitHub with a sleep."""
+    """Whether interpreter text (python -c, node -e, a heredoc fed to python) loops on GitHub with a sleep.
+    In files (STRICT) any loop counts, as a counted `for _ in range(60)` poll is still a poll; see
+    interp_polls_strict."""
+    if STRICT["on"]:
+        return interp_polls_strict(body)
     looping = re.search(r"while\s+(True|1|true)\b|for\s*\(\s*;\s*;\s*\)|setInterval|while\s*\(\s*(true|1)\s*\)", body)
     sleeping = re.search(r"sleep|setTimeout", body)
     github = re.search(r"\bgh\b[\"', ]+\s*\W*[a-z]+|api\.github\.com", body)
