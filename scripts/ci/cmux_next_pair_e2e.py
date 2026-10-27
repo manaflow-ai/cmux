@@ -225,6 +225,7 @@ def main():
         streams.append(app_out)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
+            note(f"- Mac app: no answer on its control socket in 180 s; {no_answer_evidence(app, ls_env, tag, sock, a.out)}")
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
@@ -379,6 +380,41 @@ def forget_keychain(bundle):
             if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
                               capture_output=True).returncode != 0:
                 break
+
+
+def no_answer_evidence(app, ls_env, tag, sock, out):
+    """Why the Mac app did not answer (step 42cdc9d7, 2026-10-27: alive, silent for 180 s, only an
+    NSXPCSharedListener 'ClientCallsAuxiliary' line on stderr): the session it runs in, where its main
+    thread waits (`sample`), its own unified log and the tail of its debug log, before the teardown
+    ends it. Each read is bounded and best effort; tokens are redacted. Returns the summary's words."""
+    def run(argv, timeout):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout)
+            return r.stdout + r.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return f"{argv[0]}: {error}\n"
+
+    def save(name, text, lines=400):
+        with open(os.path.join(out, name), "w") as f:
+            f.writelines(redact(line) for line in text.splitlines(keepends=True)[-lines:])
+        return name
+
+    try:  # the worker's rule (build-fleet console_session.go): loginwindow or no key is nobody
+        scutil = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n",
+                                capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        scutil = ""
+    console = re.search(r"(?m)^\s*Name : (\S+)", scutil)
+    facts = (f"running {app.poll() is None}, account {pwd.getpwuid(os.getuid()).pw_name}, console user "
+             f"{console.group(1) if console else 'none'}, launchd {run(['/bin/launchctl', 'managername'], 10).strip()}, "
+             f"socket {'present' if os.path.exists(sock) else 'absent'}")
+    files = [save("mac-app-sample.txt", run(["/usr/bin/sample", str(app.pid), "3"], 60), 2000),
+             save("mac-app-unified.log", run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact",
+                                              "--predicate", f"processID == {app.pid}"], 60))]
+    debug_log = ls_env.get("CMUX_DEBUG_LOG") or f"/tmp/cmux-debug-{tag}.log"
+    if os.path.exists(debug_log):
+        files.append(save("mac-debug-log-tail.txt", open(debug_log, errors="replace").read(), 200))
+    return f"{facts}; {', '.join(files)}"
 
 
 def scanner(udid, shot):
