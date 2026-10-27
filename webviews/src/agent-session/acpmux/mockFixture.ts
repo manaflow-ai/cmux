@@ -44,7 +44,9 @@ export type MockSession = {
 
 type Update = Record<string, unknown>;
 /// One seeded event, `ago` milliseconds before the fixture loads.
-export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string, unknown> }) & { ago: number };
+export type SeedStep = ({ update: Update; acpmux?: Update } | { mux: string; msg?: Record<string, unknown> }) & {
+  ago: number;
+};
 
 export const LOCAL_HOST = "This Mac";
 
@@ -128,6 +130,7 @@ const effort = (currentValue: string) => [
 
 /// The session the pane opens on: one fully worked turn.
 export const WORKED_SESSION = "mock-session";
+export const SUBAGENT_NAVIGATION_SESSION = "mock-subagent-navigation";
 const CMUX = "~/code/cmux";
 
 export const mockSessions: MockSession[] = [
@@ -419,6 +422,18 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     reply: "The config now lives in dotfiles and links into ~/.config/ghostty on each machine.",
+  },
+  {
+    sessionId: SUBAGENT_NAVIGATION_SESSION,
+    title: "Review subagent navigation",
+    harness: "codex",
+    model: "gpt-6-astra",
+    status: "idle",
+    cwd: CMUX,
+    ago: 2,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Both reviews are complete. Open either subagent to read its findings.",
   },
 ];
 
@@ -740,6 +755,49 @@ export function sessionHistory(session: MockSession): SeedStep[] {
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },
   ];
+  // Every mock page reconstructs these native child records, including a newly opened side tab.
+  if (session.sessionId === SUBAGENT_NAVIGATION_SESSION) {
+    const children = [
+      {
+        id: "child-a",
+        task: "Audit pane placement",
+        reply: "The child chat stays beside its parent.",
+      },
+      {
+        id: "child-b",
+        task: "Review tab reuse",
+        reply: "Opening the same child selects its existing tab.",
+      },
+    ];
+    const update = (ago: number, value: Update, acpmux: Update): SeedStep => ({
+      ago,
+      update: value,
+      acpmux,
+    });
+    steps.push(
+      update(
+        at + 80_000,
+        { sessionUpdate: "subagent_spawned" },
+        {
+          subagents: children.map(({ id, task }) => ({
+            id,
+            parent: null,
+            name: `fixture/toolu_${id}`,
+            task,
+            state: "running",
+          })),
+        },
+      ),
+      ...children.map(({ id, reply }) => update(at + 40_000, text(reply), { subagent: id })),
+      update(
+        at + 35_000,
+        { sessionUpdate: "subagent_state_update" },
+        {
+          subagents: children.map(({ id }) => ({ id, state: "completed" })),
+        },
+      ),
+    );
+  }
   if (session.render)
     steps.push({
       ago: at + 40_000,

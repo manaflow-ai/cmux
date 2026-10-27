@@ -83,7 +83,7 @@ export function mockReply(prompt: string): string {
 
 type Update = Record<string, unknown>;
 /// One scripted step: an ACP `session/update`, or a daemon (mux) event.
-type Step = { update: Update } | { mux: string; msg?: Record<string, unknown> };
+type Step = { update: Update; acpmux?: Update } | { mux: string; msg?: Record<string, unknown> };
 /// A recorded turn to replay instead of the scripted one (the screenshot harness,
 /// `webviews/scripts/agent-pane`). `atMs` stamps a step that far after the turn
 /// started, so durations read as recorded; steps are delivered without pacing.
@@ -771,7 +771,14 @@ export class MockAcpmuxSocket {
             at,
             dir: "in",
             kind: String(step.update.sessionUpdate),
-            msg: { method: "session/update", params: { sessionId: target, update: step.update } },
+            msg: {
+              method: "session/update",
+              params: {
+                sessionId: target,
+                update: step.update,
+                ...(step.acpmux && { _meta: { acpmux: step.acpmux } }),
+              },
+            },
           }
         : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);
