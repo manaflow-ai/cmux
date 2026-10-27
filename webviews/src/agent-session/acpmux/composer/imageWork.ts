@@ -121,12 +121,13 @@ function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
   while (offset + 12 <= bytes.length) {
     const length = view.getUint32(offset);
     const end = offset + 12 + length;
-    if (end > bytes.length) return sawAncillary ? undefined : bytes;
+    if (end > bytes.length) return sawAncillary || sawData ? undefined : bytes;
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
-    if (!/^[A-Za-z]{4}$/.test(type)) return sawAncillary ? undefined : bytes;
+    if (!/^[A-Za-z]{4}$/.test(type)) return sawAncillary || sawData ? undefined : bytes;
     if (offset === 8 && (type !== "IHDR" || length !== 13)) return undefined;
     const chunk = bytes.subarray(offset, end);
     const critical = type.charCodeAt(0) < 0x61;
+    if (critical && type !== "IHDR" && type !== "PLTE" && type !== "IDAT" && type !== "IEND") return undefined;
     if (critical || type === "tRNS") chunks.push(chunk);
     else sawAncillary = true;
     if (type === "IDAT") sawData = true;
@@ -147,26 +148,70 @@ function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
   return sawAncillary || sawData ? undefined : bytes;
 }
 
+function metadataFreeJpeg(bytes: Uint8Array): Uint8Array | undefined {
+  if (bytes.length < 2 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
+  const chunks: Uint8Array[] = [bytes.subarray(0, 2)];
+  let offset = 2;
+  while (offset + 1 < bytes.length) {
+    const markerStart = offset;
+    if (bytes[offset] !== 0xff) return undefined;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return undefined;
+    const marker = bytes[offset]!;
+    offset += 1;
+    if (marker === 0xd9) {
+      chunks.push(bytes.subarray(markerStart, offset));
+      return joinChunks(chunks);
+    }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      chunks.push(bytes.subarray(markerStart, offset));
+      continue;
+    }
+    if (offset + 2 > bytes.length) return undefined;
+    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
+    if (length < 2 || offset + length > bytes.length) return undefined;
+    const end = offset + length;
+    const segment = bytes.subarray(markerStart, end);
+    if (marker !== 0xda && !(marker >= 0xe0 && marker <= 0xef) && marker !== 0xfe) chunks.push(segment);
+    if (marker === 0xda) {
+      chunks.push(bytes.subarray(end));
+      return joinChunks(chunks);
+    }
+    offset = end;
+  }
+  return undefined;
+}
+
+function joinChunks(chunks: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(chunks.reduce((total, value) => total + value.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
 /// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
   // Unit-test DOMs and a few embedded WebKit surfaces do not expose the bitmap/canvas APIs. Keep
-  // small, already-sized PNG images attachable there instead of dropping the paste on the floor;
-  // sanitize valid chunks and reject images that cannot meet the bounded preview contract. JPEGs
-  // stay file attachments until a decoder is available, since parsing them cannot safely strip all
-  // metadata or resize the pixels.
+  // small, already-sized PNG/JPEG images attachable there instead of dropping the paste on the
+  // floor; sanitize valid chunks/segments and reject images that cannot meet the bounded preview
+  // contract. Other formats stay file attachments until a decoder is available.
   if (!canDraw()) {
-    if (file.type !== "image/png" || file.size > IMAGE_BUDGET_BYTES) return undefined;
+    if ((file.type !== "image/png" && file.type !== "image/jpeg") || file.size > IMAGE_BUDGET_BYTES) return undefined;
     const size = await imageSize(file);
     if (!size?.width || !size.height) return undefined;
     if (size.width > MAX_IMAGE_SIDE || size.height > MAX_IMAGE_SIDE) return undefined;
     if (size.width > MAX_DECODE_PIXELS / size.height) return undefined;
-    const preview = metadataFreePng(new Uint8Array(await file.arrayBuffer()));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const preview = file.type === "image/png" ? metadataFreePng(bytes) : metadataFreeJpeg(bytes);
     if (!preview || preview.length > IMAGE_BUDGET_BYTES) return undefined;
     return {
-      mimeType: "image/png",
+      mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
       data: base64(preview),
     };
   }

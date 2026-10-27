@@ -24,7 +24,7 @@ function png(width: number, height: number): Blob {
   return new Blob([bytes], { type: "image/png" });
 }
 
-function validPng(width: number, height: number, text = ""): Blob {
+function validPng(width: number, height: number, text = "", malformedAfterData = false): Blob {
   const encoder = new TextEncoder();
   const chunk = (type: string, data: Uint8Array) => {
     const bytes = new Uint8Array(12 + data.length);
@@ -44,7 +44,7 @@ function validPng(width: number, height: number, text = ""): Blob {
     chunk("IHDR", header),
     ...(text ? [chunk("tEXt", encoder.encode(`Comment\0${text}`))] : []),
     chunk("IDAT", new Uint8Array([0])),
-    chunk("IEND", new Uint8Array()),
+    ...(malformedAfterData ? [new Uint8Array([7, 7])] : [chunk("IEND", new Uint8Array())]),
   ];
   const bytes = new Uint8Array(8 + chunks.reduce((total, value) => total + value.length, 0));
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -121,6 +121,21 @@ test("a no-canvas preview strips PNG metadata", async () => {
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   expect(new TextDecoder().decode(bytes)).not.toContain("private capture metadata");
+});
+
+test("a malformed PNG after image data is rejected", async () => {
+  expect(await prepareImage(validPng(64, 32, "", true))).toBeUndefined();
+});
+
+test("a no-canvas JPEG preview strips metadata", async () => {
+  const metadata = new Uint8Array([0xff, 0xe1, 0, 8, 0x70, 0x72, 0x69, 0x76]);
+  const frame = new Uint8Array([0xff, 0xc0, 0, 11, 8, 0, 32, 0, 64, 1, 1, 0x11, 0]);
+  const scan = new Uint8Array([0xff, 0xda, 0, 8, 1, 1, 0, 0x3f, 0, 1, 2, 0xff, 0xd9]);
+  const source = new Blob([new Uint8Array([0xff, 0xd8]), metadata, frame, scan], { type: "image/jpeg" });
+  const prepared = await prepareImage(source);
+  expect(prepared?.mimeType).toBe("image/jpeg");
+  const binary = atob(prepared?.data ?? "");
+  expect(binary).not.toContain("priv");
 });
 
 test("a no-canvas preview rejects images over side and pixel limits", async () => {
