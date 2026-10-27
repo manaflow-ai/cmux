@@ -2,6 +2,7 @@
 import CmuxNextMetrics
 @testable import CmuxNextTrace
 import Darwin
+import Foundation
 import Testing
 
 /// The field histograms of p09-observability task 060: `cef.pump`, one sample per pass in us into the metrics of the

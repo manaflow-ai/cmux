@@ -25,12 +25,13 @@
 //!   `loopback-closed {stream, error?}`. Data, EOF and close of one stream
 //!   travel in one ordered outbound stream.
 
+use cmux_threads::sync::{Condvar, Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::ops::RangeInclusive;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -597,7 +598,7 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let allowed = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.send_credit == 0 && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
@@ -652,7 +653,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let chunk = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.queue.is_empty() && !inner.client_shutdown && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;

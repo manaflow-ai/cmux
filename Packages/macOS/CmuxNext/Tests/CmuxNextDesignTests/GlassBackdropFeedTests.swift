@@ -274,6 +274,66 @@ import CmuxNextWakeups
         rig.frame()
         #expect(rig.scripts.all.count == 2, "a page with no still was pushed again")
     }
+
+    /// A hidden page (p13-webui-065): the feed stops hearing its backdrop, asks for no frame and pushes
+    /// nothing, whatever moves meanwhile; the show pushes what changed once, on its next frame.
+    @Test func aHiddenPageHasNoGlassObserverAndItsShowPushesOnce() async throws {
+        let art = try GlassBackdropTests.artFile()
+        defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
+        var rig = try await Rig(art: art)
+        defer { rig.window.window.close() }
+        rig.feed.refresh(newDocument: true)
+        #expect(rig.scripts.all.count == 1)
+        #expect(rig.window.backdrop.glassFeeds.allObjects.count == 1)
+
+        rig.feed.setPageShown(false)
+        #expect(rig.window.backdrop.glassFeeds.allObjects.count == 0, "a hidden page's feed still observes its backdrop")
+        rig.window.page.frame.origin.x = 60
+        rig.window.backdrop.setFrameSize(NSSize(width: 360, height: 220))
+        rig.feed.refresh()
+        rig.feed.hostDidLayout()
+        rig.feed.placementSettled()
+        rig.feed.landed()
+        for _ in 1...5 { rig.frame() }
+        #expect(rig.scripts.all.count == 1, "a hidden page got \(rig.scripts.all.count - 1) glass pushes")
+        #expect(rig.window.backdrop.glassFeeds.allObjects.count == 0)
+
+        rig.feed.setPageShown(true)
+        rig.frame()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "the show pushed \(rig.scripts.all.count - 1) scripts, not one")
+        #expect(rig.window.backdrop.glassFeeds.allObjects.count == 1, "the shown page's feed does not observe its backdrop again")
+        #expect(rig.feed.sent?.rect == rig.rectNow(), "the show did not push the place the page has now")
+    }
+
+    /// A push the page held (a frozen page keeps only the newest glass push for its thaw, p13-webui-065):
+    /// the next push carries every field and the image, so it can take the held one's place; after it, a
+    /// push carries only what changed again.
+    @Test func thePushAfterAHeldOneCarriesTheWholeState() async throws {
+        let art = try GlassBackdropTests.artFile()
+        defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
+        var rig = try await Rig(art: art)
+        defer { rig.window.window.close() }
+        rig.feed.refresh(newDocument: true)
+        #expect(rig.scripts.all.count == 1)
+        #expect(rig.scripts.all.last?.contains("\"image\"") == true)
+
+        rig.feed.pushWasHeld()
+        rig.window.page.frame.origin.x = 40
+        rig.feed.placementSettled()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2)
+        let whole = try #require(rig.scripts.all.last)
+        for field in ["\"key\"", "\"image\"", "\"rect\"", "\"blur\"", "\"tint\""] {
+            #expect(whole.contains(field), "the push after a held one left out \(field)")
+        }
+
+        rig.window.page.frame.origin.x = 50
+        rig.feed.placementSettled()
+        rig.frame()
+        #expect(rig.scripts.all.count == 3)
+        #expect(rig.scripts.all.last?.contains("\"image\"") == false, "a push after a run one resent the image")
+    }
 }
 
 /// The glass mode a test switches.

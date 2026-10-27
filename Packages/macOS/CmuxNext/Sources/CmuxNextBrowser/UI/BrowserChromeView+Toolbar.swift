@@ -14,13 +14,13 @@ extension BrowserChromeView {
     func setToolbarHidden(_ hidden: Bool) {
         guard hidden != isToolbarHidden else { return }
         isToolbarHidden = hidden
-        let height = hidden ? 0 : currentToolbarHeight
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
         accessoryBar.isHidden = hidden
         applyAccessoryHeight()
+        // invalidate: the toolbar row's height in the layout changed (`toolbarRowHeight`).
+        needsLayout = true
         Motion.overlays.animateTimed(hidden ? .disappear : .appear, in: self, {
-            // Outside a window no display runs the animation, so set the constant directly.
-            (self.window == nil ? self.toolbarHeight : Motion.animator(self.toolbarHeight, in: self)).constant = height
+            self.syncHeaderBand(animated: true)
             // sync-layout: inside the animation group, so the rows' frames animate to the new toolbar height.
             self.layoutSubtreeIfNeeded()
         }, completion: {

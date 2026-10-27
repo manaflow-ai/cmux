@@ -35,6 +35,13 @@ import Darwin
 /// `surface` is the surface's `userdata` (``SurfaceBridge``), `seq` the surface's frame number (from 1; a
 /// frame's begin, end, handoff and GPU completion share it), and every event of a surface fires before
 /// `ghostty_surface_free` returns, as `io_write_cb` does.
+///
+/// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`, ghostty-next p03-rendering-080) the renderer presents
+/// each frame itself off the main thread, so the frame mark is its presentation: each surface's
+/// `presented_cb` (``ghosttySurfacePresented(_:_:_:_:)``) marks the echo stage, the probe's
+/// ``TypingLatencyProbe/Mark/contents`` and the new-terminal trace, as Chromium marks a frame shown at its
+/// presentation feedback (`viz::Display::DidReceivePresentationFeedback`, components/viz/service/display/display.cc).
+/// The handoff then marks nothing, so no frame counts twice and no frame counts before it shows.
 @MainActor
 public final class GhosttyTraceHook {
     /// `ghostty_trace_hook_cb`.
@@ -81,8 +88,21 @@ public final class GhosttyTraceHook {
         context = unsafe Unmanaged.passRetained(recorder).toOpaque()
     }
 
-    /// Whether the linked libghostty has the hook, so echo stages see frames without the DEBUG swizzle.
+    /// Whether the linked libghostty has the hook.
     public var isSupported: Bool { setter != nil }
+
+    /// Whether every surface reports its presented frames (`presented_cb`, `GHOSTTY_RENDERER_FRAMES`): then
+    /// those are the frame marks, not the handoff.
+    nonisolated static var presentsFrames: Bool {
+        #if GHOSTTY_RENDERER_FRAMES
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Whether echo stages see frames without the DEBUG swizzle: the hook's handoffs or the presented frames.
+    var seesFrames: Bool { isSupported || Self.presentsFrames }
 
     /// `ghostty_set_trace_hook` from the linked libghostty, looked up by name so cmux builds against a
     /// GhosttyNextKit from before p09-observability-048; nil there.
@@ -119,9 +139,10 @@ public final class GhosttyTraceHook {
     /// Sets the hook while something reads it and clears it otherwise. Call it at start and after the typing
     /// probe's flows or the trace categories change (`trace.start`, `trace.stop`).
     public func refreshDemand() {
+        // This libghostty reports every handoff or presented frame, so a key.echo_frame sample can end: turn the
+        // probe's sampling on.
+        if seesFrames { recorder.probe.startEchoSampling() }
         guard let setter else { return }
-        // This libghostty reports every handoff, so a key.echo_frame sample can end: turn the probe's sampling on.
-        recorder.probe.startEchoSampling()
         let wanted = echoStagesNeedFrames || recorder.probe.isRecording || recorder.probe.samplesEchoFrames
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.ghostty.traceBit)
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.frame.traceBit)
@@ -268,18 +289,38 @@ extension GhosttyTraceHook {
                 trace.writeEnd(name: SignpostName.ghosttyRender.rawValue, categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit,
                                phase: .end, arg0: surface.key.traceID)
             case .contentsHandoff:
-                if gate.isOpen { surface.echoStage?.contentsSet() }
-                guard probe.isRecording else { return }
-                let awaitsGPU = deliversGPU && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
-                let flows = probe.mark(.contents, surface: surface.key, awaitsGPU: awaitsGPU)
-                guard awaitsGPU, !flows.isEmpty else { return }
-                deliver(surface.awaitGPU(flows, seq: seq))
+                // Presented frames are the marks when the surfaces report them (``presented(on:frameID:)``).
+                guard !GhosttyTraceHook.presentsFrames else { return }
+                frameShown(on: surface, seq: seq, gpuMayRun: true)
             case .gpuDone:
                 trace.event(.frameGPUDone, arg0: surface.key.traceID, arg1: seq)
                 deliver(surface.gpuDidFinish(seq: seq))
             case .ioWrite:
                 return // Ghostty's io_write_cb marks the write (``TypingLatencyProbe/inputWritten(on:)``).
             }
+        }
+
+        /// The renderer presented frame `frameID` of `surface` (``ghosttySurfacePresented(_:_:_:_:)``) from a Core
+        /// Animation thread: the frame mark of the echo stage, the probe and the new-terminal trace. Its GPU work
+        /// is done, so no commit waits for it.
+        func presented(on surface: Surface, frameID: UInt64) {
+            frameShown(on: surface, seq: frameID, gpuMayRun: false)
+        }
+
+        /// Frame `seq` of `surface` reached the screen's path: the echo stage's frame, the probe's contents mark
+        /// for the surface's parsed presses and, while armed, the new-terminal trace's contents. `gpuMayRun`: the
+        /// frame was handed over before its GPU completion may have run (the handoff), so its commits wait for it.
+        private func frameShown(on surface: Surface, seq: UInt64, gpuMayRun: Bool) {
+            if gate.isOpen { surface.echoStage?.contentsSet() }
+            #if (DEBUG || CMUX_BENCH_HOOKS) && GHOSTTY_RENDERER_FRAMES
+            // No layer gets the frame (TypingFrameProbe): the trace watches this surface's frames.
+            if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(surface)) }
+            #endif
+            guard probe.isRecording else { return }
+            let awaitsGPU = gpuMayRun && deliversGPU && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
+            let flows = probe.mark(.contents, surface: surface.key, awaitsGPU: awaitsGPU)
+            guard awaitsGPU, !flows.isEmpty else { return }
+            deliver(surface.awaitGPU(flows, seq: seq))
         }
 
         /// Posts each flow's GPU completion, now, to the presents (the ``GPUDelivery`` given).
@@ -310,5 +351,24 @@ nonisolated func ghosttyTraceHook(_ context: UnsafeMutableRawPointer?, _ event: 
         unsafe Unmanaged<SurfaceBridge>.fromOpaque(bridge)._withUnsafeGuaranteedRef { bridge in
             recorder.record(event, on: bridge.frames, seq: seq)
         }
+    }
+}
+
+/// `ghostty_surface_presented_cb` (ghostty-next p03-rendering-080), set in every surface's config under
+/// `GHOSTTY_RENDERER_FRAMES`: on a Core Animation thread, once per frame the renderer presented. `userdata` is the
+/// surface's ``SurfaceBridge`` (`presented_userdata`), which outlives the surface; `presentedTime` is 0 for a
+/// frame that was not shown, which marks nothing (the next shown frame carries its echo). It never blocks, waits
+/// for main or calls into Ghostty, as ghostty.h requires; it takes a lock only while the typing probe records or
+/// a DEBUG new-terminal trace is armed, as the handoff does.
+// perf-hot: 0.05us terminal-key
+nonisolated func ghosttySurfacePresented(_ userdata: UnsafeMutableRawPointer?, _ frameID: UInt64, _ hostTime: UInt64,
+                                         _ presentedTime: Double) {
+    guard presentedTime > 0 else { return }
+    // SAFETY: a surface's `presented_userdata`, its SurfaceBridge, which stays alive until after
+    // ghostty_surface_free returns, and no call starts after that (ghostty.h); borrowed for this call only.
+    guard let raw = unsafe userdata else { return }
+    // SAFETY: as above.
+    unsafe Unmanaged<SurfaceBridge>.fromOpaque(raw)._withUnsafeGuaranteedRef { bridge in
+        bridge.frameMarks?.presented(on: bridge.frames, frameID: frameID)
     }
 }

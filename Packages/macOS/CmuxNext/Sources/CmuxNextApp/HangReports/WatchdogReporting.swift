@@ -4,8 +4,10 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
@@ -32,8 +34,17 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+                HangReport.FeatureState(features.fieldState)
+            })
         let collector = hangReports.collector
+        // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
+        // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
+        if services.blocking.isCompiledIn {
+            let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
+            services.blocking.watchDrain { job in drain.run(job) }
+        }
         let blockingSink = BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) }))
@@ -47,6 +58,14 @@ enum WatchdogReporting {
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
+        }
+        // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
+        // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
+        watchdog.onThreadHang = { hang in
+            reporter.reportThreadHang(ThreadHangEvent(thread: hang.name, threadKind: hang.kindName, threadName: hang.threadName,
+                                                      overrun: hang.overrun, addresses: hang.addresses))
+            collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
+                                      thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)

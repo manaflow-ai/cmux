@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4d89facbcb55f4f8647e8f7a45f3fd5cb785a93ea85e05d0d1eac7dc1173fc7f. */
+/* cmux-tui mux protocol 12, IR 6d81af8113e44d483591c9ebc76950754734ed91d8ea2082fb81b8589b5b45cb. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -924,6 +924,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;

@@ -66,26 +66,16 @@ extension PageWebView {
     /// pixel (WebKit pages take no pinch or smart magnification, ``PageWKWebView``).
     public var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
 
-    // MARK: Engine-neutral document calls
-
-    /// Runs `script` in the page's main frame in whichever engine shows it.
-    func evaluateInPage(_ script: String) {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if router.debugPageHidden { censusState.pushesWhileHidden &+= 1 }
-        #endif
-        // The router envelopes waiting for the frame were sent before it.
-        scripts.flush()
-        scriptTarget.evaluate(script)
-    }
-
     /// Tells a Chromium page whether it shows (a hidden one stops drawing), the router's hidden hold
     /// (``holdDeliveryWhileHidden(visible:)``), and the census. A frozen
-    /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
-    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
+    /// page thaws before it shows, whichever path showed it (``thawPage()``, which runs its held
+    /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
+    /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
     /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
+        glassFeed.setPageShown(visible)
         chromiumSession?.page.setVisible(visible)
         chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
@@ -130,11 +120,13 @@ extension PageWebView {
         #endif
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
+            // Read in the task's turn, after the opening turn set it (``PageOpenRequest/chromiumWindow``).
+            let window = self?.chromiumWindow
             do {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }
@@ -142,12 +134,14 @@ extension PageWebView {
             }
             guard let self, !Task.isCancelled else { return page.close() }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs, madeIn: window)
         }
     }
 
+    /// `madeIn`: the pane window the page was made in; a tab that moved to another pane meanwhile moves the page
+    /// there once it is the view's page.
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
-                                dialogs: CmuxDialogCenter) async {
+                                dialogs: CmuxDialogCenter, madeIn: PageChromiumWindow?) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
@@ -177,8 +171,9 @@ extension PageWebView {
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
+        if let chromiumWindow, chromiumWindow != madeIn { page.moveWindow(to: chromiumWindow) }
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
+        bridge.evaluate(DesignSettings.shared.interfaceScaleScript) // MQ12 allowed: a starting page never froze
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
@@ -293,7 +288,8 @@ extension PageWebView {
     /// for the supervisor. A page that closed, fell back or was discarded has no start and no session,
     /// and a page that waits already ignores it.
     private func chromiumBrowserEnded() {
-        guard chromiumSession != nil || chromiumStart != nil else { return }
+        // A closed page waiting for its engine close asks no supervisor for a new browser.
+        guard !router.isEnded, chromiumSession != nil || chromiumStart != nil else { return }
         PageChromiumRecovery.browserEnded(self)
     }
 
@@ -330,7 +326,7 @@ extension PageWebView {
     private func filesDragged(_ urls: [URL]) {
         let url = urls.first.flatMap { url in fileDrop.flatMap { $0.accepts(url) ? url : nil } }
         chromiumDragFile = url.map { ($0, now()) }
-        chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))")
+        chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))") // MQ12 allowed: a drag enters a shown page
     }
 
     /// The page script handed a drop over. Only the file of a real drag the host took opens, once,
@@ -369,6 +365,9 @@ extension PageWebView {
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
+        // MQ12 thaws first: a frozen page cannot answer, and it does not freeze until the answer comes.
+        pushes.callStarted()
+        defer { pushes.callEnded() }
         // The router envelopes waiting for the frame were sent before it.
         scripts.flush()
         guard let page = chromiumSession?.page else {
@@ -385,6 +384,6 @@ extension PageWebView {
     /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
     private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
-        return (try? await page.evaluate(expression)) as? Bool == true
+        return (try? await page.evaluate(expression)) as? Bool == true // MQ12 allowed: focus keeps a page from freezing
     }
 }

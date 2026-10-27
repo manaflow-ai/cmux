@@ -4,6 +4,8 @@ public import AppKit
 import CmuxNextWakeups
 import Darwin
 import Observation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// One Chromium page whose browser process runs in a host app of its own
 /// (prototype behind the feature `cefHelperHost`;
@@ -104,9 +106,9 @@ public final class ChromiumHostSession {
     private var geometry: ChromiumHostGeometry?
     // The measurement requests (ChromiumHostSession+Measure.swift).
     var seq: UInt32 = 0
-    var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
+    var pongs: [UInt32: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>] = [:]
     /// Stats requests by `seq`, which the host's reply echoes.
-    var statsWaiters: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
+    var statsWaiters: [UInt32: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>] = [:]
     private var tasks: [Task<Void, Never>] = []
     /// ``start()`` launched a host that ``launched(_:)`` has not connected yet.
     private var launching = false

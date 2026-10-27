@@ -176,6 +176,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    /// The tab moves into `window`'s page window (`CEFTab.moveToPagesPane(_:)`). A fork before
+    /// `cmux_tab_move_to_window` (API 3, older than any fork cmux ships) cannot move it: it stays where it is.
+    func moveWindow(to window: PageChromiumWindow) {
+        guard !closed, !tab.moveToPagesPane(ChromiumPageHost.pane(of: window)) else { return }
+        logger.error("page \(self.pageID, privacy: .public) stays in its Chromium window: the tab cannot move")
+    }
+
     /// The tab's page lifecycle (`CEFTab.setFrozen`: the fork's `SetPageFrozen`, DevTools before
     /// fork API 29). A closed page changes nothing.
     @discardableResult

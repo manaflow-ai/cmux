@@ -301,12 +301,15 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     }
     let weak = Arc::downgrade(mux);
     let thread_runtime = runtime.clone();
-    let spawned =
-        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-session-journal-hooks",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
             run_dispatcher(weak, &mut claim, thread_runtime);
-        });
+        },
+    );
     if let Err(error) = spawned {
         runtime.finish();
         mux.release_journal_hook_dispatcher();
@@ -367,9 +370,13 @@ fn start_delivery_workers(
         let completions = completion_tx.clone();
         let journal = journal.clone();
         let runtime = runtime.clone();
-        let spawned = std::thread::Builder::new()
-            .name(format!("journal-hook-worker-{index}"))
-            .spawn(move || run_delivery_worker(&jobs, &completions, &journal, &runtime));
+        let spawned = cmux_threads::spawn(
+            format!("journal-hook-worker-{index}"),
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                run_delivery_worker(&jobs, &completions, &journal, &runtime);
+            },
+        );
         match spawned {
             Ok(handle) => {
                 capacity += 1;
@@ -1141,18 +1148,21 @@ fn execute_hook_child_portable(
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
-    let writer =
-        match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(move || {
+    let writer = match cmux_threads::spawn(
+        "journal-hook-stdin",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let result = stdin.write_all(&input);
             drop(stdin);
             let _ = write_result_sender.send(result);
-        }) {
-            Ok(writer) => writer,
-            Err(error) => {
-                job.terminate_and_wait(child);
-                return (None, Some(format!("start hook stdin writer: {error}")));
-            }
-        };
+        },
+    ) {
+        Ok(writer) => writer,
+        Err(error) => {
+            job.terminate_and_wait(child);
+            return (None, Some(format!("start hook stdin writer: {error}")));
+        }
+    };
 
     loop {
         if cancelled.load(Ordering::Acquire) {

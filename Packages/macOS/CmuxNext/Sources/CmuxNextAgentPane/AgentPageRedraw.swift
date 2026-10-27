@@ -14,12 +14,30 @@ public final class AgentPageRedraw {
     /// The size the page last laid out at in a window.
     private var drawnSize: CGSize?
     private var waiters: [() -> Void] = []
-    private var frameWaiters: [() -> Void] = []
+    /// The frame wait on the way: nil once the page ran its frame callback or dropped it.
+    private weak var frameWait: FrameWait?
+    /// How a frame is asked of the page: ``PageWebView/afterNextFrame(_:)``.
+    private let nextFrame: @MainActor (PageWebView, @escaping () -> Void) -> Void
     private var probing = false
     private var generation: UInt64 = 0
 
-    init(page: PageWebView) {
+    init(page: PageWebView, nextFrame: @escaping @MainActor (PageWebView, @escaping () -> Void) -> Void = { $0.afterNextFrame($1) }) {
         self.page = page
+        self.nextFrame = nextFrame
+    }
+
+    /// The bodies waiting for one page frame. Only the page's frame callback keeps them (Chromium's
+    /// `base::OnceCallback` bound into the callback, base/functional/callback.h): a callback the page
+    /// drops drops them too, so a `OnceContinuation` among them ends `.abandoned` instead of hanging.
+    @MainActor
+    private final class FrameWait {
+        var bodies: [() -> Void] = []
+
+        func finish() {
+            let waiting = bodies
+            bodies = []
+            waiting.forEach { $0() }
+        }
     }
 
     /// The frame-then-task wait in the page; `done` runs after it (now when the page is gone).
@@ -79,12 +97,21 @@ public final class AgentPageRedraw {
     /// Runs `body` once the page's next frame is on screen: one animation frame and a task in the
     /// page, then (WebKit) the next presentation update the window shows, so a page moved into
     /// another view has drawn there (cx-21zkz: the page's task ran a few frames before). Now when
-    /// the page is gone.
+    /// the page is gone. Never when the page drops its frame callback: `body` is released then, and the
+    /// next call asks the page for a frame again.
     public func afterNextFrame(_ body: @escaping () -> Void) {
         guard let page else { return body() }
-        frameWaiters.append(body)
-        guard frameWaiters.count == 1 else { return }
-        page.afterNextFrame { [weak self] in self?.finishFrame() }
+        if let frameWait {
+            frameWait.bodies.append(body)
+            return
+        }
+        let wait = FrameWait()
+        wait.bodies.append(body)
+        frameWait = wait
+        nextFrame(page) { [weak self] in
+            if self?.frameWait === wait { self?.frameWait = nil }
+            wait.finish()
+        }
     }
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
@@ -118,12 +145,6 @@ public final class AgentPageRedraw {
         guard let remembered, remembered.size == size, remembered.appearance == appearance,
               remembered.generation == AgentPaneNewTabFrame.shared.generation else { return nil }
         return remembered.image
-    }
-
-    private func finishFrame() {
-        let waiting = frameWaiters
-        frameWaiters = []
-        waiting.forEach { $0() }
     }
 
     private func finish() {

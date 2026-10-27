@@ -1190,6 +1190,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1789,6 +1797,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -1833,6 +1842,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "notify",
+ "objc2-foundation",
  "parking_lot",
  "proptest",
  "quick-xml",

@@ -362,6 +362,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(agent_cli_intents::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
+    capabilities.push(energy_op::RULE_CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]
@@ -631,6 +632,7 @@ pub(super) fn advertised_capabilities(
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
         crate::event_cause::CAPABILITY,
+        crate::event_cause::REQUEST_PRIORITY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

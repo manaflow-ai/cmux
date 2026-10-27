@@ -72,6 +72,9 @@ enum MuxEventFilter {
     LaunchSnapshot,
     /// Local conversation changes (the host replica's Chief stream).
     Conversations,
+    /// Only events of these kinds: a page relay's interest set, so an event
+    /// it never hears is not cloned into its mailbox or rendered.
+    Kinds(MuxEventKinds),
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -133,6 +136,11 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::Conversations)
+    }
+
+    /// A subscription that receives only events of `kinds`.
+    pub(crate) fn subscribe_kinds(&self, kinds: MuxEventKinds) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Kinds(kinds))
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -223,6 +231,129 @@ impl MuxEventBroadcaster {
     }
 }
 
+/// The variant of a [`MuxEvent`], the unit of a [`MuxEventKinds`] interest
+/// set. Chromium routes an event only to listeners registered for its name
+/// (extensions/browser/event_router.cc, `EventRouter::DispatchEventImpl`);
+/// a subscription with an interest set is filtered the same way, on the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MuxEventKind {
+    SurfaceOutput,
+    SurfaceResized,
+    SurfaceResizeFailed,
+    SurfaceExited,
+    ProgramStatusChanged,
+    TitleChanged,
+    AgentChanged,
+    AgentPresenceChanged,
+    Bell,
+    Notification,
+    GraphicsStatus,
+    Status,
+    ConfigReloadRequested,
+    WindowTitleRequested,
+    ScrollChanged,
+    TreeChanged,
+    TreeSelectionChanged,
+    TreeDelta,
+    FrontendProjectionChanged,
+    PersonalChanged,
+    BookmarksChanged,
+    HistoryChanged,
+    SettingsChanged,
+    KeybindingsChanged,
+    Conversation,
+    CloudConversation,
+    TerminalRegistryChanged,
+    TerminalReaped,
+    LayoutChanged,
+    ClientAttached,
+    ClientChanged,
+    ClientDetached,
+    SizeStateChanged,
+    ClientListInvalidated,
+    PairingRequested,
+    PairingResolved,
+    MachineUsageChanged,
+    DiagnosticSite,
+    Empty,
+}
+
+// Every kind is one bit of `MuxEventKinds`.
+const _: () = assert!(MuxEventKind::COUNT <= u64::BITS as usize);
+
+impl MuxEventKind {
+    /// How many kinds there are (`Empty` is the last).
+    pub(crate) const COUNT: usize = Self::Empty as usize + 1;
+
+    pub(crate) const fn of(event: &MuxEvent) -> Self {
+        match event {
+            MuxEvent::SurfaceOutput(_) => Self::SurfaceOutput,
+            MuxEvent::SurfaceResized { .. } => Self::SurfaceResized,
+            MuxEvent::SurfaceResizeFailed { .. } => Self::SurfaceResizeFailed,
+            MuxEvent::SurfaceExited(..) => Self::SurfaceExited,
+            MuxEvent::ProgramStatusChanged { .. } => Self::ProgramStatusChanged,
+            MuxEvent::TitleChanged { .. } => Self::TitleChanged,
+            MuxEvent::AgentChanged { .. } => Self::AgentChanged,
+            MuxEvent::AgentPresenceChanged { .. } => Self::AgentPresenceChanged,
+            MuxEvent::Bell(_) => Self::Bell,
+            MuxEvent::Notification(_) => Self::Notification,
+            MuxEvent::GraphicsStatus(_) => Self::GraphicsStatus,
+            MuxEvent::Status(_) => Self::Status,
+            MuxEvent::ConfigReloadRequested => Self::ConfigReloadRequested,
+            MuxEvent::WindowTitleRequested(_) => Self::WindowTitleRequested,
+            MuxEvent::ScrollChanged { .. } => Self::ScrollChanged,
+            MuxEvent::TreeChanged => Self::TreeChanged,
+            MuxEvent::TreeSelectionChanged => Self::TreeSelectionChanged,
+            MuxEvent::TreeDelta(_) => Self::TreeDelta,
+            MuxEvent::FrontendProjectionChanged { .. } => Self::FrontendProjectionChanged,
+            MuxEvent::PersonalChanged { .. } => Self::PersonalChanged,
+            MuxEvent::BookmarksChanged(_) => Self::BookmarksChanged,
+            MuxEvent::HistoryChanged { .. } => Self::HistoryChanged,
+            MuxEvent::SettingsChanged(_) => Self::SettingsChanged,
+            MuxEvent::KeybindingsChanged(_) => Self::KeybindingsChanged,
+            MuxEvent::Conversation(_) => Self::Conversation,
+            MuxEvent::CloudConversation(_) => Self::CloudConversation,
+            MuxEvent::TerminalRegistryChanged { .. } => Self::TerminalRegistryChanged,
+            MuxEvent::TerminalReaped { .. } => Self::TerminalReaped,
+            MuxEvent::LayoutChanged(..) => Self::LayoutChanged,
+            MuxEvent::ClientAttached { .. } => Self::ClientAttached,
+            MuxEvent::ClientChanged { .. } => Self::ClientChanged,
+            MuxEvent::ClientDetached(_) => Self::ClientDetached,
+            MuxEvent::SizeStateChanged { .. } => Self::SizeStateChanged,
+            MuxEvent::ClientListInvalidated => Self::ClientListInvalidated,
+            MuxEvent::PairingRequested(_) => Self::PairingRequested,
+            MuxEvent::PairingResolved { .. } => Self::PairingResolved,
+            MuxEvent::MachineUsageChanged(_) => Self::MachineUsageChanged,
+            MuxEvent::DiagnosticSite(_) => Self::DiagnosticSite,
+            MuxEvent::Empty => Self::Empty,
+        }
+    }
+}
+
+/// A set of [`MuxEventKind`]s: what one subscriber wants to hear.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MuxEventKinds(u64);
+
+impl MuxEventKinds {
+    pub(crate) const NONE: Self = Self(0);
+
+    pub(crate) const fn with(self, kind: MuxEventKind) -> Self {
+        Self(self.0 | 1 << kind as u32)
+    }
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub(crate) const fn contains(self, kind: MuxEventKind) -> bool {
+        self.0 & (1 << kind as u32) != 0
+    }
+
+    pub(crate) const fn accepts(self, event: &MuxEvent) -> bool {
+        self.contains(MuxEventKind::of(event))
+    }
+}
+
 impl MuxEventFilter {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
@@ -247,6 +378,7 @@ impl MuxEventFilter {
                     | MuxEvent::Empty
             ),
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
+            Self::Kinds(kinds) => kinds.accepts(event),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {

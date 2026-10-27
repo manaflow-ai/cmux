@@ -1,7 +1,8 @@
 public import CmuxNextCompat
 
 /// One hang, stall or blocking call in a report: where it came from, how long it took and its
-/// stack (the main thread's; for a ``Kind/blocking`` sample, the stack of the thread that blocked).
+/// stack (the main thread's; for a ``Kind/blocking`` sample, the stack of the thread that blocked; for a
+/// ``Source/hangWatch`` hang, the stack of the watched thread that hung).
 public nonisolated struct HangSample: Codable, Sendable, Equatable {
     /// Who measured it.
     public enum Source: String, Codable, Sendable {
@@ -15,6 +16,9 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         /// The daemon's own detectors (its blocking table and request watchdog), one sample per site it saw
         /// first in its life (``DaemonDiagnosticSite``; wire schema 3 only); ``HangSample/daemon`` says which.
         case daemon
+        /// cmux's hang watch: a registered thread or lane still inside its scope 2 s past its budget
+        /// (p09-observability-068, Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
+        case hangWatch = "hangwatch"
     }
 
     /// How long it was.
@@ -122,6 +126,47 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         }
     }
 
+    /// The watched thread a ``Source/hangWatch`` hang ran on: its registration's catalog name and its kind (Chrome's
+    /// `HangWatcher::ThreadType`). Wire schema 3 only (``HangReport/WireSchema/carriesThreadHangs``). Both are cut
+    /// to a closed shape on the way in, so a pending file edited on disk sends nothing else.
+    public struct WatchedThread: Codable, Sendable, Hashable {
+        /// The name written for a registration name outside the allowed shape, and for an unknown kind.
+        public static let other = "other"
+        /// The kinds a registration has (`HangWatch.ThreadKind`'s case names).
+        public static let kinds: Set<String> = ["main", "io", "lane", "renderer", "pool", "control"]
+        /// The longest registration name kept.
+        public static let maxNameLength = 48
+
+        /// The registration's name (`daemon-reader`, `terminal-output`): a catalog string, never a person's text.
+        public var name: String
+        /// What the thread runs (one of ``kinds``), or ``other``.
+        public var kind: String
+
+        private enum CodingKeys: String, CodingKey {
+            case name, kind
+        }
+
+        /// The value, with a name outside lowercase letters, digits, `.`, `_` and `-` (or longer than
+        /// ``maxNameLength``) and a kind outside ``kinds`` written as ``other``.
+        public init(name: String, kind: String) {
+            self.name = Self.isCatalogName(name) ? name : Self.other
+            self.kind = Self.kinds.contains(kind) ? kind : Self.other
+        }
+
+        /// Reads a saved value through ``init(name:kind:)``.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(name: try container.decode(String.self, forKey: .name), kind: try container.decode(String.self, forKey: .kind))
+        }
+
+        private static func isCatalogName(_ name: String) -> Bool {
+            !name.isEmpty && name.utf8.count <= maxNameLength && name.utf8.allSatisfy { byte in
+                (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte) || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                    || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: "-")
+            }
+        }
+    }
+
     /// The most frames one stack carries.
     public static let maxFrames = 64
 
@@ -139,12 +184,15 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     public var blocking: Blocking?
     /// The task a watchdog hang caught (wire `task`); nil for every other sample, and in schema 2 (absent from its JSON).
     public var mainTask: MainTask?
+    /// The watched thread of a ``Source/hangWatch`` hang (wire `thread`); nil for every other sample, and in
+    /// schema 2 (absent from its JSON).
+    public var thread: WatchedThread?
     /// What a ``Source/daemon`` sample is; nil for every other sample (and absent from its JSON).
     public var daemon: Daemon?
 
     /// Makes the value from its parts.
     public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangReportFrame],
-                blocking: Blocking? = nil, mainTask: MainTask? = nil, daemon: Daemon? = nil) {
+                blocking: Blocking? = nil, mainTask: MainTask? = nil, thread: WatchedThread? = nil, daemon: Daemon? = nil) {
         self.source = source
         self.kind = kind
         self.durationMs = max(0, durationMs)
@@ -152,6 +200,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         self.frames = Array(frames.prefix(Self.maxFrames))
         self.blocking = blocking
         self.mainTask = mainTask
+        self.thread = thread
         self.daemon = daemon
     }
 
@@ -161,6 +210,12 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         HangSample(source: .detector, kind: .blocking, durationMs: 0, frames: frames, blocking: detail)
     }
 
+    /// The hang watch's sample of a watched thread still in its scope: how far past its budget it was when sampled,
+    /// and the thread's stack already reduced to report frames.
+    public static func threadHang(_ thread: WatchedThread, durationMs: Int, frames: [HangReportFrame]) -> HangSample {
+        HangSample(source: .hangWatch, kind: .hang, durationMs: durationMs, frames: frames, thread: thread)
+    }
+
     /// The sample of one daemon site: no duration and no stack (the daemon names the site, not where its
     /// thread's stack was), the family, kind and site.
     public static func daemonSite(_ site: DaemonDiagnosticSite) -> HangSample {
@@ -168,11 +223,11 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, kind, durationMs, cpuMs, frames, blocking, daemon
+        case source, kind, durationMs, cpuMs, frames, blocking, thread, daemon
         case mainTask = "task"
     }
 
-    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:daemon:)``, so a saved pending file
+    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:thread:daemon:)``, so a saved pending file
     /// is bounded too (nonnegative times, at most ``maxFrames`` frames).
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -183,6 +238,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
                   frames: try container.decode([HangReportFrame].self, forKey: .frames),
                   blocking: try container.decodeIfPresent(Blocking.self, forKey: .blocking),
                   mainTask: try container.decodeIfPresent(MainTask.self, forKey: .mainTask),
+                  thread: try container.decodeIfPresent(WatchedThread.self, forKey: .thread),
                   daemon: try container.decodeIfPresent(Daemon.self, forKey: .daemon))
     }
 }

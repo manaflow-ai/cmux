@@ -8,24 +8,28 @@ extension BrowserHitHandlers {
     // MARK: Copy
 
     static func bindCopy(_ registry: ActionRegistry, _ context: AppActionContext,
-                         _ pasteboard: @escaping @MainActor () -> any BrowserPasteboard) {
+                         _ pasteboard: @escaping @MainActor @Sendable () -> any BrowserPasteboard) {
         registry.bind("browser.link.copy", run: { pasteboard().writePageURL(try Self.url($0)) })
         registry.bind("browser.image.copyAddress", run: { pasteboard().writePageURL(try Self.url($0)) })
         registry.bind("browser.link.copyText", run: { pasteboard().writeText(try Self.text($0)) })
         registry.bind("browser.selection.copy", run: { pasteboard().writeText(try Self.text($0)) })
         registry.bind("browser.image.copy", run: { invocation in
             let url = try Self.url(invocation)
-            let board = pasteboard()
             let registry = context.services.registry
             let work = context.services.work
-            registry.track(Task {
-                guard let data = try? await BrowserImageData.load(url), let image = await BrowserImageData.image(data, on: work) else {
+            // The load and the bitmap decode run off main; the pasteboard write is the run's main-thread end
+            // (userBlocking for a person's copy, automation for a script's).
+            registry.trackWork(owner: "BrowserHitHandlers.copyImage", on: context.services.mainWork) {
+                let data = try await BrowserImageData.load(url)
+                return (data: data, bitmap: await BrowserImageData.bitmap(data, on: work))
+            } then: { result in
+                guard case .success(let decoded) = result, let image = BrowserImageData.image(decoded) else {
                     registry.refuse(BrowserHitStrings.imageCopyFailed)
                     return ActionWorkFailure(BrowserHitStrings.imageCopyFailed)
                 }
-                board.writeImage(image, source: url)
+                pasteboard().writeImage(image, source: url)
                 return nil
-            })
+            }
         })
     }
 
@@ -63,20 +67,28 @@ extension BrowserHitHandlers {
 /// decodes in place; `http(s)` loads without the page's cookies (neither
 /// engine gives the host its cached image yet), at most 64 MB.
 enum BrowserImageData {
-    static let limit = 64 << 20
+    nonisolated static let limit = 64 << 20
 
-    /// The image of `data` for the pasteboard: a bitmap is decoded on `work`'s `.cpu` lane and the main actor only
-    /// wraps its pixels, so the pasteboard's TIFF decodes nothing on the main thread (Chrome decodes images off its UI
-    /// thread: services/data_decoder/public/cpp/decode_image.h); what ImageIO does not read (an SVG) is parsed by
-    /// `NSImage`, gated by its size. Nil when it is no image.
-    static func image(_ data: Data, on work: BackgroundWork) async -> NSImage? {
-        if let decoded = try? await work.run(.userBlocking, mayBlock: .cpu, { blockingImageDecode(data) }) {
-            return NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
-        }
-        return blockingNSImage(data)
+    /// An image address's bytes and, when ImageIO reads a bitmap in them, that bitmap decoded.
+    typealias Decoded = (data: Data, bitmap: CGImage?)
+
+    /// The bitmap of `data`, decoded on `work`'s `.cpu` lane, so the pasteboard's TIFF decodes nothing on the main
+    /// thread (Chrome decodes images off its UI thread: services/data_decoder/public/cpp/decode_image.h). Nil when
+    /// ImageIO reads no bitmap (an SVG).
+    nonisolated static func bitmap(_ data: Data, on work: BackgroundWork) async -> CGImage? {
+        try? await work.run(.userBlocking, mayBlock: .cpu, { blockingImageDecode(data) })
     }
 
-    static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
+    /// The image of `decoded` for the pasteboard: the main actor only wraps a decoded bitmap's pixels; what ImageIO
+    /// does not read (an SVG) is parsed by `NSImage`, gated by its size. Nil when it is no image.
+    static func image(_ decoded: Decoded) -> NSImage? {
+        if let bitmap = decoded.bitmap {
+            return NSImage(cgImage: bitmap, size: NSSize(width: bitmap.width, height: bitmap.height))
+        }
+        return blockingNSImage(decoded.data)
+    }
+
+    nonisolated static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
         guard ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") else { throw URLError(.unsupportedURL) }
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }

@@ -1,5 +1,8 @@
 import CmuxNextApps
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -42,7 +45,9 @@ extension DaemonService {
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
-    /// one ``BackgroundWork`` (the launcher's disk steps).
+    /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
+    /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
+    /// service attaches.
     public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
@@ -58,7 +63,12 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            hangWatch: hangWatch))
+            hangWatch: hangWatch), marks: launchConnectMarks())
+    }
+
+    /// The launch's connect milestones, sent to the launch timings at the time each happened.
+    nonisolated static func launchConnectMarks() -> DaemonConnectMarks {
+        DaemonConnectMarks { DaemonLaunchTimings.shared.mark($0, at: $1) }
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
@@ -126,13 +136,16 @@ extension DaemonService {
 
     /// Waits for the first connection (or for startup to give up): an event,
     /// not a retry, so terminals drawn from the snapshot attach at once.
+    /// A dropped waiter returns as startup giving up does.
     public func firstConnection() async {
-        await withCheckedContinuation { connectionWaiters.append($0) }
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+            connectionWaiters.append(waiter)
+        }
     }
 
     func resumeConnectionWaiters() {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }

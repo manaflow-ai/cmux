@@ -13,11 +13,12 @@ struct HangReportServerRules {
         "schema", "reportId", "installId", "day", "app", "os", "hardware", "counts", "hangs", "cpuExceptions",
         "stallHistogram", "metrics", "intervals",
     ]
-    /// Schema 3's top-level additions: the launches, the input latency fields and the field data
-    /// (p09-observability-063; the decoder of p09-observability-064 lists them).
+    /// Schema 3's top-level additions: the launches, the input latency fields, the field data
+    /// (p09-observability-063; the decoder of p09-observability-064 lists them) and the launch's features
+    /// (p12-perf-process-151).
     static let schema3TopLevelKeys: Set<String> = [
         "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank",
-        "histograms", "stability", "blackbox", "launch_sections",
+        "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features",
     ]
     static let hangKeys: Set<String> = ["source", "kind", "durationMs", "cpuMs", "frames"]
     static let frameKeys: Set<String> = ["image", "uuid", "offset"]
@@ -34,8 +35,8 @@ struct HangReportServerRules {
         case 2:
             return HangRules(keys: hangKeys, sources: ["metrickit", "watchdog"], kinds: ["hang", "stall"])
         case 3:
-            return HangRules(keys: hangKeys.union(["blocking", "task", "daemon"]),
-                             sources: ["metrickit", "watchdog", "detector", "daemon"], kinds: ["hang", "stall", "blocking"])
+            return HangRules(keys: hangKeys.union(["blocking", "task", "thread", "daemon"]),
+                             sources: ["metrickit", "watchdog", "detector", "hangwatch", "daemon"], kinds: ["hang", "stall", "blocking"])
         default:
             return nil
         }
@@ -50,6 +51,9 @@ struct HangReportServerRules {
     static let daemonFamilies: Set<String> = ["blocking", "inversion", "hang"]
     /// Schema 3's `hangs[].task` (p06-scheduler-203): on a watchdog hang only, the owner and class.
     static let taskKeys: Set<String> = ["owner", "class"]
+    /// Schema 3's `hangs[].thread` (p09-observability-068, wireSchema.ts `HangV3.thread` and `isPairedThread`): exactly
+    /// on a hang-watch hang, the registration's name and kind.
+    static let threadKeys: Set<String> = ["name", "kind"]
 
     /// Every way `body` breaks the rules of the schema it names; empty when the server would take it.
     static func violations(in body: Data) -> [String] {
@@ -82,6 +86,14 @@ struct HangReportServerRules {
             } else {
                 found.append("\(path).task is not an object")
             }
+        }
+        // Schema 3: a thread object exactly on a hang-watch sample, which is a hang.
+        let isThreadHang = source == "hangwatch"
+        if isThreadHang, kind != "hang" { found.append("\(path) hangwatch \(kind)") }
+        if isThreadHang != (hang["thread"] != nil) { found.append("\(path).thread on a \(source) sample, or missing") }
+        if let thread = hang["thread"] as? [String: Any] {
+            found += extraKeys(thread, allowed: threadKeys, at: "\(path).thread")
+            if !(thread["name"] is String) || !(thread["kind"] is String) { found.append("\(path).thread fields") }
         }
         // Schema 3: a daemon sample is of kind blocking with no duration, no stack and no blocking object, and
         // carries the daemon object, which nothing else carries.

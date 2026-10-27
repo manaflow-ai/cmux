@@ -16,6 +16,7 @@ import {
   INPUT_LABELS,
   SCROLL_JANK_NAMES,
   TASK_CLASSES,
+  THREAD_KINDS,
   stabilityLeaves,
   type HangReportBlackboxEvent,
   type HangReportFieldHistogram,
@@ -175,7 +176,10 @@ function knownCounts(counts: CountMap, names: ReadonlySet<string>): Kept<CountMa
   return { value: kept, dropped: Object.keys(counts).length - Object.keys(kept).length };
 }
 
-/** A detector or daemon sample of an unknown kind or context is left out; an unknown task class loses its task. */
+/**
+ * A detector or daemon sample of an unknown kind or context is left out; an
+ * unknown task class loses its task; an unknown thread kind is stored as `other`.
+ */
 function knownHangs(hangs: ReadonlyArray<HangReportHangV3>): Kept<ReadonlyArray<HangReportHangV3>> {
   const kept: HangReportHangV3[] = [];
   let dropped = 0;
@@ -187,6 +191,9 @@ function knownHangs(hangs: ReadonlyArray<HangReportHangV3>): Kept<ReadonlyArray<
     } else if (hang.task && !TASK_CLASSES.has(hang.task.class)) {
       dropped += 1;
       kept.push({ ...hang, task: null });
+    } else if (hang.thread && !THREAD_KINDS.has(hang.thread.kind)) {
+      dropped += 1;
+      kept.push({ ...hang, thread: { ...hang.thread, kind: "other" } });
     } else {
       kept.push(hang);
     }

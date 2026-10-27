@@ -19992,6 +19992,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/bulk_frame_max": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/data/capabilities": {
         "ty": "array"
       },

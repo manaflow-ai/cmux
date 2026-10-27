@@ -114,7 +114,8 @@ public final class TerminalSurfaceView: NSView {
     /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
     private var occlusionWatch: WindowOcclusionSubscription?
     private var appliedContentScale: NSSize?
-    private var appliedDisplayID: UInt32?
+    /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
+    private(set) var appliedDisplayID: UInt32?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -155,6 +156,8 @@ public final class TerminalSurfaceView: NSView {
     /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
     // SAFETY: the sink holds this view's surface and goes with the view (GhosttyMouseSink).
     lazy var mouse: any TerminalMouseSink = unsafe GhosttyMouseSink(surface: surface)
+    // SAFETY: the frame source holds this view's surface and goes with the view (GhosttyFrameSource).
+    lazy var frameSource = unsafe GhosttyFrameSource(surface: surface, view: self)
 
     // MARK: Lifecycle
 
@@ -163,7 +166,7 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage)
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -173,7 +176,7 @@ public final class TerminalSurfaceView: NSView {
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        bridge.view = self
+        bridge.target = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 
@@ -222,9 +225,7 @@ public final class TerminalSurfaceView: NSView {
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         config.io_mode = mode
         // SAFETY: as above.
-        unsafe config.io_write_cb = ghosttyIOWrite
-        // SAFETY: as above.
-        unsafe config.io_write_userdata = userdata
+        unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -357,10 +358,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// AppKit walks hidden views too; a hidden terminal applies the scale when shown.
+    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale when
+    /// shown (`syncWindowState`). Each scale or display call is a message that wakes the surface's
+    /// renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isHiddenOrHasHiddenAncestor else { return }
+        guard isShown else { return }
         updateContentScale()
         updateSurfaceSize()
     }

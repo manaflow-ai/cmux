@@ -3,6 +3,9 @@
 import CmuxNextWakeups
 import Darwin
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// cmux's end of the control channel to the Chromium host
 /// (plans/cmux-next/chrome-parity/p01-process.md 3.1; the C++ end is
@@ -133,10 +136,12 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
     func request(_ message: ChromiumHostControlMessage) async throws(ChromiumHostControlError) -> ChromiumHostControlMessage {
         // Its answer is an ACK for the mirror, not a reply.
         guard !ChromiumHostMirror.PendingKey.marks(message) else { throw .changesMirror }
-        let result = await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostControlCore.Reply, Never>) in
+        // A request the core dropped unanswered (abandoned) ends as the channel's close does.
+        let result = try? await withOnceContinuation {
+            (continuation: OnceContinuation<ChromiumHostControlCore.Reply, OnceContinuationError>) in
             core.request(message, continuation)
         }
-        return try result.get()
+        return try (result ?? .failure(.hostGone(.closed))).get()
     }
 
     /// Ends the connection (the person's Reload, or the host's end): the

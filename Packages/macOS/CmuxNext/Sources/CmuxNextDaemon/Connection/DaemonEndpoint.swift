@@ -489,6 +489,12 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `server-diagnostic-site` events on `subscribe`: the daemon's first-seen blocking, inversion and
     /// slow-request sites, for the app's hang reports (``DaemonConnectionConfiguration/reportsDiagnosticSites``).
     case diagnosticSites = "diagnostic-sites-v1"
+    /// `energy.set` and `energy.status`: the app's Energy Saver override (`EnergySetRequest.capability`;
+    /// cmux-tui-core server/energy_op.rs).
+    case energy = "energy-v1"
+    /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
+    /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
+    case energyRule = "energy-v2"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -537,10 +543,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .diagnosticSites:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
+             .energyRule, .diagnosticSites:
             return .optional
-        case .eventCause:
-            return .unservedByBundledDaemon
         }
     }
 
