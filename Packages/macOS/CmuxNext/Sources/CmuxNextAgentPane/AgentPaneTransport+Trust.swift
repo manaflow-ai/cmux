@@ -70,7 +70,7 @@ extension AgentPaneTransport {
         let requestID: Int
         let folder: String
         let frame: String
-        var completion: CheckedContinuation<Void, Never>?
+        var completion: CheckedContinuation<AgentPaneTransportError?, Never>?
         let reply: CheckedContinuation<AgentPaneTransportError?, Never>?
 
         init(connection: Int, requestID: Int, folder: String, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>?) {
@@ -85,33 +85,33 @@ extension AgentPaneTransport {
     func hostAnswered(_ id: Int, connection: Int, error: AgentPaneTransportError? = nil) {
         guard let host = awaitingHost[id], host.connection == connection else { return }
         awaitingHost.removeValue(forKey: id)
+        if error != nil, !pendingTrustFolders.contains(host.folder) { pendingTrustFolders.append(host.folder) }
         host.reply?.resume(returning: error)
-        host.completion?.resume()
+        host.completion?.resume(returning: error)
     }
 
     func sendHost(_ host: PendingHostSend, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         let requestID = host.requestID
         let connection = host.connection
-        await withCheckedContinuation { completion in
+        let error = await withCheckedContinuation { completion in
             host.completion = completion
             awaitingHost[requestID] = host
             ids.whenResult(requestID) { [weak self] success in
                 Task { @MainActor in self?.hostAnswered(requestID, connection: connection, error: success ? nil : .methodRefused) }
             }
             if let error = socket.send(host.frame) {
-                if !pendingTrustFolders.contains(host.folder) { pendingTrustFolders.append(host.folder) }
                 ids.cancel(requestID)
                 hostAnswered(requestID, connection: connection, error: error)
-                // Overflow is a failed connection too: don't spin retrying it or replay before trust.
-                if self.socket === socket { close(connection: connection) }
             }
         }
+        // Every unsuccessful completion retains consent and blocks both page sends and journal
+        // replay. A reconnect retries it; a refusal must not look like a successful trust barrier.
+        if error != nil, self.socket === socket { close(connection: connection) }
     }
 
     func failHostRequests(connection id: Int) {
         let waiting = awaitingHost.values.filter { $0.connection == id }
         for host in waiting {
-            if !pendingTrustFolders.contains(host.folder) { pendingTrustFolders.append(host.folder) }
             requestIds?.cancel(host.requestID)
             hostAnswered(host.requestID, connection: id, error: .closed)
         }
