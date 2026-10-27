@@ -77,7 +77,7 @@ def fetch(url: str) -> str:
 
 
 def probe_once(url: str) -> tuple[int, int | None]:
-    """(status, length) of one try: HEAD, then a one-byte ranged GET when HEAD fails or names no length."""
+    """(status, length) of one try: HEAD, then a plain GET (headers only) when HEAD fails or names no length."""
     head_status = None
     try:
         request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
