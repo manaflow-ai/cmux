@@ -45,8 +45,10 @@ import Testing
         let store = FeedStore(items: [item("a"), item("b"), item("c")], readMarks: marks)
         store.markRead("b")
         store.markAllRead()
-        #expect(store.items.allSatisfy(\.isRead))
+        let unread = store.items.filter { !$0.isRead }.count
+        #expect(unread == 0)
         let reopened = FeedStore(items: [item("a"), item("b"), item("c")], readMarks: marks)
-        #expect(reopened.items.allSatisfy(\.isRead))
+        let unreadAfter = reopened.items.filter { !$0.isRead }.count
+        #expect(unreadAfter == 0)
     }
 }
