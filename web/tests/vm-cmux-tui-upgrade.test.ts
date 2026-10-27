@@ -130,6 +130,42 @@ kill "$other" 2>/dev/null || true
 });
 
 describe("Cloud daemon upgrade from the app", () => {
+  // The app's automatic update writes the commit it judged older to <run-dir>/expect-build; a
+  // binary updated since (maybe to a newer build) is left alone under the lock, before anything
+  // changes. Without the file (the fleet runner) nothing is checked.
+  test.each(["absent", "same", "changed", "no-commit"])("expect-build %s", async (mode) => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-expect-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const seen = "1".repeat(40);
+      const now = mode === "changed" ? "2".repeat(40) : seen;
+      writeFileSync(
+        path.join(run, "cmux-tui"),
+        mode === "no-commit" ? "#!/bin/sh\necho 'cmux 1.0.0'\n" : `#!/bin/sh\necho 'cmux 1.0.0 (${now}; ghostty ${"9".repeat(40)})'\n`,
+        { mode: 0o755 },
+      );
+      if (mode !== "absent") writeFileSync(path.join(run, "expect-build"), `${seen}\n`);
+      const guard = script.split("\n").find((line) => line.startsWith("still_expected ||"));
+      expect(guard).toBeDefined();
+      const fixture = `flock() { return 0; }
+${functions}
+sudo() { while [ "$1" != env ]; do shift; done; "$@"; }
+H="$RUN"
+BIN="$RUN/cmux-tui"
+${guard}
+finish "OK passed"
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(
+        mode === "changed" ? `SKIP changed binary=${"2".repeat(40)} expected=${seen}` : "OK passed",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20000);
+
   // The cmux NEXT app runs this same script on machines too old to update in place
   // (CloudLegacyMachineUpdate.swift); its copy is an app resource and must not drift.
   test("the app's copy of the guest script is this script", () => {

@@ -619,6 +619,21 @@ fn machine_update_if_older_updates_only_an_older_machine() {
     assert_eq!(after["build_id"], updated["build"], "{after}");
     assert_ne!(after["pid"], before["pid"], "the daemon did not restart");
     assert_eq!(sha256_hex(&fs::read(vm.bin()).unwrap()), sha256_hex(&shipped));
+    drop(vm);
+
+    // Older and too old to update in place (no fs-v1): unsupported, naming the build it was
+    // judged on (the app's exec update holds the machine to it), and nothing restarted.
+    let (root, _cleanup) = journey_root("mgu");
+    let vm = SupervisedVm::start_built_at(&root, &old, false, "fs-v1", "1");
+    let before = vm.identify().unwrap();
+    let client = mac_client(&root, None);
+    let (ok, unsupported) = machine_update_if_older(&client, &root, &vm);
+    assert!(
+        !ok && unsupported["error_code"] == json!("machine_update_unsupported"),
+        "{unsupported}"
+    );
+    assert_eq!(unsupported["build"], before["build_commit"], "{unsupported}");
+    assert_eq!(vm.identify().unwrap()["pid"], before["pid"], "an unsupported update restarted it");
 }
 
 /// A build that does not match the checksum this client's manifest pins is

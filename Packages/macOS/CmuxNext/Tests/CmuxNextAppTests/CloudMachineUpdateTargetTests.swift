@@ -321,6 +321,7 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     /// the machine has no exec, so it has none.
     private var legacyAnswers: [CloudMoveCLI.Answer]?
     private var counts = (updates: 0, reconnects: 0, legacy: 0)
+    private var judgedBuilds: [String] = []
     private var restarts: [Bool] = []
 
     init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
@@ -334,6 +335,8 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     var updates: Int { lock.withLock { counts.updates } }
     var reconnects: Int { lock.withLock { counts.reconnects } }
     var legacyUpdates: Int { lock.withLock { counts.legacy } }
+    /// The build the CLI judged older, as each exec update got it.
+    var legacyJudged: [String] { lock.withLock { judgedBuilds } }
     /// Each reconnect's `restarted`.
     var reconnectRestarts: [Bool] { lock.withLock { restarts } }
 
@@ -369,10 +372,11 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     self.restarts.append(restarted)
                 }
             },
-            legacy: { _ in
+            legacy: { _, judged in
                 self.lock.withLock {
                     guard var answers = self.legacyAnswers else { return nil }
                     self.counts.legacy += 1
+                    self.judgedBuilds.append(judged)
                     guard !answers.isEmpty else { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved") }
                     let answer = answers.removeFirst()
                     self.legacyAnswers = answers

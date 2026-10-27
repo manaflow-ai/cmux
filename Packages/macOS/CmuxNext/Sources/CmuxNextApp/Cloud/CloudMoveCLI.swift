@@ -21,7 +21,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         var side: String?
         /// `link machine update`: whether the machine's cmux-tui changed.
         var updated = false
-        /// `link machine update`: the build the machine runs after it.
+        /// `link machine update`: the build the machine runs after it; with
+        /// `machine_update_unsupported`, the build it was judged on (it still runs it).
         var build: String?
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.

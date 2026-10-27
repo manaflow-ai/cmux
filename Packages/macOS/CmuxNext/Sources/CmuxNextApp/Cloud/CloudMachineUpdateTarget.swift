@@ -36,9 +36,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         /// app still holds may be to the old one.
         var reconnect: @Sendable (_ restarted: Bool) async -> Void
         /// The update of a machine too old to update in place to `build` (``CloudLegacyMachineUpdate``),
-        /// run when ``update`` answers `machine_update_unsupported`; nil when the machine has no way
-        /// for it (no Cloud API exec, or no pinned build of `build` in this app).
-        var legacy: @Sendable (_ build: DaemonBuildCommit) async -> CloudMoveCLI.Answer? = { _ in nil }
+        /// run when ``update`` answers `machine_update_unsupported` naming the commit it judged
+        /// older (`judged`), and only while the machine still runs it; nil when the machine has no
+        /// way for it (no Cloud API exec, or no pinned build of `build` in this app).
+        var legacy: @Sendable (_ build: DaemonBuildCommit, _ judged: String) async -> CloudMoveCLI.Answer? = { _, _ in nil }
     }
 
     let machineID: String
@@ -91,8 +92,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         var answer: CloudMoveCLI.Answer?
         do {
             var reply = try await source.update()
-            // Too old to update in place: the Cloud API's exec installs the build instead.
-            if reply.errorCode == "machine_update_unsupported", let legacy = await source.legacy(build) { reply = legacy }
+            // Too old to update in place: the Cloud API's exec installs the build instead, over the
+            // build the CLI judged older only (none named: no build to hold it to, so not this way).
+            if reply.errorCode == "machine_update_unsupported", let judged = reply.build, !judged.isEmpty,
+               let legacy = await source.legacy(build, judged) { reply = legacy }
             answer = reply
             outcome = Self.outcome(reply, machine: displayName)
         } catch DaemonError.timedOut {

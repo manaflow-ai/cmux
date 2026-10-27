@@ -73,11 +73,20 @@ const OUTCOME_GRACE: Duration = Duration::from_secs(60);
 struct Failed {
     code: &'static str,
     error: String,
+    /// `build`: the machine's `build_commit` this answer is about (a machine too old to update
+    /// in place: what the caller may install over by other means, and only while it still runs it).
+    build: Option<String>,
 }
 
 impl Failed {
     fn new(code: &'static str, error: impl Into<String>) -> Self {
-        Self { code, error: error.into() }
+        Self { code, error: error.into(), build: None }
+    }
+
+    /// Names the build the machine ran when this answer was decided.
+    fn about(mut self, identity: &Value) -> Self {
+        self.build = identity["build_commit"].as_str().filter(|b| !b.is_empty()).map(str::to_owned);
+        self
     }
 }
 
@@ -97,7 +106,11 @@ pub(super) fn run(args: &[String]) -> i32 {
             0
         }
         Err(failed) => {
-            println!("{}", json!({"ok": false, "error": failed.error, "error_code": failed.code}));
+            let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
+            if let Some(build) = failed.build {
+                line["build"] = json!(build);
+            }
+            println!("{line}");
             1
         }
     }
@@ -185,16 +198,18 @@ fn update(request: &Request) -> Result<Value, Failed> {
             format!(
                 "the machine's cmux-tui is too old to update in place (no {missing}); recreate the machine"
             ),
-        ));
+        )
+        .about(&before));
     }
     let install = install_path(&before).ok_or_else(|| {
         Failed::new(
             "machine_update_unsupported",
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
         )
+        .about(&before)
     })?;
     let daemon_pid = before["pid"].as_u64().ok_or_else(|| {
-        Failed::new("machine_update_unsupported", "the machine daemon named no pid")
+        Failed::new("machine_update_unsupported", "the machine daemon named no pid").about(&before)
     })?;
     let (payload, sha256) = pinned_payload()?;
     let folder = install.rsplit_once('/').map_or("", |(folder, _)| folder).to_owned();
