@@ -40,6 +40,18 @@ added. The report then lists the hits only one run saw (the macOS-only
 hits). The CI-read baseline stays the Linux run's, the one CI repeats, so a
 merged run never writes it (--update-baseline and --init-baseline take one
 run).
+
+Report-only baselines (plans/cmux-next/chrome-parity/p10-stability.md,
+implementer rule 1: p10 adds no CI gate): rust-panic-report-baseline.json
+(report-only lints of workspace crates) and rust-panic-extra-baseline.json
+(crates of the separate shipped workspaces), each {"crates": {crate: {lint:
+hits}}}. Only --report reads them: a crate with a row there gains
+"report_baseline" and "report_over" in the JSON report (a table of the rows
+over in the md one), and the exit code does not change. The compare CI runs
+(--clippy-json without --report) never opens them. --update-baseline and
+--init-baseline write rust-panic-baseline.json rows only for members of
+cmux-tui/Cargo.toml's workspace (CI's run); a run that checked any other crate
+is refused, so another workspace's crates never become CI rows.
 """
 import argparse
 import collections
@@ -51,6 +63,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
+# Report-only rows, read by --report alone (see the module doc); never by the compare.
+REPORT_BASELINES = [os.path.join(HERE, "rust-panic-report-baseline.json"),
+                    os.path.join(HERE, "rust-panic-extra-baseline.json")]
 
 # Lints whose zero makes a crate "deny" (a panic in production code).
 DENY_LINTS = [
@@ -286,6 +301,31 @@ def load_baseline():
         return json.load(handle).get("crates", {})
 
 
+def load_report_rows(paths=None):
+    """{crate: {lint: hits}} of the report-only baselines (REPORT_BASELINES; a missing file has none). Only
+    --report calls this: the compare CI runs never reads these rows."""
+    rows = {}
+    for path in REPORT_BASELINES if paths is None else paths:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as handle:
+            for crate, lints in json.load(handle).get("crates", {}).items():
+                rows.setdefault(crate, {}).update(lints)
+    return rows
+
+
+def workspace_crates(repo):
+    """The crate names (as crate_of names them) of cmux-tui/Cargo.toml's workspace members: the crates CI's clippy
+    run checks and the only ones rust-panic-baseline.json may hold. None when the manifest cannot be read."""
+    try:
+        import tomllib
+        with open(os.path.join(repo, "cmux-tui", "Cargo.toml"), "rb") as handle:
+            members = tomllib.load(handle)["workspace"]["members"]
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        return None
+    return {crate_of(f"cmux-tui/{member}/src/lib.rs") for member in members} - {None}
+
+
 def write_baseline(crates):
     data = {
         "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). "
@@ -309,8 +349,22 @@ SHORT = {"unwrap_used": "unwrap", "expect_used": "expect", "panic": "panic", "un
          "cast_possible_truncation": "cast_trunc"}
 
 
-def report(checked, counts, files, fmt, only=None):
+def report_over(counts, report_rows):
+    """{crate: {lint: {"baseline": b, "now": n}}} for the report-only rows COUNTS is above."""
+    over = {}
+    for crate, row in sorted(report_rows.items()):
+        now = counts.get(crate, {})
+        above = {lint: {"baseline": hits, "now": now.get(lint, 0)}
+                 for lint, hits in sorted(row.items()) if now.get(lint, 0) > hits}
+        if above:
+            over[crate] = above
+    return over
+
+
+def report(checked, counts, files, fmt, only=None, report_rows=None):
     only = only or {}
+    report_rows = report_rows or {}
+    over = report_over(counts, report_rows)
     rows = []
     for crate in sorted(checked | set(counts)):
         c = counts.get(crate, {})
@@ -323,6 +377,9 @@ def report(checked, counts, files, fmt, only=None):
             if only:
                 out[crate]["only_in"] = {label: [{"loc": loc, "lint": lint} for loc, lint in sorted(by_crate.get(crate, []))]
                                          for label, by_crate in only.items()}
+            if crate in report_rows:
+                out[crate]["report_baseline"] = report_rows[crate]
+                out[crate]["report_over"] = over.get(crate, {})
         print(json.dumps(out, indent=1))
         return
     print("| crate | " + " | ".join(SHORT[l] for l in LINTS) + " | deny | top files |")
@@ -341,6 +398,16 @@ def report(checked, counts, files, fmt, only=None):
         for crate in sorted(by_crate):
             for loc, lint in sorted(by_crate[crate]):
                 print(f"| {crate} | {SHORT[lint]} | {loc} |")
+    if report_rows:
+        print(f"\n### Over the report-only baselines ({sum(len(v) for v in over.values())}; not a gate)\n")
+        if not over:
+            print("none")
+        else:
+            print("| crate | lint | baseline | now |")
+            print("| --- | --- | --- | --- |")
+            for crate, lints in over.items():
+                for lint, row in lints.items():
+                    print(f"| {crate} | {SHORT.get(lint, lint)} | {row['baseline']} | {row['now']} |")
 
 
 def main():
@@ -380,7 +447,19 @@ def main():
         print(f"rust-panic-ratchet: merged {len(runs)} runs by file:line:column (hits: {sizes});"
               f" {sum(sum(c.values()) for c in counts.values())} distinct, {alone}", file=sys.stderr)
     if args.report:
-        report(checked, counts, files, args.report, only)
+        report(checked, counts, files, args.report, only, load_report_rows())
+    if args.update_baseline or args.init_baseline:
+        members = workspace_crates(args.repo)
+        if members is None:
+            print("rust-panic-ratchet: cannot read cmux-tui/Cargo.toml's workspace members; the baseline is written "
+                  "only for them", file=sys.stderr)
+            return 2
+        outside = sorted(checked - members)
+        if outside:
+            print("rust-panic-ratchet: this run checked crates outside the cmux-tui workspace (" + ", ".join(outside)
+                  + "); rust-panic-baseline.json is CI's and holds workspace crates only. Record them in "
+                  "rust-panic-extra-baseline.json (report-only).", file=sys.stderr)
+            return 2
     baseline = load_baseline()
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})

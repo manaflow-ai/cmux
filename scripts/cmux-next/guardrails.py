@@ -2,7 +2,8 @@
 """cmux-next guardrails: refuse new architecture debt in what a push adds; warn on hot paths and owned areas.
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
-never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
+never by CI (Lawrence 2026-10-23: no new CI gates): every rule here is in the local-only tier (prepush-gate's
+LOCAL_TIER, p10-stability-199), and under GITHUB_ACTIONS run_push and a judging run judge nothing. Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
 the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules; safety-todo reads every
 package's Sources and Tests), plus unchanged lines that
@@ -137,6 +138,12 @@ def load_sibling(name: str, filename: str):
 git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
 # The crash ratchet's own Swift classifier, escape and bans: the unchecked-sendable rule reads them, never a copy.
 ratchet = load_sibling("cmux_next_crash_ratchet", "crash_ratchet.py")
+
+
+def on_ci() -> bool:
+    """Whether this runs under GitHub Actions: every rule here is local-only (p10-stability-199), so CI gains no gate
+    from it; --list and --self-test still run."""
+    return bool(os.environ.get("GITHUB_ACTIONS"))
 
 
 def git_env() -> dict[str, str]:
@@ -5251,7 +5258,10 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet (started here unless the caller started it). True when either refuses the push.
 
     RANGES are push_range.OwnRange values (prepush-gate passes the ones its scanners judged, so all three judge
-    the same commits); a (base, head) pair is a push whose remote head is base (push_range.as_own_ranges)."""
+    the same commits); a (base, head) pair is a push whose remote head is base (push_range.as_own_ranges). Every
+    rule here is in the local-only tier: under GitHub Actions nothing is judged (False), as arch-ratchet.py does."""
+    if on_ci():
+        return False
     ranges = load_push_range().as_own_ranges(repo, ranges)
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
@@ -5665,6 +5675,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
         print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
               "plans/cmux-next/arch-ratchet.json)")
+        return 0
+    if on_ci():
+        print("guardrails: not run under GitHub Actions (local-only tier: the hook and plain runs)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()
