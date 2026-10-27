@@ -1749,7 +1749,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "attach-build",
             "--version-id",
             ASC_VERSION_ID,
-            "--build",
+            "--build-id",
             ASC_BUILD_ID,
         ],
         "submission preparation attaches the selected build to version 1.0.0",
@@ -1762,6 +1762,15 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         )
     else:
         _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_validate_appstore_release_uses_asc5_build_flags() -> None:
+    script = (ROOT / "ios" / "scripts" / "validate-app-store-release.sh").read_text(encoding="utf-8")
+    # asc 5.0 removed --build from attach-build, release stage and review submit.
+    _check(
+        '--build "$BUILD_ID"' not in script,
+        "App Store validation helper passes --build-id, which asc 5 requires",
+    )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -2017,6 +2026,7 @@ def main() -> None:
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
         )
+        test_validate_appstore_release_uses_asc5_build_flags()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
