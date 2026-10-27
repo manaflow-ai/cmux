@@ -475,22 +475,22 @@ struct ChatDockLinkSplitMotionTests {
         defer { screen.close() }
         let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
         let url = URL(string: "https://example.com/native-pane")!
-        #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true) == .openOutside(url))
-        #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: false) == .cancel)
-
         let gestures = AgentPaneUserGestures()
         gestures.record(click: true)
         var moves = 0
         var opened: [URL] = []
-        let openedOutside = AgentPaneNavigation.openOutside(url, gestures: gestures, open: { openedURL in
-            opened.append(openedURL)
-            moves += 1
-            screen.model.handOffContent(of: Self.anchor)
-            screen.show(Self.docked)
-        })
-        #expect(openedOutside)
+        let policy = AgentPaneNavigation.handle(
+            url: url, source: source, userClicked: true, mainFrame: true, modifiers: [], gestures: gestures,
+            open: { openedURL, _ in
+                opened.append(openedURL)
+                moves += 1
+                screen.model.handOffContent(of: Self.anchor)
+                screen.show(Self.docked)
+            }
+        )
+        #expect(policy == .cancel, "the native delegate must cancel the web view navigation")
         #expect(opened == [url])
-        #expect(moves == 1, "the native link callback opened the beside layout more than once")
+        #expect(moves == 1, "the installed native link callback opened the beside layout more than once")
         #expect(screen.model.screens.first?.layout.contains(Self.dock) == true)
     }
 
