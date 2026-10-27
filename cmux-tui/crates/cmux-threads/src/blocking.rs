@@ -176,10 +176,15 @@ impl AllowReason {
 mod mode;
 pub use mode::{BlockingMode, MODE_ENV, mode, set_mode, with_mode};
 
+mod known_debt;
+pub use known_debt::{KnownDebt, StoreReceiptWait, tolerate_known_debt};
+
 /// Per-thread restriction state in one word, so the check is one TLS read and
 /// one AND. Bits 0-15: the kinds denied now, derived from the fields above
 /// them. Bit 16: blocking disallowed. Bits 17-18: the active allowance. Bit
-/// 19: sync primitives disallowed.
+/// 19: sync primitives disallowed. Bit 20: [`KnownDebt::RequestPathStore`]
+/// tolerated (a violation, recorded, never a panic). Bit 21: inside a
+/// [`StoreReceiptWait`].
 #[derive(Clone, Copy)]
 struct ThreadState(u32);
 
@@ -187,6 +192,8 @@ impl ThreadState {
     const DISALLOWED: u32 = 1 << 16;
     const ALLOW_SHIFT: u32 = 17;
     const SYNC_DISALLOWED: u32 = 1 << 19;
+    const TOLERATES_REQUEST_PATH_STORE: u32 = 1 << 20;
+    const IN_STORE_RECEIPT_WAIT: u32 = 1 << 21;
 
     fn new(disallowed: bool, sync_disallowed: bool, allowance: Option<AllowReason>) -> Self {
         let denied = BlockingKind::ALL
@@ -221,11 +228,16 @@ impl ThreadState {
     }
 
     fn with_allowance(self, reason: AllowReason) -> Self {
-        Self::new(self.disallowed(), self.sync_disallowed(), Some(reason))
+        self.keeping_tolerance(Self::new(self.disallowed(), self.sync_disallowed(), Some(reason)))
     }
 
     fn with_disallowed(self) -> Self {
-        Self::new(true, self.sync_disallowed(), self.allowance())
+        self.keeping_tolerance(Self::new(true, self.sync_disallowed(), self.allowance()))
+    }
+
+    /// `next` with this state's tolerated debt.
+    const fn keeping_tolerance(self, next: Self) -> Self {
+        Self(next.0 | (self.0 & (Self::TOLERATES_REQUEST_PATH_STORE | Self::IN_STORE_RECEIPT_WAIT)))
     }
 
     #[inline]
@@ -354,11 +366,16 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
 #[cold]
 #[inline(never)]
 fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
-    let lane_sync = !STATE.with(Cell::get).disallowed();
+    let state = STATE.with(Cell::get);
+    let lane_sync = !state.disallowed();
     let first_at_site = note_violation(&SITES, report::site_report(), kind, location, lane_sync);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
+    // Known debt is recorded above and does not fail (`known_debt.rs`).
     debug_assert!(
-        lane_sync || mode() == BlockingMode::Record || std::thread::panicking(),
+        lane_sync
+            || state.tolerates(kind)
+            || mode() == BlockingMode::Record
+            || std::thread::panicking(),
         "cmux_threads: blocking call ({}) at {location} on thread '{}', which disallows blocking",
         kind.as_str(),
         std::thread::current().name().unwrap_or("<unnamed>"),

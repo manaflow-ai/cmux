@@ -92,6 +92,51 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
 }
 
+/// What an item of a connection's control sequence is charged to besides
+/// its connection's own caps (`CONNECTION_SURFACE_QUEUE_CAPACITY` items and
+/// `CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY` bytes, which every line the
+/// reader accepts fits), and what the item holds for it while it lives.
+pub(super) trait SequenceBudget {
+    type Permit;
+    fn reserve(
+        admission: &Arc<ServerSurfaceOperationAdmission>,
+        retained_bytes: usize,
+    ) -> Result<Self::Permit, &'static str>;
+}
+
+/// A `Command`: also the daemon's surface-operation byte budget, which
+/// every connection's `Command`s share.
+pub(super) struct SurfaceOperationBudget;
+
+impl SequenceBudget for SurfaceOperationBudget {
+    type Permit = ServerSurfaceBytesPermit;
+
+    fn reserve(
+        admission: &Arc<ServerSurfaceOperationAdmission>,
+        retained_bytes: usize,
+    ) -> Result<ServerSurfaceBytesPermit, &'static str> {
+        admission.try_reserve_bytes(retained_bytes).map_err(
+            |ServerSurfaceAdmissionError::RetainedByteCapacity| {
+                "server surface-operation byte budget is full; request was not executed"
+            },
+        )
+    }
+}
+
+/// Any other line (a v2 operation, a feature route, a remote-relay line):
+/// its connection's caps only. These lines never met the daemon's budget
+/// before they were sequenced (p05-ipc-086), and one connection's large
+/// `fs-v1` write or transfer page must not refuse another connection's.
+pub(super) struct ConnectionBudget;
+
+impl SequenceBudget for ConnectionBudget {
+    type Permit = ();
+
+    fn reserve(_: &Arc<ServerSurfaceOperationAdmission>, _: usize) -> Result<(), &'static str> {
+        Ok(())
+    }
+}
+
 /// One item of a connection's control sequence.
 pub(super) enum SequencedItem {
     /// A request whose line parsed as a `Command`.
@@ -315,16 +360,22 @@ impl ConnectionSurfaceScheduler {
         // Nothing to schedule; the connection stays open.
         let Some(queued) = request.take() else { return Some(true) };
         let (request_id, is_clear_history) = (queued.id.clone(), queued.cmd.is_clear_history());
-        let sequenced = self.sequence(&mux, client, retained_bytes, &writer, |bytes_permit| {
-            SequencedItem::Request(PendingSurfaceRequest {
-                request: queued,
-                arrival,
-                cause: EventCause::current(),
-                frame_call: writer.frame_call().cloned(),
-                retained_bytes,
-                _bytes_permit: bytes_permit,
-            })
-        });
+        let sequenced = self.sequence::<SurfaceOperationBudget>(
+            &mux,
+            client,
+            retained_bytes,
+            &writer,
+            |bytes_permit| {
+                SequencedItem::Request(PendingSurfaceRequest {
+                    request: queued,
+                    arrival,
+                    cause: EventCause::current(),
+                    frame_call: writer.frame_call().cloned(),
+                    retained_bytes,
+                    _bytes_permit: bytes_permit,
+                })
+            },
+        );
         let Err(not_sequenced) = sequenced else { return Some(true) };
         let Some(refusal) = not_sequenced.refusal() else { return Some(false) };
         Some(send_request_error_with_delivery(
@@ -337,15 +388,15 @@ impl ConnectionSurfaceScheduler {
 
     /// Appends the item `item` makes to the connection's control sequence,
     /// unless the sequence is closed or full, and starts the dispatcher
-    /// with the first one. `item` gets the item's share of the daemon's
-    /// byte budget; it runs under the sequence's lock and does not block.
-    pub(super) fn sequence(
+    /// with the first one. `item` gets what budget `B` reserved for it; it
+    /// runs under the sequence's lock and does not block.
+    pub(super) fn sequence<B: SequenceBudget>(
         self: &Arc<Self>,
         mux: &Arc<Mux>,
         client: u64,
         retained_bytes: usize,
         writer: &MessageWriter,
-        item: impl FnOnce(ServerSurfaceBytesPermit) -> SequencedItem,
+        item: impl FnOnce(B::Permit) -> SequencedItem,
     ) -> Result<(), NotSequenced> {
         // A connection whose writer closed answers nothing more.
         if !writer.is_open() {
@@ -365,11 +416,7 @@ impl ConnectionSurfaceScheduler {
         let admitted = if over_count || over_bytes {
             Err("surface request queue is full; request was not executed")
         } else {
-            self.admission.try_reserve_bytes(retained_bytes).map_err(
-                |ServerSurfaceAdmissionError::RetainedByteCapacity| {
-                    "server surface-operation byte budget is full; request was not executed"
-                },
-            )
+            B::reserve(&self.admission, retained_bytes)
         };
         let bytes_permit = match admitted {
             Ok(bytes_permit) => bytes_permit,
@@ -629,7 +676,23 @@ pub(super) fn run_pending_request(
     handle_request_with_cancellation(mux, client, request, arrival, writer, Some(cancellation))
 }
 
+/// The connection's dispatcher: its control sequence, in order. Its
+/// handlers' durable store calls are known request-path debt
+/// ([`cmux_threads::KnownDebt::RequestPathStore`]): each is recorded as a
+/// `server.blocking` site and counted on the request path, and none panics,
+/// whichever item (a `Command` or any other line) makes it.
 fn run_connection_surface_dispatcher(
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+) {
+    cmux_threads::tolerate_known_debt(cmux_threads::KnownDebt::RequestPathStore, || {
+        run_control_sequence(scheduler, mux, client, writer);
+    });
+}
+
+fn run_control_sequence(
     scheduler: Arc<ConnectionSurfaceScheduler>,
     mux: Arc<Mux>,
     client: u64,

@@ -80,6 +80,7 @@ impl PendingRegistryReceipt {
         timeout: std::time::Duration,
         site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
+        let receipt_wait = cmux_threads::StoreReceiptWait::enter();
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
         // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
         let taken = match self.receiver.recv_timeout(timeout) {
@@ -89,6 +90,7 @@ impl PendingRegistryReceipt {
                 Some(Err("the session journal writer dropped the receipt".into()))
             }
         };
+        drop(receipt_wait);
         self.settle_wait(taken)
     }
 

@@ -455,7 +455,7 @@ check it.
 | 083 | Daemon socket buffers 512 KiB | S | low | - | - |
 | 084 | Frames skip API-revision upgrade only at equal revision | S | normal | - | 071 |
 | 085 | Per-surface PTY input FIFO | M | normal | - | 073 |
-| 086 | v2 ops and sniffed handlers leave the reader | L | normal | - | 003, 062 |
+| 086 | v2 ops and sniffed handlers leave the reader | L | normal | - | 003, 062, 073 |
 | 087 | Pending streams (associated-endpoint queueing) | M | normal | - | 073, 074 |
 | 088 | writev batching | M | normal | - | 072 |
 | 089 | Output fan-out without per-viewer copy | M | normal | - | - |
@@ -938,7 +938,8 @@ per-surface input FIFO; a bounded write is never interleaved. Acceptance: red fi
 core:server/origin_gate.rs, core:server/resource_connection.rs, core:server/connection_scheduler.rs. Change: every
 parsed message (v2 ops and module routes included) goes to the connection control sequence in arrival order;
 only identify, client-hello and cancel stay inline. Acceptance: red first: a v2 op held 300 ms does not delay
-reading the next line and a stream `send` behind it is written within 2 ms; interleaved v2/v12 reply in arrival
+reading the next line and a stream `send` behind it is written within 2 ms (blocked on 073: a stream is its own
+sequence there; until it lands a `send` waits its turn on the control sequence); interleaved v2/v12 reply in arrival
 order; debug assertion: no handler on a mux-conn thread. Test: RUST(resource_connection); RUST(connection_frame).
 
 **p05-ipc-087 pending streams.** Files: core:server/stream_lanes.rs, core:server/frame_dispatch.rs,

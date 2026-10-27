@@ -91,7 +91,7 @@ fn connection_frame_parses_every_accepted_line_twice() {
     let mux = test_mux();
     let conn = Conn::new(&mux);
     let resource = json!({"protocol":"cmux.protocol/2","type":"request","id":"r-1",
-        "operation":"request.cancel","params":{"request_id":"r-none"}})
+        "operation":"session.ping","params":{"machine":"current","session":"current"}})
     .to_string();
     let page_routed = json!({"protocol":"cmux.protocol/2","type":"request","id":"r-2",
         "operation":"apps.catalog.list","params":{}})

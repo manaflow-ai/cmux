@@ -2320,7 +2320,12 @@ const OUTBOUND_CONNECTION_CAPACITY: usize = OUTBOUND_CAPACITY * 16;
 const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
-const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+/// The bytes a connection's control sequence may hold queued: two lines of
+/// the largest size the reader accepts (with their `\n`), so any accepted
+/// line fits, also behind another of that size. `Command`s are held to the
+/// daemon's `SERVER_SURFACE_RETAINED_BYTE_CAPACITY` as well
+/// (connection_scheduler.rs, `SequenceBudget`).
+const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 2 * (MAX_JSON_LINE_BYTES + 1);
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -2365,8 +2370,8 @@ mod connection_scheduler;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
-    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, SequencedItem,
-    run_pending_request,
+    ConnectionBudget, ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest,
+    SequencedItem, run_pending_request,
 };
 
 mod bounded_outbound;

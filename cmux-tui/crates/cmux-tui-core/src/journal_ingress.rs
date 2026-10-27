@@ -1034,6 +1034,9 @@ impl JournalIngressSender {
         operation: &str,
         site: &'static std::panic::Location<'static>,
     ) -> anyhow::Result<T> {
+        // The note and both receipt waits below are store debt on a request
+        // thread (`KnownDebt::RequestPathStore`).
+        let _receipt_wait = cmux_threads::StoreReceiptWait::enter();
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
         // wakeup-allow: deadline the request's durable-wait deadline, one wait per receipt
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {

@@ -252,7 +252,6 @@ pub(super) struct PendingLine {
     json_parses: Option<JsonParseHandoff>,
     /// Its parses on the reader (`daemon.frame.json_parses`).
     line_parses: u32,
-    _bytes_permit: ServerSurfaceBytesPermit,
 }
 
 impl PendingLine {
@@ -274,45 +273,76 @@ impl Drop for PendingLine {
     }
 }
 
+/// How a line the full sequence refused is answered.
+enum Refusal {
+    /// A v2 response naming its operation.
+    Resource(String),
+    /// A remote-relay line: a code only (remote_relay.rs), never local
+    /// error text.
+    Remote,
+    /// A `loopback-*` line: its stream ends (loopback_forward.rs), and a
+    /// line with an `id` also gets the error reply.
+    Loopback,
+    /// The v1 error reply with the line's `id`.
+    Request,
+}
+
 /// Puts `line` on its connection's control sequence; whether the
 /// connection stays open. A sequence that is full refuses the line here,
-/// unexecuted, as it refuses a `Command`.
+/// unexecuted, as it refuses a `Command`. A line is held to its
+/// connection's caps only ([`ConnectionBudget`]): before
+/// p05-ipc-086 it never met the daemon's surface-operation byte budget.
 fn sequence_line(line: &LineFrame<'_>, work: LineWork) -> bool {
     let LineFrame { mux, client, message, writer, scheduler, arrival, .. } = *line;
-    // A v2 line's refusal is a v2 response naming its operation.
-    let operation = match &work {
+    let refusal = match &work {
+        LineWork::Remote => Refusal::Remote,
         LineWork::Line(head) | LineWork::BadRequest(head, _) if head.is_resource() => {
-            Some(head.operation().unwrap_or("request").to_owned())
+            Refusal::Resource(head.operation().unwrap_or("request").to_owned())
         }
-        LineWork::Line(_) | LineWork::BadRequest(..) | LineWork::Remote => None,
+        LineWork::Line(head) if head.cmd().is_some_and(loopback_forward::is_loopback_cmd) => {
+            Refusal::Loopback
+        }
+        LineWork::Line(_) | LineWork::BadRequest(..) => Refusal::Request,
     };
     let owned = message.to_owned();
     let line_parses = crate::line_parses::current();
-    let sequenced = scheduler.sequence(mux, client, owned.len(), writer, |bytes_permit| {
-        SequencedItem::Line(PendingLine {
-            message: owned,
-            work,
-            arrival,
-            cause: EventCause::current(),
-            client,
-            writer: writer.clone(),
-            json_parses: crate::diagnostics::hand_off_json_parses(),
-            line_parses,
-            _bytes_permit: bytes_permit,
-        })
-    });
+    let sequenced =
+        scheduler.sequence::<ConnectionBudget>(mux, client, owned.len(), writer, |()| {
+            SequencedItem::Line(PendingLine {
+                message: owned,
+                work,
+                arrival,
+                cause: EventCause::current(),
+                client,
+                writer: writer.clone(),
+                json_parses: crate::diagnostics::hand_off_json_parses(),
+                line_parses,
+            })
+        });
     let Err(not_sequenced) = sequenced else { return true };
-    let Some(refusal) = not_sequenced.refusal() else { return false };
-    if let Some(operation) = operation {
-        let error = ResourceError::operation_failed(operation, refusal, json!({}));
-        let response = crate::resource_router::malformed_resource_response(message, error);
-        return writer.send_control(&response).is_ok();
-    }
-    let id = match crate::line_parses::parse::<Value>(message) {
+    let Some(reason) = not_sequenced.refusal() else { return false };
+    let id = || match crate::line_parses::parse::<Value>(message) {
         Ok(Value::Object(mut object)) => object.remove("id"),
         _ => None,
     };
-    send_request_error(writer, id, &refusal)
+    match refusal {
+        Refusal::Resource(operation) => {
+            let error = ResourceError::operation_failed(operation, reason, json!({}));
+            let response = crate::resource_router::malformed_resource_response(message, error);
+            writer.send_control(&response).is_ok()
+        }
+        Refusal::Remote => {
+            writer.send_control(&remote_relay::refusal(message, remote_relay::REMOTE_ERROR)).is_ok()
+        }
+        Refusal::Loopback => {
+            loopback_forward::end_refused_stream(mux, client, message);
+            match id() {
+                Some(id) => send_request_error(writer, Some(id), &reason),
+                None => true,
+            }
+        }
+        Refusal::Request => send_request_error(writer, id(), &reason),
+    }
 }
 
 /// Runs a line the reader sequenced, on the connection's dispatcher, as the
@@ -812,3 +842,6 @@ mod dispatch_golden_tests;
 
 #[cfg(test)]
 pub(super) mod sequenced_lines_tests;
+
+#[cfg(test)]
+mod sequence_refusal_tests;

@@ -187,8 +187,10 @@ fn median(mut values: Vec<Duration>) -> Duration {
 /// the reader, so the reader hands it on at once and reads the 20 `send`
 /// lines behind it within its 2 ms budget each. (Before, the reader ran
 /// the operation itself and read nothing for 300 ms.) The `send` replies
-/// wait their turn on the same control sequence; one on a stream of its
-/// own leaves at once with the stream sequences of p05-ipc-073.
+/// wait their turn on the same control sequence. The other half of the
+/// acceptance, a `send` on a stream of its own written within 2 ms while
+/// the held operation runs, is not covered here: it is blocked on the
+/// stream sequences of p05-ipc-073 (now in this task's `depends_on`).
 #[test]
 fn resource_connection_a_held_v2_op_does_not_delay_reading_the_next_line() {
     let mux = test_mux();

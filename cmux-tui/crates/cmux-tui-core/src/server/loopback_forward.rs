@@ -784,14 +784,16 @@ pub(in crate::server) const ROUTES: &[Route] = &[Route {
 }];
 
 /// The route's typed handler for a `loopback-*` line, on the connection's
-/// reader thread apart from the per-connection surface queue, so forwarded
-/// bytes never use the daemon's surface-operation budget. The line's `cmd`
-/// named this family, so it decodes the line once into its
-/// [`LoopbackCommand`] (a data frame's bytes included) and answers it. A line
-/// that is none of the commands is left to the `Command` parse (`None`).
+/// control sequence in arrival order (p05-ipc-086). Its line is held to the
+/// connection's own queue caps, never to the daemon's surface-operation
+/// byte budget; a line the full sequence refuses ends its stream
+/// ([`end_refused_stream`]). The line's `cmd` named this family, so it
+/// decodes the line once into its [`LoopbackCommand`] (a data frame's bytes
+/// included) and answers it. A line that is none of the commands is left to
+/// the `Command` parse (`None`).
 ///
-/// A client must wait for the `set-client-info` reply before its first
-/// `loopback-open`, because that command runs on the ordered dispatcher.
+/// A `loopback-open` sent after `set-client-info` sees the capability it
+/// declared: both run on the same control sequence, in arrival order.
 fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let RouteLine { mux, client, message, writer, .. } = *line;
     let LoopbackRequest { id, command } = crate::line_parses::parse(message).ok()?;
@@ -840,6 +842,35 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
             }
             Some(id.is_none() || ok(writer, id, json!({})))
         }
+    }
+}
+
+/// Whether `cmd` is one of this module's lines.
+pub(in crate::server) fn is_loopback_cmd(cmd: &str) -> bool {
+    cmd.starts_with("loopback-")
+}
+
+/// A `loopback-*` line its connection's full control sequence refused,
+/// unexecuted. A line of an open stream (data, credit, shutdown, close)
+/// ends that stream with `queue-full`, so the client gets
+/// `loopback-closed` and no forwarded byte or credit goes missing while the
+/// stream goes on. A refused `loopback-open` opened nothing; its error reply
+/// is the caller's.
+pub(in crate::server) fn end_refused_stream(mux: &Mux, client: u64, message: &str) {
+    #[derive(Deserialize)]
+    struct StreamLine {
+        cmd: String,
+        stream: Option<u64>,
+    }
+    let Ok(StreamLine { cmd, stream: Some(stream) }) = crate::line_parses::parse(message) else {
+        return;
+    };
+    if cmd == "loopback-open" {
+        return;
+    }
+    let forwarder = &mux.control_clients.loopback;
+    if let Some(target) = forwarder.stream(client, stream) {
+        target.fail(forwarder, "queue-full", true);
     }
 }
 
@@ -1132,6 +1163,43 @@ pub(super) fn window_probe() -> WindowProbe {
         changed: Condvar::new(),
     });
     WindowProbe { forwarder: LoopbackForwarder::default(), stream, _peer: peer }
+}
+
+/// Opens stream `stream_id` of `client` on `mux`'s forwarder to a local
+/// listener, with no reader or writer thread, so the bytes it accepts stay
+/// queued; returns the target's side of the connection.
+#[cfg(test)]
+pub(super) fn open_idle_stream_for_test(
+    mux: &Mux,
+    client: u64,
+    stream_id: u64,
+    writer: &MessageWriter,
+) -> TcpStream {
+    let forwarder = &mux.control_clients.loopback;
+    assert!(forwarder.reserve(client, stream_id).is_ok(), "a free stream slot");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (target, _) = listener.accept().unwrap();
+    let stream = Arc::new(ForwardStream {
+        client,
+        id: stream_id,
+        host: "127.0.0.1".into(),
+        port: socket.peer_addr().unwrap().port(),
+        started: Instant::now(),
+        tcp: socket,
+        writer: writer.clone(),
+        outbound: writer.start_stream(&json!({})).unwrap(),
+        inner: Mutex::new(StreamInner::default()),
+        changed: Condvar::new(),
+    });
+    forwarder.state.lock().recover_poison().streams.insert((client, stream_id), stream);
+    target
+}
+
+/// Whether `client`'s stream `stream_id` is still open on `mux`.
+#[cfg(test)]
+pub(super) fn stream_is_open_for_test(mux: &Mux, client: u64, stream_id: u64) -> bool {
+    mux.control_clients.loopback.stream(client, stream_id).is_some()
 }
 
 #[cfg(test)]
