@@ -105,6 +105,9 @@ function publishComposerSettings(value: unknown) {
 export function setComposerSettings(value: unknown) {
   if (value && typeof value === "object" && "scrollToBottomOnSend" in value) {
     confirmedScrollToBottomOnSend = readComposerSettings(value).scrollToBottomOnSend;
+    // A host snapshot is authoritative. Invalidate an older bridge reply so a late success cannot
+    // overwrite the value the host just confirmed (the legacy page bridge has no call context).
+    scrollWrite += 1;
   }
   if (value && typeof value === "object" && "attachmentView" in value) {
     confirmedAttachmentView = readComposerSettings(value).attachmentView;

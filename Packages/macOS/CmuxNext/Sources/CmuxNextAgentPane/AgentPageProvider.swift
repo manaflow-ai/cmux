@@ -366,7 +366,10 @@ public final class AgentPageProvider: PageProvider {
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
-        return try Self.value(of: await model.respond(to: request))
+        // `context.userGesture` is host-authenticated PageRouter state; it cannot be supplied by
+        // page params. Pass it through only at this seam so shared-page user-only writes survive a
+        // long native menu, while the legacy bridge still uses its pane gesture credit.
+        return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
     }
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and
