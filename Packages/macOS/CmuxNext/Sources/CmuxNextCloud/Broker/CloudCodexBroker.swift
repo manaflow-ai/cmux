@@ -22,6 +22,7 @@ public actor CloudCodexBroker {
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
     private var pendingRevocations: Set<String> = []
+    private var revocationTargets: [String: CloudCodexBrokerTarget] = [:]
     private var targetLocks: Set<String> = []
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
@@ -135,11 +136,13 @@ public actor CloudCodexBroker {
         targetGenerations[target.machineID, default: 0] += 1
         guard registered else { return }
         pendingRevocations.insert(target.machineID)
+        revocationTargets[target.machineID] = target
         await lockTarget(target.machineID)
         defer { unlockTarget(target.machineID) }
         // Login may have registered a target before touching any VM auth file.
         guard loadedPreviousMode.contains(target.machineID) else {
             pendingRevocations.remove(target.machineID)
+            revocationTargets.removeValue(forKey: target.machineID)
             if targets.isEmpty {
                 cached = nil; refreshTask?.cancel(); refreshTask = nil
                 if signOut { _ = try? await request(method: "logout") }
@@ -158,13 +161,19 @@ public actor CloudCodexBroker {
             throw CloudCodexBrokerError.targetOffline
         }
         try await target.removeFile(Self.accessPath)
-        try await target.removeFile(Self.modePath)
+        // Replace the mode in place when restoring a prior provider.  Removing
+        // it first can strand a VM without its previous auth mode if the
+        // subsequent write is interrupted; on failure the broker-owned mode
+        // remains and pending cleanup records the machine for a later retry.
         if let previous = previousModeByMachine[target.machineID] ?? nil {
             try await target.writeFile(Self.modePath, previous, 0o600)
+        } else {
+            try await target.removeFile(Self.modePath)
         }
         previousModeByMachine.removeValue(forKey: target.machineID)
         loadedPreviousMode.remove(target.machineID)
         pendingRevocations.remove(target.machineID)
+        revocationTargets.removeValue(forKey: target.machineID)
         if targets.isEmpty {
             cached = nil
             refreshTask?.cancel()
@@ -282,6 +291,7 @@ public actor CloudCodexBroker {
                 targets.removeValue(forKey: target.machineID)
                 targetGenerations[target.machineID, default: 0] += 1
                 pendingRevocations.insert(target.machineID)
+                revocationTargets[target.machineID] = target
             }
             let previous = previousModeByMachine[target.machineID] ?? nil
             // Cleanup must complete even when the initiating task was cancelled.
@@ -292,8 +302,8 @@ public actor CloudCodexBroker {
                 }
                 if committed {
                     try await target.removeFile(Self.accessPath)
-                    try await target.removeFile(Self.modePath)
                     if let previous { try await target.writeFile(Self.modePath, previous, 0o600) }
+                    else { try await target.removeFile(Self.modePath) }
                 }
             }
             do { try await cleanup.value }
@@ -332,7 +342,7 @@ public actor CloudCodexBroker {
         stopped = true
         refreshTask?.cancel()
         refreshInFlight?.cancel()
-        let endingTargets = targetList()
+        let endingTargets = Array(targets.merging(revocationTargets) { _, pending in pending }.values)
         if let session { await invalidate(session) }
         var failed = pendingRevocations
         for target in endingTargets {
@@ -398,6 +408,7 @@ public actor CloudCodexBroker {
 /// passed to transfer per call, while the rotating local refresh cache remains one per scope.
 public actor CloudCodexBrokerRegistry {
     private var brokers: [CloudCodexBrokerScope: CloudCodexBroker] = [:]
+    private var pendingCleanup: [CloudCodexBrokerScope: CloudCodexBroker] = [:]
 
     public init() {}
 
@@ -406,7 +417,11 @@ public actor CloudCodexBrokerRegistry {
                        executable: URL,
                        executablePrefix: [String] = [],
                        codexExecutable: URL,
-                       home: URL) -> CloudCodexBroker {
+                       home: URL) async throws -> CloudCodexBroker {
+        if let previous = pendingCleanup[scope] {
+            guard await previous.shutdown().isEmpty else { throw CloudCodexBrokerError.remoteDeliveryFailed }
+            pendingCleanup.removeValue(forKey: scope)
+        }
         if let broker = brokers[scope] { return broker }
         let broker = CloudCodexBroker(scope: scope, currentScope: currentScope, executable: executable,
                                       executablePrefix: executablePrefix, codexExecutable: codexExecutable, home: home)
@@ -419,8 +434,11 @@ public actor CloudCodexBrokerRegistry {
 
     /// Stops a scoped holder before releasing it. Credentials remain on disk.
     public func remove(scope: CloudCodexBrokerScope) async -> Set<String> {
-        guard let broker = brokers.removeValue(forKey: scope) else { return [] }
-        return await broker.shutdown()
+        guard let broker = brokers.removeValue(forKey: scope) ?? pendingCleanup[scope] else { return [] }
+        pendingCleanup[scope] = broker
+        let failed = await broker.shutdown()
+        if failed.isEmpty { pendingCleanup.removeValue(forKey: scope) }
+        return failed
     }
 }
 
