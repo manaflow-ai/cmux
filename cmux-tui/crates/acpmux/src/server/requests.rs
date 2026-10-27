@@ -1865,6 +1865,17 @@ async fn dispatch_request(
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
+            // The person's own daemon is never stopped by a test runner or a client from a
+            // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
+            // own environment can allow those; nothing a client sends does.
+            let allow = crate::daemon::exe_path::allowed_by_env();
+            if let Some(why) =
+                crate::daemon::exe_path::peer_shutdown_refusal(conn.peer.as_ref(), allow)
+            {
+                tracing::warn!("{why}");
+                return Err(RpcError::new(-32000, why)
+                    .with_data(json!({"reason": "shutdown.refused_client"})));
+            }
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

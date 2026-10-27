@@ -34,6 +34,20 @@ import Testing
         }
     }
 
+    /// Only rounding is cut back: a column whose own fraction runs past the trailing edge keeps
+    /// its width, and the strip scrolls to it.
+    @Test(arguments: [1.0, 2.0])
+    func aColumnPastTheEdgeKeepsItsWidth(scale: CGFloat) {
+        let gap: CGFloat = 8
+        for viewport in Self.viewports {
+            let result = ColumnStripGeometry.frames(widths: [1, 1], viewport: CGSize(width: viewport, height: 800),
+                                                    gap: gap, scale: scale)
+            let first = result.frames[0], second = result.frames[1]
+            #expect(abs(second.width - first.width) <= 1, "the second full column is as wide as the first in \(viewport)")
+            #expect(ColumnStripGeometry.maxOffset(contentWidth: result.contentWidth, viewportWidth: viewport) > viewport / 2)
+        }
+    }
+
     /// The same through the screen geometry the layout view scrolls: a screen of equal columns
     /// has no content past its viewport.
     @Test(arguments: [2, 3, 4, 5])
@@ -42,8 +56,16 @@ import Testing
         let columns = (0..<count).map { index in
             LayoutColumn(id: ColumnID("c\(index)"), width: 1.0 / Double(count), root: .leaf(PaneID("p\(index)")))
         }
+        let minimum = columns.map { $0.minimumSize(style: style).width }.max() ?? 0
         for viewport in Self.viewports {
             let geometry = ScreenGeometry.compute(.columns(columns), viewport: CGSize(width: viewport, height: 800), style: style, scale: 2)
+            let share = ColumnStripGeometry.pixelWidth(fraction: 1.0 / Double(count), viewportWidth: viewport, gap: style.stripGap)
+            guard share >= minimum else {
+                // Columns narrower than a pane's minimum widen to it (panes never collapse), so a
+                // strip too narrow for them scrolls: that overflow is asked for.
+                #expect(geometry.maxOffset > 0, "\(count) columns below their minimum in \(viewport) pt scroll")
+                continue
+            }
             #expect(abs(geometry.contentWidth - viewport) < 0.001,
                     "\(count) columns in \(viewport) pt: content \(geometry.contentWidth)")
             #expect(geometry.maxOffset < 0.001, "no horizontal scroll with \(count) columns in \(viewport) pt: \(geometry.maxOffset)")
