@@ -84,7 +84,7 @@ final class InputDirtyLedger {
     /// Return addresses that tell two sites of one call, class and relation apart.
     static let siteDepth = 16
     /// Superlayers walked to find a layer's view.
-    static let layerWalkLimit = 64
+    nonisolated static let layerWalkLimit = 64
 
     /// One input turn: from its first event to the end of the first commit pass after its dispatch returned.
     private struct Turn {
@@ -241,36 +241,40 @@ final class InputDirtyLedger {
 
     // MARK: Dirty calls
 
-    /// Runs `send`, a hooked call's original on the main thread (``InputDirtyMainSeam``), recording the
-    /// call first when `records` (a call that dirties) and it is the outermost hooked call in an input turn.
-    func record(_ call: InputDirtyCall, _ receiver: AnyObject, records: Bool, _ send: () -> Void) {
-        if records, nesting == 0, isInstalled, let current = turn { note(call, receiver, target: current.target, kind: current.kind) }
+    /// Opens a hooked call on the main thread (``InputDirtyMainSeam``), before its original runs; each
+    /// enter has one ``leave()`` after the original returns. True when the call is to be noted: it dirties
+    /// (`records`) and it is the outermost hooked call in an input turn.
+    func enter(records: Bool) -> Bool {
+        let notes = records && nesting == 0 && isInstalled && turn != nil
         nesting += 1
-        defer { nesting -= 1 }
-        send()
+        return notes
     }
 
-    private func note(_ call: InputDirtyCall, _ receiver: AnyObject, target: NSView?, kind: InputDirtyTurnKind) {
-        let view = Self.hostingView(of: receiver)
-        let relation = InputDirtyRelation(of: view, to: target)
+    /// Closes the hooked call the last ``enter(records:)`` opened.
+    func leave() {
+        nesting -= 1
+    }
+
+    /// Records one dirty call of the current input turn, read on the hooked call's thread (`receiver`).
+    func note(_ call: InputDirtyCall, _ receiver: InputDirtyReceiver) {
+        guard let current = turn else { return }
+        let relation = InputDirtyRelation(of: receiver.view, to: current.target)
         let stack = Thread.callStackReturnAddresses.prefix(Self.stackDepth).map(\.uintValue)
         var hasher = Hasher()
         for address in stack.prefix(Self.siteDepth) { hasher.combine(address) }
-        let receiverClass: AnyObject.Type = type(of: receiver)
-        let key = InputDirtyWindow.Key(call: call, receiverClass: ObjectIdentifier(receiverClass), relation: relation,
-                                       stack: hasher.finalize())
+        let key = InputDirtyWindow.Key(call: call, receiverClass: receiver.classID, relation: relation, stack: hasher.finalize())
         let site = {
-            InputDirtyWindow.Site(call: call, objectClass: String(describing: receiverClass),
-                                  viewClass: view.map { String(describing: type(of: $0)) }, relation: relation, stack: stack)
+            InputDirtyWindow.Site(call: call, objectClass: receiver.className,
+                                  viewClass: receiver.view.map { String(describing: type(of: $0)) }, relation: relation, stack: stack)
         }
-        sinceLaunch.add(key, kind: kind, limit: siteLimit, new: site)
-        sinceReset.add(key, kind: kind, limit: siteLimit, new: site)
+        sinceLaunch.add(key, kind: current.kind, limit: siteLimit, new: site)
+        sinceReset.add(key, kind: current.kind, limit: siteLimit, new: site)
         turn?.calls += 1
         if relation.isOffTarget { turn?.offTarget += 1 }
     }
 
     /// The view `receiver` draws for: itself, or the delegate of the nearest layer up its layer tree.
-    static func hostingView(of receiver: AnyObject) -> NSView? {
+    nonisolated static func hostingView(of receiver: AnyObject) -> NSView? {
         if let view = receiver as? NSView { return view }
         var layer = receiver as? CALayer
         var steps = 0
