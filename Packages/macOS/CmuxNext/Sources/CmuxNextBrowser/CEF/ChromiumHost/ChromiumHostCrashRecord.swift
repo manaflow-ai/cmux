@@ -125,7 +125,7 @@ nonisolated struct ChromiumHostLogTail: ChromiumHostLogReading {
 
     /// The last lines of `file`, from at most its last ``ChromiumHostCrashRecord/logTailBytes`` bytes. Blocks: on a lane.
     static func read(_ file: URL) -> [String] {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return [] }
+        guard let handle = blockingCall(.fileIO, { try? FileHandle(forReadingFrom: file) }) else { return [] }
         defer { try? handle.close() }
         guard let size = try? handle.blockingSeekToEnd() else { return [] }
         let limit = UInt64(ChromiumHostCrashRecord.logTailBytes)

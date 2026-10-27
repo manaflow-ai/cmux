@@ -12,7 +12,7 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
     var remoteShim: URL
     var frameworkLocales: [String]
     /// The version the framework's Info.plist names, for the host's crash records; nil when unread.
-    var cefVersion: String? = nil
+    var cefVersion: String?
 
     /// The host this app bundles (`Contents/MacOS/<App> Chromium Host`, embed-cef.sh) with the remote shim beside
     /// the framework, or nil when the build has neither. Reads the disk: on a lane.

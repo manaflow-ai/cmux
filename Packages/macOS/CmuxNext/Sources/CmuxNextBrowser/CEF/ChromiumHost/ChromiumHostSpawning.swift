@@ -8,9 +8,9 @@ nonisolated struct ChromiumHostSpawn: Sendable {
     var pid: pid_t
     var attachment: ChromiumHostAttachment
     /// Its Chromium log (`--log-file`), whose end its crash record keeps; nil when it logs to none.
-    var logFile: URL? = nil
+    var logFile: URL?
     /// The version its Chromium framework's Info.plist names (``ChromiumHostLaunchPlan/cefVersion``).
-    var cefVersion: String? = nil
+    var cefVersion: String?
 }
 
 /// Starts and ends the supervisor's hosts; a seam so tests start a stand-in.
