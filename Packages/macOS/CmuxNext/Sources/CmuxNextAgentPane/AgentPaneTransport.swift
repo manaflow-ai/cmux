@@ -172,6 +172,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
+    /// The frozen page's connection closes once the send line is empty (``closeWhileFrozen()``).
+    var closesWhenSent = false
+    /// The connection a freeze closed, until the page opens its next one (``closeWhileFrozen()``).
+    public internal(set) var closedForFreeze: Int?
+    /// Connections the page opened again after a freeze closed its last one (tests and the acpmux bench).
+    public private(set) var freezeReconnects = 0
 
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
                 gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
@@ -200,6 +206,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
     /// Opens a new socket (closing the current one) and returns its id once it is open.
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
+        closesWhenSent = false
+        if closedForFreeze != nil {
+            closedForFreeze = nil
+            freezeReconnects += 1
+        }
         pacer.reset()
         // A reconnect drops every ticket of the old connection.
         gestures.clearTickets()
@@ -285,7 +296,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
         guard !draining else { return }
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
-        Task { [weak self] in await self?.drain() }
+        Task { @MainActor [weak self] in
+            await self?.drain()
+            self?.sendLineDidEmpty()
+        }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
