@@ -8,6 +8,7 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
     crate::FeatureDef {
         name: "agentToolsInDaemon",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
