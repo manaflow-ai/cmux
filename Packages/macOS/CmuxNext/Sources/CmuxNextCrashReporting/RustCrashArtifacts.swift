@@ -3,8 +3,8 @@ import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
 
-/// What a crashed cmux Rust process (daemon, terminal host, holder, acpmux) leaves on disk for its macOS
-/// crash report (plans/cmux-next/chrome-parity/p09-observability.md, task 097): its black box
+/// What a crashed cmux Rust process (daemon, terminal host, holder, acpmux, agent host, app host, browser
+/// host) leaves on disk for its macOS crash report (plans/cmux-next/chrome-parity/p09-observability.md, task 097): its black box
 /// (`<role>-<pid>.blackbox.cmxtrace`, task 095) and its crash-key page (`<role>-<pid>.crashkeys`, task 098),
 /// where the process writes them: the app's trace folder, which the app hands the daemon and the daemon its
 /// hosts, and each holder's `<socket>.trace` folder beside its socket in `/tmp/cmux-hd-<uid>`.
@@ -18,7 +18,7 @@ import CmuxNextWakeups
 /// image's `LC_UUID`, so a reused pid or another build never lends its ring. The black box goes through the
 /// upload decoder (``CmuxNextTrace/TraceBlackBoxUpload``: catalog names and numbers, at most 512 events, no
 /// key-timing, per-key PTY or flow record) and only with the hang-reports opt-in, as on the app's own crash
-/// event (task 079). The crash keys are numbers and always go as tags.
+/// event (task 079). The crash keys are numbers and fixed state names and always go as tags.
 ///
 /// ```swift
 /// let artifacts = RustCrashArtifacts.app(bundleID: Bundle.main.bundleIdentifier, blackboxOptIn: { hangReportsOn() })
@@ -36,7 +36,7 @@ public struct RustCrashArtifacts: Sendable {
     public var blackboxOptIn: OptIn
 
     /// The roles whose files a Rust crash may have left.
-    static let roles: [TraceRing.Role] = [.daemon, .terminalHost, .holder, .acpmux]
+    static let roles: [TraceRing.Role] = [.daemon, .terminalHost, .holder, .acpmux, .agentHost, .appHost, .browserHost]
 
     /// Artifacts read from `directories` and the `*.trace` folders in `holderSockets`.
     public init(directories: [URL], holderSockets: URL? = nil, blackboxOptIn: @escaping OptIn) {
@@ -134,42 +134,55 @@ public struct RustCrashArtifacts: Sendable {
     }
 }
 
-/// A Rust process's crash-key page as task 098 writes it (cmux-trace `crash_keys.rs`), in the app page's
-/// layout (`CrashKeyPage`, task 078): 512 little-endian 64-bit words. Words 0-7 are the header: 0 magic
-/// `CMXKEYS1`; 1 version 1, header words `<< 16`, page words `<< 32`; 2 pid, role `<< 32`; 3-4 the main image's
-/// `LC_UUID`; 5 process start (Unix microseconds); 6 the page's start (uptime ns); 7 reserved. The slots share
-/// the app's word numbers where they mean the same (``Slot``). Only the slots below become tags, as decimal
-/// numbers, so whatever else a damaged or planted file holds never reaches a report.
+/// A Rust process's crash-key page as task 098 writes it (cmux-trace `crash_keys.rs`; its `decode` reads the
+/// same words): 512 little-endian 64-bit words. Header: 0 magic `CMXCKEYS`; 1 version 1 in the low 32 bits,
+/// the role in bits 32-47; 2 pid; 3 process start (Unix microseconds); 4-5 the main image's `LC_UUID`; 8-11 the
+/// build version. Keys: 12 request method, 13 terminal count, 14 holder link, 15 requests in flight past the
+/// table, 16-31 the requests in flight (a method key each, 0 for a free entry). Only these keys become tags, as
+/// decimal numbers or a fixed state name, so whatever else a damaged or planted file holds never reaches a report.
 struct RustCrashKeyPage: Equatable {
-    /// A slot a Rust process sets, at its word in the page.
-    enum Slot: Int, CaseIterable {
-        /// The request the process runs, as `stable_key` of its method name (cmux-panic-log `Key::ActionId`);
-        /// the app's running action is the same word (`CrashKeySlot.actionIndex`).
-        case requestMethod = 8
-        /// The number of live terminals, as a count bucket (the app's `CrashKeySlot.terminalCount`).
-        case terminalCount = 15
-        /// The daemon's link to its holder (0 none, 1 connecting, 2 linked, 3 lost); the first word after the
-        /// app's slots.
-        case holderLinkState = 120
+    /// The state of a process's link to its PTY holder (cmux-trace `crash_keys::HolderLink`).
+    enum HolderLink: UInt64 {
+        case never = 0
+        case linked = 1
+        case lost = 2
+        case superseded = 3
+        case failed = 4
 
-        /// The slot's name in a report's tags (`crash_key.<name>`).
+        /// The state's tag value.
         var name: String {
             switch self {
-            case .requestMethod: "request_method"
-            case .terminalCount: "terminal_count"
-            case .holderLinkState: "holder_link_state"
+            case .never: "never"
+            case .linked: "linked"
+            case .lost: "lost"
+            case .superseded: "superseded"
+            case .failed: "failed"
             }
         }
     }
 
-    /// `CMXKEYS1` as a little-endian word.
-    static let magic: UInt64 = 0x3153_5945_4B58_4D43
-    /// Version 1, 8 header words, 512 page words.
-    static let shape: UInt64 = 1 | 8 << 16 | 512 << 32
-    /// The page's size in bytes.
+    /// Word indexes of the layout (cmux-trace `crash_keys::word`).
+    enum Word {
+        static let magic = 0
+        static let versionRole = 1
+        static let pid = 2
+        static let buildUUID = 4
+        static let requestMethod = 12
+        static let terminalCount = 13
+        static let holderLink = 14
+        static let untracked = 15
+        static let inFlight = 16
+        static let inFlightCapacity = 16
+    }
+
+    /// ASCII `CMXCKEYS` as a little-endian word (cmux-trace `crash_keys::MAGIC`).
+    static let magic: UInt64 = 0x5359_454B_4358_4D43
+    /// The page format version this build reads (cmux-trace `crash_keys::VERSION`).
+    static let version: UInt32 = 1
+    /// The page's size in bytes (cmux-trace `crash_keys::PAGE_BYTES`).
     static let byteCount = 512 * 8
 
-    /// The page's file name for `role` in process `pid`, beside its black box.
+    /// The page's file name for `role` in process `pid`, beside its black box (cmux-trace `page_file_name`).
     static func fileName(role: TraceRing.Role, pid: UInt32) -> String {
         "\(role.fileStem)-\(pid).crashkeys"
     }
@@ -177,28 +190,43 @@ struct RustCrashKeyPage: Equatable {
     let pid: UInt32
     let role: UInt16
     let buildUUID: [UInt8]
-    /// The set slots' values.
-    let values: [Slot: UInt64]
+    /// The method key of the request that started last (FNV-1a 64 of its wire name); 0 before the first.
+    let requestMethod: UInt64
+    let terminalCount: UInt64
+    /// The holder link word as written: a ``HolderLink`` raw value, or a code a newer writer added.
+    let holderLink: UInt64
+    /// The requests running when the process died: the named ones and those past the full table.
+    let requestsInFlight: UInt64
 
-    /// The page in `bytes`; nil when it is shorter than a page or its header is not a v1 page's.
+    /// The page in `bytes`; nil when it is shorter than a page, has no magic (not a page, or one whose file was
+    /// being made) or is another version.
     init?(bytes: [UInt8]) {
         guard bytes.count >= Self.byteCount else { return nil }
         func word(_ index: Int) -> UInt64 {
             (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(bytes[index * 8 + $1]) << (8 * UInt64($1)) }
         }
-        guard word(0) == Self.magic, word(1) == Self.shape else { return nil }
-        pid = UInt32(truncatingIfNeeded: word(2))
-        role = UInt16(truncatingIfNeeded: word(2) >> 32)
-        buildUUID = Array(bytes[24 ..< 40])
-        var values: [Slot: UInt64] = [:]
-        for slot in Slot.allCases where word(slot.rawValue) != 0 {
-            values[slot] = word(slot.rawValue)
-        }
-        self.values = values
+        let versionRole = word(Word.versionRole)
+        guard word(Word.magic) == Self.magic, UInt32(truncatingIfNeeded: versionRole) == Self.version else { return nil }
+        role = UInt16(truncatingIfNeeded: versionRole >> 32)
+        pid = UInt32(truncatingIfNeeded: word(Word.pid))
+        buildUUID = Array(bytes[Word.buildUUID * 8 ..< (Word.buildUUID + 2) * 8])
+        requestMethod = word(Word.requestMethod)
+        terminalCount = word(Word.terminalCount)
+        holderLink = word(Word.holderLink)
+        var named: UInt64 = 0
+        for index in Word.inFlight ..< Word.inFlight + Word.inFlightCapacity where word(index) != 0 { named += 1 }
+        requestsInFlight = named &+ word(Word.untracked)
     }
 
-    /// The set slots as tags: `crash_key.<name>` and a decimal value.
+    /// The keys as tags (`crash_key.<name>`): the request method once one ran, the counts, and the holder link
+    /// by name (its decimal code when this build does not know it).
     var tags: [String: String] {
-        Dictionary(uniqueKeysWithValues: values.map { ("crash_key.\($0.key.name)", String($0.value)) })
+        var tags = [
+            "crash_key.terminal_count": String(terminalCount),
+            "crash_key.requests_in_flight": String(requestsInFlight),
+            "crash_key.holder_link": HolderLink(rawValue: holderLink)?.name ?? String(holderLink),
+        ]
+        if requestMethod != 0 { tags["crash_key.request_method"] = String(requestMethod) }
+        return tags
     }
 }

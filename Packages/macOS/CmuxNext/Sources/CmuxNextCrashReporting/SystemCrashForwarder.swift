@@ -14,8 +14,11 @@ import os
 /// with frames Sentry symbolicates from the nightly's debug files: the
 /// binaries inside its own bundle, and the terminal host and holder copies
 /// the daemon runs from the host-exe root (``SystemCrashReport/helperOrigin(in:)``).
-/// A Rust process's report carries its crash keys and black box
-/// (``RustCrashArtifacts``). Reports written before the first forwarder run
+/// That root is shared by every cmux build on the Mac, so a copy's crash is
+/// forwarded only by the app whose own Rust binaries have the crashed image's
+/// `LC_UUID` (``MachOImageUUIDs``): the build that made the copy, with its
+/// release, its consent and its trace folder. A Rust process's report
+/// carries its crash keys and black box (``RustCrashArtifacts``). Reports written before the first forwarder run
 /// are never sent. The app's own crashes are Sentry's (in-process), so its
 /// executable is skipped.
 public final class SystemCrashForwarder: Sendable {
@@ -38,6 +41,8 @@ public final class SystemCrashForwarder: Sendable {
     private let directory: URL
     private let stateFile: URL
     private let roots: SystemCrashReport.HelperRoots
+    /// This app's Rust binaries a host-exe copy is made from; read in each pass that meets a host-exe crash.
+    private let ownRustBinaries: [URL]
     /// Where the Rust processes' black boxes and crash-key pages are; nil: no extras.
     private let artifacts: RustCrashArtifacts?
     /// False when crash reports are off this launch: reports are marked done
@@ -52,22 +57,35 @@ public final class SystemCrashForwarder: Sendable {
     /// - Parameters:
     ///   - hostExeRoot: The root of the daemon's host and holder copies
     ///     (``SystemCrashReport/HelperRoots/standardHostExeRoot(environment:home:)``); nil forwards bundle binaries only.
-    ///   - artifacts: Where the Rust processes' black boxes and crash-key pages are; nil attaches none. The
-    ///     default reads this app's folders and attaches no black box (no hang-reports opt-in passed).
+    ///   - ownRustBinaries: This app's binaries the daemon copies under the host-exe root (the daemon and the
+    ///     `cmux-tui-host` and `cmux-holder` beside it): a copy's crash is forwarded only when its image is one of
+    ///     theirs. Empty forwards no host-exe crash.
+    ///   - artifacts: Where the Rust processes' black boxes and crash-key pages are, with the hang-reports
+    ///     opt-in that lets a black box leave; nil attaches none.
     ///   - capture: Sends an event with its attachments.
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
                 mainExecutable: String?,
                 hostExeRoot: String? = SystemCrashReport.HelperRoots.standardHostExeRoot(),
-                artifacts: RustCrashArtifacts? = RustCrashArtifacts.app(bundleID: Bundle.main.bundleIdentifier,
-                                                                        blackboxOptIn: { false }),
+                ownRustBinaries: [URL],
+                artifacts: RustCrashArtifacts?,
                 sends: Bool = true,
                 capture: @escaping @Sendable (Event, [Attachment]) -> Void = { SystemCrashForwarder.sendToSentry($0, attachments: $1) }) {
         self.directory = directory
         self.stateFile = stateFile
         roots = SystemCrashReport.HelperRoots(bundlePath: bundlePath, mainExecutable: mainExecutable, hostExeRoot: hostExeRoot)
+        self.ownRustBinaries = ownRustBinaries
         self.artifacts = artifacts
         self.sends = sends
         self.capture = capture
+    }
+
+    /// The binaries in `directories` the daemon copies under the host-exe root
+    /// (``SystemCrashReport/HelperRoots/hostExeNames``), for the bundle's `bin` folder and a dev build's daemon
+    /// folder.
+    public static func rustBinaries(in directories: [URL]) -> [URL] {
+        directories.flatMap { directory in
+            SystemCrashReport.HelperRoots.hostExeNames.sorted().map { directory.appending(path: $0) }
+        }
     }
 
     /// Sends `event` with `attachments` in a clean scope: the app's breadcrumbs and contexts do not describe a
@@ -110,6 +128,7 @@ public final class SystemCrashForwarder: Sendable {
         var sent: [URL] = []
         var changed = false
         let roots = sends && !candidates.isEmpty ? self.roots.resolvingHostExeRoot() : self.roots
+        var ownImages: MachOImageUUIDs?
         for candidate in candidates.sorted(by: { $0.time < $1.time }) {
             // Reports are off: never read, only marked done.
             let contents: SystemCrashReport.Contents = !sends ? .other
@@ -121,6 +140,12 @@ public final class SystemCrashForwarder: Sendable {
                 return sent
             case .crash(let report):
                 guard let origin = report.helperOrigin(in: roots) else { break }
+                if origin == .hostExe {
+                    let images = ownImages ?? MachOImageUUIDs(files: ownRustBinaries)
+                    ownImages = images
+                    // Another cmux build's copy: that build forwards it.
+                    guard images.contains(report.mainImageUUID) else { break }
+                }
                 var extras = artifacts?.extras(for: report) ?? SystemCrashEvent.Extras()
                 extras.origin = origin
                 let crash = SystemCrashEvent(report: report, extras: extras)

@@ -188,6 +188,9 @@ extension HangReport {
         case .acpmux: "acpmux"
         case .chromiumHost: "chromium_host"
         case .cli: "cli"
+        case .agentHost: "agent_host"
+        case .appHost: "app_host"
+        case .browserHost: "browser_host"
         }
     }
 

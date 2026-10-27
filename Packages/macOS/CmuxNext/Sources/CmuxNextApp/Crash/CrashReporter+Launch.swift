@@ -76,10 +76,17 @@ struct AppCrashReporting: Sendable {
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
+        // A forwarded Rust crash carries its black box only with the hang-reports consent, the same record the
+        // app's own crash event reads (task 079).
+        let consentKey = HangReportsController.consentKey
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "crash-forwarder.json"),
-            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
+            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath,
+            ownRustBinaries: Self.ownRustBinaries(),
+            artifacts: RustCrashArtifacts.app(bundleID: environment.launch.bundleID,
+                                              blackboxOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date }),
+            sends: sends)
         forwarder.start()
         self.forwarder = forwarder
         let ownerPanics = OwnerPanicForwarder(
@@ -140,6 +147,21 @@ struct AppCrashReporting: Sendable {
                 extra: ["ancestry": report.ancestry.joined(separator: " < ")])
         }
         guardian.install()
+    }
+
+    /// The Rust binaries this app's daemon copies under the host-exe root: the daemon (`CMUX_NEXT_TUI_BIN` in a
+    /// dev build that runs another one, `DaemonLauncher.resolveBinary`) and the host and holder beside it
+    /// (cmux-tui-platform `host_exe`), and those of the bundle's `bin`. No file is read here.
+    static func ownRustBinaries(environment: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
+        var binaries: [URL] = []
+        var directories: [URL] = []
+        if let override = environment[DaemonLauncher.binaryOverrideKey], !override.isEmpty {
+            let daemon = URL(fileURLWithPath: override)
+            binaries.append(daemon)
+            directories.append(daemon.deletingLastPathComponent())
+        }
+        if let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) { directories.append(bin) }
+        return binaries + SystemCrashForwarder.rustBinaries(in: directories)
     }
 
     /// The home of the acpmux daemon this app starts (the same rule as its agent panes).

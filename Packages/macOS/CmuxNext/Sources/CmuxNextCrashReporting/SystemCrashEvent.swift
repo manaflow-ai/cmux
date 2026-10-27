@@ -20,7 +20,7 @@ public nonisolated struct SystemCrashEvent: Sendable {
         /// `blackbox.txt`: the newest black-box events with no key-timing, per-key PTY or flow record
         /// (``CmuxNextTrace/TraceBlackBoxUpload``); nil without the hang-reports opt-in or a ring.
         public var blackbox: String?
-        /// The crash keys as tags (`crash_key.<name>`: decimal numbers only).
+        /// The crash keys as tags (`crash_key.<name>`: decimal numbers and fixed state names only).
         public var crashKeys: [String: String]
 
         /// Extras from their parts.
@@ -85,8 +85,7 @@ public nonisolated struct SystemCrashEvent: Sendable {
         event.tags = tags
         if let incident = report.incident {
             event.extra = ["incident": incident]
-            // One id per macOS incident: every cmux app that sees the shared host-exe copy's report sends the
-            // same event, and Sentry keeps the first.
+            // One id per macOS incident: a report forwarded again (a lost forwarder state) is the same event.
             if let id = UUID(uuidString: incident) { event.eventId = SentryId(uuid: id) }
         }
         return event
