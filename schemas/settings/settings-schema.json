@@ -31197,7 +31197,7 @@
       "default" : null,
       "default_label" : {
         "key" : "settings.default.neverDiscard",
-        "text" : "Never Discard (Freeze Hidden Tabs)"
+        "text" : "Never Discard"
       },
       "group" : {
         "key" : "settings.group.memory",

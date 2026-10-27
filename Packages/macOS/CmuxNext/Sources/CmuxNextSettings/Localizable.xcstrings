@@ -19224,133 +19224,133 @@
       }
     },
     "settings.default.neverDiscard": {
-      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json. Hidden tabs only freeze and are never discarded (reloaded) on their own.",
+      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Never Discard (Freeze Hidden Tabs)"
+            "value": "Never Discard"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "破棄しない（非表示のタブを凍結）"
+            "value": "破棄しない"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عدم التجاهل أبدًا (تجميد علامات التبويب المخفية)"
+            "value": "عدم التجاهل أبدًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nikad ne odbacuj (zamrzni skrivene kartice)"
+            "value": "Nikad ne odbacuj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kassér aldrig (frys skjulte faner)"
+            "value": "Kassér aldrig"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie verwerfen (ausgeblendete Tabs einfrieren)"
+            "value": "Nie verwerfen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No descartar nunca (congelar pestañas ocultas)"
+            "value": "No descartar nunca"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ne jamais décharger (geler les onglets masqués)"
+            "value": "Ne jamais décharger"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non scartare mai (congela le schede nascoste)"
+            "value": "Non scartare mai"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កុំបោះចោលឡើយ (បង្កកផ្ទាំងដែលលាក់)"
+            "value": "កុំបោះចោលឡើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "삭제 안 함(숨겨진 탭 정지)"
+            "value": "삭제 안 함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forkast aldri (frys skjulte faner)"
+            "value": "Forkast aldri"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nigdy nie odrzucaj (zamrażaj ukryte karty)"
+            "value": "Nigdy nie odrzucaj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nunca descartar (congelar abas ocultas)"
+            "value": "Nunca descartar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не выгружать (замораживать скрытые вкладки)"
+            "value": "Не выгружать"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ทิ้งเลย (หยุดแท็บที่ซ่อนอยู่ชั่วคราว)"
+            "value": "ไม่ทิ้งเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Asla atma (gizli sekmeleri dondur)"
+            "value": "Asla atma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вивантажувати (заморожувати приховані вкладки)"
+            "value": "Не вивантажувати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không bao giờ loại bỏ (đóng băng các tab bị ẩn)"
+            "value": "Không bao giờ loại bỏ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从不丢弃（冻结隐藏的标签页）"
+            "value": "从不丢弃"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "永不捨棄（凍結隱藏的分頁）"
+            "value": "永不捨棄"
           }
         }
       }

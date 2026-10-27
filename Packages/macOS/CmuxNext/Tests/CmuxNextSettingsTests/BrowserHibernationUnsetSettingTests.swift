@@ -4,10 +4,10 @@ import Testing
 /// `browser.hibernation` with nothing written is its own behaviour since "the browser never
 /// reloads by itself": hidden pages only freeze and are never discarded on their own. Settings and
 /// the palette said "After 30 Minutes" for it, the schema default, which is what an explicit
-/// "moderate" does. Unset now shows as "Never Discard (Freeze Hidden Tabs)"; any written value,
+/// "moderate" does. Unset now shows as "Never Discard"; any written value,
 /// "moderate" included, is customized, so Reset appears and goes back to unset.
 struct BrowserHibernationUnsetSettingTests {
-    private static let unsetLabel = "Never Discard (Freeze Hidden Tabs)"
+    private static let unsetLabel = "Never Discard"
 
     private static func row() throws -> SettingDescriptor {
         try #require(SettingsSchema.descriptor(for: BrowserHibernationSetting.configPath))

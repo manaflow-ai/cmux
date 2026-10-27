@@ -15,6 +15,13 @@ const custom = "__custom__";
 export function ChoiceOrNumberEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
   const [customPicked, setCustomPicked] = useState(false);
+  // A new value from outside the menu (Reset, another client) ends a Custom… pick that wrote
+  // nothing, so a reset row shows its default instead of an empty number field.
+  const [seenValue, setSeenValue] = useState(value);
+  if (!Object.is(seenValue, value)) {
+    setSeenValue(value);
+    if (customPicked) setCustomPicked(false);
+  }
   const isNumber = typeof value === "number";
   const showCustom = isNumber || customPicked;
   return (

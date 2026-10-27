@@ -84,7 +84,8 @@ cmux.json:
 
 ```jsonc
 "browser": {
-  "hibernation": "moderate",          // unset (default): never discard | "off" | "moderate" (30 min) | "aggressive" (10 min) | minutes
+  // "hibernation" is unset by default: hidden pages only freeze, never discarded on their own.
+  // Writing it turns discards on: "off" | "moderate" (30 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
   "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
@@ -114,7 +115,7 @@ cmux.json:
   pressure (`keeps_state` in `debug.surfaces`). Writing `browser.hibernation`
   (cmux.json, a timeout in Settings or the palette) turns the timeout and
   pressure discards below on. Settings and the palette show unset as "Never
-  Discard (Freeze Hidden Tabs)", a choice of its own: the schema row has no
+  Discard", a choice of its own: the schema row has no
   default, so any written value ("moderate" included) is customized and
   Reset, or picking Never Discard, removes the key. Hibernate Tab always
   discards. A Chromium tab whose renderer ended shows

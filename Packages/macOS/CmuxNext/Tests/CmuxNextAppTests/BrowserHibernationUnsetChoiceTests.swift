@@ -15,7 +15,7 @@ import Testing
 @MainActor @Suite(.serialized) struct BrowserHibernationUnsetChoiceTests {
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let key = "browser.hibernation"
-    static let unsetLabel = "Never Discard (Freeze Hidden Tabs)"
+    static let unsetLabel = "Never Discard"
 
     struct Harness {
         let settings: SettingsController

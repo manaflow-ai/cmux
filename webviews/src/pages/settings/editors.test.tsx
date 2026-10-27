@@ -239,7 +239,7 @@ describe("editors", () => {
     const row = () => rowElement(page!.container, key);
     const select = () => row().querySelector<HTMLSelectElement>("select")!;
     expect(select().value).toBe("");
-    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard (Freeze Hidden Tabs)");
+    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
     expect(row().querySelector("[data-reset]")).toBeNull();
     await changeValue(select(), "moderate");
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }]);
@@ -249,6 +249,18 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
     expect(select().value).toBe("");
     expect(row().querySelector("[data-reset]")).toBeNull();
+    // A custom timeout, then Reset: the menu shows Never Discard again, not an empty Custom… field.
+    await changeValue(select(), "__custom__");
+    const field = row().querySelector<HTMLInputElement>("input.number")!;
+    await changeValue(field, "45");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }, { key, value: 45 }]);
+    expect(select().value).toBe("__custom__");
+    await click(row().querySelector("[data-reset]")!);
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }, { key }]);
+    expect(select().value).toBe("");
+    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
+    expect(row().querySelector("input.number")).toBeNull();
   });
 
   test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {

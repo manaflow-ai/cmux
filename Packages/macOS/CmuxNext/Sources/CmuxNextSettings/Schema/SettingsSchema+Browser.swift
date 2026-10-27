@@ -107,7 +107,7 @@ nonisolated enum BrowserSettingsSchema {
                 // "moderate" included, turns automatic discards on, so it shows as customized and
                 // Reset returns to unset.
                 default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard (Freeze Hidden Tabs)"),
+                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard"),
                 keywords: ["memory saver", "sleep", "discard", "freeze", "reload"]
             ),
             SettingDescriptor(
