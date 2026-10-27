@@ -8,11 +8,13 @@ import Testing
 #if DEBUG
 /// p06-scheduler-345: the desktop pane's status and first frame reach it as visible-class tasks on the app's
 /// scheduler, never in an unclassed main-actor hop: a status the source reports is not applied in the stream's
-/// delivery, it waits in the visible queue and applies in the turn that runs it; a status of a session the pane
-/// stopped (a hidden tab) is dropped. Turns run by hand; only the stream's arrival on main is awaited.
+/// delivery, it waits in the visible queue and applies on the frame that runs it; a status of a session the pane
+/// stopped (a hidden tab) is dropped. The scheduler's link is kept up and its frames fire only by hand; only the
+/// stream's arrival on main is awaited.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteViewSchedulerSweepTests {
     @Test func aStatusAppliesInAVisibleTaskNotInItsDelivery() async throws {
         let rig = SweepRig()
+        defer { rig.stop() }
         let source = MockRemoteStreamSource(status: RemoteViewStatus(path: .direct, rttMs: 4, state: .streaming))
         let pane = RemoteDesktopPane(hostName: "mock", source: source, inputSink: nil, mainWork: rig.work, presenter: .layerContents)
         pane.start()
@@ -23,39 +25,48 @@ import Testing
         #expect(pane.state.sessionState == .connecting, "the status applied in its delivery, not in its visible task")
         #expect(rig.work.postedCount(.automation) == 0 && rig.work.postedCount(.background) == 0)
 
-        rig.runTurns()
+        rig.runVisibleFrames()
         #expect(pane.state.sessionState == .streaming)
     }
 
     @Test func aStoppedSessionsLateStatusIsDropped() async throws {
         let rig = SweepRig()
+        defer { rig.stop() }
         let source = MockRemoteStreamSource(status: RemoteViewStatus(path: .direct, rttMs: 4, state: .streaming))
         let pane = RemoteDesktopPane(hostName: "mock", source: source, inputSink: nil, mainWork: rig.work, presenter: .layerContents)
         pane.start()
         try await rig.untilPosted(.visible)
-        rig.runTurns()
+        rig.runVisibleFrames()
         #expect(pane.state.sessionState == .streaming)
 
         // The host ends the session; the pane hides before the ended status's task runs.
         source.setStatus(RemoteViewStatus(path: .direct, rttMs: 4, state: .ended(.connectionLost)))
         try await rig.untilPosted(.visible)
+        #expect(!pane.state.isEnded, "the ended status applied in its delivery, not in its visible task")
         pane.stop()
-        rig.runTurns()
+        rig.runVisibleFrames()
+        #expect(rig.work.postedCount(.visible) == 0, "the stopped session's status was never run")
         #expect(!pane.state.isEnded, "a hidden pane applied its stopped session's status")
     }
 }
 
-/// A scheduler with no running link: each post queues one run loop turn here, and the test runs them.
+/// A scheduler on a fake link kept up (as `ObserverRig` in AutomationObserverTests): a visible post queues until a
+/// frame, and frames fire only when the test says, on a budget clock the test moves, with no input pending.
 @MainActor
 private final class SweepRig {
-    private var turns: [@MainActor () -> Void] = []
     let work: MainWorkScheduler
+    private let uptime: SweepUptime
+    private let keeper: FrameClient
+    private var timestamp: CFTimeInterval = 0
 
     init() {
         _ = NSApplication.shared
-        var perform: MainWorkScheduler.TurnPerformer = { _ in }
-        work = MainWorkScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), performTurn: { perform($0) }) { _ in SweepLink() }
-        perform = { [weak self] turn in self?.turns.append(turn) }
+        let uptime = SweepUptime()
+        self.uptime = uptime
+        work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), clock: ManualClock(),
+                                         ledger: WakeupLedger(), performTurn: { _ in }) { _ in SweepLink() }
+        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
     }
 
     /// Waits (bounded) until `workClass` holds a posted task: an off-main post reaches the scheduler on a later main
@@ -69,20 +80,29 @@ private final class SweepRig {
         try #require(work.postedCount(workClass) > 0, "nothing was posted in \(workClass)")
     }
 
-    /// Runs the queued turns, and the turns they queue, until none is left.
-    func runTurns() {
-        while !turns.isEmpty {
-            let now = turns
-            turns.removeAll()
-            for turn in now { turn() }
+    /// Fires display frames, one refresh period apart, until the visible queue is empty (at most 8).
+    func runVisibleFrames() {
+        for _ in 0 ..< 8 where work.postedCount(.visible) > 0 {
+            uptime.advance(ms: 17)
+            timestamp += 1
+            work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
         }
     }
+
+    func stop() { keeper.deactivate() }
+}
+
+/// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
+@MainActor
+private final class SweepUptime {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in self.now } }
+    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
 }
 
 @MainActor
 private final class SweepLink: FrameLink {
     var isPaused = false
     func invalidate() {}
-    func requestFrameRate(_ range: CAFrameRateRange) {}
 }
 #endif
