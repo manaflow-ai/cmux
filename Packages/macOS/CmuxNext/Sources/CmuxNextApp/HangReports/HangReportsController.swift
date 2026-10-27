@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextInput
 import CmuxNextMetrics
@@ -125,7 +126,7 @@ final class HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let testProcess = CrashReportingPolicy.isTestProcess(environment)
         let fullReports = (policy.channel == .nightly || devOptIn) && !testProcess
-        let aggregatesOffered = performanceData && wireSchema.carriesFieldData && !testProcess
+        let aggregatesOffered = offersAggregates(performanceData: performanceData, wireSchema: wireSchema) && !testProcess
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -164,6 +165,22 @@ final class HangReportsController {
         return HangReportsController(service: service, managedDisables: managedDisables, fullReports: fullReports,
                                      aggregatesOffered: aggregatesOffered, activityFeed: feed, memory: memory,
                                      daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+    }
+
+    /// The wire schema `features` let this build write: schema 3 only while `hangReportsSchema3` says cmux.com accepts it.
+    nonisolated static func wireSchema(_ features: FeatureList) -> HangReport.WireSchema {
+        .written(serverAcceptsSchema3: features.isEnabled(.hangReportsSchema3))
+    }
+
+    /// Whether a build with `features` offers aggregate performance data; Settings offers its row on the same answer
+    /// (`AppServices.settingsAvailability`), so the switch never shows where nothing would send.
+    nonisolated static func offersAggregates(_ features: FeatureList) -> Bool {
+        offersAggregates(performanceData: features.isEnabled(.performanceDataReports), wireSchema: wireSchema(features))
+    }
+
+    /// The `performanceDataReports` feature with a wire schema that carries the aggregates (schema 3).
+    nonisolated static func offersAggregates(performanceData: Bool, wireSchema: HangReport.WireSchema) -> Bool {
+        performanceData && wireSchema.carriesFieldData
     }
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
@@ -252,8 +269,8 @@ final class HangReportsController {
         let decided = decisions(values), policy = HangReportAskPolicy()
         await apply(policy.mode(hangReports: decided.hangReports, performanceData: decided.performanceData, fullReports: fullReports),
                     settings: values)
-        guard let card = policy.card(hangReports: decided.hangReports, performanceData: decided.performanceData),
-              !askedThisLaunch.contains(card) else { return }
+        guard let card = policy.card(hangReports: decided.hangReports, performanceData: decided.performanceData,
+                                     skipping: askedThisLaunch) else { return }
         askedThisLaunch.insert(card)
         // task-owner: one question after the first frame; it ends when the person answers.
         work.task(.userVisible) { [weak self] in await self?.askAfterFirstWindow(card) }
@@ -371,20 +388,29 @@ final class HangReportsController {
     /// data's confirm of a setting this Mac never agreed to. Any answer, the x included, marks the hang reports
     /// invitation asked; only the yes records consent: through the person's write of the setting
     /// (``recordUserWrite(defaults:path:value:)``, undone if the write fails), or directly when the file already has it on.
+    /// After any answer the settings are followed again, so a card still pending (performance data's confirm after a
+    /// Not Now on hang reports') comes next; ``askedThisLaunch`` keeps the answered one from coming back.
     private func ask(_ card: HangReportAskPolicy.Card, asks: SidebarAsks, settings: SettingsController) async {
         let decided = decisions(Self.values(settings.snapshot))
-        guard HangReportAskPolicy().card(hangReports: decided.hangReports, performanceData: decided.performanceData) == card else { return }
+        guard HangReportAskPolicy().cards(hangReports: decided.hangReports, performanceData: decided.performanceData).contains(card) else {
+            return
+        }
         let data = card.isPerformanceData
         let yes = await asks.ask(data ? HangReportsStrings.performanceDataTitle : HangReportsStrings.askTitle,
                                  detail: data ? HangReportsStrings.performanceDataSummary : HangReportsStrings.privacySummary,
                                  symbol: "gauge.with.dots.needle.33percent",
                                  yes: data ? HangReportsStrings.performanceDataYes : HangReportsStrings.askYes, no: HangReportsStrings.askNo)
         if !data { defaults.set(true, forKey: Self.askedKey) }
-        guard yes else { return }
+        if yes { await accept(card, settings: settings) }
+        await follow(Self.values(settings.snapshot))
+    }
+
+    /// The card's yes: records consent directly when the file already has the setting on (it will not change), else
+    /// writes it as the person (``recordUserWrite(defaults:path:value:)`` records it, undone if the write fails).
+    private func accept(_ card: HangReportAskPolicy.Card, settings: SettingsController) async {
+        let data = card.isPerformanceData
         if data ? settings.snapshot.performanceData : settings.snapshot.hangReports {
-            // Already on in the file: the setting will not change, so record and follow it now.
             defaults.set(Date(), forKey: data ? Self.performanceDataConsentKey : Self.consentKey)
-            await follow(Self.values(settings.snapshot))
             return
         }
         let path = data ? PerformanceDataSetting.path : HangReportsSetting.path

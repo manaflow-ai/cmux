@@ -58,4 +58,20 @@ struct HangReportAskPolicyTests {
         #expect(policy.card(hangReports: .send, performanceData: .send) == nil)
         #expect(HangReportAskPolicy.Card.performanceDataConfirm.isPerformanceData)
     }
+
+    /// Both settings on in the file and neither confirmed on this Mac (NIGHTLY): a Not Now on the hang reports
+    /// confirm leaves performance data's confirm as the next card, and once both were put up none is left.
+    @Test func aDeclinedHangReportsConfirmLeavesThePerformanceDataConfirmNext() {
+        let policy = HangReportAskPolicy()
+        let hangReports = policy.decision(settingOn: true, consented: false, invited: true, telemetryOptIn: true)
+        let performanceData = policy.performanceDataDecision(settingOn: true, consented: false)
+        #expect(policy.cards(hangReports: hangReports, performanceData: performanceData) == [.hangReportsConfirm, .performanceDataConfirm])
+        #expect(policy.card(hangReports: hangReports, performanceData: performanceData) == .hangReportsConfirm)
+        #expect(policy.card(hangReports: hangReports, performanceData: performanceData, skipping: [.hangReportsConfirm])
+            == .performanceDataConfirm)
+        #expect(policy.card(hangReports: hangReports, performanceData: performanceData,
+                            skipping: [.hangReportsConfirm, .performanceDataConfirm]) == nil)
+        // A declined performance data confirm still leaves the one-time invitation.
+        #expect(policy.card(hangReports: .invite, performanceData: .confirm, skipping: [.performanceDataConfirm]) == .hangReportsInvite)
+    }
 }

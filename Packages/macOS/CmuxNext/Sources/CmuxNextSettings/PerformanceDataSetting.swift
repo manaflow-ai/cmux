@@ -17,8 +17,9 @@ public nonisolated struct PerformanceDataSetting: Sendable {
         root.value(at: Self.path)?.boolValue ?? Self.defaultValue
     }
 
-    /// What Settings and the palette offer of this row now: nothing while the `performanceDataReports` feature is
-    /// off, since then no build sends it.
+    /// What Settings and the palette offer of this row now: nothing while `featureEnabled` is false, that is while
+    /// this build would send nothing (the app passes `HangReportsController.offersAggregates`: the
+    /// `performanceDataReports` feature and the schema-3 wire format).
     public func availability(featureEnabled: Bool) -> SettingsAvailability {
         featureEnabled ? SettingsAvailability() : SettingsAvailability(hiddenRows: [Self.path.joined(separator: ".")])
     }

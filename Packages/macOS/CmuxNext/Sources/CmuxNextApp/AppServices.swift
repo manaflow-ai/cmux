@@ -621,7 +621,7 @@ final class AppServices {
     /// What Settings and the settings palette leave out now (``EnergySaverSetting``, ``PerformanceDataSetting``); an observing reader follows the inputs.
     var settingsAvailability: SettingsAvailability {
         EnergySaverSetting().availability(featureEnabled: energy.driver.isEnabled, hasBattery: energyMonitor.inputs.hasBattery)
-            .merging(PerformanceDataSetting().availability(featureEnabled: features.isEnabled(.performanceDataReports)))
+            .merging(PerformanceDataSetting().availability(featureEnabled: HangReportsController.offersAggregates(features)))
     }
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
     private(set) var idleWakeups: IdleWakeupSampler?

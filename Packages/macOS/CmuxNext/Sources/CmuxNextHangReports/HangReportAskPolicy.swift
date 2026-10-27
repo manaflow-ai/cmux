@@ -80,12 +80,21 @@ public nonisolated struct HangReportAskPolicy: Sendable {
         return consented ? .send : .confirm
     }
 
-    /// The card the two decisions ask for: a confirm of what the person turned on before an unprompted invitation;
-    /// nil when neither asks.
-    public func card(hangReports: Decision, performanceData: Decision) -> Card? {
-        if hangReports == .confirm { return .hangReportsConfirm }
-        if performanceData == .confirm { return .performanceDataConfirm }
-        return hangReports == .invite ? .hangReportsInvite : nil
+    /// Every card the two decisions ask for, first to ask first: a confirm of what the person turned on before an
+    /// unprompted invitation.
+    public func cards(hangReports: Decision, performanceData: Decision) -> [Card] {
+        var cards: [Card] = []
+        if hangReports == .confirm { cards.append(.hangReportsConfirm) }
+        if performanceData == .confirm { cards.append(.performanceDataConfirm) }
+        if hangReports == .invite { cards.append(.hangReportsInvite) }
+        return cards
+    }
+
+    /// The next card to put up: the first the decisions ask for that is not in `asked` (the cards already put up this
+    /// launch), so a Not Now on the hang reports confirm still lets performance data's confirm come next; nil when
+    /// none is left.
+    public func card(hangReports: Decision, performanceData: Decision, skipping asked: Set<Card> = []) -> Card? {
+        cards(hangReports: hangReports, performanceData: performanceData).first { !asked.contains($0) }
     }
 
     /// What the service records and sends from both decisions: full hang reports where the build sends them

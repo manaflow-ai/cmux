@@ -14,8 +14,8 @@ nonisolated enum HangReportsSettingsSchema {
                 kind: .toggle, default: .bool(HangReportsSetting.defaultValue),
                 keywords: ["hang", "lag", "slow", "performance", "diagnostics", "telemetry", "privacy", "metrickit", "report"]
             ),
-            // Any channel (p09-observability task 134); the row shows only while the `performanceDataReports` feature
-            // is on (PerformanceDataSetting.availability(featureEnabled:)).
+            // Any channel (p09-observability task 134); the row shows only while the build sends aggregates
+            // (PerformanceDataSetting.availability(featureEnabled:)).
             SettingDescriptor(
                 PerformanceDataSetting.path, section: .home, group: group,
                 title: SettingsText.keyed("settings.diagnostics.performanceData", "Send Performance Data"),

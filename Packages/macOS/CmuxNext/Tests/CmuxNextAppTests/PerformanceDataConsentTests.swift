@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextSettings
 import Foundation
@@ -26,6 +27,26 @@ import Testing
         _ = HangReportsController.recordUserWrite(defaults: defaults, path: PerformanceDataSetting.path, value: .bool(true))
         _ = HangReportsController.recordUserWrite(defaults: defaults, path: PerformanceDataSetting.path, value: .bool(false))
         #expect(defaults.object(forKey: HangReportsController.performanceDataConsentKey) == nil)
+    }
+
+    /// The Settings row follows what the build sends: the feature alone, with schema 3 off, sends nothing, so the
+    /// row stays hidden there (a switch turned on there would write no consent and send nothing).
+    @Test(arguments: [
+        // performanceDataReports, hangReportsSchema3 -> offered
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, true, true),
+    ])
+    func theRowShowsOnlyWhereAggregatesSend(performanceData: Bool, schema3: Bool, offered: Bool) throws {
+        let enabled = Set([performanceData ? "performanceDataReports" : nil, schema3 ? "hangReportsSchema3" : nil].compactMap { $0 })
+        let disabled = Set(["performanceDataReports", "hangReportsSchema3"]).subtracting(enabled)
+        let features = FeatureList(registry: FeatureRegistry(), channel: .release,
+                                   overrides: FeatureOverrides(environmentDisabled: disabled, environmentEnabled: enabled))
+        #expect(HangReportsController.offersAggregates(features) == offered)
+        let descriptor = try #require(SettingsSchema.descriptor(for: PerformanceDataSetting.path))
+        #expect(PerformanceDataSetting().availability(featureEnabled: HangReportsController.offersAggregates(features))
+            .isShown(descriptor) == offered)
     }
 
     @Test func turningPerformanceDataOnShowsItsSummary() {
