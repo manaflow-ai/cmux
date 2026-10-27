@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
@@ -163,6 +164,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
+      <WrittenArtifactButtons tools={[tool]} />
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
