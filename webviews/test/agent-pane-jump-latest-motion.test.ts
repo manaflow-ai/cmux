@@ -14,6 +14,7 @@
 // from `playwright install chromium webkit`; an engine that is not installed is skipped and says so.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -137,7 +138,23 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
 
   async function open(name: string): Promise<Page> {
     events.length = opened;
-    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 700 } });
+    const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
+    if (capture) await mkdir(capture, { recursive: true });
+    const page = await browsers.get(name)!.newPage({
+      viewport: { width: 900, height: 700 },
+      ...(capture ? { recordVideo: { dir: capture } } : {}),
+    });
+    await page.addInitScript(() => {
+      // Observe actual browser animation restarts: every smooth scrollTo starts a new ride.
+      const native = Element.prototype.scrollTo;
+      const calls: number[] = [];
+      (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls = calls;
+      Element.prototype.scrollTo = function (...args: Parameters<typeof native>) {
+        if (typeof args[0] === "object" && args[0].behavior === "smooth" && this.matches(".acpmux-scroll"))
+          calls.push(performance.now());
+        return Reflect.apply(native, this, args);
+      };
+    });
     // The jump glides unless the person asked for reduced motion; these cases set cmux's own switch.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await installPaintedFrames(page);
@@ -365,7 +382,17 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const tops = [start.top, ...frames.slice(0, landed + 1).map((frame) => frame.top)];
       expect(tops.slice(1).filter((top, index) => top < tops[index]! - 1)).toEqual([]);
       expect(frames.filter((frame) => frame.fromEnd <= 1 && frame.rowAboveCard < -1)).toEqual([]);
-      await page.close();
+      const restarts = await page.evaluate(() =>
+        (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
+      );
+      console.info("jump ride", { engine: name, restarts, frames: frames.length, landingGap: end.fromEnd });
+      // A moving target must remain on one animation clock, rather than restarting the native
+      // animation at each streamed paragraph and finally jumping when a timeout expires.
+      expect(restarts).toBeLessThanOrEqual(1);
+      if (process.env.CMUX_JUMP_CAPTURE_DIR) {
+        await page.screenshot({ path: path.join(process.env.CMUX_JUMP_CAPTURE_DIR, `${name}-landing.png`) });
+        await page.context().close();
+      } else await page.close();
     },
   );
 });
