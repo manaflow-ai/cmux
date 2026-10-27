@@ -92,17 +92,19 @@ const DEFINITE_REFUSALS = new Set([
   "transport.gesture_required",
   "native.invalid_request",
   "unsupported",
+  // The Run API's documented refusals of a request before it stores anything
+  // (AgentPaneReply.runRequestRefusals); the host sends any other code as `unavailable`.
+  "run_task_required",
+  "run_agent_invalid",
+  "run_image_invalid",
+  "run_timeout_invalid",
+  "run_attempts_invalid",
+  "run_environment_invalid",
+  "run_invalid_request",
 ]);
 
 export function sandboxRetryable(run: SandboxRun): boolean {
-  return run.state === "failed" && (DEFINITE_REFUSALS.has(run.code) || isRunRequestRefusal(run.code));
-}
-
-/// The Run API's refusals of a request before it stores anything (`run_task_required`,
-/// `run_image_invalid`, `run_invalid_request`, …), as the host lets them through
-/// (AgentPaneReply.isRunRequestRefusal).
-function isRunRequestRefusal(code: string): boolean {
-  return code === "run_invalid_request" || /^run(_[a-z]+)+_(invalid|required)$/.test(code);
+  return run.state === "failed" && DEFINITE_REFUSALS.has(run.code);
 }
 
 /// A refusal the page can tell before asking the host: attachments, or an agent a sandbox can't run.
@@ -141,6 +143,8 @@ export class SandboxTab {
   /// The tab's confirmed receipt (its own send's answer, or a read): no failed or stale read
   /// replaces it, since the tab's one paid send is done.
   receipt?: SandboxRun;
+  /// The attempt key of ``receipt``.
+  private receiptKey?: string;
   mode: RunMode = "persistent";
   /// A read answered (none, running or ended): the page knows what the host holds for this tab, so
   /// Sandboxed can be offered.
@@ -211,12 +215,20 @@ export class SandboxTab {
     this.mine = { task: text, key };
     this.refusal = undefined;
     this.emit();
-    void runSandbox(this.call, text, agent, key).then((done) => {
+    void runSandbox(this.call, text, agent, key).then((answer) => {
       // A read already ended this attempt (or the tab moved on): its late answer changes nothing.
       if (this.mine?.key !== key) return;
       // Reads out while it ran describe the tab before its answer: dropped. This answer is the host's
       // own for this attempt; a refusal before any Run puts its prompt back, here only.
       this.reads += 1;
+      // A read during this send found another attempt holding the tab (its receipt, or a run that
+      // may be live). The host allows one paid send per tab, so it refused this one
+      // (`sandbox_spent`), whatever a lost answer says.
+      const other = this.receiptKey ?? this.held;
+      const done: SandboxRun =
+        answer.state !== "done" && !sandboxRetryable(answer) && other && other !== key
+          ? { task: text, state: "failed", code: "sandbox_spent" }
+          : answer;
       const refused = sandboxRetryable(done);
       if (refused && !this.receipt && this.mode === "sandboxed") this.refusal = done;
       this.take({ kind: "ended", task: text, key, run: done });
@@ -254,7 +266,10 @@ export class SandboxTab {
   private take(answer: SandboxHost) {
     if (answer.kind === "ended" && this.mine?.key === answer.key) this.mine = undefined;
     if (answer.kind === "ended" && answer.run.state === "done") {
-      this.receipt ??= answer.run;
+      if (!this.receipt) {
+        this.receipt = answer.run;
+        this.receiptKey = answer.key;
+      }
       this.refusal = undefined;
     } else if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run))) {
       this.refusal = undefined;
@@ -279,8 +294,9 @@ export class SandboxTab {
       ])) as { task?: unknown; key?: unknown; running?: unknown; reply?: unknown } | null;
       // `{}` (or null) is the host's "no send"; anything else that isn't a send is malformed.
       if (!value || (typeof value === "object" && Object.keys(value).length === 0)) return { kind: "none" };
-      if (typeof value.task !== "string") return { kind: "unknown" };
-      const key = typeof value.key === "string" ? value.key : "";
+      // A send with no attempt key can't be matched to this page's own send: malformed.
+      if (typeof value.task !== "string" || typeof value.key !== "string" || !value.key) return { kind: "unknown" };
+      const key = value.key;
       if (value.running === true) return { kind: "running", task: value.task, key };
       return { kind: "ended", task: value.task, key, run: fromReply(value.task, value.reply) };
     } catch {

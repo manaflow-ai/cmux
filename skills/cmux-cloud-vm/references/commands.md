@@ -198,6 +198,21 @@ public domain has no CLI path. Check each action's arguments with
 Creating, forking, restoring, resizing and killing machines need the user's
 authorization for the target and effect.
 
+## Agent sessions on a machine
+
+```bash
+cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
+cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
+```
+
+`start-session` answers `machine_id`, `session_id` and `host` (the machine's
+`registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
+tab opens in the machine's first workspace. Without `--cwd` the session starts
+in that workspace's folder. An agent's run asks the person first with a card in
+its own chat (Start, Not now), like an agent's `cloud move`. It waits up to 2
+minutes for an answer and then refuses. Each refusal names the machine and gives
+the command to run again.
+
 ## Account and diagnostics
 
 ```bash

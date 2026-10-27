@@ -448,6 +448,7 @@ fn start_and_bind(
             .find(|harness| validate_harness(harness).is_ok());
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
+    let _rebinding = mux.control_clients.agent_sessions.rebinding();
     let (record, _) = mux
         .bind_conversation_tab_session_as(&actor, params.surface, &session, None, harness)
         .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;

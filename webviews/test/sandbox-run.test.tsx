@@ -251,13 +251,13 @@ test("only the receipt fields the chat shows are kept; a value that is no receip
   });
 });
 
-test("the Run API's request refusals are retryable, by their shape", async () => {
+test("the Run API's documented request refusals are retryable; a code merely shaped like one is not", async () => {
   const { sandboxRetryable } = await import("../src/agent-session/acpmux/sandboxRun");
   const failed = (code: string) => ({ task: "go", state: "failed" as const, code });
-  for (const code of ["run_task_invalid", "run_model_required", "run_invalid_request"]) {
+  for (const code of ["run_task_required", "run_agent_invalid", "run_invalid_request"]) {
     expect(sandboxRetryable(failed(code))).toBe(true);
   }
-  for (const code of ["run_vm1_invalid", "run_task_failed", "unavailable"]) {
+  for (const code of ["run_task_invalid", "run_model_required", "run_vm1_invalid", "run_task_failed", "unavailable"]) {
     expect(sandboxRetryable(failed(code))).toBe(false);
   }
 });
@@ -484,4 +484,41 @@ test("a receipt a read finds while the send is unanswered ends the spinner and t
   await tab.read();
   expect(tab.view()).toMatchObject({ state: "done" });
   expect(tab.busy()).toBe(false);
+});
+
+test("a send whose answer is lost while another attempt's receipt holds the tab gets its prompt back", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  const restored: string[] = [];
+  let lose: (error: unknown) => void = () => undefined;
+  const tab = new SandboxTab(
+    (method) =>
+      method === "sandbox.run"
+        ? new Promise((_resolve, reject) => (lose = reject))
+        : Promise.resolve({ task: "older", key: "k-old", reply: { ok: true, value: { receipt: { status: "succeeded" } } } }),
+    (text) => restored.push(text),
+  );
+  tab.setMode("sandboxed");
+  expect(tab.send("current", "claude")).toBe(true);
+  // A reconnect's read finds an older attempt's receipt while this send is out.
+  await tab.read();
+  expect(tab.view()).toMatchObject({ state: "done", task: "older" });
+  // This send's own answer is lost: the host held the older one, so it refused this send.
+  lose({ code: "timeout" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(restored).toEqual(["current"]);
+  expect(tab.busy()).toBe(false);
+});
+
+test("the only documented request refusals free the tab; a host read with no attempt key is unknown", async () => {
+  const { SandboxTab, sandboxRetryable } = await import("../src/agent-session/acpmux/sandboxRun");
+  expect(sandboxRetryable({ task: "go", state: "failed", code: "run_image_invalid" })).toBe(true);
+  for (const code of ["run_vm_deadbeef_invalid", "run_task_invalid", "unavailable"]) {
+    expect(sandboxRetryable({ task: "go", state: "failed", code })).toBe(false);
+  }
+  for (const key of [undefined, ""]) {
+    const tab = new SandboxTab(async () => ({ task: "go", key, running: true }), () => undefined);
+    await tab.read();
+    expect(tab.host).toEqual({ kind: "unknown" });
+    expect(tab.checked).toBe(false);
+  }
 });

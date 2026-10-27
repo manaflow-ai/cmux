@@ -152,19 +152,14 @@ async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     assert_eq!(r["error"]["data"]["mode"], json!("normal"), "{r}");
     assert_eq!(r["error"]["data"]["harness"], json!("ftarget"), "{r}");
-    for (m, p) in [
-        (
-            "_acpmux/permission_respond",
-            json!({"sessionId": s, "permissionId": "p", "optionId": "o"}),
-        ),
-        (
-            "_acpmux/permission_group_respond",
-            json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"}),
-        ),
-    ] {
-        let r = web.call(m, p).await;
-        assert_eq!(reason(&r), "remote.mode_not_asking", "{m}: {r}");
-    }
+    let allow = json!({"sessionId": s, "permissionId": "p", "optionId": "o"});
+    let r = web.call("_acpmux/permission_respond", allow).await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    // A deny only narrows: no asking rule holds it (here: no such group).
+    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k",
+                      "decision": "deny"});
+    let r = web.call("_acpmux/permission_group_respond", deny).await;
+    assert!(!reason(&r).starts_with("remote."), "{r}");
     // Reads stay.
     for m in ["_acpmux/attach", "_acpmux/events", "_acpmux/info"] {
         let r = web.call(m, json!({"sessionId": s, "limit": 0})).await;
@@ -375,6 +370,251 @@ async fn a_session_with_no_mode_needs_an_asking_policy_for_web_control() {
     // deny-all asks nothing but approves nothing either.
     set_policy(&mut local, &s, "deny-all").await;
     assert!(web.prompt(&s, "denies").await.get("error").is_none());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The latest prompt the session asks: its id, decision nonce and daemon run.
+async fn pending_ask(c: &mut Client, s: &str, after: usize) -> (String, String, String) {
+    for _ in 0..500 {
+        let r = c.call("_acpmux/events", json!({"sessionId": s, "limit": 500})).await;
+        let asks: Vec<Value> = r["result"]["events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|e| e["kind"] == "permission_request")
+            .cloned()
+            .collect();
+        if let Some(ask) = asks.get(after) {
+            let text = |k: &str| ask["msg"][k].as_str().unwrap_or_default().to_owned();
+            return (text("permissionId"), text("decisionNonce"), text("personInstance"));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no permission request {after} in the events of {s}");
+}
+
+/// Leo, 2026-10-21 ("this literally doesn't work"): a paired device drew
+/// Allow and Deny for a prompt of an approve-reads session, and every answer
+/// came back "this session's permission settings do not ask before it acts
+/// (policy approve-reads); a paired device cannot prompt it or answer its
+/// permissions". A deny only narrows and counts; an allow that carries the
+/// person's decision proof for that very prompt is the person's own click and
+/// counts; an allow with no proof stays refused. The device's read of the
+/// asks says its group allows are refused, so it draws none.
+#[tokio::test]
+async fn a_paired_device_answers_an_approve_reads_prompt_with_a_deny_or_the_persons_proof() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let d = dir("answers");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut turns = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    set_policy(&mut local, &s, "approve-reads").await;
+    let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    let answer =
+        |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
+
+    let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
+    let (pid, _, _) = pending_ask(&mut local, &s, 0).await;
+    let r = web.call("_acpmux/permission_groups", json!({"sessionId": s})).await;
+    assert_eq!(r["result"]["allowRefused"], json!("permission.person_required"), "{r}");
+    let r = local.call("_acpmux/permission_groups", json!({"sessionId": s})).await;
+    assert!(r["result"].get("allowRefused").is_none(), "{r}");
+    let r = web.call("_acpmux/permission_respond", answer(&pid, "yes")).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "an allow with no proof: {r}");
+    let r = web.call("_acpmux/permission_respond", answer(&pid, "no")).await;
+    assert!(r.get("error").is_none(), "a deny: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events(&mut local, &s, "chose no").await;
+
+    let turn = turns.send("session/prompt", ask("ask: git push")).await;
+    let (pid, nonce, instance) = pending_ask(&mut local, &s, 1).await;
+    let proof =
+        acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
+    let mut proved = answer(&pid, "yes");
+    proved["_meta"] = json!({"acpmux": {"decisionNonce": nonce, "personDecision": proof}});
+    let r = web.call("_acpmux/permission_respond", proved.clone()).await;
+    assert!(r.get("error").is_none(), "an allow with the person's proof: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events(&mut local, &s, "chose yes").await;
+    // The proof counts once: used again, it is an allow with no proof.
+    let r = web.call("_acpmux/permission_respond", proved).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "used again: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// What the person's phone signs for one prompt (`hub/approvers.rs`), as
+/// lowercase hex of the raw P-256 signature.
+#[allow(clippy::too_many_arguments)]
+fn phone_signature(
+    key: &ring::signature::EcdsaKeyPair,
+    instance: &str,
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    expires_at: u64,
+) -> String {
+    let message = acpmux::hub::approvers::message(&acpmux::hub::approvers::Parts {
+        instance,
+        mac: "mac-1",
+        approver: "phone-1",
+        session,
+        permission,
+        option,
+        nonce,
+        expires_at,
+        answers: "",
+    });
+    let sig = key.sign(&ring::rand::SystemRandom::new(), &message).unwrap();
+    sig.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn phone_allow(s: &str, pid: &str, option: &str, nonce: &str, exp: u64, sig: &str) -> Value {
+    json!({"sessionId": s, "permissionId": pid, "optionId": option,
+           "_meta": {"acpmux": {"decisionNonce": nonce,
+               "approverDecision": {"approver": "phone-1", "expiresAt": exp, "signature": sig}}}})
+}
+
+/// Waits until `needle` is in the events of `s` at least `n` times.
+async fn wait_events_n(c: &mut Client, s: &str, needle: &str, n: usize) {
+    for _ in 0..500 {
+        let r = c.call("_acpmux/events", json!({"sessionId": s, "limit": 500})).await;
+        if r.to_string().matches(needle).count() >= n {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("{needle:?} not {n} times in the events of {s}");
+}
+
+/// #24233's landing terms (hb-acpmux, 2026-10-25), for a phone's signed
+/// Allow sent from a paired device under approve-reads: (1) it counts once,
+/// for its own prompt, option and nonce, until it expires; (2) it allows once
+/// only, never always, and changes no policy; (3) an unsigned allow stays
+/// refused and a deny counts; (4) a phone unpaired after it signed counts
+/// nothing.
+#[tokio::test]
+async fn a_phones_signed_allow_from_a_paired_device_counts_once_never_lasts_and_stops_when_unpaired()
+ {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let key =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let public: String = key.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let exp = now + 120;
+    let d = dir("phone");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut turns = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let enroll = json!({"macDevice": "mac-1",
+                        "approvers": [{"id": "phone-1", "publicKey": public, "name": "iPhone"}]});
+    let r = local.call("_acpmux/approvers_set", enroll).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let s = no_mode_session(&mut local, &d).await;
+    set_policy(&mut local, &s, "approve-reads").await;
+    let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    let plain =
+        |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
+    let respond = "_acpmux/permission_respond";
+
+    // (2) An allow always, even signed for it, is refused; a deny counts.
+    let turn = turns.send("session/prompt", ask("ask-always: rm -rf build")).await;
+    let (pid, nonce, inst) = pending_ask(&mut local, &s, 0).await;
+    let sig = phone_signature(&key, &inst, &s, &pid, "always", &nonce, exp);
+    let r = web.call(respond, phone_allow(&s, &pid, "always", &nonce, exp, &sig)).await;
+    assert_eq!(reason(&r), "remote.lasting_grant_refused", "{r}");
+    let r = web.call(respond, plain(&pid, "no")).await;
+    assert!(r.get("error").is_none(), "a deny: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events_n(&mut local, &s, "chose no", 1).await;
+
+    // (1) Expired: refused. The signed allow counts once.
+    let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
+    let (pid, nonce, inst) = pending_ask(&mut local, &s, 1).await;
+    let old = phone_signature(&key, &inst, &s, &pid, "yes", &nonce, now - 5);
+    let r = web.call(respond, phone_allow(&s, &pid, "yes", &nonce, now - 5, &old)).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "expired: {r}");
+    let sig = phone_signature(&key, &inst, &s, &pid, "yes", &nonce, exp);
+    let allow = phone_allow(&s, &pid, "yes", &nonce, exp, &sig);
+    let r = web.call(respond, allow.clone()).await;
+    assert!(r.get("error").is_none(), "the phone's allow: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events_n(&mut local, &s, "chose yes", 1).await;
+    let r = web.call(respond, allow).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "used again: {r}");
+
+    // (2, 3) No policy changed: an unsigned allow is still refused as approve-reads.
+    let turn = turns.send("session/prompt", ask("ask: git push")).await;
+    let (pid2, nonce2, inst) = pending_ask(&mut local, &s, 2).await;
+    let r = web.call(respond, plain(&pid2, "yes")).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "{r}");
+    assert_eq!(r["error"]["data"]["policy"], json!("approve-reads"), "{r}");
+    // (1) The last prompt's signature counts nothing here, with either nonce.
+    for n in [&nonce, &nonce2] {
+        let r = web.call(respond, phone_allow(&s, &pid2, "yes", n, exp, &sig)).await;
+        assert_eq!(reason(&r), "remote.policy_not_asking", "replayed: {r}");
+    }
+    // (4) Signed now, the phone unpaired before the allow arrives: refused.
+    let signed_before = phone_signature(&key, &inst, &s, &pid2, "yes", &nonce2, exp);
+    let unpair = json!({"macDevice": "mac-1", "approvers": []});
+    let r = local.call("_acpmux/approvers_set", unpair).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = web.call(respond, phone_allow(&s, &pid2, "yes", &nonce2, exp, &signed_before)).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "unpaired: {r}");
+    // (3) A deny still counts.
+    let r = web.call(respond, plain(&pid2, "no")).await;
+    assert!(r.get("error").is_none(), "a deny: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events_n(&mut local, &s, "chose no", 2).await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// #24233 (2): the person's proved allow from a paired device, on a session
+/// whose mode does not ask, counts once and leaves the mode as it was: the
+/// Web still may not answer it without a proof.
+#[tokio::test]
+async fn a_proved_allow_from_a_paired_device_changes_no_mode() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let d = dir("nomode-change");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut turns = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    // `normal` is in no asking row for the `target` family.
+    let s = local.new_on(&d, Some("ftarget")).await;
+    let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    let respond = "_acpmux/permission_respond";
+    let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
+    let (pid, nonce, instance) = pending_ask(&mut local, &s, 0).await;
+    let r =
+        web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    let proof =
+        acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
+    let mut proved = json!({"sessionId": s, "permissionId": pid, "optionId": "yes"});
+    proved["_meta"] = json!({"acpmux": {"decisionNonce": nonce, "personDecision": proof}});
+    let r = web.call(respond, proved.clone()).await;
+    assert!(r.get("error").is_none(), "the person's proved allow: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events(&mut local, &s, "chose yes").await;
+    let r = web.call(respond, proved).await;
+    assert!(r.get("error").is_some(), "used again: {r}");
+    let info = local.call("_acpmux/info", json!({"sessionId": s})).await;
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("normal"), "{info}");
+    let turn = turns.send("session/prompt", ask("ask: git push")).await;
+    let (pid, _, _) = pending_ask(&mut local, &s, 1).await;
+    let r =
+        web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    let r =
+        local.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "no"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
     let _ = std::fs::remove_dir_all(&d);
 }
 
