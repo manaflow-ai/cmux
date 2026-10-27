@@ -45,6 +45,48 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(line.contains("[applying]"), line)
     }
 
+    /// The payload carries `workspace_ref` next to `workspace_id`; the lines print the one
+    /// `--id-format` asks for, refs by default.
+    func testSessionPriorityPrintsTheWorkspaceInTheRequestedIdFormat() throws {
+        let workspaceId = UUID().uuidString
+        let workspace: [String: Any] = [
+            "workspace_id": workspaceId, "workspace_ref": "workspace:3", "tier": "urgent",
+            "difficulty": "hard", "difficulty_source": "override", "target": NSNull(), "panes": [],
+        ]
+        func status(_ name: String, _ arguments: [String]) throws -> String? {
+            let result = try runSessionPriorityCLI(name: name, arguments: arguments, respond: { method, id in
+                method == "session_priority.status"
+                    ? self.v2Response(id: id, ok: true, result: [
+                        "window_id": NSNull(), "enabled": true, "urgent_count": 1, "workspaces": [workspace],
+                    ])
+                    : nil
+            })
+            XCTAssertEqual(result.process.status, 0, result.process.stderr)
+            return result.process.stdout.split(separator: "\n").map(String.init).dropFirst().first
+        }
+
+        XCTAssertEqual(try status("session-priority-refs", ["session-priority"]), "1. workspace:3  urgent  hard(override)")
+        XCTAssertEqual(
+            try status("session-priority-uuids", ["session-priority", "--id-format", "uuids"]),
+            "1. \(workspaceId)  urgent  hard(override)"
+        )
+
+        let set = try runSessionPriorityCLI(
+            name: "session-priority-set-ref",
+            arguments: ["session-priority", "difficulty", "hard", "--workspace", workspaceId],
+            respond: { method, id in
+                method == "session_priority.set"
+                    ? self.v2Response(id: id, ok: true, result: workspace)
+                    : nil
+            }
+        )
+        XCTAssertEqual(set.process.status, 0, set.process.stderr)
+        XCTAssertEqual(
+            set.process.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK workspace:3 difficulty hard"
+        )
+    }
+
     func testSessionPriorityDifficultySendsTheWorkspace() throws {
         let workspaceId = UUID().uuidString
         let result = try runSessionPriorityCLI(

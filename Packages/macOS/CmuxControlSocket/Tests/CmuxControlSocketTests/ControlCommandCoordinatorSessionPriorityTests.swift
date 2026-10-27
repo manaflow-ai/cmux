@@ -117,6 +117,35 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         #expect(pane["detail"] == .string("held.draft"))
     }
 
+    /// The CLI prints the workspace in the requested `--id-format`, which needs its ref next to
+    /// its id, as the workspace-todo status payload carries them.
+    @Test func payloadsCarryWorkspaceAndWindowRefs() throws {
+        let context = FakeSessionPriorityControlCommandContext()
+        context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
+        context.statusResolution = .resolved(
+            windowID: windowID, enabled: true, urgentCount: 1, workspaces: [snapshot()]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        func call(_ method: String, _ params: [String: JSONValue]) throws -> [String: JSONValue]? {
+            payload(try #require(coordinator.handle(ControlRequest(id: .int(1), method: method, params: params))))
+        }
+
+        let get = try call("session_priority.get", ["workspace_id": .string(workspaceID.uuidString)])
+        let set = try call("session_priority.set", ["difficulty": .string("hard")])
+        let status = try call("session_priority.status", [:])
+
+        #expect(get?["workspace_ref"] == .string("workspace:1"))
+        #expect(get?["window_ref"] == .string("window:1"))
+        #expect(set?["workspace_ref"] == .string("workspace:1"))
+        #expect(status?["window_ref"] == .string("window:1"))
+        guard case .array(let workspaces)? = status?["workspaces"], case .object(let workspace)? = workspaces.first else {
+            Issue.record("workspaces missing")
+            return
+        }
+        #expect(workspace["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(workspace["workspace_ref"] == .string("workspace:1"))
+    }
+
     @Test func getWithoutManagerIsUnavailable() throws {
         let result = try run("session_priority.get", [:], FakeSessionPriorityControlCommandContext())
         #expect(errorCode(result) == "unavailable")
