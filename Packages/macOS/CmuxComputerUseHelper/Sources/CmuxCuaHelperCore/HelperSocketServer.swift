@@ -158,6 +158,9 @@ public final class HelperSocketServer: Sendable {
         let method = request["method"] as? String ?? ""
         let name = request["name"] as? String
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
+        // Only the admitted acpmux bridge supplies this envelope field, from
+        // its session env. A model's tool arguments cannot widen the scope.
+        let allowedTargetBundleIDs = request["allowed_target_bundle_ids"] as? String ?? ""
         let tools = self.tools
         Task.detached {
             do {
@@ -166,7 +169,8 @@ public final class HelperSocketServer: Sendable {
                 case "tools/list": result = try await tools.listTools()
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
-                    result = try await tools.invoke(name: name, arguments: arguments)
+                    result = try await tools.invoke(name: name, arguments: arguments,
+                                                    allowedTargetBundleIDs: allowedTargetBundleIDs)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))

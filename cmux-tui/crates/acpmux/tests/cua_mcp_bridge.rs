@@ -67,6 +67,7 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
         writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
         while let Some(Ok(line)) = lines.next() {
             let request: Value = serde_json::from_str(&line).unwrap();
+            let _ = tx.send(line);
             let reply = json!({"id": request["id"], "ok": true,
                 "result": [{"name": "stand_in_tool", "inputSchema": {"type": "object"}}]});
             writeln!(writer, "{reply}").unwrap();
@@ -115,4 +116,44 @@ fn a_private_endpoint_file_of_this_user_reaches_the_helper_with_the_secret() {
     let first: Value =
         serde_json::from_str(&received.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
     assert_eq!(first, json!({"secret": SECRET}));
+}
+
+#[test]
+fn target_scope_comes_from_the_bridge_env_not_model_arguments() {
+    for scope in [None, Some("com.cmuxterm.app.debug.guard-test,com.apple.Terminal")] {
+        let dir = Dir::new("target-scope");
+        let received = stand_in(&dir.0, 0o600);
+        let mut command = daemon_env::acpmux(&dir.0);
+        command
+            .arg("cua-mcp")
+            .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
+            .env_remove("CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if let Some(scope) = scope {
+            command.env("CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS", scope);
+        }
+        let mut child = command.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let arguments = json!({"pid": 42,
+            "allowed_target_bundle_ids": "com.cmuxterm.app",
+            "_cua_allowed_target_bundle_ids": ["com.cmuxterm.app"]});
+        writeln!(
+            stdin,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "click", "arguments": arguments,
+                "allowed_target_bundle_ids": "com.cmuxterm.app"}})
+        )
+        .unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let _hello = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        let request: Value =
+            serde_json::from_str(&received.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert_eq!(request["allowed_target_bundle_ids"], scope.unwrap_or(""));
+        assert_eq!(request["arguments"], arguments);
+    }
 }

@@ -41,8 +41,13 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     private let list: ListFn
     private let invokeFn: InvokeFn
     private let release: ReleaseFn
+    private let targetResolver = MacCuaTargetResolver()
+    private let allowedTargetBundleIDs: String
+    private let hostBundleID: String?
 
-    public init(libraryPath: String) throws {
+    public init(libraryPath: String, allowedTargetBundleIDs: String = "", hostBundleID: String? = nil) throws {
+        self.allowedTargetBundleIDs = allowedTargetBundleIDs
+        self.hostBundleID = hostBundleID
         guard let library = dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL) else {
             throw LoadError.open(String(cString: dlerror()))
         }
@@ -84,6 +89,15 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     }
 
     public func invoke(name: String, arguments: Data) async throws -> Data {
+        try await invoke(name: name, arguments: arguments, allowedTargetBundleIDs: allowedTargetBundleIDs)
+    }
+
+    /// Invokes with the trusted connection's exact target scope, outside tool arguments.
+    public func invoke(name: String, arguments: Data, allowedTargetBundleIDs: String) async throws -> Data {
+        let arguments = try await CuaTargetGuard(
+            policy: CuaTargetPolicy(allowedBundleIDs: allowedTargetBundleIDs, hostBundleID: hostBundleID),
+            resolver: targetResolver
+        ).check(name: name, arguments: arguments)
         let free = self.free
         let release = self.release
         return try await withCheckedThrowingContinuation { continuation in

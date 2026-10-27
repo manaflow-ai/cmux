@@ -29,7 +29,11 @@ if insideHelperBundle, !AXIsProcessTrusted() {
 let tools: any ToolInvoking
 let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"
 do {
-    tools = try CuaDriverRuntime(libraryPath: libraryPath)
+    tools = try CuaDriverRuntime(
+        libraryPath: libraryPath,
+        allowedTargetBundleIDs: ProcessInfo.processInfo.environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] ?? "",
+        hostBundleID: ProcessInfo.processInfo.environment["CMUX_CUA_HOST_BUNDLE_ID"]
+    )
 } catch {
     FileHandle.standardError.write(Data("cmux-cua-helper: \(error)\n".utf8))
     tools = UnavailableTools(reason: String(describing: error))
