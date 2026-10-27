@@ -7,10 +7,11 @@ import Foundation
 ///
 /// - `global_jobs`: one record per task that started on the cooperative pool. `caller` is the creator: from the first
 ///   frame of libswift_Concurrency (the hook's caller; the census's own frames come before it), the first frame
-///   outside the runtime's and the system's images. `lane` is `task` when that frame is
-///   ``BackgroundWork/ownTaskFrames`` (a `BackgroundWork.task`, which states its priority and is drained at quit);
-///   `caller` then names the frame past it. `priority` is the raw `TaskPriority` (0: none stated), `origin` `main` or
-///   `off_main`, and `run_ms` is null: the hook sees an enqueue, not the run.
+///   outside the runtime's and the system's images. `via` is `background_work_task` when that frame is
+///   ``BackgroundWork/ownTaskFrames``: a `BackgroundWork.task` starts at once, outside the launch fence, so it stays a
+///   Q12 task, and `caller` names the frame past it. A census task has no `lane`: lane items do not reach the pool.
+///   `priority` is the raw `TaskPriority` (0: none stated), `origin` `main` or `off_main`, and `run_ms` is null: the
+///   hook sees an enqueue, not the run.
 /// - `global_job_census`: whether the hook ran, and what it counted and did not keep.
 ///
 /// ```swift
@@ -36,8 +37,8 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
 
     public struct JobRecord: Sendable, Equatable, Encodable {
         public var caller: String
-        /// `task` for a BackgroundWork task; nil for any other.
-        public var lane: String?
+        /// ``GlobalJobCensusReport/backgroundWorkTask`` for a task that `BackgroundWork.task` started; nil for any other.
+        public var via: String?
         /// The raw `TaskPriority`: 0 none stated, 9 background, 17 utility, 21 medium, 25 user-initiated.
         public var priority: Int
         /// `main` or `off_main`: the thread that enqueued it.
@@ -45,14 +46,14 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
         public var enqueuedMs: Double
 
         private enum CodingKeys: String, CodingKey {
-            case caller, lane, priority, origin
+            case caller, via, priority, origin
             case enqueuedMs = "enqueued_ms", runMs = "run_ms"
         }
 
         public func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(caller, forKey: .caller)
-            try container.encode(lane, forKey: .lane)
+            try container.encode(via, forKey: .via)
             try container.encode(priority, forKey: .priority)
             try container.encode(origin, forKey: .origin)
             try container.encode(enqueuedMs, forKey: .enqueuedMs)
@@ -79,6 +80,8 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
         }
     }
 
+    /// ``JobRecord/via`` for a task that `BackgroundWork.task` started.
+    public static let backgroundWorkTask = "background_work_task"
     /// The image of the hook's caller: the frames before its first one are the census's own.
     static let entryImage = "libswift_Concurrency.dylib"
     /// What the creator search skips after the entry: the runtime's and the system's images a task's start or first
@@ -97,12 +100,12 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
     ///     per distinct stack.
     public init(_ snapshot: GlobalJobCensus.Snapshot, symbolize: ([UInt]) -> [Frame]) {
         let start = snapshot.processStartNanos
-        var creators: [[UInt]: (caller: String, lane: String?)] = [:]
+        var creators: [[UInt]: (caller: String, via: String?)] = [:]
         globalJobs = snapshot.jobs.map { job in
             let creator = creators[job.frames] ?? Self.creator(symbolize(job.frames))
             creators[job.frames] = creator
             let since = job.enqueuedNanos > start ? job.enqueuedNanos - start : 0
-            return JobRecord(caller: creator.caller, lane: creator.lane, priority: Int(job.priority),
+            return JobRecord(caller: creator.caller, via: creator.via, priority: Int(job.priority),
                              origin: job.onMain ? "main" : "off_main", enqueuedMs: (Double(since) / 1_000).rounded() / 1_000)
         }
         let counts = snapshot.counts
@@ -123,9 +126,9 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
     // MARK: Rules
 
     /// The creator of a task from its stack (innermost first): from the first ``entryImage`` frame, the first frame
-    /// outside ``systemImages`` and not ``isEmittedRuntime(_:)``; when that is a ``BackgroundWork/ownTaskFrames`` frame, the lane is `task` and the
-    /// creator is the next such frame past it. `?` when the stack has no entry frame or none past the system frames.
-    static func creator(_ frames: [Frame]) -> (caller: String, lane: String?) {
+    /// outside ``systemImages`` and not ``isEmittedRuntime(_:)``; when that is a ``BackgroundWork/ownTaskFrames`` frame,
+    /// `via` is ``backgroundWorkTask`` and the creator is the next such frame past it. `?` when the stack has no entry frame or none past the system frames.
+    static func creator(_ frames: [Frame]) -> (caller: String, via: String?) {
         guard let entry = frames.firstIndex(where: { $0.image == entryImage }) else { return ("?", nil) }
         let own = frames[entry...].filter { frame in
             !(frame.image.map(systemImages.contains) ?? false) && !(frame.symbol.map(isEmittedRuntime) ?? false)
@@ -133,7 +136,7 @@ public nonisolated struct GlobalJobCensusReport: Sendable, Encodable {
         guard let first = own.first else { return ("?", nil) }
         guard isBackgroundWorkTask(first) else { return (name(first), nil) }
         let past = own.dropFirst().first { !isBackgroundWorkTask($0) }
-        return (past.map(name) ?? name(first), "task")
+        return (past.map(name) ?? name(first), backgroundWorkTask)
     }
 
     /// Whether `symbol` (demangled) is a standard-library function the compiler emitted into the caller's image

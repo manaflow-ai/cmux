@@ -361,21 +361,37 @@ class GlobalJobsTests(unittest.TestCase):
                          {("Index.detached", ("default",)), ("Cache.global", ("default",)), ("Model.medium", ("default",))})
 
     def test_the_census_reply_is_read_as_the_app_sends_it(self):
-        # debug.startup.global_jobs (task 082): raw TaskPriority numbers, 0 for none, `task` for a BackgroundWork task,
-        # run_ms null (the hook sees the enqueue).
-        jobs = [{"caller": "Feed.refresh()", "lane": None, "priority": 17, "origin": "off_main", "enqueued_ms": 40.5,
+        # debug.startup.global_jobs (task 082): raw TaskPriority numbers, 0 for none, no lane, run_ms null (the hook
+        # sees the enqueue).
+        jobs = [{"caller": "Feed.refresh()", "via": None, "priority": 17, "origin": "off_main", "enqueued_ms": 40.5,
                  "run_ms": None},
-                {"caller": "Index.rebuild()", "lane": "task", "priority": 9, "origin": "main", "enqueued_ms": 41,
-                 "run_ms": None},
-                {"caller": "Scan.all()", "lane": None, "priority": 0, "origin": "main", "enqueued_ms": 42, "run_ms": None},
-                {"caller": "Open.page()", "lane": None, "priority": 25, "origin": "main", "enqueued_ms": 43, "run_ms": None}]
-        state = {"armed": True, "hook": "installed", "frozen": True, "tasks": 4, "pending_tasks": 0, "dropped_tasks": 0,
+                {"caller": "Scan.all()", "via": None, "priority": 0, "origin": "main", "enqueued_ms": 42, "run_ms": None},
+                {"caller": "Open.page()", "via": None, "priority": 25, "origin": "main", "enqueued_ms": 43, "run_ms": None}]
+        state = {"armed": True, "hook": "installed", "frozen": True, "tasks": 3, "pending_tasks": 0, "dropped_tasks": 0,
                  "resumptions": 12, "actor_jobs": 3, "untracked_tasks": 0}
         hits, warnings, used = sq.globaljobs_hits(
             sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
         self.assertEqual((used, warnings), (1, []))
-        self.assertEqual([(h["caller"], h["priorities"], h["total_ms"]) for h in hits],
-                         [("Feed.refresh()", ["utility"], 0.0), ("Scan.all()", ["unspecified"], 0.0)])
+        self.assertEqual([(h["caller"], h["priorities"], h["via"], h["total_ms"]) for h in hits],
+                         [("Feed.refresh()", ["utility"], [], 0.0), ("Scan.all()", ["unspecified"], [], 0.0)])
+
+    def test_a_background_work_task_before_completion_is_a_hit(self):
+        # BackgroundWork.task starts its Task.detached at once: the launch fence holds only lane items, so a
+        # work.task(.bestEffort) or work.task(.idle) during launch is Q12 work, named by its caller.
+        jobs = [{"caller": "Index.rebuild()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 41, "run_ms": None},
+                {"caller": "Feed.prefetch()", "via": "background_work_task", "priority": 17, "origin": "off_main",
+                 "enqueued_ms": 44, "run_ms": None},
+                {"caller": "Late.sweep()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 950, "run_ms": None},
+                {"caller": "Lane.job", "lane": "files", "priority": 9, "enqueued_ms": 10, "run_ms": 1}]
+        state = {"armed": True, "hook": "installed", "tasks": 3}
+        hits, _, _ = sq.globaljobs_hits(
+            sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
+        self.assertEqual([(h["caller"], h["priorities"], h["via"]) for h in hits],
+                         [("Feed.prefetch()", ["utility"], ["background_work_task"]),
+                          ("Index.rebuild()", ["background"], ["background_work_task"])])
+        self.assertIn("(via background_work_task)", hits[1]["summary"])
 
     def test_a_census_that_did_not_record_is_left_out(self):
         runs = sq.capture_runs([census_run(global_jobs=[], global_job_census={"armed": False}),

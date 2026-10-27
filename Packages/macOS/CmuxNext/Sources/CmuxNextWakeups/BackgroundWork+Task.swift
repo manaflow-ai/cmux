@@ -87,9 +87,10 @@ extension BackgroundWork {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Fragments of the demangled names of ``task(_:shutdown:fileID:line:_:)`` and its generic specializations. The
-    /// launch's global-job census (CmuxNextLaunch's `GlobalJobCensus`, p08-startup-082) reads a task whose creating
-    /// stack runs through it as a BackgroundWork task, which states its priority and is drained at quit, not as a Q12
-    /// caller. Nothing in this module calls it, so it keeps its own frame in every build.
+    /// launch's global-job census (CmuxNextLaunch's `GlobalJobCensus`, p08-startup-082) names the caller past it for a
+    /// task whose creating stack runs through it, and marks the task as started here. Such a task starts at once,
+    /// outside the launch fence, so it is still a Q12 task. Nothing in this module calls it, so it keeps its own frame
+    /// in every build.
     public static let ownTaskFrames = ["BackgroundWork.task<", "BackgroundWork.task("]
     #endif
 

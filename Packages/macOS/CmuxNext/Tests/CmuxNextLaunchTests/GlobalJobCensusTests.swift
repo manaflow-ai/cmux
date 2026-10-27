@@ -74,7 +74,7 @@ nonisolated struct GlobalJobCensusTests {
         let creator = GlobalJobCensusReport.creator(Self.stack([Self.frame("libdispatch.dylib"), Self.frame("CoreFoundation"),
                                                                 Self.frame("cmux DEV", "Feed.refresh()"), Self.frame("cmux DEV", "Feed.start()")]))
         #expect(creator.caller == "Feed.refresh()")
-        #expect(creator.lane == nil)
+        #expect(creator.via == nil)
         // Task.detached emitted into the app image (a Debug build does not inline it) is not the creator.
         let detached = Self.frame("cmux DEV", "static Swift.Task< where B == Swift.Error>.detached(priority: Swift.TaskPriority?, operation: __owned @Sendable () async throws -> A) -> Swift.Task<A, Swift.Error>")
         let specialized = Self.frame("cmux DEV", "generic specialization <Swift.Int> of Swift.TaskGroup.addTask(priority:operation:)")
@@ -85,11 +85,11 @@ nonisolated struct GlobalJobCensusTests {
         #expect(GlobalJobCensusReport.creator([Self.frame("cmux DEV", "Feed.refresh()")]).caller == "?")
     }
 
-    @Test func aBackgroundWorkTaskIsALaneTaskNamedByItsCaller() {
+    @Test func aBackgroundWorkTaskIsNamedByItsCallerAndMarked() {
         let task = Self.frame("cmux DEV", "generic specialization <Swift.Bool> of CmuxNextWakeups.BackgroundWork.task<A where A: Swift.Sendable>(_: CmuxNextWakeups.WorkPriority, shutdown: CmuxNextWakeups.ShutdownBehavior, fileID: Swift.StaticString, line: Swift.UInt, _: sending @isolated(any) () async throws -> A) -> Swift.Task<A, Swift.Error>")
         let creator = GlobalJobCensusReport.creator(Self.stack([task, Self.frame("cmux DEV", "Index.rebuild()")]))
         #expect(creator.caller == "Index.rebuild()")
-        #expect(creator.lane == "task")
+        #expect(creator.via == GlobalJobCensusReport.backgroundWorkTask)
         #expect(BackgroundWork.ownTaskFrames.allSatisfy { !"CmuxNextWakeups.BackgroundWork.taskFinished(_:site:since:)".contains($0) })
     }
 
@@ -104,7 +104,8 @@ nonisolated struct GlobalJobCensusTests {
         #expect(job["priority"] as? Int == 0)
         #expect(job["origin"] as? String == "main")
         #expect(job["enqueued_ms"] as? Double == 2.5)
-        #expect(job["lane"] is NSNull)
+        #expect(job["via"] is NSNull)
+        #expect(job["lane"] == nil, "a census task never runs on a lane, and globaljobs skips laned jobs")
         #expect(job["run_ms"] is NSNull, "the hook sees the enqueue, not the run")
         let summary = try #require(object["global_job_census"] as? [String: Any])
         #expect(summary["armed"] as? Bool == true)

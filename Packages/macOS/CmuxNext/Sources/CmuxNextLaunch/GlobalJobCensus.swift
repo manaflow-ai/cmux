@@ -154,9 +154,8 @@ public final class GlobalJobCensus: Sendable {
     /// - Parameters:
     ///   - capacity: The tasks kept.
     ///   - processStartNanos: Process start on `clock`: the zero of the report's times.
-    ///   - clock: `CLOCK_UPTIME_RAW` nanoseconds (tests pass their own).
-    public convenience init(capacity: Int, processStartNanos: UInt64,
-                            clock: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    ///   - clock: The census's clock in nanoseconds, on the same zero as `processStartNanos`.
+    public convenience init(capacity: Int, processStartNanos: UInt64, clock: @escaping @Sendable () -> UInt64) {
         self.init(capacity: capacity, processStartNanos: processStartNanos, clock: clock, jobTaskIDAddress: 0)
     }
 

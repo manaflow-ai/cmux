@@ -21,8 +21,8 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
               outside a StartupScheduler task and the allowlist.
   globaljobs  Q12, template 083. From `debug.startup` and `debug.startup.global_jobs` (task 082; a live run arms
               the census with CMUX_NEXT_GLOBAL_JOB_CENSUS=1): each caller of utility, background or unprioritized
-              tasks started on the cooperative pool before --until-mark that is not a BackgroundWork task. The
-              census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
+              tasks started on the cooperative pool before --until-mark that is not a BackgroundWork lane job. A
+              BackgroundWork.task is listed: it starts at once, outside the launch fence. The census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
               whose census was not armed or whose hook did not install is left out with a warning; a task the
               census counted and did not keep is a warning.
   arms        Q13, template 086. From `debug.startup`: each timer, watcher and observer armed before
@@ -52,13 +52,15 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
-    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "enqueued_ms", "run_ms"}],
+    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
+                     "enqueued_ms", "run_ms"}],
     "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
     "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
     arms: arms). A run without them is left out; no run with them exits 2. Task 082's census answers its two keys
-    on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; `lane`
-    `task` for a BackgroundWork task; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
+    on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
+    because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
+    which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
     merges that reply into debug.startup's (which it may lack). global_jobs' priority is null or 0 when
     the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
@@ -603,15 +605,18 @@ def globaljobs_hits(runs, until_mark):
             if job.get("lane") or priority is None or (number(job.get("enqueued_ms")) or 0.0) >= complete:
                 continue
             caller = str(job.get("caller", "?"))
-            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set()})
+            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set(), "via": set()})
             entry["count"] += 1
             entry["ms"] += number(job.get("run_ms")) or 0.0
             entry["priorities"].add(priority)
+            if job.get("via"):
+                entry["via"].add(str(job["via"]))
             entry["runs"] += caller not in seen
             seen.add(caller)
-    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "runs": entry["runs"],
-             "count": entry["count"], "total_ms": round(entry["ms"], 2),
-             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane: "
+    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "via": sorted(entry["via"]),
+             "runs": entry["runs"], "count": entry["count"], "total_ms": round(entry["ms"], 2),
+             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane"
+                        f"{''.join(f' (via {via})' for via in sorted(entry['via']))}: "
                         f"{entry['runs']}/{len(kept)} runs, {entry['count']} jobs before {until_mark}"}
             for caller, entry in callers.items()]
     hits.sort(key=lambda hit: (-hit["runs"], -hit["count"], hit["caller"]))
