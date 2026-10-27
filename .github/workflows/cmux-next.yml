@@ -200,6 +200,8 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -438,6 +440,8 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -1082,6 +1086,20 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      # The second identity for the same runner reads: when the routing App's read is refused (403s
+      # from 22:47Z on 2026-10-26 sent every DEV compile to an owned queue), the placement reads again
+      # with cmux-bot (organization self-hosted runners: read). A failed mint leaves it empty.
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
       # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
       # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
@@ -1108,6 +1126,7 @@ jobs:
         timeout-minutes: 2
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # The cascade's jobs that run on this route at all (next_macos_cascade.py):
           # not a job that path routing or the pull request's labels skip (a job
@@ -1144,6 +1163,11 @@ jobs:
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
+          # The jobs a feed's freshness waits on: when the counts cannot be read (a 403 on the route token, a
+          # stale snapshot) they take Blacksmith 6 vCPU, the last resort, instead of an owned queue nobody
+          # measured (next_macos_cascade.unread_fresh_jobs()). A DEV daily's Release compile feeds the DEV
+          # channel, a feat-cmux-next push's gates nightly-next.
+          FRESH_JOBS: ${{ github.run_attempt == 1 && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
         run: |
           python3 scripts/ci/side_lane_placement.py
           # The trusted checkout may still be on a base branch that predates
@@ -1696,6 +1720,7 @@ jobs:
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_release_host_root.py
           python3 tests/test_cmux_next_dev_release_import_out.py
+          python3 tests/test_xcode_build_timeline.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
