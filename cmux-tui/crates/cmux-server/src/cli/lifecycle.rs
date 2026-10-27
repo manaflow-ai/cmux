@@ -72,9 +72,8 @@ pub(super) fn mutating_layout(ctx: &Context<'_>, system_flag: bool) -> Result<La
 /// A channel name: `[a-z][a-z0-9-]{0,31}` (the manifest's channel rule).
 fn valid_channel(channel: &str) -> bool {
     let b = channel.as_bytes();
-    !b.is_empty()
-        && b.len() <= 32
-        && b[0].is_ascii_lowercase()
+    b.len() <= 32
+        && b.first().is_some_and(u8::is_ascii_lowercase)
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 

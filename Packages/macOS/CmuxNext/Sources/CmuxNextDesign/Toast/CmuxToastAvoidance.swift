@@ -63,6 +63,8 @@ public final class CmuxToastAvoidance {
     public static func avoidanceChanged(in window: NSWindow) -> Task<Void, Never>? {
         guard let link = existing(in: window), link.hosts.anyObject != nil else { return nil }
         // task-owner: one hop past the caller's layout pass; moves this window's toasts once
+        // main-hop-allow: AppKit's layout order: moving the toasts inside the caller's layout() would lay the window
+        // out again within its own pass, so the move waits one job; it is one per change and window
         return Task { [weak link, weak window] in
             guard let window, let link else { return }
             for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.reanchor(in: window) }

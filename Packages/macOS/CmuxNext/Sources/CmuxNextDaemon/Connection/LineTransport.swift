@@ -53,7 +53,7 @@ final class LineTransport: Sendable {
 
     /// The transport's routing state (LineTransport+State.swift); the reader's routing reads it
     /// (LineTransport+Route.swift).
-    let state = Mutex(State())
+    let state = Mutex(State(), rank: .daemonLineTransportState)
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
@@ -94,6 +94,7 @@ final class LineTransport: Sendable {
         self.trace = trace
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
         traceFlowSeed = Self.requestFlowSeed(pid: getpid())
+        // timer-class-allow: off main: the request deadlines fail their expired requests from the transport's own state; no main-thread job
         deadlineTimer = DemandTimer(owner: "LineTransport.deadline", clock: clock)
         elapsed = Self.elapsedReader(clock)
         let recorder = stats?.recorder()
@@ -108,7 +109,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         Self.sizeBuffers(fd)
-        socket = Mutex(Socket(fd: fd))
+        socket = Mutex(Socket(fd: fd), rank: .daemonLineTransportSocket)
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).

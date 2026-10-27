@@ -8,9 +8,10 @@ public import CmuxNextDesignTokens
 
 /// The one quit hook for unsaved state (R96). The registry holds every
 /// participant weakly; `save` runs every save concurrently, each bounded by
-/// its own deadline on the injected clock (a timeout ends the wait, not a
-/// write already in progress); a saved or discarded participant's recovery
-/// draft goes away, a failed one keeps it.
+/// its own `userBlocking` deadline (``ComponentDeadline``: a person waits on
+/// the quit; a timeout ends the wait, not a write already in progress); a
+/// saved or discarded participant's recovery draft goes away, a failed one
+/// keeps it.
 @MainActor
 public final class QuitUnsavedRegistry {
     /// The longest deadline a participant may declare.
@@ -21,13 +22,17 @@ public final class QuitUnsavedRegistry {
         weak var participant: (any QuitUnsavedParticipant)?
     }
 
-    private let clock: any Clock<Duration>
+    private let deadlines: ComponentDeadlines
     private let drafts: RecoveryDraftStore?
     private var entries: [Entry] = []
     private var nextToken = 1
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), drafts: RecoveryDraftStore? = nil) {
-        self.clock = clock
+    /// - Parameters:
+    ///   - deadlines: Where each save's limit runs: the app's deadline scheduler (``ComponentDeadlines/on(_:)``);
+    ///     by default the continuous clock.
+    ///   - drafts: The recovery drafts a saved or discarded participant drops.
+    public init(deadlines: ComponentDeadlines = .clock(ContinuousClock()), drafts: RecoveryDraftStore? = nil) {
+        self.deadlines = deadlines
         self.drafts = drafts
     }
 
@@ -63,15 +68,14 @@ public final class QuitUnsavedRegistry {
                      saving: (([String]) -> Void)? = nil) async -> [QuitFlushOutcome] {
         var pending = participants.map(\.quitTitle)
         saving?(pending)
-        // Every save starts now (each in its own main-actor task with its
-        // own deadline); the results are then collected in order.
-        let saves = participants.map { participant in
+        // Every save starts now, each racing its own limit; the results are then collected in order.
+        let flushes = participants.map { participant in
             let deadline = min(participant.quitFlushDeadline, deadlineCap ?? Self.maxDeadline, Self.maxDeadline)
-            return Task { @MainActor in await self.saveOne(participant, within: deadline) }
+            return QuitFlush(participant, within: deadline, limit: deadlines.deadline(owner: "quit.flush", workClass: .userBlocking))
         }
         var outcomes: [QuitFlushOutcome] = []
-        for save in saves {
-            let outcome = await save.value
+        for flush in flushes {
+            let outcome = await flush.outcome()
             outcomes.append(outcome)
             if let index = pending.firstIndex(of: outcome.title) { pending.remove(at: index) }
             saving?(pending)
@@ -86,32 +90,6 @@ public final class QuitUnsavedRegistry {
             await participant.discardForQuit()
             await drafts?.remove(id: participant.quitParticipantID)
         }
-    }
-
-    /// One save raced against its deadline. The write runs in its own task,
-    /// so a timeout never cancels a write in progress.
-    private func saveOne(_ participant: any QuitUnsavedParticipant, within deadline: Duration) async -> QuitFlushOutcome {
-        let id = participant.quitParticipantID
-        let title = participant.quitTitle
-        let timer = DemandTimer(owner: "quit-flush", clock: clock)
-        // A save whose answer was dropped (neither the write nor the deadline resumed) counts as timed out.
-        let result: QuitFlushOutcome.Result = (try? await withOnceContinuation {
-            (continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) in
-            let once = QuitFlushOnce(continuation)
-            timer.scheduleOnMain(after: deadline) { once.resume(.timedOut) }
-            Task { @MainActor in
-                do {
-                    try await participant.flushForQuit()
-                    once.resume(.saved)
-                } catch let error as QuitFlushError {
-                    once.resume(.failed(error.reason))
-                } catch {
-                    once.resume(.failed(error.localizedDescription))
-                }
-            }
-        }) ?? .timedOut
-        timer.cancel()
-        return QuitFlushOutcome(id: id, title: title, result: result)
     }
 }
 
@@ -132,17 +110,55 @@ public final class QuitUnsavedRegistration {
     }
 }
 
-/// Resumes a save's continuation once (the save or its deadline, first).
+/// One participant's save raced against its limit: the first of the two answers. The write runs in its own
+/// task, so a timeout ends the wait and never cancels a write in progress.
 @MainActor
-final class QuitFlushOnce {
-    private var continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>?
+final class QuitFlush {
+    let id: String
+    let title: String
+    private let limit: any ComponentDeadline
+    private var result: QuitFlushOutcome.Result?
+    private var waiter: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>?
 
-    init(_ continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) {
-        self.continuation = continuation
+    /// Starts the write of `participant` and its limit, `deadline` from now, on `limit`.
+    init(_ participant: any QuitUnsavedParticipant, within deadline: Duration, limit: any ComponentDeadline) {
+        id = participant.quitParticipantID
+        title = participant.quitTitle
+        self.limit = limit
+        limit.schedule(after: deadline) { [weak self] in self?.finish(.timedOut) }
+        // main-hop-allow: the write is the participant's main-actor async save, started at once in its own task so
+        // that the limit ends only the wait; the task only awaits it and records the answer in its resume
+        Task { @MainActor [weak self] in
+            do {
+                try await participant.flushForQuit()
+                self?.finish(.saved)
+            } catch let error as QuitFlushError {
+                self?.finish(.failed(error.reason))
+            } catch {
+                self?.finish(.failed(error.localizedDescription))
+            }
+        }
     }
 
-    func resume(_ result: QuitFlushOutcome.Result) {
-        continuation?.resume(returning: result)
-        continuation = nil
+    /// The first answer: the write's, or ``QuitFlushOutcome/Result/timedOut`` at the limit.
+    func outcome() async -> QuitFlushOutcome {
+        let result: QuitFlushOutcome.Result
+        if let answered = self.result {
+            result = answered
+        } else {
+            // A wait whose answer was dropped (neither the write nor the limit resumed it) counts as timed out.
+            result = (try? await withOnceContinuation { (continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) in
+                self.waiter = continuation
+            }) ?? .timedOut
+        }
+        return QuitFlushOutcome(id: id, title: title, result: result)
+    }
+
+    private func finish(_ result: QuitFlushOutcome.Result) {
+        guard self.result == nil else { return }
+        self.result = result
+        limit.cancel()
+        waiter?.resume(returning: result)
+        waiter = nil
     }
 }
