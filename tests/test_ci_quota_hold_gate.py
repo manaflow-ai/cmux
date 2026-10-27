@@ -12,7 +12,8 @@ The gate is a job condition, `vars.CI_QUOTA_HOLD != '1'`, so an unset or any
 other value runs everything as before. This test keeps it in place:
 
   - every workflow in HOLD_GATED gates each job that does not wait on another
-    job of the same workflow (a job that `needs` a gated job is skipped with it);
+    job of the same workflow (a job that `needs` a gated job is skipped with it),
+    or, where HOLD_GATED names its jobs, each of those jobs;
   - no workflow that produces a required check reads the variable, so the hold
     can never make a pull request unmergeable or let one merge unchecked;
   - no nightly, dev or promote delivery workflow reads it.
@@ -26,6 +27,10 @@ copy of this test with its own list.
 
 DRAFT_SKIPPED workflows also skip draft pull requests: a draft cannot merge, so
 its checks run once, when it is marked ready (the `ready_for_review` trigger).
+
+Each list maps a workflow to the jobs it covers; an empty tuple means every job
+that does not wait on another. pr-checks.yml folds several pull request checks
+into one run, so only some of its jobs are held or skip drafts.
 """
 
 from __future__ import annotations
@@ -47,11 +52,10 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 
 # Optional workflows that spend GITHUB_TOKEN calls on every pull request
 # completion and that the nightly must not compete with during the hold.
-HOLD_GATED = (
-    "gallery-advisory.yml",
-    "gallery-link.yml",
-    "pr-size-advisory.yml",
-)
+HOLD_GATED: dict[str, tuple[str, ...]] = {
+    "gallery-advisory.yml": (),
+    "pr-checks.yml": ("link", "size"),
+}
 
 # Optional pull request workflows that skip drafts and run on ready_for_review.
 # Only workflows whose skipped run no merger reads as a pass: next-autoland
@@ -59,12 +63,11 @@ HOLD_GATED = (
 # can block a merge (the capture check, the defaults guard) keeps running on
 # drafts. The fast gates are safe: mergers read their commit status, and one
 # missing on the head dispatches the gates rather than passing.
-DRAFT_SKIPPED = (
-    "cmux-next-fast-gates.yml",
-    "gallery-advisory.yml",
-    "gallery-link.yml",
-    "pr-size-advisory.yml",
-)
+DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
+    "cmux-next-fast-gates.yml": (),
+    "gallery-advisory.yml": (),
+    "pr-checks.yml": ("link", "size"),
+}
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
 NEVER_DRAFT_SKIPPED = (
     "cmux-next-defaults-guard.yml",
@@ -98,15 +101,16 @@ def required_owners(workflows: dict[Path, dict]) -> set[Path]:
     return owners
 
 
-def ungated_jobs(workflow: dict) -> list[str]:
-    missing = []
-    for job_id, job in (workflow.get("jobs") or {}).items():
-        if not isinstance(job, dict) or job.get("needs"):
-            continue
-        condition = str(job.get("if", ""))
-        if GATE not in condition:
-            missing.append(job_id)
-    return missing
+def covered_jobs(workflow: dict, listed: tuple[str, ...] = ()) -> dict[str, dict]:
+    """The listed jobs, or, for an empty tuple, every job that waits on no other."""
+    jobs = {job_id: job for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)}
+    if listed:
+        return {job_id: jobs.get(job_id, {}) for job_id in listed}
+    return {job_id: job for job_id, job in jobs.items() if not job.get("needs")}
+
+
+def ungated_jobs(workflow: dict, listed: tuple[str, ...] = ()) -> list[str]:
+    return [job_id for job_id, job in covered_jobs(workflow, listed).items() if GATE not in str(job.get("if", ""))]
 
 
 def events(workflow: dict) -> dict:
@@ -121,7 +125,7 @@ def events(workflow: dict) -> dict:
     return {}
 
 
-def draft_violations(paths: list[Path] | None = None, listed: tuple[str, ...] = DRAFT_SKIPPED) -> list[str]:
+def draft_violations(paths: list[Path] | None = None, listed: dict[str, tuple[str, ...]] = DRAFT_SKIPPED) -> list[str]:
     paths = workflow_files() if paths is None else paths
     by_name = {path.name: path for path in paths}
     workflows = {path: load(path) for path in paths}
@@ -132,8 +136,10 @@ def draft_violations(paths: list[Path] | None = None, listed: tuple[str, ...] = 
         if path is None:
             failures.append(f"{name} is listed in DRAFT_SKIPPED but does not exist")
             continue
-        if name in owners:
+        if name in owners and not listed[name]:
             failures.append(f"{name} produces a required check and must not skip drafts")
+        if listed[name] and required_owners({path: {**workflows[path], "jobs": covered_jobs(workflows[path], listed[name])}}):
+            failures.append(f"{name} skips drafts in a job that produces a required check")
         workflow = workflows[path]
         triggers = events(workflow)
         pr_events = [event for event in PR_EVENTS if event in triggers]
@@ -143,13 +149,13 @@ def draft_violations(paths: list[Path] | None = None, listed: tuple[str, ...] = 
             types = (triggers[event] or {}).get("types") if isinstance(triggers[event], dict) else None
             if not types or "ready_for_review" not in types:
                 failures.append(f"{name} skips drafts but `{event}` does not list ready_for_review")
-        for job_id, job in (workflow.get("jobs") or {}).items():
-            if isinstance(job, dict) and not job.get("needs") and DRAFT not in str(job.get("if", "")):
+        for job_id, job in covered_jobs(workflow, listed[name]).items():
+            if DRAFT not in str(job.get("if", "")):
                 failures.append(f"{name} job {job_id!r} does not skip drafts (`{DRAFT}`)")
     return failures
 
 
-def violations(paths: list[Path] | None = None, gated: tuple[str, ...] = HOLD_GATED) -> list[str]:
+def violations(paths: list[Path] | None = None, gated: dict[str, tuple[str, ...]] = HOLD_GATED) -> list[str]:
     paths = workflow_files() if paths is None else paths
     texts = {path: path.read_text(encoding="utf-8") for path in paths}
     workflows = {path: load(path) for path in paths}
@@ -161,14 +167,22 @@ def violations(paths: list[Path] | None = None, gated: tuple[str, ...] = HOLD_GA
         if path is None:
             failures.append(f"{name} is listed in HOLD_GATED but does not exist")
             continue
-        for job_id in ungated_jobs(workflows[path]):
+        for job_id in ungated_jobs(workflows[path], gated[name]):
             failures.append(f"{name} job {job_id!r} does not gate on `{GATE}`")
 
     owners = required_owners(workflows)
     for path, text in texts.items():
         if VARIABLE not in text:
             continue
-        if path in owners:
+        held = gated.get(path.name)
+        if held:
+            # A folded workflow: only the named jobs may read it, and none of them owns a required check.
+            jobs = workflows[path].get("jobs") or {}
+            failures.extend(f"{path.name} job {job_id!r} reads {VARIABLE} but is not listed in HOLD_GATED"
+                            for job_id, job in jobs.items() if VARIABLE in str(job) and job_id not in held)
+            if required_owners({path: {**workflows[path], "jobs": covered_jobs(workflows[path], held)}}):
+                failures.append(f"{path.name} holds a job that produces a required check on {VARIABLE}")
+        elif path in owners:
             failures.append(f"{path.name} produces a required check and must not read {VARIABLE}")
         if DELIVERY.match(path.name):
             failures.append(f"{path.name} is a delivery workflow and must not read {VARIABLE}")
@@ -184,7 +198,7 @@ class QuotaHoldGateTests(unittest.TestCase):
     def test_the_gated_workflows_produce_no_required_check(self) -> None:
         owners = {path.name for path in required_owners({p: load(p) for p in workflow_files()})}
         self.assertTrue(owners, "no workflow owns a required check; the mirror is unreadable")
-        self.assertFalse(owners & set(HOLD_GATED))
+        self.assertFalse(owners & {name for name, jobs in HOLD_GATED.items() if not jobs})
 
     def test_draft_skipping_workflows_run_when_marked_ready(self) -> None:
         self.assertEqual(draft_violations(), [])
@@ -194,8 +208,8 @@ class QuotaHoldGateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            original = (WORKFLOWS / "gallery-link.yml").read_text(encoding="utf-8")
-            dropped = self.write(directory, "gallery-link.yml", original.replace(", ready_for_review]", "]"))
+            original = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
+            dropped = self.write(directory, "pr-checks.yml", original.replace(", ready_for_review]", "]"))
             others = [p for p in workflow_files() if p.name != dropped.name]
             failures = draft_violations(others + [dropped])
         self.assertTrue(any("does not list ready_for_review" in f for f in failures), failures)
@@ -216,8 +230,8 @@ class QuotaHoldGateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            original = (WORKFLOWS / "gallery-link.yml").read_text(encoding="utf-8")
-            dropped = self.write(directory, "gallery-link.yml", original.replace(f"{GATE} && ", ""))
+            original = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
+            dropped = self.write(directory, "pr-checks.yml", original.replace(f"{GATE} && ", "", 1))
             others = [p for p in workflow_files() if p.name != dropped.name]
             failures = violations(others + [dropped])
         self.assertTrue(any("'link' does not gate" in f for f in failures), failures)
@@ -246,7 +260,7 @@ class QuotaHoldGateTests(unittest.TestCase):
     def test_delivery_names_are_recognised(self) -> None:
         for name in ("nightly.yml", "nightly-next-tick.yml", "cmux-next-dev-daily.yml", "release.yml"):
             self.assertTrue(DELIVERY.match(name), name)
-        self.assertFalse(DELIVERY.match("gallery-link.yml"))
+        self.assertFalse(DELIVERY.match("pr-checks.yml"))
 
 
 if __name__ == "__main__":
