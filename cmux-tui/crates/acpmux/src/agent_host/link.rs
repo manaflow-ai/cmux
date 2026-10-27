@@ -153,9 +153,10 @@ pub struct QueryReply {
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
 /// The fences of the lines sent to a host (`ControllerFrame::Line`), with its incarnation,
-/// until its end (`settle_receipts_of`) or their request's answer settles them: a host says
-/// nothing of when its harness has a line (review 83 of #23322). Shared by every connection
-/// this daemon makes, so a reattach keeps them (review 82).
+/// until its receipt (`WRITTEN_METHOD`, `settle_receipt`) or its end (`settle_receipts_of`)
+/// settles them. Shared by every connection this daemon makes, so a receipt a later connection
+/// to the same host gets settles its line (review 82 of #23322). A protocol-1 host gives no
+/// receipt: its lines wait here for its end, or for their request's answer (review 83).
 type Receipts = std::sync::Mutex<std::collections::HashMap<u64, (String, crate::agent::Fence)>>;
 
 static RECEIPTS: std::sync::LazyLock<Receipts> = std::sync::LazyLock::new(Default::default);
@@ -169,7 +170,19 @@ static NEXT_RECEIPT: std::sync::LazyLock<std::sync::atomic::AtomicU64> =
         std::sync::atomic::AtomicU64::new(u64::from(u32::from_le_bytes(high)) << 32)
     });
 
-/// Keeps `fence`, its host's end watched, until its host's end settles it: its receipt.
+/// A host's receipt (`WRITTEN_METHOD`) for the line it names: written, or never (`written`
+/// false: its harness's stdin closed). An unknown one (a previous daemon's) is ignored.
+pub fn settle_receipt(receipt: u64, written: bool) {
+    let fence = RECEIPTS.lock_or_recover().remove(&receipt).map(|(_, f)| f);
+    match fence {
+        Some(f) if written => f.written(),
+        Some(f) => f.failed(),
+        None => {}
+    }
+}
+
+/// Keeps `fence`, its host's end watched, until a receipt or its host's end settles it: its
+/// receipt.
 fn await_receipt(host: &HostRecord, fence: &crate::agent::Fence) -> u64 {
     let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let mut receipts = RECEIPTS.lock_or_recover();
@@ -252,8 +265,24 @@ pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
         .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
 }
 
+/// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
+#[doc(hidden)]
+pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -> Result<Connect> {
+    connect_inner_max(record, resume_after, max).await
+}
+
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    connect_inner_max(record, resume_after, PROTOCOL_MAX).await
+}
+
+#[cfg(not(unix))]
+async fn connect_inner_max(record: HostRecord, resume_after: u64, _max: u16) -> Result<Connect> {
+    connect_inner(record, resume_after).await
+}
+
+#[cfg(unix)]
+async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> Result<Connect> {
     let stream = UnixStream::connect(&record.socket)
         .await
         .with_context(|| format!("connect {}", record.socket.display()))?;
@@ -262,7 +291,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         &mut wr,
         &ControllerFrame::Hello {
             min: PROTOCOL_MIN,
-            max: PROTOCOL_MAX,
+            max,
             token: record.owner_token.clone(),
             controller_build: crate::hub::BUILD.to_owned(),
         },
@@ -302,17 +331,23 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     let (detach_tx, detach_rx) = oneshot::channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let queries: Queries = Arc::default();
-    // A host says nothing of when its harness has a fenced line: it stays unsettled until its
-    // host ends or its request is answered (review 83 of #23322).
+    // A host from protocol 2 says when the harness has a fenced line (`WRITTEN_METHOD`); an
+    // older one says nothing, and its line stays unsettled until its host ends or its request
+    // is answered (review 83 of #23322).
+    let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
     tokio::spawn(async move {
-        while let Some((frame, written, fence)) = rx.recv().await {
+        while let Some((mut frame, written, fence)) = rx.recv().await {
             if fence.as_ref().is_some_and(|f| !f.begin()) {
                 continue;
             }
             let mut receipt = None;
-            if let (Some(f), ControllerFrame::Line { .. }) = (&fence, &frame) {
-                receipt = Some(await_receipt(&host, f));
+            if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) = (&fence, &mut frame) {
+                let r = await_receipt(&host, f);
+                if receipted {
+                    *asked = Some(r);
+                }
+                receipt = Some(r);
             }
             if write_frame(&mut wr, &frame).await.is_err() {
                 if let Some(r) = receipt {
@@ -349,10 +384,18 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {
                     Ok(Some(HostFrame::Entry { h, e })) => {
-                        // Its harness's end settles what it had as it arrives: a fact of the
-                        // host, true whether or not the entry is logged (review 85).
-                        if matches!(e, Entry::Exit { .. }) {
-                            settle_receipts_of(&ended);
+                        // A line's receipt, and its harness's end, settle as they arrive: facts
+                        // of the host, true whether or not the entry is logged (review 85).
+                        match &e {
+                            Entry::Tap { dir: TapDir::Out, msg }
+                                if msg["method"] == WRITTEN_METHOD =>
+                            {
+                                if let Some(r) = msg["params"]["receipt"].as_u64() {
+                                    settle_receipt(r, msg["params"]["written"] == true);
+                                }
+                            }
+                            Entry::Exit { .. } => settle_receipts_of(&ended),
+                            _ => {}
                         }
                         if entries_tx.send((h, e)).await.is_err() {
                             break;
@@ -418,7 +461,7 @@ impl Link {
 
     /// [`Link::line`], `fence` held to its frame.
     pub async fn line_fenced(&self, msg: Value, fence: Option<crate::agent::Fence>) -> Result<()> {
-        let frame = ControllerFrame::Line { msg };
+        let frame = ControllerFrame::Line { msg, receipt: None };
         self.tx
             .send((frame, None, fence))
             .await
