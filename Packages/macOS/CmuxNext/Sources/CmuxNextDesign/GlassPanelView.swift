@@ -302,13 +302,22 @@ enum ActiveLookScope {
 
     /// Runs `body`, a glass update for `window`, with that window's material read forced active.
     static func during(_ window: NSWindow?, _ body: () -> Void) {
-        guard let window else { return body() }
-        windows.append(ObjectIdentifier(window))
-        defer {
-            windows.removeLast()
-            if windows.isEmpty, materialSite == nil { finishCalibration() }
-        }
+        guard enter(window) else { return body() }
+        defer { leave() }
         body()
+    }
+
+    /// Opens an update for `window`; false (and nothing opened) when there is none.
+    private static func enter(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        windows.append(ObjectIdentifier(window))
+        return true
+    }
+
+    /// Closes the innermost update, and ends calibration after the outermost one.
+    private static func leave() {
+        windows.removeLast()
+        if windows.isEmpty, materialSite == nil { finishCalibration() }
     }
 
     /// The hosting view classes whose updates run in the scope.
@@ -339,10 +348,12 @@ enum ActiveLookScope {
         return nil
     }
 
+    /// Runs `body`, an update of `view`, in the scope of its glass's window (see ``glassWindow(of:)``).
     @available(macOS 26.0, *)
     nonisolated private static func scoped(_ view: NSView, _ body: () -> Void) {
-        guard pthread_main_np() != 0 else { return body() }
-        MainActor.assumeIsolated { during(glassWindow(of: view), body) }
+        guard pthread_main_np() != 0, MainActor.assumeIsolated({ enter(glassWindow(of: view)) }) else { return body() }
+        body()
+        MainActor.assumeIsolated { leave() }
     }
 
     @available(macOS 26.0, *)
