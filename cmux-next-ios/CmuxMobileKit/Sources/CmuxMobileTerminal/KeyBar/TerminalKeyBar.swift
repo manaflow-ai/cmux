@@ -2,7 +2,6 @@
 import AudioToolbox
 import CmuxMobileDesign
 import SwiftUI
-import UIKit
 
 /// The key row (classic cmux iOS's accessory toolbar): pinned at the leading
 /// edge the keyboard key, the joystick and the compose key; then a scroller
@@ -15,8 +14,7 @@ struct TerminalKeyBar: View {
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped: Set<KeyBarKey> = []
-    /// The pinned keys' width: the scroller's content passes under them, so
-    /// a key there is not on screen.
+    /// The pinned keys' width: nothing is drawn under them.
     @State private var pinnedWidth: CGFloat = 0
     /// How far the row is scrolled past its start (points).
     @State private var scrolled: CGFloat = 0
@@ -36,11 +34,9 @@ struct TerminalKeyBar: View {
                                 KeyCap(key: key, model: model)
                             }
                         }
-                        .onGeometryChange(for: Bool.self) { [pinnedWidth] proxy in
-                            let visible = proxy.bounds(of: .scrollView).map {
-                                $0.inset(by: UIEdgeInsets(top: 0, left: pinnedWidth, bottom: 0, right: 0))
-                            }
-                            return KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: visible)
+                        .onGeometryChange(for: Bool.self) { proxy in
+                            // The scroll view's visible bounds already end at the pinned keys (its leading bar).
+                            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
                         } action: { visible in
                             if visible { clipped.remove(key) } else { clipped.insert(key) }
                         }
