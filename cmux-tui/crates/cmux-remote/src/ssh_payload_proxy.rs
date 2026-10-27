@@ -259,16 +259,16 @@ mod macos {
     fn fetch_pac(location: &str) -> Option<String> {
         if location.starts_with("file:") {
             let path = url::Url::parse(location).ok()?.to_file_path().ok()?;
-            return std::fs::read_to_string(path).ok();
+            return cmux_blocking::fs::read_to_string(path).ok();
         }
-        let output = std::process::Command::new("curl")
+        let mut command = std::process::Command::new("curl");
+        command
             .args(["--fail", "--silent", "--location", "--max-time", "10", "--noproxy", "*"])
             .args(["--proto", "=http,https", "--proto-redir", "=http,https"])
             .arg(location)
             .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
+            .stderr(std::process::Stdio::null());
+        let output = cmux_blocking::process::output(&mut command).ok()?;
         output.status.success().then(|| String::from_utf8(output.stdout).ok()).flatten()
     }
 

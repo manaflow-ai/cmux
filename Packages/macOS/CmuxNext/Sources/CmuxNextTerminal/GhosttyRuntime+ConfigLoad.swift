@@ -9,7 +9,7 @@ extension GhosttyRuntime {
     /// runs `then`. The main thread does other work meanwhile.
     public func start(loadingOn loader: any GhosttyConfigLoading, then: @escaping @MainActor @Sendable () -> Void) {
         configLoader = loader
-        let inputs = GhosttyConfigInputs.current(theme: nil)
+        let inputs = configInputs(theme: nil)
         loader.load({ inputs.buildConfig() }) { [weak self] built in
             guard let self else {
                 built?.free()
@@ -36,7 +36,7 @@ extension GhosttyRuntime {
         }
         guard app != nil else { return }
         reloadRequests &+= 1
-        let (request, inputs) = (reloadRequests, GhosttyConfigInputs.current(theme: nil))
+        let (request, inputs) = (reloadRequests, configInputs(theme: nil))
         configLoader.load({ inputs.buildConfig() }) { [weak self] built in
             guard let built else { return }
             guard let self, request == self.reloadRequests, let app = self.app else { return built.free() }

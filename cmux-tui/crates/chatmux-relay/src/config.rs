@@ -16,6 +16,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::blocking_fs::{open_with, sync_all};
+
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
 /// Limits shared with the server-side allowedRoots envelope policy.
@@ -116,7 +118,7 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
     // pathname-swap window between a metadata check and the read.
     #[cfg(not(unix))]
     {
-        let metadata = std::fs::symlink_metadata(path)?;
+        let metadata = cmux_blocking::fs::symlink_metadata(path)?;
         if !metadata.file_type().is_file() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -134,7 +136,7 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
         // files continue to use normal blocking reads.
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
-    let file = options.open(path)?;
+    let file = open_with(&options, path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(std::io::Error::new(
@@ -235,7 +237,7 @@ pub fn validate_allowed_roots(roots: &[String]) -> Result<(), &'static str> {
 /// permissions and a crashed write never leaves a half-written config.
 pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(parent)?;
+    cmux_blocking::fs::create_dir_all(parent)?;
     let body =
         format!("{}\n", serde_json::to_string_pretty(config).map_err(std::io::Error::other)?);
     let temp = parent.join(format!(
@@ -250,9 +252,9 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600);
     }
-    let _ = std::fs::remove_file(&temp);
-    let mut file = options.open(&temp)?;
-    let written = file.write_all(body.as_bytes()).and_then(|()| file.sync_all());
+    let _ = cmux_blocking::fs::remove_file(&temp);
+    let mut file = open_with(&options, &temp)?;
+    let written = file.write_all(body.as_bytes()).and_then(|()| sync_all(&file));
     drop(file);
     let renamed = written.and_then(|()| {
         #[cfg(windows)]
@@ -279,10 +281,10 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
             return Ok(());
         }
         #[cfg(not(windows))]
-        std::fs::rename(&temp, path)
+        cmux_blocking::fs::rename(&temp, path)
     });
     if renamed.is_err() {
-        let _ = std::fs::remove_file(&temp);
+        let _ = cmux_blocking::fs::remove_file(&temp);
     }
     renamed
 }

@@ -1077,7 +1077,7 @@ impl ProcessManager {
         let cwd_directory = {
             let unix_root = root.unix_root();
             let canonical = cwd.clone();
-            tokio::task::spawn_blocking(move || {
+            cmux_blocking::spawn_blocking(move || {
                 unix_root.pinned_directory_for_canonical_path(&canonical)
             })
             .await
@@ -1097,7 +1097,7 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             let verifier = cwd_directory.try_clone()?;
-            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+            cmux_blocking::spawn_blocking(move || verifier.verify_identity("process cwd"))
                 .await
                 .map_err(|error| {
                 RpcError::new("internal", format!("process cwd verification task failed: {error}"))
@@ -1656,7 +1656,7 @@ impl ProcessManager {
             #[cfg(not(unix))]
             {
                 let mut writer = writer;
-                let mut write = tokio::task::spawn_blocking(move || {
+                let mut write = cmux_blocking::spawn_blocking(move || {
                     let result = writer.write_all(&bytes).and_then(|()| {
                         if send_control_d {
                             writer.write_all(&[4])?;
@@ -2053,7 +2053,9 @@ async fn wait_for_process_completions(
 ) -> bool {
     tokio::time::timeout(
         timeout,
-        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+        futures_util::future::join_all(
+            completions.iter().map(Arc::as_ref).map(ProcessCompletion::wait),
+        ),
     )
     .await
     .is_ok()

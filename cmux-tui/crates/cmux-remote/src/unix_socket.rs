@@ -126,7 +126,7 @@ impl UnixSocketCleanup {
             }
             return Ok(());
         }
-        let metadata = match fs::symlink_metadata(&self.path) {
+        let metadata = match cmux_blocking::fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 state.linked = false;
@@ -147,7 +147,7 @@ impl UnixSocketCleanup {
             }
             return Ok(());
         }
-        fs::remove_file(&self.path)?;
+        cmux_blocking::fs::remove_file(&self.path)?;
         state.linked = false;
         if release_lock {
             drop(state.path_lock.take());
@@ -164,78 +164,18 @@ pub(crate) struct OwnedUnixListener {
 
 impl OwnedUnixListener {
     pub(crate) async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
-        let parent = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .ok_or_else(|| UnixSocketError::Protocol("Unix socket path has no parent".into()))?;
-        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
-            contextual_io(
-                error,
-                format!("could not secure Unix socket directory {}", parent.display()),
-            )
-        })?;
-        // The descriptor-based path walk verifies every ancestor and requires
-        // the final directory to be owned by the effective user without group
-        // or other write access. It creates missing directories but never
-        // chmods an existing caller-owned directory. A pathname swap after this
-        // point therefore requires the same OS identity (which already has full
-        // daemon authority) or root.
-        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
-        validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
-
-        let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;
-        let path_lock = match OwnerFileLock::try_acquire(&lock_path) {
-            Ok(lock) => lock,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                return Err(UnixSocketError::Protocol(format!(
-                    "Unix socket path {} is already leased",
-                    path.display()
-                )));
-            }
-            Err(error) => {
-                return Err(contextual_io(
-                    error,
-                    format!("could not lease Unix socket path {}", path.display()),
-                ));
-            }
+        // Every file-system step runs as a MayBlock task (Chromium
+        // base/task/thread_pool.h); only the liveness probe of a published
+        // socket is async. The path lease is held from the first step on.
+        let (path, path_lock, published) = run_blocking(move || lease_socket_path(path)).await?;
+        let stale = match published {
+            Some(metadata) => probe_published_socket(&path, metadata).await?,
+            None => None,
         };
-        remove_stale_socket(&path).await?;
-
-        let listener = UnixListener::bind(&path).map_err(|error| {
-            contextual_io(error, format!("could not bind Unix socket {}", path.display()))
-        })?;
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                return Err(contextual_io(
-                    error,
-                    format!("could not inspect bound Unix socket {}", path.display()),
-                ));
-            }
-        };
-        if !metadata.file_type().is_socket() {
-            return Err(UnixSocketError::Protocol(format!(
-                "bound Unix socket path {} is not a socket",
-                path.display()
-            )));
-        }
-        let cleanup = Arc::new(UnixSocketCleanup {
-            path,
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            state: Mutex::new(UnixSocketCleanupState { linked: true, path_lock: Some(path_lock) }),
-        });
-        let lease = Self { listener, cleanup: UnixSocketCleanupGuard(cleanup) };
-        if let Err(error) =
-            fs::set_permissions(lease.cleanup.0.path(), fs::Permissions::from_mode(0o600))
-        {
-            let _ = lease.cleanup.0.unlink_and_release();
-            return Err(contextual_io(
-                error,
-                format!("could not secure Unix socket {}", lease.cleanup.0.path().display()),
-            ));
-        }
-        Ok(lease)
+        let (listener, cleanup) =
+            run_blocking(move || bind_leased_path(path, path_lock, stale)).await?;
+        let listener = UnixListener::from_std(listener).map_err(UnixSocketError::Io)?;
+        Ok(Self { listener, cleanup })
     }
 
     pub(crate) fn listener(&self) -> &UnixListener {
@@ -251,7 +191,7 @@ pub(crate) fn validate_socket_directory_for_uid(
     parent: &Path,
     effective_uid: u32,
 ) -> Result<(), UnixSocketError> {
-    let metadata = fs::symlink_metadata(parent).map_err(UnixSocketError::Io)?;
+    let metadata = cmux_blocking::fs::symlink_metadata(parent).map_err(UnixSocketError::Io)?;
     if !metadata.file_type().is_dir() {
         return Err(UnixSocketError::Protocol(format!(
             "socket directory {} must be a non-symlink directory",
@@ -273,32 +213,82 @@ pub(crate) fn validate_socket_directory_for_uid(
     Ok(())
 }
 
-async fn remove_stale_socket(path: &Path) -> Result<(), UnixSocketError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+/// Runs `work` on the blocking pool; a lost task is an I/O error.
+async fn run_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, UnixSocketError> + Send + 'static,
+) -> Result<T, UnixSocketError> {
+    cmux_blocking::spawn_blocking(work).await.map_err(|error| UnixSocketError::Io(error.into()))?
+}
+
+/// Secures the socket's directory, leases its path, and returns what is
+/// published there now: `None` when nothing is.
+fn lease_socket_path(
+    path: PathBuf,
+) -> Result<(PathBuf, OwnerFileLock, Option<fs::Metadata>), UnixSocketError> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| UnixSocketError::Protocol("Unix socket path has no parent".into()))?;
+    ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
+        contextual_io(error, format!("could not secure Unix socket directory {}", parent.display()))
+    })?;
+    // The descriptor-based path walk verifies every ancestor and requires
+    // the final directory to be owned by the effective user without group
+    // or other write access. It creates missing directories but never
+    // chmods an existing caller-owned directory. A pathname swap after this
+    // point therefore requires the same OS identity (which already has full
+    // daemon authority) or root.
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
+    validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
+
+    let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;
+    let path_lock = match OwnerFileLock::try_acquire(&lock_path) {
+        Ok(lock) => lock,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Err(UnixSocketError::Protocol(format!(
+                "Unix socket path {} is already leased",
+                path.display()
+            )));
+        }
+        Err(error) => {
+            return Err(contextual_io(
+                error,
+                format!("could not lease Unix socket path {}", path.display()),
+            ));
+        }
+    };
+    let published = match cmux_blocking::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => {
             return Err(contextual_io(
                 error,
                 format!("could not inspect Unix socket {}", path.display()),
             ));
         }
-        Ok(metadata) => metadata,
+        Ok(metadata) => Some(metadata),
     };
-    if !metadata.file_type().is_socket() {
+    if published.as_ref().is_some_and(|metadata| !metadata.file_type().is_socket()) {
         return Err(UnixSocketError::Protocol(format!(
             "refusing to replace non-socket path {}",
             path.display()
         )));
     }
+    Ok((path, path_lock, published))
+}
+
+/// Probes the socket published at `path`. Returns its metadata when nobody
+/// listens there, so the bind step removes it if it is still the same inode.
+async fn probe_published_socket(
+    path: &Path,
+    metadata: fs::Metadata,
+) -> Result<Option<fs::Metadata>, UnixSocketError> {
     match tokio::time::timeout(SOCKET_PROBE_TIMEOUT, tokio::net::UnixStream::connect(path)).await {
         Ok(Ok(_)) => Err(UnixSocketError::Protocol(format!(
             "another process is listening at {}",
             path.display()
         ))),
-        Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
-            remove_socket_if_unchanged(path, &metadata)
-        }
-        Ok(Err(error)) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => Ok(Some(metadata)),
+        Ok(Err(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Ok(Err(error)) => Err(contextual_io(
             error,
             format!("could not verify Unix socket ownership at {}", path.display()),
@@ -310,8 +300,57 @@ async fn remove_stale_socket(path: &Path) -> Result<(), UnixSocketError> {
     }
 }
 
+/// Removes the `stale` socket, binds `path`, and publishes it owner-only. The
+/// returned guard unlinks the path when dropped, so a canceled bind leaves
+/// nothing behind.
+fn bind_leased_path(
+    path: PathBuf,
+    path_lock: OwnerFileLock,
+    stale: Option<fs::Metadata>,
+) -> Result<(std::os::unix::net::UnixListener, UnixSocketCleanupGuard), UnixSocketError> {
+    if let Some(stale) = stale {
+        remove_socket_if_unchanged(&path, &stale)?;
+    }
+    let listener = std::os::unix::net::UnixListener::bind(&path).map_err(|error| {
+        contextual_io(error, format!("could not bind Unix socket {}", path.display()))
+    })?;
+    let metadata = match cmux_blocking::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return Err(contextual_io(
+                error,
+                format!("could not inspect bound Unix socket {}", path.display()),
+            ));
+        }
+    };
+    if !metadata.file_type().is_socket() {
+        return Err(UnixSocketError::Protocol(format!(
+            "bound Unix socket path {} is not a socket",
+            path.display()
+        )));
+    }
+    let cleanup = UnixSocketCleanupGuard(Arc::new(UnixSocketCleanup {
+        path,
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        state: Mutex::new(UnixSocketCleanupState { linked: true, path_lock: Some(path_lock) }),
+    }));
+    if let Err(error) = cmux_threads::checked::fs::set_permissions(
+        cleanup.0.path(),
+        fs::Permissions::from_mode(0o600),
+    ) {
+        let _ = cleanup.0.unlink_and_release();
+        return Err(contextual_io(
+            error,
+            format!("could not secure Unix socket {}", cleanup.0.path().display()),
+        ));
+    }
+    listener.set_nonblocking(true).map_err(UnixSocketError::Io)?;
+    Ok((listener, cleanup))
+}
+
 fn remove_socket_if_unchanged(path: &Path, expected: &fs::Metadata) -> Result<(), UnixSocketError> {
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(contextual_io(
             error,
@@ -322,7 +361,7 @@ fn remove_socket_if_unchanged(path: &Path, expected: &fs::Metadata) -> Result<()
                 && current.dev() == expected.dev()
                 && current.ino() == expected.ino() =>
         {
-            fs::remove_file(path).map_err(|error| {
+            cmux_blocking::fs::remove_file(path).map_err(|error| {
                 contextual_io(
                     error,
                     format!("could not remove stale Unix socket {}", path.display()),
@@ -356,5 +395,27 @@ mod tests {
         assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
         assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
         drop(listener);
+    }
+
+    #[test]
+    fn bind_keeps_its_file_system_work_off_the_runtime_thread() {
+        // cmux_blocking's block_on disallows blocking on its thread: a
+        // file-system call left there panics in debug and counts as stalled.
+        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.path().join("daemon.sock");
+        // A socket nobody listens on any more: bind probes and replaces it.
+        drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+        let stalled = cmux_blocking::counts().stalled;
+
+        let listener =
+            cmux_blocking::runtime::block_on(&runtime, OwnedUnixListener::bind(socket.clone()))
+                .unwrap();
+
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(listener);
+        assert!(!socket.exists(), "dropping the listener unlinks its socket");
     }
 }

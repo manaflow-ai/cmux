@@ -222,19 +222,19 @@ pub(crate) fn spawn(
     }
     process.envs(&command.environment);
     process.env("SHELL", shell);
-    // A session leader with no controlling terminal acquires the first
-    // terminal it opens: the child opens the slave by path as its 0 (1 and 2
-    // are copies), so the PTY becomes its controlling terminal with no code
-    // between fork and exec (as cmux-mux2's spawn_pty). The child gets only
-    // 0-2 and default signals with an empty mask (`isolate`; on macOS every
-    // spawn through cmux_process).
+    // The child leads a new session and opens the slave by path as its 0 (1
+    // and 2 are copies), which becomes its controlling terminal (TIOCSCTTY),
+    // so Ctrl-C's 0x03 reaches its foreground group as SIGINT. On macOS
+    // cmux_process forks for this: posix_spawn opens the path before its
+    // setsid, which leaves the session without a controlling terminal. The
+    // child gets only 0-2 and default signals with an empty mask (`isolate`).
     process.new_session().open_stdin_path(&slave.path).isolate();
     // The original open-file limit cmux started with, not the daemon's
     // raised one (as Ghostty gives its own children).
     if let Some(soft) = crate::open_files::original_open_file_limit() {
         process.open_file_limit(soft);
     }
-    // A posix_spawn child starts at Default whatever the class of the echo
+    // The child starts at Default whatever the class of the echo
     // or request thread that spawns it (tests: a_pty_child_of_a_user_
     // interactive_thread_runs_at_default).
     let child = process.spawn().context("failed to spawn PTY command")?;

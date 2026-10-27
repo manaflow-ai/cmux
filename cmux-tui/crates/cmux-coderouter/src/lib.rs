@@ -348,29 +348,43 @@ pub type AdminConnections = tokio::sync::mpsc::Receiver<std::io::Result<AdminCon
 /// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
-    serve_with_admin(home, |socket_path| {
-        let admin = UnixListener::bind(socket_path)?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
-        }
-        let (tx, rx) = tokio::sync::mpsc::channel(16);
-        tokio::spawn(async move {
-            loop {
-                let accepted = admin.accept().await.map(|(stream, _)| {
-                    let peer = free_tier::ProviderPeer::of_unix(&stream);
-                    let (read, write) = stream.into_split();
-                    (Box::new(read) as _, Box::new(write) as _, peer)
-                });
-                let failed = accepted.is_err();
-                if tx.send(accepted).await.is_err() || failed {
-                    break;
-                }
+    serve_with_admin(home, bind_unix_admin).await
+}
+
+/// [`serve`]'s admin socket: a unix socket only this user may connect to,
+/// each accepted connection handed to the router with its peer.
+#[cfg(unix)]
+fn bind_unix_admin(socket_path: &Path) -> anyhow::Result<AdminConnections> {
+    let admin = UnixListener::bind(socket_path)?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // `bind_admin` is sync: the chmod is a counted ScopedBlockingCall.
+        cmux_blocking::scoped_blocking_call(
+            "fs::set_permissions",
+            cmux_blocking::BlockingKind::Fs,
+            || {
+                cmux_threads::checked::fs::set_permissions(
+                    socket_path,
+                    std::fs::Permissions::from_mode(0o600),
+                )
+            },
+        )?;
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    tokio::spawn(async move {
+        loop {
+            let accepted = admin.accept().await.map(|(stream, _)| {
+                let peer = free_tier::ProviderPeer::of_unix(&stream);
+                let (read, write) = stream.into_split();
+                (Box::new(read) as _, Box::new(write) as _, peer)
+            });
+            let failed = accepted.is_err();
+            if tx.send(accepted).await.is_err() || failed {
+                break;
             }
-        });
-        Ok(rx)
-    })
-    .await
+        }
+    });
+    Ok(rx)
 }
 
 /// The router with its admin socket bound by `bind_admin` (given the socket
@@ -426,9 +440,10 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
         // the first check below find no writer (a blocking open would wait
         // for one forever). Any failure: no owner can be watched, so the
         // router stops as it would without one.
-        let Ok(mut owners) =
-            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo)
-        else {
+        let Ok(mut owners) = cmux_threads::checked::fs::open_with(
+            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK),
+            &fifo,
+        ) else {
             return;
         };
         let fd = owners.as_raw_fd();
@@ -501,11 +516,14 @@ async fn serve_owned(
     // One router per home: a second one waits here until the first exits
     // (`shutdown`, or its last owner gone), so it never takes the
     // socket from a router that still holds a bearer.
-    let lock = std::fs::OpenOptions::new()
+    let lock = tokio::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(router_dir.join("router.lock"))?;
+        .open(router_dir.join("router.lock"))
+        .await?
+        .into_std()
+        .await;
     // Bounded: a router that never lets go (hung) must not collect waiters.
     // The wait runs on a plain thread, not the blocking pool: a router that
     // stops during it (no owner left) returns from main without waiting
@@ -524,8 +542,9 @@ async fn serve_owned(
     // gets an answer.
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
-    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
-    let socket_path = admin_socket_path(home);
+    // `<home>/router/router.sock`, or a short path for a long home
+    // (admin_socket.rs), whose private folder is made and checked on disk.
+    let socket_path = admin_socket::admin_socket_path_async(home).await?;
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = bind_admin(&socket_path)?;
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
@@ -942,3 +961,6 @@ mod relay_error_tests {
         assert!(FORWARD_RESPONSE_HEADERS.contains(&"x-should-retry"));
     }
 }
+
+#[cfg(all(test, unix))]
+mod serve_tests;

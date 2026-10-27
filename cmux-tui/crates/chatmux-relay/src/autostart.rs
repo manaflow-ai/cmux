@@ -8,6 +8,8 @@ use std::{
     process::Command as ProcessCommand,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use crate::blocking_fs::{open_with, sync_all};
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 const LABEL: &str = "com.chatmux.relay";
 
@@ -56,24 +58,27 @@ fn systemd_quote(v: &str) -> String {
 }
 fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     let d = p.parent().ok_or("autostart path has no parent")?;
-    fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    cmux_blocking::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     let n = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     for i in 0..16 {
         let t = d.join(format!(".autostart-{}-{}", std::process::id(), n + i));
-        match fs::OpenOptions::new().write(true).create_new(true).open(&t) {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        match open_with(&options, &t) {
             Ok(mut f) => {
                 #[cfg(unix)]
                 {
+                    use crate::blocking_fs::set_permissions;
                     use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(&t, fs::Permissions::from_mode(0o600))
+                    set_permissions(&t, fs::Permissions::from_mode(0o600))
                         .map_err(|e| e.to_string())?;
                 }
                 f.write_all(b.as_bytes()).map_err(|e| e.to_string())?;
-                f.sync_all().map_err(|e| e.to_string())?;
+                sync_all(&f).map_err(|e| e.to_string())?;
                 drop(f);
-                let r = fs::rename(&t, p).map_err(|e| e.to_string());
+                let r = cmux_blocking::fs::rename(&t, p).map_err(|e| e.to_string());
                 if r.is_err() {
-                    let _ = fs::remove_file(&t);
+                    let _ = cmux_blocking::fs::remove_file(&t);
                 }
                 return r;
             }
@@ -84,9 +89,7 @@ fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     Err("could not create a unique temporary autostart file".into())
 }
 fn run(p: &str, a: &[&str]) -> Result<(), String> {
-    let s = ProcessCommand::new(p)
-        .args(a)
-        .status()
+    let s = cmux_blocking::process::status(ProcessCommand::new(p).args(a))
         .map_err(|_| "autostart command could not run".to_owned())?;
     s.success().then_some(()).ok_or_else(|| "autostart command failed".to_owned())
 }
@@ -169,7 +172,7 @@ fn uninstall_impl() -> Result<String, String> {
     if let Some(s) = p.to_str() {
         let _ = run("launchctl", &["bootout", &d, s]);
     }
-    if let Err(e) = fs::remove_file(&p)
+    if let Err(e) = cmux_blocking::fs::remove_file(&p)
         && !matches!(e.kind(), std::io::ErrorKind::NotFound)
     {
         return Err(e.to_string());
@@ -181,7 +184,7 @@ fn uninstall_impl() -> Result<String, String> {
 fn uninstall_impl() -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
-    if let Err(e) = fs::remove_file(&p)
+    if let Err(e) = cmux_blocking::fs::remove_file(&p)
         && e.kind() != std::io::ErrorKind::NotFound
     {
         return Err(e.to_string());
