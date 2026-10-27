@@ -70,7 +70,7 @@ final class PageInfoIconButton: NSButton {
         action = #selector(press)
         let side = PageInfoStyle.rowHeight - 4
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: side), heightAnchor.constraint(equalToConstant: side)])
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

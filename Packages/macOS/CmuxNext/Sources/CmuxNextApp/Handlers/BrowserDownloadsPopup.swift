@@ -441,7 +441,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect, .assumeInside], owner: self))
     }
 
     @available(*, unavailable)

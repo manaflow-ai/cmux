@@ -170,8 +170,8 @@ final class DividerMouseCatcherView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // This panel is never key: track always, or it never sees the pointer.
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self))
+        // This panel is never key: track in the active app, not the key window, or it never sees the pointer.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

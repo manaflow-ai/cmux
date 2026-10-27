@@ -38,7 +38,7 @@ final class BookmarkBarItemView: NSView {
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)
         setAccessibilityIdentifier("cmux.bookmarks.bar.item")
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

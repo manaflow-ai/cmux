@@ -29,7 +29,7 @@ final class SidebarCardTextButton: NSView {
         // VoiceOver reads the button, not its text twice.
         label.setAccessibilityElement(false)
         addSubview(label)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }

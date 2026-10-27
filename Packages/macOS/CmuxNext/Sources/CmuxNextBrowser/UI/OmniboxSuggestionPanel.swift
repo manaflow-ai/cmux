@@ -218,7 +218,7 @@ final class SuggestionCardView: NSView {
         // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
         // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

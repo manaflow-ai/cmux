@@ -56,7 +56,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         setAccessibilityLabel(title)
         setAccessibilityHelp(hint?.spokenName)
         if let id { setAccessibilityIdentifier(id) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         refresh()
     }
 

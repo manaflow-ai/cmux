@@ -31,7 +31,7 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
         stack.setCustomSpacing(Metrics.space2, after: effect)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         let pad = Metrics.space3
         turnOff.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

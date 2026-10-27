@@ -62,7 +62,7 @@ final class ProfileBarView: NSView {
         marks.autoresizingMask = [.width, .height]
         addSubview(indicator)
         addSubview(marks)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

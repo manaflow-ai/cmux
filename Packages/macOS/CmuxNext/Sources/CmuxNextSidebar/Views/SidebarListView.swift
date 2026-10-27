@@ -193,7 +193,7 @@ final class SidebarListView: NSView {
         layerContentsRedrawPolicy = .never
         decorations.autoresizingMask = [.width, .height]
         addSubview(decorations)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self

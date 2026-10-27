@@ -176,6 +176,8 @@ public final class TerminalSurfaceView: NSView {
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
+        // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
+        // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
                                        owner: self))
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
@@ -409,22 +411,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Locks the mirror to the owner's grid on the output lane, behind every
-    /// earlier chunk (`ghostty_surface_set_grid`), at the owner's point in the
-    /// byte stream. `restored`: a local-history restore resizes the terminal
-    /// itself, so only the lock's record follows (no set_grid).
-    func applyAnnouncedGrid(_ grid: TerminalGridSize, restored: Bool = false) {
+    /// The owner announced `grid`: the surface renders it and reports against it. Its lock
+    /// (`ghostty_surface_set_grid`) is already queued on the output lane at the owner's point in the
+    /// byte stream (``TerminalOutputLane/lockGrid(_:)``); this is the view's side, once per frame.
+    func applyAnnouncedGrid(_ grid: TerminalGridSize) {
         geometry.announce(grid)
-        if restored { gridLock.adopt(grid) } else { lockAnnouncedGrid() }
         updateSurfaceSize()
-    }
-
-    /// Sends the announced grid to Ghostty in stream order (``TerminalGridLock``).
-    private var gridLock = TerminalGridLock()
-
-    private func lockAnnouncedGrid() {
-        guard let grid = geometry.gridToRender, let lane else { return }
-        gridLock.lock(grid, on: lane)
     }
 
     /// Whether the surface draws its reflow preview: only a view whose
@@ -467,8 +459,7 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        TerminalHostFramePresenter.setSize(of: self, to: pixels)  // its drawn frame into this turn's commit
         // SAFETY: the view's live surface (`surface`).
         let size = unsafe ghostty_surface_size(surface)
         publish(size: size)

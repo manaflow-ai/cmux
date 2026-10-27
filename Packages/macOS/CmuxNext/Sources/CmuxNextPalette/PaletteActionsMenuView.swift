@@ -51,7 +51,7 @@ final class PaletteActionsMenuView: NSView {
         addSubview(glass)
         // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
         // The rows' own edges are not; they post like moves.
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -225,7 +225,7 @@ final class PaletteMenuRow: NSView {
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

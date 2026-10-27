@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 @testable import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
@@ -179,5 +180,73 @@ import Testing
         #expect(running() == 93)
         host.window.contentView = NSView()
         #expect(running() == 0, "a sky out of its window twinkles")
+    }
+
+    /// Through the ``LoopHost`` a Shared view is handed (p14-energy-056): a miniaturized or
+    /// occluded window takes every loop key off its layer, and showing it puts each one back.
+    @Test func aLoopHostTakesItsKeysOffWhileItsWindowIsHiddenAndPutsThemBack() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let window = LoopTestWindow()
+        let loops = LoopVisibility("test.host")
+        loops.place(in: window.window)
+        let host: any LoopHost = loops
+        let spinner = CALayer(), pulse = CALayer()
+        host.attach(spinner, key: "spin") { Motion.indicators.spinAnimation() }
+        host.attach(pulse, key: "pulse") { Motion.indicators.pulseAnimation(low: 0.4) }
+        #expect(spinner.animationKeys() == ["spin"] && pulse.animationKeys() == ["pulse"])
+
+        for state in [Visibility.hidden, .occluded] {
+            window.set(state)
+            #expect(spinner.animationKeys() == nil && pulse.animationKeys() == nil, "a \(state) window keeps its loop keys")
+            window.set(.visible)
+            #expect(spinner.animationKeys() == ["spin"] && pulse.animationKeys() == ["pulse"], "the keys did not come back after \(state)")
+        }
+
+        host.detach(spinner, key: "spin")
+        #expect(spinner.animationKeys() == nil && pulse.animationKeys() == ["pulse"])
+        host.detachAll()
+        #expect(pulse.animationKeys() == nil)
+        #expect(loops.node.subscriberCounts.flips == 0)
+    }
+
+    /// Made with motion signals, a host makes its visible loops again when Energy Saver flips: the
+    /// sweep stops when the saver turns on and comes back when it turns off, with no owner code. A
+    /// hidden host makes nothing on the flip and shows under the settings of that moment.
+    @Test func motionSignalsStillTheLoopsUnderTheSaverAndBringThemBack() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let design = DesignSettings()
+        design.animationsEnabled = true
+        design.disabledAnimationCategories = []
+        design.animationSpeed = .fast
+        let baseline = design.signals.subscriberCount(.motion)
+        let window = LoopTestWindow()
+        let loops = LoopVisibility("test.saver", motionSignals: design.signals)
+        loops.place(in: window.window)
+        #expect(design.signals.subscriberCount(.motion) == baseline, "an idle host follows the motion signal")
+        let bar = CALayer()
+        loops.attach(bar, key: "sweep") {
+            Motion.indicators.sweepAnimation(segment: 10, travel: 100, policy: Motion.basePolicy(of: design).for(.indicators))
+        }
+        #expect(loops.runningCount == 1)
+        #expect(design.signals.subscriberCount(.motion) == baseline + 1)
+
+        design.energySaver = true
+        #expect(loops.runningCount == 0, "the sweep runs on under the saver")
+        #expect(loops.isAttached(bar, key: "sweep"), "the saver detached the loop for good")
+        design.energySaver = false
+        #expect(loops.runningCount == 1, "the sweep does not come back after the saver")
+
+        window.set(.occluded)
+        design.energySaver = true
+        #expect(loops.runningCount == 0)
+        window.set(.visible)
+        #expect(loops.runningCount == 0, "a window shown under the saver starts its sweep")
+        design.energySaver = false
+        #expect(loops.runningCount == 1)
+
+        loops.detachAll()
+        #expect(design.signals.subscriberCount(.motion) == baseline, "a host with no loop still follows the motion signal")
     }
 }

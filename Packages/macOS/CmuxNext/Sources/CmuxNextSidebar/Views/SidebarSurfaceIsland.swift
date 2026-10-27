@@ -59,7 +59,7 @@ final class SidebarPopoverIslandHost: NSView {
         let height = heightAnchor.constraint(equalToConstant: 1)
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
         heightConstraint = height
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     /// Sizes the host `height` tall (the page's height, capped to its window).
@@ -124,7 +124,7 @@ extension SidebarViewComponents {
                 "height": String(Double(updateCardView.highlights?.contentHeight ?? -1)),
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
-                "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+                "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)] // visibility-walk-allow: a debug.update_surfaces proof read
     }
 
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update
@@ -140,13 +140,13 @@ extension SidebarViewComponents {
 
     /// Proofs (`debug.update_surfaces`): the Updated card's x while the card shows.
     public var debugUpdatedCloseButton: NSView? {
-        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton // visibility-walk-allow: a debug.update_surfaces hit-test target
     }
 
     /// Proofs (`debug.update_surfaces`): the Updated card's page view while it shows, for a
     /// window hit test at its x.
     public var debugUpdatedPageView: NSView? {
-        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view // visibility-walk-allow: a debug.update_surfaces hit-test target
     }
 }
 #endif

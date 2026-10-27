@@ -51,7 +51,7 @@ final class ExtensionsMenuItemView: NSView {
                                                imageSize: style.buttonIcon, imageBox: style.buttonIcon, insets: insets, style: style)
         super.init(frame: NSRect(x: 0, y: 0, width: style.width - style.padding * 2, height: style.rowHeight))
         for view in [primary, sidePanelButton, pinButton, moreButton] { addSubview(view) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         primary.drawsHighlight = false
         primary.onHighlightChange = { [weak self] in self?.needsDisplay = true }
         primary.onPress = { [weak self] in self?.onRun?() }

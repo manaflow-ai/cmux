@@ -58,7 +58,7 @@ final class SuggestionRowView: NSView {
         label.cell?.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
 
         setAccessibilityElement(true)
         setAccessibilityRole(.button)

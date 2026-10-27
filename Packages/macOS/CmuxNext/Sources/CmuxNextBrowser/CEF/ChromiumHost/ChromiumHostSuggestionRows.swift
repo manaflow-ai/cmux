@@ -38,7 +38,7 @@ final class ChromiumHostSuggestionRows: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.list)
         setAccessibilityLabel(Strings.suggestionsList)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

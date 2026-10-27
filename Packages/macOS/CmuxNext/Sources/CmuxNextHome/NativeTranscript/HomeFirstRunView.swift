@@ -313,7 +313,7 @@ final class HomeFirstRunRow: NSView {
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
