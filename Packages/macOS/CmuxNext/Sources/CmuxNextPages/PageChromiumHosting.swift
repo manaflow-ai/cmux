@@ -29,6 +29,15 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Parameter page: The page to show.
     /// - Returns: True when a Chromium page can load it.
     func serves(_ page: PageDescriptor) -> Bool
+    /// The origin of a page the launch restored (``PageOpenOrigin/launchRestore``) that starts now: the engine's
+    /// launch order's, ``PageChromiumOrigin/restoreVisible`` when it shows (`isShown`), else
+    /// ``PageChromiumOrigin/restoreHidden``; ``PageChromiumOrigin/user`` once startup completed, or with no launch
+    /// order (feature `cefLaunchOrigin` off).
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin
+    /// Runs `start` for a restored page that does not show, at the first of: `node` shows, or startup completes
+    /// (the launch order's afterStartup post); at once when no launch runs. `start` may run twice and must start
+    /// the page once.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void)
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
     /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
@@ -39,10 +48,13 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
     ///   - window: The pane window the page joins (``PageChromiumWindow``); nil gives the page a window of its own.
+    ///   - origin: Why the page starts now; the host passes it on as the engine's tab origin, whose launch order
+    ///     is the only wait (a restored page's start waits there, never in the page).
     /// - Returns: The live page.
     /// - Throws: ``PageChromiumStartError/browserEnded`` when the browser ended with its Chromium Host
     ///   before it existed; another error when Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?,
+                  origin: PageChromiumOrigin) async throws -> any PageChromiumPage
     /// What follows the end of a page's Chromium browser (``PageChromiumEvent/ended``): `answer` runs
     /// once Chromium runs again or its supervisor gave up (plans/cmux-next/cef-helper-app-DESIGN.md: a
     /// Chromium Host that ends again within 60 s of its start stays ended). Every page whose browser
@@ -298,7 +310,7 @@ public nonisolated struct PageSurfaceCopy: Sendable, Equatable {
     }
 }
 
-/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:window:)``,
+/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:window:origin:)``,
 /// ``PageChromiumPage/devTools(_:params:)``) when the page host must not reopen it in WebKit at once.
 public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
     /// The page's browser ended with its Chromium Host while it was made or set up: the page waits

@@ -26,6 +26,8 @@
 //!   same open thread makes (task 098).
 //! - [`export`](fn@export): decoded rings and Chromium's JSON trace to one native Perfetto
 //!   protobuf trace (task 022), for `cmux trace record`.
+//! - [`metrics`]: field histograms in a crash-safe `metrics-<role>-<pid>.bin` with the app's
+//!   CmuxNextMetrics layout (task 131).
 //!
 //! std and libc only: the holder links it.
 
@@ -40,6 +42,7 @@ mod json;
 mod layout;
 mod macros;
 mod map;
+pub mod metrics;
 pub mod names;
 mod proto;
 mod ring;

@@ -1,8 +1,8 @@
 public import CmuxNextBrowser
 import CmuxNextCompat
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 public import Foundation
-import Observation
 
 /// The url, title, and favicon the daemon records for a frontend browser
 /// tab (`frontend-browser-tabs-v1`), and on daemons with state resources
@@ -127,8 +127,8 @@ public final class BrowserRecordWriter {
     /// Compare zoom and history too (the daemon keeps them).
     private let tracksState: Bool
     private var page: BrowserTabState?
-    private var observation: Task<Void, Never>?
-    private var rebasing: Task<Void, Never>?
+    private var observation: ServiceObservation<BrowserTabState>?
+    private var rebasing: ServiceObservation<BrowserRecord?>?
     private var pending: Task<Void, Never>?
     /// The page change the pending write waits to send.
     private var unsent: BrowserTabState?
@@ -147,9 +147,13 @@ public final class BrowserRecordWriter {
 
     /// `recordURL` maps the page's address to the address the record keeps
     /// (a machine's page keeps its machine record, cx-2cob slice 2).
+    ///
+    /// R-obs: the page and its daemon record are service observations on `mainWork` (they write the daemon and
+    /// load the page, so they follow a hidden page too): the page in the background class (nobody sees the
+    /// write), the record in the automation class (another client moved it: `workspace.open_url`).
     public init(tab: any BrowserTab, recorded: BrowserRecord, tracksState: Bool = false,
          daemonRecord: (@MainActor () -> BrowserRecord?)? = nil, recordURL: (@MainActor (URL) -> URL)? = nil,
-         delay: Duration, sleep: @escaping Sleep, send: @escaping Send) {
+         delay: Duration, sleep: @escaping Sleep, mainWork: MainWorkScheduler, send: @escaping Send) {
         self.recorded = recorded
         self.tracksState = tracksState
         self.delay = delay
@@ -163,20 +167,24 @@ public final class BrowserRecordWriter {
         self.current = current
         let load: @MainActor (URL) -> Void = { [tab] url in tab.load(url) }
         follow = recordURL == nil ? load : nil
-        observation = Task { [weak self, tab] in
-            for await _ in ObservationStream({ tab.state }) {
-                self?.pageDidChange(current())
-            }
+        observation = ServiceObservation(.background, owner: Self.pageOwner, on: mainWork) {
+            current()
+        } apply: { [weak self] state in
+            self?.pageDidChange(state)
         }
         if let daemonRecord {
-            rebasing = Task { [weak self] in
-                for await record in ObservationStream({ daemonRecord() }) {
-                    guard let record else { continue }
-                    self?.rebase(record)
-                }
+            rebasing = ServiceObservation(.automation, owner: Self.recordOwner, on: mainWork) {
+                daemonRecord()
+            } apply: { [weak self] record in
+                if let record { self?.rebase(record) }
             }
         }
     }
+
+    /// The page observation's owner in the board and the wakeup ledger.
+    static let pageOwner = "BrowserRecordWriter.page"
+    /// The daemon record observation's owner.
+    static let recordOwner = "BrowserRecordWriter.record"
 
     /// Sends the page's change now (quit, close: the app or the record may
     /// be gone before the delay ends), including one the observation has
@@ -247,6 +255,8 @@ public final class BrowserRecordWriter {
         // timer, a ticker) never let a restarting debounce write its address or history.
         guard pending == nil else { return }
         let delay = delay, sleep = sleep
+        // task-owner: `pending`; one write window per burst of changes; flushNow() and cancel() cancel it
+        // main-hop-allow: the injected Sleep seam's write window, then the latest change goes out through the daemon's send seam
         pending = Task { [weak self] in
             do { try await sleep(delay) } catch { return } // wakeup-allow: deadline of one `delay` write window per burst of changes; flushNow() and cancel() cancel it
             guard let self, !Task.isCancelled else { return }

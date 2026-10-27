@@ -236,6 +236,14 @@ enum DebugCEF {
         }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
+    /// `debug.input` section `chromium`: Chromium's own EventLatency and ScrollJank histograms (p04-input-091),
+    /// read through `Browser.getHistograms` on each read only. Builds no engine: before one exists the section
+    /// says `unavailable: not_started`.
+    static func histogramSource(_ chromium: ChromiumEngineSlot) -> DebugInputSectionSource<ChromiumInputHistograms> {
+        let reader = CEFHistogramReader(engine: chromium)
+        return DebugInputSectionSource(section: .chromium, read: { await reader.read() }, reset: { await reader.reset() })
+    }
+
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
         .object([
@@ -246,6 +254,8 @@ enum DebugCEF {
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
+            // Keyed by the page window's kind: "page", "devtools", "popup", "popup_window".
+            "hosted_pages_by_widget": .object(stats.hostedPagesByWidget.mapValues { JSONValue.number(Double($0)) }),
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),

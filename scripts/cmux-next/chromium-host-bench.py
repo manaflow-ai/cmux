@@ -4,9 +4,9 @@
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
 Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
-stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, which needs them in the host and so runs in a
-launch without the in-process rows (inproc, --baseline, --stress); an in-process row of a launch whose tabs run in the
-host says not_run (its numbers would be the host's):
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles` and `--kill-host`, which need them in the host:
+profiles runs in a launch without the in-process rows (inproc, --baseline, --stress), and --kill-host runs instead of
+the modes; an in-process row of a launch whose tabs run in the host says not_run (its numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -156,6 +156,12 @@ delay; shown again it comes back a full delay after the show; Exit page ends tha
 cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
 back under a new host.
 
+--kill-host --restore runs instead the restore row (chromium_host_restore.py, p01-process-083) in a launch of its own,
+with feature chromiumHostRestoreTabs on (the kill rows expect the crash page and Reload, which a restore replaces): it
+opens 20 Chromium tabs in 3 windows, each with two history entries, SIGKILLs the Chromium Host, and checks every tab
+back at its address with both entries on one new host: each window's shown tab within 2 s (`shown_ms`), each hidden
+one when it is focused (`hidden_ms`).
+
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
@@ -190,6 +196,7 @@ import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_profiles  # noqa: E402
 import chromium_host_renderer_hang  # noqa: E402
+import chromium_host_restore  # noqa: E402
 
 # Every --native-ui row, in the order they run.
 NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
@@ -217,6 +224,9 @@ def parse(argv=None):
     parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
     parser.add_argument("--signals", default="KILL",
                         help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
+    parser.add_argument("--restore", action="store_true",
+                        help="--kill-host: the restore row (chromium_host_restore.py, p01-process-083) instead of the "
+                             "signal rows, with feature chromiumHostRestoreTabs on")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -228,6 +238,8 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if sum([args.native_ui is not None, args.find, args.kill_host, args.renderer_hang]) > 1:
         parser.error("--native-ui, --find, --kill-host and --renderer-hang each run instead of the modes: pick one")
+    if args.restore and not args.kill_host:
+        parser.error("--restore is a --kill-host row: add --kill-host")
     if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
         parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
                      "inproc, --baseline or --stress (they measure in-process tabs)")
@@ -393,10 +405,11 @@ addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 
 
-def launch_tunables(modes):
+def launch_tunables(modes, kill_host=False):
     """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
-    only for the profiles row, so every other row's Chromium tab stays in process."""
-    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes})
+    only for the profiles row and the `--kill-host` rows (they end the host their tabs run in, and the restore row
+    brings them back on the next one), so every other row's Chromium tab stays in process."""
+    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes or kill_host})
     return {**TUNABLES, "values": values}
 
 
@@ -740,7 +753,7 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(launch_tunables(opts.modes.split(",")), open(tunables, "w"))
+    json.dump(launch_tunables(opts.modes.split(","), kill_host=opts.kill_host), open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -765,6 +778,8 @@ def main():
         url = pathlib.Path(find_page).as_uri()
     if opts.renderer_hang:
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_renderer_hang.FEATURES]))
+    if opts.kill_host and opts.restore:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
@@ -814,9 +829,15 @@ def main():
             RESULT["modes"]["renderer_hang"], ok = chromium_host_renderer_hang.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid, on_screen_windows)
         if opts.kill_host:
-            RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
-                rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
-                lambda pid: pid is not None and not pid_gone(pid))
+            if opts.restore:
+                RESULT["modes"]["kill_host"] = {}
+                RESULT["modes"]["kill_host"]["restore"], ok = chromium_host_restore.run(
+                    rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                    url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
+            else:
+                RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                    rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
+                    lambda pid: pid is not None and not pid_gone(pid))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -1328,11 +1349,18 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
+    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # debug.overlay reorders_per_event stays 0.
+    rpc("debug.overlay", {"reset": True})
     fronts = []
     for _ in range(10):
         rpc("debug.mouse", click_point("b"))
         rpc("debug.key", {"key": "a"})
         fronts.append(front_pid())
+    overlay = rpc("debug.overlay") or {}
+    identity["overlay"] = {"reorders_per_event": overlay.get("reorders_per_event"),
+                           "windows": [{k: w.get(k) for k in ("page_surface", "reorders", "event_cycles", "order_checks")}
+                                       for w in overlay.get("windows") or []]}
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
