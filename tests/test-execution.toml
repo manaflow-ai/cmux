@@ -258,6 +258,10 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_no_hosted_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
@@ -319,6 +323,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -994,6 +1002,10 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1095,6 +1107,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_leo_bans.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1228,6 +1244,10 @@ path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_url_handler_rank.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_media.py"
 lane = "linux-guard"
 
@@ -1334,6 +1354,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1514,6 +1538,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2000,4 +2028,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_landing_place.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_landing_workflow.py"
 lane = "linux-guard"

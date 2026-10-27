@@ -301,7 +301,7 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
