@@ -8,7 +8,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::control::Event;
-use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
+use cmux_mobile_host::host::{AnswerContext, IceSource, PhoneHooks, serve_signaling};
 use cmux_mobile_host::pairing::{
     DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, challenge_message, mac_proof_message,
 };
@@ -184,6 +184,11 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
 
 /// `loaded`: whether the app already sent its (empty) `devices` list.
 async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixture {
+    fixture_hooked(fake, pairing, loaded, PhoneHooks::default()).await
+}
+
+/// `hooks`: where hostd's phone events go and what serves a channel.
+async fn fixture_hooked(fake: FakeOptions, pairing: bool, loaded: bool, hooks: PhoneHooks) -> Fixture {
     let server = FakeSignaling::start(fake).await;
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -248,6 +253,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks,
         },
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();
@@ -872,6 +878,105 @@ async fn services_over_webrtc() {
 async fn services_over_wireguard() {
     let fixture = fixture(FakeOptions::default()).await;
     exercise_services(&fixture, TransportKind::WireGuard).await;
+}
+
+/// The first event hostd emitted that `matches`, skipping the others.
+async fn until_event(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<Event>,
+    matches: impl Fn(&Event) -> bool,
+) -> Event {
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+            .await
+            .expect("in time")
+            .expect("hostd emits");
+        if matches(&event) {
+            return event;
+        }
+    }
+}
+
+fn phone_down(session: &str) -> impl Fn(&Event) -> bool + '_ {
+    move |event| matches!(event, Event::PhoneDown { session_id, .. } if session_id == session)
+}
+
+/// A bad frame on one phone's link breaks only that phone: a channel task
+/// that panics, or the link task itself, closes that link with
+/// `hostd_error` and reports it down; another phone's link keeps serving.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_panicking_phone_task_closes_only_that_phones_link() {
+    let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let defaults = PhoneHooks::default();
+    let serve = Arc::clone(&defaults.serve);
+    let hooks =
+        PhoneHooks {
+            emit: Arc::new(move |event: &Event| {
+                let _ = events_tx.send(event.clone());
+            }),
+            serve: Arc::new(move |config, peer, auth, incoming: cmux_mobile_link::IncomingChannel| {
+                match incoming.service.as_str() {
+                    "break-channel" => Box::pin(async { panic!("a channel handler broke") }),
+                    "break-link" => panic!("the link task broke"),
+                    _ => serve(config, peer, auth, incoming),
+                }
+            }),
+        };
+    let fixture = fixture_hooked(FakeOptions::default(), false, true, hooks).await;
+    let other_phone = SignalingClient::connect(
+        &fixture._server.base_url,
+        "user:alice",
+        "team",
+        &uuid::Uuid::new_v4().to_string(),
+    )
+    .await
+    .unwrap();
+    let healthy = cmux_mobile_link::dial::connect(
+        &other_phone,
+        &fixture.mac_id,
+        TransportKind::WebRtc,
+        &options(),
+        LinkConfig::default(),
+    )
+    .await
+    .expect("dial");
+    let still_serving = |link: &cmux_mobile_link::Link| {
+        let link = link.clone();
+        async move {
+            assert!(link.ping().await.is_ok(), "the other phone's link answers");
+            let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
+            echo.send(Bytes::from_static(b"ping")).await.unwrap();
+            assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"ping"))));
+        }
+    };
+
+    // A channel task panics.
+    let broken = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let _channel = broken.link.open("break-channel", serde_json::json!({})).await.unwrap();
+    assert_eq!(
+        until_event(&mut events, phone_down(&broken.session_id)).await,
+        Event::PhoneDown { session_id: broken.session_id.clone(), reason: "hostd_error".into() }
+    );
+    tokio::time::timeout(Duration::from_secs(10), broken.link.closed())
+        .await
+        .expect("the phone sees it close");
+    still_serving(&healthy.link).await;
+
+    // The link task itself panics.
+    let broken = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let _channel = broken.link.open("break-link", serde_json::json!({})).await.unwrap();
+    assert_eq!(
+        until_event(&mut events, phone_down(&broken.session_id)).await,
+        Event::PhoneDown { session_id: broken.session_id.clone(), reason: "hostd_error".into() }
+    );
+    tokio::time::timeout(Duration::from_secs(10), broken.link.closed())
+        .await
+        .expect("the phone sees it close");
+    still_serving(&healthy.link).await;
+    assert!(!healthy.link.is_closed());
+
+    // hostd still answers new dials.
+    let next = connect(&fixture, TransportKind::WebRtc).await.expect("dial after the failures");
+    still_serving(&next.link).await;
 }
 
 /// The phone's network blocks UDP: every service works over the phone's

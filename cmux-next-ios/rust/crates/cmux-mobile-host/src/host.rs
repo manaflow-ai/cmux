@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use cmux_mobile_link::api::{ApiClient, DeviceRegistration, IceCache, IceServer};
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::signaling::{SignalEnvelope, SignalPayload};
-use cmux_mobile_link::{DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
+use cmux_mobile_link::{
+    Connected, DialOptions, IncomingChannel, LinkConfig, SignalingClient, Timeline, TransportKind,
+};
+use futures_util::future::BoxFuture;
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
@@ -16,15 +19,18 @@ use crate::control::{self, Event};
 use crate::services::{self, Peer};
 use crate::tasks::{Ended, TaskScope, WorkerFailed, Workers};
 
-/// What a phone's task serves. A task that panics ends that phone only: its
-/// link closes as the task unwinds, and the other phones keep working.
+/// What a phone's task serves, and what its panic ends (`phone_task_ended`).
+/// No panic of one phone's task reaches another phone or hostd.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhoneTask {
-    /// A link from `answer_session`.
+    /// A link from `answer_session`: a panic closes that link (`hostd_error`).
     Link { session_id: String },
-    /// A WebRTC media session beside a link (`media_session.rs`).
-    Media { session_id: String },
-    /// One `mailbox` frame being applied and acknowledged.
+    /// A WebRTC media session `session_id` beside the WireGuard link
+    /// `link_session` (`media_session.rs`): a panic ends that media session
+    /// only, and the link's video goes back to the tunnel.
+    Media { session_id: String, link_session: String },
+    /// One `mailbox` frame being applied and acknowledged: a panic leaves its
+    /// unacknowledged items queued at the backend.
     Mailbox,
 }
 
@@ -32,15 +38,50 @@ pub enum PhoneTask {
 /// keeps running across a reconnect), so `run` owns them for the process.
 pub type Phones = TaskScope<PhoneTask>;
 
-/// Logs how a phone's task ended; a panic is that phone's failure.
-fn phone_task_ended(ended: Ended<PhoneTask>) {
+/// Where the phone paths' events go: [`control::emit`] in hostd.
+pub type Emit = Arc<dyn Fn(&Event) + Send + Sync>;
+
+/// What serves one channel of a link: [`services::serve`] in hostd.
+pub type ChannelServer = Arc<
+    dyn Fn(Arc<ServiceConfig>, Peer, Arc<crate::pairing::LinkAuth>, IncomingChannel) -> BoxFuture<'static, ()>
+        + Send
+        + Sync,
+>;
+
+/// The seams of the phone paths (links, media sessions, channels).
+#[derive(Clone)]
+pub struct PhoneHooks {
+    pub emit: Emit,
+    pub serve: ChannelServer,
+}
+
+impl Default for PhoneHooks {
+    fn default() -> Self {
+        Self {
+            emit: Arc::new(control::emit),
+            serve: Arc::new(|config, peer, auth, incoming| {
+                Box::pin(services::serve(config, peer, auth, incoming))
+            }),
+        }
+    }
+}
+
+/// Reports how a phone's task ended. A panic is that phone's failure; the
+/// task's own guards already released what it held as it unwound
+/// (`CloseOnDrop` for a link, `media_session::MediaShown` for a media session).
+fn phone_task_ended(ended: Ended<PhoneTask>, emit: &dyn Fn(&Event)) {
     match ended {
         Ended::Finished(_) => {}
         Ended::Panicked(PhoneTask::Link { session_id }, message) => {
             tracing::error!(session_id, message, "a phone's link task failed; that link is closed");
-            control::emit(&Event::PhoneDown { session_id, reason: "hostd_error".into() });
+            emit(&Event::PhoneDown { session_id, reason: "hostd_error".into() });
         }
-        Ended::Panicked(task, message) => tracing::error!(?task, message, "a phone's task failed"),
+        Ended::Panicked(PhoneTask::Media { session_id, link_session }, message) => {
+            tracing::error!(session_id, link_session, message, "a phone's media session failed; it ended");
+        }
+        Ended::Panicked(PhoneTask::Mailbox, message) => {
+            tracing::error!(message, "a mailbox frame failed; its unacknowledged items stay queued");
+        }
         Ended::Cancelled => tracing::debug!("a phone's task was cancelled by the runtime"),
     }
 }
@@ -57,6 +98,7 @@ pub struct AnswerContext {
     pub exclude_cgnat: bool,
     /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
     pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    pub hooks: PhoneHooks,
 }
 
 #[derive(Clone)]
@@ -195,13 +237,14 @@ pub async fn run(config: HostConfig, mut workers: Workers) -> Result<(), WorkerF
         workers.spawn("test signals", crate::media_session::test_signals());
     }
     let mut phones = Phones::default();
+    let hooks = PhoneHooks::default();
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
         let attempt = tokio::select! {
             failed = workers.failed() => return Err(failed),
-            attempt = connect_once(&config, &tokens, &services, &ice, &mailbox, &mut phones) => attempt,
+            attempt = connect_once(&config, &tokens, &services, &ice, &mailbox, &hooks, &mut phones) => attempt,
         };
         let reason = match attempt {
             Ok(reason) if removed(&reason) => {
@@ -236,7 +279,7 @@ pub async fn run(config: HostConfig, mut workers: Workers) -> Result<(), WorkerF
         loop {
             tokio::select! {
                 failed = workers.failed() => return Err(failed),
-                ended = phones.ended() => phone_task_ended(ended),
+                ended = phones.ended() => phone_task_ended(ended, &*hooks.emit),
                 () = &mut retry => break,
             }
         }
@@ -249,6 +292,7 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
+    hooks: &PhoneHooks,
     phones: &mut Phones,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
@@ -290,6 +334,7 @@ async fn connect_once(
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
         mailbox: mailbox.clone(),
+        hooks: hooks.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     let reason = serve_signaling_with(signaling, context, phones).await;
@@ -430,7 +475,7 @@ pub async fn serve_signaling_with(
                 continue;
             }
             ended = phones.ended() => {
-                phone_task_ended(ended);
+                phone_task_ended(ended, &*context.hooks.emit);
                 continue;
             }
             event = events.recv() => match event {
@@ -475,7 +520,7 @@ pub async fn serve_signaling_with(
             (None, Some(link)) => {
                 let session_id = envelope.session_id.clone();
                 phones.spawn(
-                    PhoneTask::Media { session_id },
+                    PhoneTask::Media { session_id, link_session: link.clone() },
                     crate::media_session::answer(
                         signaling.clone(),
                         envelope,
@@ -526,7 +571,7 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
+    let peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");
@@ -560,31 +605,42 @@ async fn answer_session(
             return;
         }
     };
+    serve_link(connected, peer, &timeline, context).await;
+}
+
+/// Serves a phone's link from link up to link down: its watchers, media
+/// sessions and channels. A channel or watcher that panics closes this link
+/// with `hostd_error`; a panic of this task itself closes it as it unwinds.
+async fn serve_link(connected: Connected, mut peer: Peer, timeline: &Timeline, context: AnswerContext) {
+    // However this task ends (a panic too), the phone's link closes with it.
+    let _close = CloseOnDrop(connected.link.clone());
+    let emit = &context.hooks.emit;
+    let session_id = peer.session_id.clone();
+    let kind = connected.transport;
     let path = *connected.path.borrow();
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
     tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, video = peer.video.is_some(), timings = %timeline.summary(), "link up");
-    control::emit(&Event::PhoneUp {
+    emit(&Event::PhoneUp {
         session_id: session_id.clone(),
         phone_device_id: peer.device_id.clone(),
         transport: control::transport_name(kind).into(),
         path: control::path_name(path).into(),
     });
-    // However this task ends (a panic too), the phone's link closes with it.
-    let _close = CloseOnDrop(connected.link.clone());
     // The watchers end with this task; the channels are drained after link down.
     let mut watchers = TaskScope::<&'static str>::default();
     let mut channels = TaskScope::<String>::default();
     let mut paths = connected.path.clone();
     let path_session = session_id.clone();
+    let path_emit = Arc::clone(emit);
     watchers.spawn("path", async move {
         while paths.changed().await.is_ok() {
             let path = *paths.borrow_and_update();
             // A WireGuard link can move between direct, TURN and TURN over
             // TLS after link up (roams, a direct path found again); this says when.
             tracing::info!(session_id = path_session, ?path, "link path changed");
-            control::emit(&Event::PhonePath {
+            path_emit(&Event::PhonePath {
                 session_id: path_session.clone(),
                 path: control::path_name(path).into(),
             });
@@ -663,13 +719,13 @@ async fn answer_session(
         let service = incoming.service.clone();
         channels.spawn(
             service,
-            services::serve(Arc::clone(&context.services), peer.clone(), Arc::clone(&auth), incoming),
+            (context.hooks.serve)(Arc::clone(&context.services), peer.clone(), Arc::clone(&auth), incoming),
         );
     }
     let reason = connected.link.closed().await;
     drop(watchers);
     tracing::info!(session_id, reason, "link down");
-    control::emit(&Event::PhoneDown { session_id: session_id.clone(), reason });
+    emit(&Event::PhoneDown { session_id: session_id.clone(), reason });
     // Channel tasks finish their own close (a pairing being saved, an upload's
     // cleanup) after link down, as they did when they ran detached.
     channels
@@ -704,34 +760,156 @@ mod tests {
         )
     }
 
-    /// A phone's task that panics (a frame its code did not expect) closes
-    /// that phone's link; another phone's link and hostd keep going.
+    /// Events the hooks emitted, and the hooks: `emit` panics on a
+    /// `PhonePath` of session `"a"` (a watcher that breaks).
+    fn recording_hooks() -> (PhoneHooks, tokio::sync::mpsc::UnboundedReceiver<Event>) {
+        let (events, recorded) = tokio::sync::mpsc::unbounded_channel();
+        let emit: Emit = Arc::new(move |event: &Event| {
+            if matches!(event, Event::PhonePath { session_id, .. } if session_id == "a") {
+                panic!("the path watcher broke");
+            }
+            let _ = events.send(event.clone());
+        });
+        (PhoneHooks { emit, ..PhoneHooks::default() }, recorded)
+    }
+
+    fn context(hooks: PhoneHooks) -> AnswerContext {
+        let services = ServiceConfig {
+            chief_socket: None,
+            tui_socket_dir: std::env::temp_dir(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:9/".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: std::env::temp_dir(),
+            upload_max_bytes: 0,
+            browser: crate::browser::BrowserConfig::new(None, 1),
+            surface: crate::surface::SurfaceConfig::new(None, 1),
+        };
+        AnswerContext {
+            owner_user_id: "alice".into(),
+            services: Arc::new(services),
+            ice: IceSource::Fixed(Vec::new()),
+            include_loopback: true,
+            exclude_cgnat: false,
+            mailbox: None,
+            hooks,
+        }
+    }
+
+    /// A served link (`serve_link`, as `answer_session` runs it after the
+    /// dial) and the sender of its path.
+    fn served(
+        phones: &mut Phones,
+        session_id: &str,
+        mac: cmux_mobile_link::Link,
+        context: &AnswerContext,
+    ) -> tokio::sync::watch::Sender<cmux_mobile_link::dial::LinkPath> {
+        let (path, paths) = tokio::sync::watch::channel(cmux_mobile_link::dial::LinkPath::Direct);
+        let connected = Connected {
+            link: mac,
+            transport: TransportKind::WireGuard,
+            path: paths,
+            session_id: session_id.into(),
+            webrtc_media: false,
+        };
+        let peer =
+            Peer { device_id: format!("phone-{session_id}"), session_id: session_id.into(), video: None };
+        let context = context.clone();
+        phones.spawn(PhoneTask::Link { session_id: session_id.into() }, async move {
+            serve_link(connected, peer, &Timeline::new(), context).await;
+        });
+        path
+    }
+
+    async fn next_event(events: &mut tokio::sync::mpsc::UnboundedReceiver<Event>) -> Event {
+        tokio::time::timeout(Duration::from_secs(5), events.recv()).await.expect("in time").expect("an event")
+    }
+
+    /// A link watcher that panics closes that phone's link (`hostd_error`,
+    /// `PhoneDown`); another phone's link keeps serving and hostd goes on.
     #[tokio::test]
-    async fn a_failed_phone_task_closes_only_its_link() {
-        let (_phone_a, mac_a) = link_pair();
-        let (_phone_b, mac_b) = link_pair();
+    async fn a_failed_link_watcher_closes_only_its_link() {
+        let (hooks, mut events) = recording_hooks();
+        let context = context(hooks);
+        let (phone_a, mac_a) = link_pair();
+        let (phone_b, mac_b) = link_pair();
         let mut phones = Phones::default();
-        let link = mac_a.clone();
-        phones.spawn(PhoneTask::Link { session_id: "a".into() }, async move {
-            let _close = CloseOnDrop(link);
-            panic!("unexpected frame");
-        });
-        let link = mac_b.clone();
-        let (release, wait) = tokio::sync::oneshot::channel::<()>();
-        phones.spawn(PhoneTask::Link { session_id: "b".into() }, async move {
-            let _close = CloseOnDrop(link);
-            let _ = wait.await;
-        });
-        assert_eq!(
-            phones.ended().await,
-            Ended::Panicked(PhoneTask::Link { session_id: "a".into() }, "unexpected frame".into())
+        let path_a = served(&mut phones, "a", mac_a.clone(), &context);
+        assert!(
+            matches!(next_event(&mut events).await, Event::PhoneUp { session_id, .. } if session_id == "a")
         );
+        let _path_b = served(&mut phones, "b", mac_b.clone(), &context);
+        assert!(
+            matches!(next_event(&mut events).await, Event::PhoneUp { session_id, .. } if session_id == "b")
+        );
+
+        path_a.send_replace(cmux_mobile_link::dial::LinkPath::Turn);
         let closed = tokio::time::timeout(Duration::from_secs(5), mac_a.closed()).await;
         assert_eq!(closed.as_deref(), Ok("hostd_error"));
+        assert_eq!(
+            next_event(&mut events).await,
+            Event::PhoneDown { session_id: "a".into(), reason: "hostd_error".into() }
+        );
+        assert_eq!(phones.ended().await, Ended::Finished(PhoneTask::Link { session_id: "a".into() }));
+        drop(phone_a);
+
         assert!(mac_b.closed_state().borrow().is_none(), "the other phone's link stays up");
-        assert!(mac_b.ping().await.is_ok());
-        let _ = release.send(());
-        assert_eq!(phones.ended().await, Ended::Finished(PhoneTask::Link { session_id: "b".into() }));
+        assert!(phone_b.ping().await.is_ok());
+        let mut echo = phone_b.open("echo", serde_json::json!({})).await.unwrap();
+        echo.send(bytes::Bytes::from_static(b"ping")).await.unwrap();
+        assert_eq!(
+            echo.recv().await,
+            Some(cmux_mobile_link::ChannelEvent::Data(bytes::Bytes::from_static(b"ping")))
+        );
+    }
+
+    /// The link task itself panicking (here: the channel server breaks
+    /// before its channel task starts) closes its link as it unwinds, and
+    /// `phone_task_ended` tells the app the phone is down.
+    #[tokio::test]
+    async fn a_failed_link_task_closes_its_link_and_reports_it_down() {
+        let (hooks, mut events) = recording_hooks();
+        let serve = Arc::clone(&hooks.serve);
+        let hooks = PhoneHooks {
+            serve: Arc::new(move |config, peer, auth, incoming: IncomingChannel| {
+                if incoming.service == "break-link" {
+                    panic!("the link task broke");
+                }
+                serve(config, peer, auth, incoming)
+            }),
+            ..hooks
+        };
+        let context = context(hooks);
+        let (phone, mac) = link_pair();
+        let mut phones = Phones::default();
+        let _path = served(&mut phones, "c", mac.clone(), &context);
+        assert!(matches!(next_event(&mut events).await, Event::PhoneUp { .. }));
+        let _channel = phone.open("break-link", serde_json::json!({})).await.unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(5), phones.ended()).await.expect("in time");
+        assert_eq!(
+            ended,
+            Ended::Panicked(PhoneTask::Link { session_id: "c".into() }, "the link task broke".into())
+        );
+        let closed = tokio::time::timeout(Duration::from_secs(5), mac.closed()).await;
+        assert_eq!(closed.as_deref(), Ok("hostd_error"));
+        phone_task_ended(ended, &*context.hooks.emit);
+        assert_eq!(
+            next_event(&mut events).await,
+            Event::PhoneDown { session_id: "c".into(), reason: "hostd_error".into() }
+        );
+    }
+
+    /// A media session task that panics reports nothing about the link
+    /// (its own guard reports the media gone, `media_session.rs`).
+    #[test]
+    fn a_failed_media_session_does_not_report_its_link_down() {
+        let (hooks, mut events) = recording_hooks();
+        let task = PhoneTask::Media { session_id: "m".into(), link_session: "a".into() };
+        phone_task_ended(Ended::Panicked(task, "media broke".into()), &*hooks.emit);
+        assert!(events.try_recv().is_err());
     }
 
     #[test]

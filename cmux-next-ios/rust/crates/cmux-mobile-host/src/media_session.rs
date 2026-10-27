@@ -175,6 +175,14 @@ pub async fn answer(
     }
     // A newer session for the same link replaces this one.
     current.send_replace(offer);
+    let emit = &context.hooks.emit;
+    // However this task ends (a panic too), the app learns the media is gone.
+    let _shown = MediaShown {
+        current: current.clone(),
+        offer,
+        link_session: link_session.clone(),
+        emit: Arc::clone(emit),
+    };
     let mut replaced = current.subscribe();
     let route = video.add_route(std::sync::Arc::clone(&session.carrier), session.up.clone());
     let mut path = session.path.clone();
@@ -186,7 +194,7 @@ pub async fn answer(
         timings = %timeline.summary(),
         "media session up"
     );
-    control::emit(&Event::PhoneMedia {
+    emit(&Event::PhoneMedia {
         session_id: link_session.clone(),
         media_path: media_path(*path.borrow_and_update()).into(),
     });
@@ -204,7 +212,7 @@ pub async fn answer(
                 }
                 let now = *path.borrow_and_update();
                 tracing::info!(session_id, link_session, path = ?now, "media session path changed");
-                control::emit(&Event::PhoneMedia { session_id: link_session.clone(), media_path: media_path(now).into() });
+                emit(&Event::PhoneMedia { session_id: link_session.clone(), media_path: media_path(now).into() });
             }
             changed = active.changed() => {
                 if changed.is_ok() {
@@ -222,10 +230,32 @@ pub async fn answer(
     };
     drop(route);
     tracing::info!(session_id, link_session, reason, "media session down");
-    // Only the current session reports the link's media gone.
-    if *current.borrow() == offer {
-        current.send_replace(0);
-        control::emit(&Event::PhoneMedia { session_id: link_session, media_path: "none".into() });
+}
+
+/// A link's media session while it is the current one: when it ends,
+/// however it ends (a panic too), the link has no media session any more and
+/// the app hears `none`, unless a newer session replaced it.
+struct MediaShown {
+    current: watch::Sender<u64>,
+    offer: u64,
+    link_session: String,
+    emit: crate::host::Emit,
+}
+
+impl Drop for MediaShown {
+    fn drop(&mut self) {
+        let offer = self.offer;
+        let was_current = self.current.send_if_modified(|current| {
+            let mine = *current == offer;
+            if mine {
+                *current = 0;
+            }
+            mine
+        });
+        if was_current {
+            let session_id = std::mem::take(&mut self.link_session);
+            (self.emit)(&Event::PhoneMedia { session_id, media_path: "none".into() });
+        }
     }
 }
 
@@ -329,6 +359,44 @@ mod tests {
         ) -> futures_util::future::BoxFuture<'_, Option<cmux_mobile_link::media::RtcpPackets>> {
             Box::pin(std::future::pending())
         }
+    }
+
+    /// A media session task that panics still reports its link's media gone
+    /// and clears the current session; one a newer session replaced says nothing.
+    #[tokio::test]
+    async fn a_failed_media_session_reports_its_media_gone() {
+        use crate::host::{PhoneTask, Phones};
+        use crate::tasks::Ended;
+        let (events, mut recorded) = tokio::sync::mpsc::unbounded_channel();
+        let emit: crate::host::Emit = Arc::new(move |event: &Event| {
+            let _ = events.send(event.clone());
+        });
+        let current = watch::channel(0).0;
+        let mut phones = Phones::default();
+        let task = PhoneTask::Media { session_id: "m1".into(), link_session: "link".into() };
+        let shown = MediaShown {
+            current: current.clone(),
+            offer: 1,
+            link_session: "link".into(),
+            emit: Arc::clone(&emit),
+        };
+        current.send_replace(1);
+        phones.spawn(task.clone(), async move {
+            let _shown = shown;
+            panic!("a media frame broke");
+        });
+        assert_eq!(phones.ended().await, Ended::Panicked(task, "a media frame broke".into()));
+        assert_eq!(*current.borrow(), 0);
+        assert_eq!(
+            recorded.try_recv().ok(),
+            Some(Event::PhoneMedia { session_id: "link".into(), media_path: "none".into() })
+        );
+
+        let replaced = MediaShown { current: current.clone(), offer: 2, link_session: "link".into(), emit };
+        current.send_replace(3);
+        drop(replaced);
+        assert_eq!(*current.borrow(), 3, "the newer session stays current");
+        assert!(recorded.try_recv().is_err());
     }
 
     /// No new trust path: only a live link of the same phone device, paired

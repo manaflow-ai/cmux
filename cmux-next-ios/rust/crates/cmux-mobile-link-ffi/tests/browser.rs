@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
-use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
+use cmux_mobile_host::host::{AnswerContext, IceSource, PhoneHooks, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link_ffi::{BrowserFrame, BrowserObserver, ConnectRequest, Transport, connect_inner};
@@ -88,6 +88,7 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks: PhoneHooks::default(),
         },
     ));
     let handle = connect_inner(
@@ -233,6 +234,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks: PhoneHooks::default(),
         },
     ));
     let handle = connect_inner(
@@ -296,6 +298,108 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
     recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
 }
 
+/// hostd's media session task panics as its session comes up: the app hears
+/// the link's media gone (`PhoneMedia` `none`), the WireGuard link stays up
+/// with video back in the tunnel, and the phone's next session works.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_panicking_media_session_ends_only_that_session() {
+    use cmux_mobile_host::control::Event;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let sockets = tempfile::tempdir().unwrap();
+    let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let services = ServiceConfig {
+        tui_socket_dir: sockets.path().to_path_buf(),
+        default_session: "main".into(),
+        default_socket: None,
+        file_roots: Vec::new(),
+        acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+        browser: cmux_mobile_host::browser::BrowserConfig::new(Some(fake_rb_host::launcher(launches)), 2),
+        surface: Default::default(),
+        chief_socket: None,
+        agent_tab_host: None,
+        uploads_dir: sockets.path().join("uploads"),
+        upload_max_bytes: 1024 * 1024,
+        pairing: None,
+    };
+    // The first media session to come up breaks hostd's task as it reports it.
+    let events = Arc::new(Mutex::new(Vec::<Event>::new()));
+    let recorded = Arc::clone(&events);
+    let broke = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let emit = move |event: &Event| {
+        if matches!(event, Event::PhoneMedia { media_path, .. } if media_path != "none")
+            && !broke.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            panic!("the media session task broke");
+        }
+        recorded.lock().unwrap().push(event.clone());
+    };
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(serve_signaling(
+        mac,
+        AnswerContext {
+            owner_user_id: "alice".into(),
+            services: Arc::new(services),
+            ice: IceSource::Fixed(Vec::new()),
+            include_loopback: true,
+            exclude_cgnat: false,
+            mailbox: None,
+            hooks: PhoneHooks { emit: Arc::new(emit), ..PhoneHooks::default() },
+        },
+    ));
+    let handle = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: false,
+            block_udp: false,
+            video_lane: true,
+            webrtc_media: true,
+        },
+        None,
+    )
+    .await
+    .expect("connect");
+    let recorder = Arc::new(Recorder::default());
+    let stream = handle
+        .open_browser(r#"{"tab":"s3","url":"https://example.com/"}"#.into(), recorder.clone())
+        .await
+        .unwrap();
+    recorder.until("welcome", |r| r.has("welcome", "encoder", "fake")).await;
+    stream.send_message(open_message("s3")).unwrap();
+    let seen = |want: fn(&Event) -> bool| {
+        let events = Arc::clone(&events);
+        move |_: &Recorder| events.lock().unwrap().iter().any(want)
+    };
+    recorder
+        .until(
+            "the broken media session reported gone",
+            seen(|e| matches!(e, Event::PhoneMedia { media_path, .. } if media_path == "none")),
+        )
+        .await;
+    let before = recorder.frames.lock().unwrap().len();
+    recorder.until("frames after the failure", |r| r.frames.lock().unwrap().len() > before + 10).await;
+    recorder
+        .until(
+            "the phone's next media session up",
+            seen(|e| matches!(e, Event::PhoneMedia { media_path, .. } if media_path != "none")),
+        )
+        .await;
+    assert!(
+        !events.lock().unwrap().iter().any(|e| matches!(e, Event::PhoneDown { .. })),
+        "the link stays up: {:?}",
+        events.lock().unwrap()
+    );
+    assert!(recorder.closed.lock().unwrap().is_none(), "the tab's stream stays open");
+    stream.close();
+    recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
+}
+
 fn open_message(tab: &str) -> String {
     serde_json::json!({"t": "rb.open", "tab": tab, "profile": "default", "viewer": "phone",
         "screen": {"css_width": 402, "css_height": 760, "scale": 2.0, "refresh_hz": 60, "color_space": "srgb"},
@@ -341,6 +445,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks: PhoneHooks::default(),
         },
     ));
     let handle = connect_inner(
@@ -455,6 +560,7 @@ async fn real_host_over_the_track() {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks: PhoneHooks::default(),
         },
     ));
     let handle = connect_inner(
@@ -567,6 +673,7 @@ async fn surface_over(transport: Transport, video_lane: bool) {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            hooks: PhoneHooks::default(),
         },
     ));
     let handle = connect_inner(

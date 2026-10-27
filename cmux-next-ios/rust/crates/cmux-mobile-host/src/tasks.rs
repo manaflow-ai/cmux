@@ -11,8 +11,12 @@
 //!   network watcher, held mailbox turns) are fatal when they panic: `run`
 //!   returns [`WorkerFailed`] and hostd exits with [`EXIT_WORKER_FAILED`], so
 //!   the app's supervisor starts a fresh hostd;
-//! - a phone's tasks (its link, media session, mailbox frame, channels) end
-//!   that phone only: its link closes and the others keep working.
+//! - a phone's task never reaches another phone or hostd, and its panic
+//!   ends only what it served (`host::PhoneTask`): a link task, or a channel
+//!   or watcher of that link, closes that link (`hostd_error`, `PhoneDown`);
+//!   a media session task ends that media session (`PhoneMedia` `none`) and
+//!   its link's video goes back to the tunnel; a mailbox frame task leaves
+//!   its unacknowledged items queued at the backend.
 //!
 //! Dropping a scope aborts the tasks it still holds.
 
