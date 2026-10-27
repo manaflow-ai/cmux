@@ -1,13 +1,14 @@
 import UIKit
+import UniformTypeIdentifiers
 import XCTest
 
 /// The composers paste like any iOS text field: the edit menu's Paste (tap
 /// the focused field) puts copied text in the field, and Paste of a copied
-/// image attaches it (Command-V calls the same `paste(_:)`; a headless
-/// simulator drops Command chords, so it is not driven here). Runs the Chief
-/// chat, an empty agent chat and a workspace's terminal tab with mock sign-in
-/// and mock sessions. The test runner fills the pasteboard, as another app
-/// would.
+/// image, or of a file copied in Files, attaches it. Command-V calls the same
+/// `paste(_:)`; a headless simulator drops Command chords, so it is not driven
+/// here. Runs the Chief chat, an empty agent chat and a workspace's terminal
+/// tab with mock sign-in and mock sessions. The test runner fills the
+/// pasteboard, as another app would.
 final class ComposerNativePasteUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -63,6 +64,17 @@ final class ComposerNativePasteUITests: XCTestCase {
                       "pasted image attached\n\(app.debugDescription)")
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
         attach(app, "\(demo)-image-paste")
+
+        // A file copied in Files: its bytes and name, no path. Paste attaches it too.
+        let provider = NSItemProvider(item: Self.samplePDF() as NSData, typeIdentifier: UTType.pdf.identifier)
+        provider.suggestedName = "Quarterly Report.pdf"
+        UIPasteboard.general.setItemProviders([provider], localOnly: false, expirationDate: nil)
+        try menuPaste(app, field)
+        let tiles = app.descendants(matching: .any).matching(identifier: attachment)
+        XCTAssertTrue(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: tiles)], timeout: 5) == .completed,
+                      "pasted file attached\n\(app.debugDescription)")
+        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
+        attach(app, "\(demo)-file-paste")
     }
 
     /// Taps the focused field for its edit menu and picks Paste.
@@ -85,6 +97,14 @@ final class ComposerNativePasteUITests: XCTestCase {
             ((object as? XCUIElement)?.value as? String)?.contains(text) == true
         }
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: field)], timeout: 5) == .completed
+    }
+
+    @MainActor
+    private static func samplePDF() -> Data {
+        UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { context in
+            context.beginPage()
+            ("Quarterly Report" as NSString).draw(at: CGPoint(x: 72, y: 72), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 28)])
+        }
     }
 
     @MainActor
