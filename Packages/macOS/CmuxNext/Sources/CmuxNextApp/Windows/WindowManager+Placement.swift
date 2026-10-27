@@ -30,7 +30,7 @@ extension WindowManager {
             pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
-            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            let sections = Self.placementSections(in: bridge)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
@@ -42,6 +42,14 @@ extension WindowManager {
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
         }
+    }
+
+    /// Slot indices and the reorder plan must use the same current rows. The
+    /// daemon can publish several creates before the rows observation runs;
+    /// resolving against the last drawn list would put bottom before those rows.
+    static func placementSections(in bridge: SidebarBridge) -> [SidebarRowSection] {
+        bridge.sameTurn.syncNow(rows: true)
+        return SidebarRowSection.withoutPlaceholders(bridge.model.sections)
     }
 
     /// Places a workspace this app just made (by a command whose reply
