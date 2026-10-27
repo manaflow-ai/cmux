@@ -4289,6 +4289,29 @@
         "required": true
       }
     },
+    "event:stream-end": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stream-end\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "canceled",
+          "detached",
+          "overflow"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:surface-exited": {
       "/cause": {
         "ty": "enum",
@@ -8133,6 +8156,10 @@
         "ty": "uint16",
         "nullable": true
       },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
+      },
       "/surface": {
         "ty": "uint64",
         "nullable": true
@@ -8408,6 +8435,12 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      }
+    },
+    "request:cancel-stream": {
+      "/stream": {
+        "ty": "uint16",
+        "required": true
       }
     },
     "request:chief-inspect": {
@@ -10189,6 +10222,10 @@
     "request:detach-attached-view": {
       "/lease": {
         "ty": "string",
+        "nullable": true
+      },
+      "/stream": {
+        "ty": "uint16",
         "nullable": true
       },
       "/surface": {
@@ -12134,6 +12171,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
+      },
       "/surface": {
         "ty": "uint64",
         "required": true
@@ -12374,6 +12415,10 @@
       "/rows": {
         "ty": "uint16",
         "required": true
+      },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
       },
       "/surface": {
         "ty": "uint64",
@@ -13191,6 +13236,10 @@
       },
       "/request_id": {
         "ty": "string",
+        "nullable": true
+      },
+      "/stream": {
+        "ty": "uint16",
         "nullable": true
       },
       "/surface": {
@@ -15420,6 +15469,20 @@
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
     "response:cancel-request": {},
+    "response:cancel-stream": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",

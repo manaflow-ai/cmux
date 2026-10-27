@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4dfa5d9e45046050f5007be2b3c6d4e989472e62faedd836a8665d9d7fdc1ecb.
+// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -812,6 +812,8 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub viewer_backlog_bytes: Optional<u64>,
@@ -1061,6 +1063,12 @@ pub struct CancelRequestRequest {
 
 #[rustfmt::skip]
 pub type CancelRequestResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelStreamRequest {
+    pub stream: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2448,6 +2456,8 @@ pub type DeleteWorkspaceGroupResult = T::JsonValue;
 pub struct DetachAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3806,6 +3816,8 @@ pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 pub struct ReleaseAttachedViewSizeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3998,6 +4010,8 @@ pub struct ResizeAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
     pub rows: u16,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -4629,6 +4643,8 @@ pub struct SnapshotRequestRequest {
     pub reason: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub request_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
 }
 
@@ -5395,6 +5411,10 @@ impl CmuxClient {
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("attach-surface", 12)?;
+            self.require_capability_field("attach-surface", "attach-streams-v1")?;
+        }
         if !request.viewer_backlog_bytes.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -5475,6 +5495,10 @@ impl CmuxClient {
 
     pub fn cancel_request(&mut self, request: CancelRequestRequest) -> Result<CancelRequestResult> {
         self.execute(&CANCEL_REQUEST_METADATA, &request)
+    }
+
+    pub fn cancel_stream(&mut self, request: CancelStreamRequest) -> Result<T::CancelStreamResult> {
+        self.execute(&CANCEL_STREAM_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
@@ -5885,6 +5909,10 @@ impl CmuxClient {
     }
 
     pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("detach-attached-view", 12)?;
+            self.require_capability_field("detach-attached-view", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("detach-attached-view", 12)?;
             self.require_capability_field("detach-attached-view", "shared-sizing-v1")?;
@@ -6483,6 +6511,10 @@ impl CmuxClient {
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("release-attached-view-size", 12)?;
+            self.require_capability_field("release-attached-view-size", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("release-attached-view-size", 12)?;
             self.require_capability_field("release-attached-view-size", "shared-sizing-v1")?;
@@ -6578,6 +6610,10 @@ impl CmuxClient {
         if !request.identity.is_missing() {
             self.require_protocol_field("resize-attached-view", 12)?;
             self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
+        }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("resize-attached-view", 12)?;
+            self.require_capability_field("resize-attached-view", "attach-streams-v1")?;
         }
         if !request.view.is_missing() {
             self.require_protocol_field("resize-attached-view", 12)?;
@@ -6883,6 +6919,10 @@ impl CmuxClient {
     }
 
     pub fn snapshot_request(&mut self, request: SnapshotRequestRequest) -> Result<T::SnapshotRequestResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("snapshot-request", 12)?;
+            self.require_capability_field("snapshot-request", "attach-streams-v1")?;
+        }
         self.execute(&SNAPSHOT_REQUEST_METADATA, &request)
     }
 
