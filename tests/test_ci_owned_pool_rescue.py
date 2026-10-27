@@ -349,6 +349,55 @@ class Refusal(unittest.TestCase):
         self.assertFalse(rescue.refused(refused_job(labels=(BLACKSMITH,))))
         self.assertFalse(rescue.refused({**refused_job(), "conclusion": "cancelled"}))
 
+    def test_a_hook_refusal_after_a_long_capacity_wait_is_a_refusal(self):
+        # Job 122357989139 (run 40551896747, PR 26269): glaeda's hook waited 766 s in
+        # "Set up runner" for capacity, then refused because a fleet build had started
+        # waiting for the host. Past REFUSAL_SECONDS, it must still be re-run, not left red.
+        steps = [
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Set up runner", "conclusion": "failure"},
+            {"name": "Compile-check the app at the pull request's head on the build fleet",
+             "conclusion": "skipped"},
+            {"name": "Complete runner", "conclusion": "success"},
+            {"name": "Complete job", "conclusion": "success"},
+        ]
+        late = refused_job("cmux-next app compile (build fleet)", seconds=770, steps=steps)
+        self.assertTrue(rescue.refused(late))
+        self.assertEqual(rescue.assess([late], now=START + dt.timedelta(seconds=900),
+                                       budget_seconds=90).action, "refused")
+        self.assertFalse(rescue.accepted(late, START + dt.timedelta(hours=1)))
+        # An `always()` step that fails after the refusal changes nothing.
+        steps.insert(3, {"name": "Record compile admission metrics", "conclusion": "failure"})
+        self.assertTrue(rescue.refused(late))
+        # Only the hook's own step: a late "Set up job" failure, a passed hook, or a job off the
+        # owned pools is not a refusal.
+        self.assertFalse(rescue.refused(refused_job(seconds=rescue.REFUSAL_SECONDS + 1)))
+        steps[1] = {"name": "Set up runner", "conclusion": "success"}
+        steps[2] = {"name": steps[2]["name"], "conclusion": "failure"}
+        self.assertFalse(rescue.refused(late))
+        steps[1] = {"name": "Set up runner", "conclusion": "failure"}
+        self.assertFalse(rescue.refused({**late, "labels": [BLACKSMITH]}))
+
+    def test_a_late_hook_refusal_is_rerun_once_the_run_finishes(self):
+        steps = [{"name": "Set up job", "conclusion": "success"},
+                 {"name": "Set up runner", "conclusion": "failure"},
+                 {"name": "Build", "conclusion": "skipped"}]
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(refused_at=0, seconds=770, steps=steps), marker=True,
+                      finished=lambda seconds: True)
+        target = rescue.sweep_target(listed(RUN_ID), "manaflow-ai/cmux", late=False)
+        rescue.follow(api, target, seconds=90, queue_rounds="0",
+                      now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        # Before hook_refused() the same 770 s job was left red.
+        with unittest.mock.patch.object(rescue, "hook_refused", return_value=False):
+            clock = Clock()
+            api = FakeAPI(clock, refusing_run(refused_at=0, seconds=770, steps=steps), marker=True,
+                          finished=lambda seconds: True)
+            rescue.follow(api, rescue.sweep_target(listed(RUN_ID), "manaflow-ai/cmux", late=False),
+                          seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep, log=lambda text: None)
+            self.assertNotIn("rerun-failed", api.calls)
+
     def test_a_job_whose_runner_was_lost_counts_as_a_refusal_whatever_its_length(self):
         # PR 15160's run 36420353579: cmux14-glaeda took compile admission at 12:20:18
         # with its listener stopped; GitHub failed it at 12:30:18 ("The self-hosted

@@ -55,7 +55,10 @@ retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
 (compile admission's `always()` metrics steps still succeed after a refusal).
-A failed job that ran no step at all counts too, whatever its length: GitHub
+A failed "Set up runner" step, the one glaeda's hook runs in, counts whatever
+its length (hook_refused()): the hook waits there for capacity with no limit,
+so a refusal for a fleet build that began waiting meanwhile comes long after
+REFUSAL_SECONDS. A failed job that ran no step at all counts too, whatever its length: GitHub
 fails a job whose runner went away only after 10 minutes ("The self-hosted
 runner lost communication with the server"), and so does one with a step
 GitHub cancelled while the job failed: its runner was stopped mid-job ("The
@@ -545,7 +548,8 @@ RERUN_MARGIN_SECONDS = 60
 # step after checkout takes longer than this, and one that does not is cheap to
 # retry. glaeda's hook once waited up to 240 s inside that setup for the mini's
 # capacity before refusing; it now waits with no limit (SETUP_WAIT_SECONDS
-# covers that), so a refusal is the hook's other checks, which answer at once.
+# covers that), so a refusal is the hook's other checks, which answer at once,
+# or one at the end of that wait, which hook_refused() catches by its step.
 REFUSAL_SECONDS = 360
 # The last attempt of the bot's own re-runs that may run on an owned pool
 # (pr_runner_pool.LAST_OWNED_ATTEMPT): attempt 2 is placed like attempt 1. A
@@ -595,6 +599,9 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
         run.get("event") == "pull_request" and actor != CI_RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+# The step glaeda's job-started hook runs in. No workflow code runs there, so its
+# failure is the runner's whatever its length (hook_refused()).
+HOOK_STEP = "Set up runner"
 XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
 # glaeda's hook no longer refuses a job for the mini's capacity: it waits,
 # with no limit, inside the runner's setup ("Set up runner") until the units
@@ -920,6 +927,8 @@ def refused(job: Mapping[str, Any]) -> bool:
     if any(step.get("name") in XCODE_SELECTION_STEPS and step.get("conclusion") == "failure"
            for step in steps):
         return True
+    if hook_refused(steps):
+        return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
         return False
@@ -929,6 +938,20 @@ def refused(job: Mapping[str, Any]) -> bool:
         return True
     return not any(step.get("conclusion") == "success" and step.get("name") not in SETUP_STEPS
                    for step in steps)
+
+
+def hook_refused(steps: list[Mapping[str, Any]]) -> bool:
+    """glaeda's job-started hook refused the job: its "Set up runner" step failed.
+
+    The hook waits for capacity inside that step with no limit and can then refuse,
+    for a fleet build that started waiting for the host meanwhile (job 122357989139
+    of run 40551896747, 2026-10-27: 766 s in the capacity wait, then "refused: a
+    fleet build is waiting for the host"). REFUSAL_SECONDS cannot tell that from a
+    code failure, but the step can: no workflow code runs in "Set up runner", and a
+    failed one skips every workflow step but the `always()` ones (which may fail
+    too, as compile admission's metrics step does), so it is the runner's at any
+    length."""
+    return any(step.get("name") == HOOK_STEP and step.get("conclusion") == "failure" for step in steps)
 
 
 def unacquired(job: Mapping[str, Any]) -> bool:
