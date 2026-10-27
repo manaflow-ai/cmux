@@ -3,6 +3,7 @@
 // keystroke is never a write still on its way when the app goes.
 import { afterEach, expect, test } from "bun:test";
 import {
+  lastQueuedDraftText,
   settleDraftWithin,
   settlePendingDraftWrites,
   writePersistedDraft,
@@ -65,6 +66,32 @@ test("a quit waits until acpmux holds the last keystroke, not only the first wri
 test("nothing queued settles at once", async () => {
   installWriter();
   await settlePendingDraftWrites();
+});
+
+test("a write queued as a drain ends starts its own drain and the quit waits for it", async () => {
+  const writer = installWriter();
+  writePersistedDraft("settle-c", "one");
+  const first = settlePendingDraftWrites();
+  await tick();
+  writer.release(); // "one" lands; the drain ends in the same turn it sees the queue empty
+  await first;
+  writePersistedDraft("settle-c", "two"); // right after: no drain is left to join
+  let settled = false;
+  const second = settlePendingDraftWrites().then(() => {
+    settled = true;
+  });
+  await tick();
+  expect(settled).toBe(false);
+  writer.release();
+  await second;
+  expect(writer.landed.map((write) => write.text)).toEqual(["one", "two"]);
+});
+
+test("the last queued text is what a quit compares the editor's value with", () => {
+  installWriter();
+  writePersistedDraft("settle-d", "typed");
+  expect(lastQueuedDraftText("settle-d")).toBe("typed");
+  expect(lastQueuedDraftText("settle-none")).toBeUndefined();
 });
 
 test("a draft write that never answers costs the quit at most the cap", async () => {

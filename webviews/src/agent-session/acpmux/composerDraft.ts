@@ -30,8 +30,10 @@ const draftActionSubscribers = new Set<() => void>();
 let draftActionsVersion = 0;
 let draftWriteSequence = 0;
 let flushingDraftWrites = false;
-// The drain running now, so a quit can wait for it (settlePendingDraftWrites).
+// The drain running now (while `flushingDraftWrites`), so a quit can wait for it (settlePendingDraftWrites).
 let draftDrain: Promise<void> | undefined;
+// The newest text handed to acpmux's queue, by session: a quit compares the editor's value with it.
+const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
 // a reload before a clear lands would bring the old draft back from acpmux.
@@ -110,11 +112,12 @@ async function flushDraftWrites(): Promise<void> {
   }
 }
 
+// A running drain picks up every write queued before its loop ends: the loop re-reads the queue after
+// each answer, and `flushingDraftWrites` clears in the same turn the loop sees it empty. So a write
+// either joins the running drain or starts a new one; none waits for a drain that already finished.
 function drainDraftWrites(): Promise<void> {
-  draftDrain ??= flushDraftWrites().finally(() => {
-    draftDrain = undefined;
-  });
-  return draftDrain;
+  if (!flushingDraftWrites) draftDrain = flushDraftWrites();
+  return draftDrain ?? Promise.resolve();
 }
 
 /** Flushes writes after the composer has completed its durable restore. */
@@ -129,7 +132,12 @@ export function flushPendingDraftWrites(): void {
  * next connection and resolves this at once.
  */
 export function settlePendingDraftWrites(): Promise<void> {
-  return pendingDraftWrites.size || draftDrain ? drainDraftWrites() : Promise.resolve();
+  return pendingDraftWrites.size || flushingDraftWrites ? drainDraftWrites() : Promise.resolve();
+}
+
+/** The newest text queued for `sessionId`'s acpmux draft, or undefined when none was this page's. */
+export function lastQueuedDraftText(sessionId: string): string | undefined {
+  return lastQueuedDraft.get(sessionId);
 }
 
 /** Returns whether a queued write already owns the session's newest value. */
@@ -162,6 +170,7 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
   pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
+  lastQueuedDraft.set(sessionId, text);
   flushPendingDraftWrites();
 }
 

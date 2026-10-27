@@ -55,6 +55,7 @@ import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
   hasPendingDraftWrite,
+  lastQueuedDraftText,
   readDurableDraft,
   readPersistedDraft,
   seededText,
@@ -654,7 +655,7 @@ export function Composer({
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         const typed = field.current?.value() ?? textRef.current;
         const session = persistedSession.current;
-        if (session && hydratedSession.current === session && typed !== textRef.current) {
+        if (session && hydratedSession.current === session && typed !== lastQueuedDraftText(session)) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
