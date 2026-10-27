@@ -948,6 +948,10 @@ def unacquired(job: Mapping[str, Any]) -> bool:
 CANCELLED_BY = re.compile(r"\bThe run was cancell?ed by @([A-Za-z0-9-]+(?:\[bot\])?)")
 
 
+# Annotation reads per look (GitHub writes the same "canceled by" line on every job of the run).
+CANCELLED_BY_READS = 2
+
+
 def rescue_cancelled(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[float], None],
                      log: Callable[[str], None]) -> str:
     """The rescue's actor (RESCUE_ACTORS) when it cancelled this run, as GitHub's annotation on one of its
@@ -956,9 +960,7 @@ def rescue_cancelled(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Call
     A rescue cancels, waits for the run to settle and re-runs it; a sweeper that stops in between (cancelled,
     killed, out of time) leaves the run cancelled with its owned jobs never acquired. Such a run is stranded
     like one GitHub gave up on (unacquired()), so the next watch of it re-runs it."""
-    for job in jobs:
-        if not unacquired(job) or not job.get("id"):
-            continue
+    for job in [job for job in jobs if unacquired(job) and job.get("id")][:CANCELLED_BY_READS]:
         try:
             notes = read(lambda: api.annotations(int(job["id"])), sleep, log)
         except READ_ERRORS as error:
@@ -1639,8 +1641,11 @@ class GitHub:
         """
         created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         found: list[tuple[int, int]] = []
-        for page in range(1, pages + 1):
-            data = self.request("GET", f"/actions/runs?status=failure&exclude_pull_requests=true&per_page={count}"
+        # Cancelled ones too, one page: a rescue's cancel whose re-run never came (sweep_target()).
+        listings = [*(("failure", page) for page in range(1, pages + 1)), ("cancelled", 1)]
+        while listings:
+            status, page = listings.pop(0)
+            data = self.request("GET", f"/actions/runs?status={status}&exclude_pull_requests=true&per_page={count}"
                                        f"&page={page}&created=%3E%3D{created}")
             runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             for run in runs:
@@ -1651,8 +1656,8 @@ class GitHub:
                     found.append(entry)
             # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
             # in_flight_runs()), so only an empty page ends the listing before `pages`.
-            if not runs:
-                break
+            if not runs and status == "failure":
+                listings = [listing for listing in listings if listing[0] != "failure"]
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
@@ -1752,7 +1757,8 @@ class GitHub:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=self._still_finished(run_id, next_attempt))
+        check = self._still_finished(run_id, next_attempt)
+        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=check, before_send=check)
         self.request_ui_tests(run_id, next_attempt)
 
     def rerun_job(self, run_id: int, job_id: int, next_attempt: int) -> None:
@@ -1763,23 +1769,26 @@ class GitHub:
         self.request("POST", f"/actions/jobs/{job_id}/rerun", before_send=self._still_finished(run_id, next_attempt))
 
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs",
-                     before_retry=self._still_finished(run_id, next_attempt))
+        check = self._still_finished(run_id, next_attempt)
+        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs", before_retry=check, before_send=check)
         self.request_ui_tests(run_id, next_attempt)
 
     def _still_finished(self, run_id: int, next_attempt: int) -> Callable[[], None]:
-        """A re-run sent again after a rate-limit wait only while the run is still the finished attempt it re-runs.
+        """A re-run sent (first, after a token mint, and again after a rate-limit wait) only while the run is still
+        the finished attempt it re-runs.
 
-        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's): the
-        other's re-run may have started, and even finished, during the wait, and sending this one then
-        would start one attempt more than either meant (rescue() checked the attempt only before the wait).
+        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's, or a sweeper
+        mid-rescue and its successor picking up the same cancelled run): the other's re-run may have started, and
+        even finished, since rescue() read the run, and sending this one then would start one attempt more than
+        either meant.
         """
         def check() -> None:
             run = self.run(run_id) or {}
             attempt = int(run.get("run_attempt") or 0)
             if attempt != next_attempt - 1 or run.get("status") != "completed":
-                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}) after a "
-                              f"rate-limit wait; someone else already re-ran it, so it is not re-run again")
+                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}), not "
+                              f"finished attempt {next_attempt - 1}; someone else already re-ran it, so it is not "
+                              "re-run again")
         return check
 
     def request_ui_tests(self, run_id: int, attempt: int) -> None:
@@ -3124,8 +3133,9 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
                  since: dt.datetime | None = None) -> Target | str:
     """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most).
 
-    A finished run is only worth a look when it failed after `since`: a
-    refusal nobody re-ran yet. `full_rerun` says the re-run ran the picker
+    A finished run is only worth a look when it failed or was cancelled after `since`: a refusal nobody
+    re-ran yet, or a rescue's cancel whose re-run never came (watch() re-runs it only when GitHub's
+    annotation names the rescue as the canceller, rescue_cancelled()). `full_rerun` says the re-run ran the picker
     again (a stuck run's re-run, or a person's full one), so its own markers
     decide, the picker's and then late-placement's.
     """
@@ -3133,7 +3143,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
-        if run.get("conclusion") != "failure":
+        if run.get("conclusion") not in ("failure", "cancelled"):
             return f"finished ({run.get('conclusion')})"
         finished = parse_time(run.get("updated_at"))
         if since is not None and finished is not None and finished < since:
