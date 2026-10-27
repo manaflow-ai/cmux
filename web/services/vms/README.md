@@ -44,12 +44,14 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 GCP is an explicit, off-by-default Labs provider. Enable it with
 `CMUX_VM_GCP_LABS_ENABLED=1` and `CMUX_VM_GCP_ENABLED=1`, and configure a cmux
 Linux image with `CMUX_VM_GCP_IMAGE`. The local client sends a short-lived OAuth
-access token in `X-Cmux-Gcp-Access-Token` (and, when known, its Unix expiry in
-`X-Cmux-Gcp-Access-Token-Expires-At`); the backend uses it for the current
+access token in `X-Cmux-Gcp-Access-Token` and its Unix expiry in
+`X-Cmux-Gcp-Access-Token-Expires-At`; the backend uses it for the current
 Compute Engine request and wipes it before answering. It never writes the token
 or an SSH private key to `cloud_vms.provider_metadata`. Placement headers such
 as `X-Cmux-Gcp-Project` and `X-Cmux-Gcp-Zone` are non-secret and may select the
 user's project (the default development project is `manaflow-437420`).
+The first Labs VPC is project-scoped as `cmux-vms`; this is the user's own
+project boundary. Tailnet tunnel enrollment is not enabled yet.
 
 The first driver supports create, status, start, stop, delete, and a short-lived
 SSH attach handoff. The selected image must already contain acpmux, cmux-tui,

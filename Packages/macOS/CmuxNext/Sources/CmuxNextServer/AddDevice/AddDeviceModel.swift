@@ -52,7 +52,8 @@ public final class AddDeviceModel {
         return listing.available
     }
 
-    /// The network's state when it is not up (no Tailscale, signed out), for the network way.
+    /// The network's state when it is not up (no Tailscale, signed out), for the network way. The
+    /// computers of the person's ~/.ssh/config still list under it.
     public var networkProblem: String? {
         guard case let .loaded(listing) = candidates, !listing.network.up else { return nil }
         return listing.network.detail
@@ -73,13 +74,17 @@ public final class AddDeviceModel {
     public var buttons: [AddDeviceButton] {
         switch way {
         case .network:
-            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .otherComputer, key: nil)]
+            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newCloudMachine, key: nil),
+             AddDeviceButton(action: .otherComputer, key: nil)]
         case .code:
             [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .enterCode, key: .return)]
         case .newDevice where platform == .phone:
             [AddDeviceButton(action: .done, key: .return)]
         case .newDevice:
-            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyLine, key: .return)]
+            // A computer: New Cloud VM… stays at hand, as on the network way (the card opens here
+            // when the network lists nothing to add).
+            [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newCloudMachine, key: nil),
+             AddDeviceButton(action: .copyLine, key: .return)]
         }
     }
 
@@ -92,6 +97,9 @@ public final class AddDeviceModel {
             return true
         case .otherComputer:
             services.addByName()
+            return true
+        case .newCloudMachine:
+            services.newCloudMachine()
             return true
         case .enterCode:
             services.enterCode()

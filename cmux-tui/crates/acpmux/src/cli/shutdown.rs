@@ -34,7 +34,13 @@ async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<(
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.
-    let _ = client.request(method::MUX_SHUTDOWN, params).await;
+    let answer = client.request(method::MUX_SHUTDOWN, params).await;
+    // A refusal of this client (`exe_path::shutdown_refusal`) leaves the daemon running.
+    if let Err(e) = &answer
+        && e.to_string().contains("refused to stop the daemon")
+    {
+        return Err(anyhow!("{e}"));
+    }
     drop(client);
     // The daemon holds its lock until it exits, so a `daemon start` right
     // after this cannot lose the lock to the stopping one.

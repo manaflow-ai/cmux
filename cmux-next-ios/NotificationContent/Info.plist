@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CmuxMobileAppGroup</key>
-	<string>group.$(CMUX_MOBILE_APP_BUNDLE_ID)</string>
+	<string>$(CMUX_MOBILE_APP_GROUP_ID_$(CMUX_MOBILE_APP_GROUP))</string>
 	<key>CmuxMobileKeychainGroup</key>
 	<string>$(CMUX_MOBILE_KEYCHAIN_GROUP)</string>
 	<key>NSExtension</key>
