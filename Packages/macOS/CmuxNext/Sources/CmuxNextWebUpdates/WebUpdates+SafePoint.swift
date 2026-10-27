@@ -8,12 +8,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
 import CoreGraphics
 
 // The safe point (plans/cmux-next/web-ota.md, ``WebSwapGate``). While an update is pending or a
-// shown page waits to reload, one DemandTimer (`web-updates.safe-point`) books the next look; a look
+// shown page waits to reload, one `background` MainDeadline (`web-updates.safe-point`) books the next look; a look
 // either swaps (or reloads those pages) or books the next one. It stops when nothing waits: a swap
 // (here or `updates.web.apply`) cancels it, and a look that finds nothing waiting books none. Each
 // look asks the pages the swap reloads now (``WebBundleHost/bundleAskedPages``, the WebKit pages the
 // update folder serves; twice), in the page's own world, through `window.cmuxWebSwap.hold()`
-// (webviews/src/pages/shared/webSwap.ts), and never waits on a page past ``WebSwapGate/answerWithin``. With feature `webUpdateReloadOnShow` those
+// (webviews/src/pages/shared/webSwap.ts), and never waits on a page past ``WebSwapGate/answerWithin`` (a `background` deadline too). With feature `webUpdateReloadOnShow` those
 // are the shown pages only: a hidden or frozen page is never asked, so it never holds the swap; it
 // keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``). As
 // it shows it is asked at once and reloads when it answers null; else it stays stale and the same
@@ -35,18 +35,18 @@ extension WebUpdates: WebBundleSafePoint {
     /// stale pages (``askShownStale()``). A pending swap asks and reloads it at its own look.
     package func staleShown(_ page: any WebBundlePage) {
         guard pending == nil else { return }
-        safePoint.schedule(after: .zero) { @MainActor [weak self] in await self?.askShownStale() }
+        safePoint?.schedule(after: .zero) { [weak self] in self?.startAskShownStale() }
     }
 
     /// Asks the pages that show with files a swap replaced, as they show, whether a reload keeps all
     /// they hold: each that says so, and still shows the same idle stale document, reloads; any other
     /// stays stale, and the next look asks it again under ``WebSwapGate``'s rules.
     func askShownStale() async {
-        guard pending == nil else { return }
+        guard pending == nil, let deadlines = inputs?.deadlines else { return }
         let asked = staleShownPages
         guard !asked.isEmpty else { return scheduleSafePoint() }
         let documents = asked.map(\.bundleDocument)
-        let answers = await Self.askAll(asked)
+        let answers = await Self.askAll(asked, deadlines: deadlines)
         // A swap now pending asks every shown page at its own look.
         guard pending == nil else { return }
         var held: String?
@@ -64,7 +64,10 @@ extension WebUpdates: WebBundleSafePoint {
     /// Books the next look: at once while no page would reload, after ``WebSwapGate/grace`` behind other
     /// apps, else when the input quiet period could end. Replaces a booked look.
     func scheduleSafePoint() {
-        guard hasLookWork else { return safePoint.cancel() }
+        guard hasLookWork else {
+            safePoint?.cancel()
+            return
+        }
         let wait: Duration = if lookPages.isEmpty {
             .zero
         } else if NSApp?.isActive ?? false {
@@ -72,7 +75,7 @@ extension WebUpdates: WebBundleSafePoint {
         } else {
             WebSwapGate.grace
         }
-        safePoint.schedule(after: wait) { @MainActor [weak self] in await self?.look() }
+        safePoint?.schedule(after: wait) { [weak self] in self?.startLook() }
     }
 
     /// Swaps when the app and every page the swap reloads allow it, else books the next look. Those
@@ -81,7 +84,7 @@ extension WebUpdates: WebBundleSafePoint {
     /// With no update pending, the shown pages still on replaced files are asked the same way and
     /// reload when they allow it.
     func look() async {
-        guard hasLookWork, !looking else { return }
+        guard hasLookWork, !looking, let deadlines = inputs?.deadlines else { return }
         looking = true
         defer { looking = false }
         let generation = pendingGeneration
@@ -90,8 +93,8 @@ extension WebUpdates: WebBundleSafePoint {
         if decision == .askPages {
             let asked = lookPages
             let documents = asked.map(\.bundleDocument)
-            decision = WebSwapGate.pages(await Self.askAll(asked))
-            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(asked)) }
+            decision = WebSwapGate.pages(await Self.askAll(asked, deadlines: deadlines))
+            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(asked, deadlines: deadlines)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
@@ -115,14 +118,14 @@ extension WebUpdates: WebBundleSafePoint {
             if swaps { applyPending() } else { reloadStaleShown() }
         case .later(let after, let reason):
             heldBy = reason
-            safePoint.schedule(after: after) { @MainActor [weak self] in await self?.look() }
+            safePoint?.schedule(after: after) { [weak self] in self?.startLook() }
         }
     }
 
     /// Reloads the shown pages still on files a swap replaced, which allowed it at this look.
     private func reloadStaleShown() {
         heldBy = nil
-        safePoint.cancel()
+        safePoint?.cancel()
         for page in staleShownPages { page.reloadForBundle() }
     }
 
@@ -151,16 +154,16 @@ extension WebUpdates: WebBundleSafePoint {
 
     /// Each page's answer, in order: nil when a reload keeps all it holds, else why not. All pages
     /// are asked at once; a page still loading, without the hook, failing or silent past
-    /// ``WebSwapGate/answerWithin`` (one deadline for all) is busy.
-    static func askAll(_ pages: [any WebBundlePage]) async -> [String?] {
+    /// ``WebSwapGate/answerWithin`` (one `background` deadline for all, on `deadlines`) is busy.
+    static func askAll(_ pages: [any WebBundlePage], deadlines: MainDeadlineScheduler) async -> [String?] {
         guard !pages.isEmpty else { return [] }
         // Answers dropped before they resumed read as no page answering.
         let unanswered = [String?](repeating: "page.no-answer", count: pages.count)
         return (try? await withOnceContinuation { (done: OnceContinuation<[String?], OnceContinuationError>) in
             let answers = Answers(count: pages.count, done)
-            let deadline = DemandTimer(owner: "web-updates.page-answer")
+            let deadline = MainDeadline(owner: "web-updates.page-answer", workClass: .background, scheduler: deadlines)
             answers.deadline = deadline
-            deadline.scheduleOnMain(after: WebSwapGate.answerWithin) { answers.finish() }
+            deadline.schedule(after: WebSwapGate.answerWithin) { answers.finish() }
             for (index, page) in pages.enumerated() {
                 if page.bundleLoading {
                     answers.set(index, "page.loading")
@@ -184,7 +187,7 @@ extension WebUpdates: WebBundleSafePoint {
         private var values: [String??]
         private var left: Int
         private var done: OnceContinuation<[String?], OnceContinuationError>?
-        var deadline: DemandTimer?
+        var deadline: MainDeadline?
 
         init(count: Int, _ done: OnceContinuation<[String?], OnceContinuationError>) {
             values = Array(repeating: nil, count: count)

@@ -1,3 +1,5 @@
+import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 @testable import CmuxNextPages
 @testable import CmuxNextUpdater
@@ -64,10 +66,17 @@ struct WebUpdatesFrozenPagesTests {
 
     private static let update = URL(fileURLWithPath: "/Support/web-updates/trees/next", isDirectory: true)
 
+    private static let work = BackgroundWork(label: "test.web-updates-frozen")
+    /// The safe point's deadlines, on a scheduler whose wakes nothing fires: each test runs its looks itself.
+    private let deadlines = MainDeadlineRig(framed: false)
+
     /// Web updates whose look finds the app quiet (the person is away), serving through its own overlay.
     private func webUpdates(_ host: Host) -> WebUpdates {
         let web = WebUpdates(overlay: WebBundleOverlay(bases: []))
-        web.pages = { host }
+        // No launch read: nothing starts but the inputs a look reads and the page host.
+        web.prepare(UpdatesSettings(), launch: nil, inputs: WebUpdates.Inputs(
+            files: Self.work, energy: EnergyPolicySource(), shown: nil, deadlines: deadlines.deadlines,
+            appEvents: AppEvents(center: NotificationCenter()), checkNode: nil), pages: { host })
         web.appGate = { pagesShown in pagesShown ? .askPages : .swap }
         return web
     }
@@ -97,7 +106,7 @@ struct WebUpdatesFrozenPagesTests {
         #expect(web.heldBy == "selection")
         #expect(web.overlay.activeTree == nil)
         #expect(page.reloads == 0)
-        web.safePoint.cancel()
+        web.safePoint?.cancel()
     }
 
     @Test func noShownPageSwapsWithoutAskingAndEveryPageWaitsForItsShow() async {
@@ -148,7 +157,7 @@ struct WebUpdatesFrozenPagesTests {
         #expect(!hidden.stale)
         #expect(!web.hasLookWork)
         #expect(pages[0].reloads == 1, "a page that was not stale reloaded again")
-        web.safePoint.cancel()
+        web.safePoint?.cancel()
     }
 
     @Test func aStalePageThatHoldsNothingReloadsAtItsShow() async {
@@ -183,6 +192,6 @@ struct WebUpdatesFrozenPagesTests {
         await web.look()
         #expect(web.heldBy == "page.frozen")
         #expect(pages.allSatisfy { $0.reloads == 0 })
-        web.safePoint.cancel()
+        web.safePoint?.cancel()
     }
 }

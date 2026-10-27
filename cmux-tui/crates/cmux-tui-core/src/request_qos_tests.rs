@@ -4,23 +4,43 @@
 //! without `RLIMIT_NICE`).
 
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use cmux_threads::ThreadQos;
 
 use super::{FEATURE, RequestQosGate};
 use crate::event_cause::EventCause;
 
+/// The classes noted for one test thread, shared with the threads its
+/// requests continue on ([`follow_recorder`]).
+pub(crate) type Recorder = Arc<Mutex<Vec<ThreadQos>>>;
+
 thread_local! {
-    static ENTERED: RefCell<Vec<ThreadQos>> = const { RefCell::new(Vec::new()) };
+    static ENTERED: RefCell<Recorder> = RefCell::new(Recorder::default());
 }
 
 pub(super) fn note_entered(class: ThreadQos) {
-    ENTERED.with(|entered| entered.borrow_mut().push(class));
+    ENTERED.with(|entered| entered.borrow().lock().unwrap().push(class));
 }
 
-/// The classes cause scopes entered on this thread since the last call.
+/// The classes cause scopes entered on this thread, and on threads that
+/// followed its recorder, since the last call.
 pub(crate) fn take_entered() -> Vec<ThreadQos> {
-    ENTERED.with(|entered| std::mem::take(&mut *entered.borrow_mut()))
+    ENTERED.with(|entered| std::mem::take(&mut *entered.borrow().lock().unwrap()))
+}
+
+/// This thread's recorder, for the thread a request continues on.
+pub(crate) fn recorder() -> Recorder {
+    ENTERED.with(|entered| entered.borrow().clone())
+}
+
+/// Runs `f` noting into `recorder`: a request handed from a test thread to
+/// a work item notes its classes where the test reads them.
+pub(crate) fn follow_recorder<R>(recorder: Recorder, f: impl FnOnce() -> R) -> R {
+    let previous = ENTERED.with(|entered| entered.replace(recorder));
+    let result = f();
+    ENTERED.with(|entered| *entered.borrow_mut() = previous);
+    result
 }
 
 #[test]
