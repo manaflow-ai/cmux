@@ -1012,11 +1012,12 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
-# ordering. Their full publish runs must share a concurrency group so an older
-# next run cannot finish after a newer main run and fail the cross-feed floor.
-if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
-  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+# Every push run builds in its own group, so a newer tip never waits behind
+# (or is replaced while waiting behind) a running build. Sparkle ordering is
+# kept at publication: release-publish-<tag> serializes the writers and the
+# publish step refuses a source older than the published one.
+if ! grep -Fq "github.event_name == 'push' && format('push-{0}', github.run_id)" "$WORKFLOW_FILE"; then
+  echo "FAIL: each nightly push run must build in its own concurrency group"
   exit 1
 fi
 
