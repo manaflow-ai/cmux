@@ -1146,6 +1146,7 @@ impl RemoteDaemon {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
         let task = tokio::spawn(async move {
+            // wakeup-allow: deadline the disconnected generation's one resume expiry
             tokio::time::sleep_until(deadline.into()).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
@@ -1165,6 +1166,7 @@ impl RemoteDaemon {
     ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
         let task = tokio::spawn(async move {
+            // wakeup-allow: deadline the pending link's one expiry (PENDING_LINK_TTL); the task is aborted when it binds
             tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
@@ -1347,6 +1349,7 @@ impl Listener for LimitedTcpListener {
                             inner,
                             _permit: permit,
                             upgraded: Arc::new(AtomicBool::new(false)),
+                            // wakeup-allow: deadline the connection's one upgrade bound; the upgrade ends it first
                             deadline: Box::pin(tokio::time::sleep(DIRECT_HTTP_UPGRADE_TIMEOUT)),
                         },
                         address,
@@ -1355,6 +1358,8 @@ impl Listener for LimitedTcpListener {
                 Err(error) => {
                     drop(permit);
                     if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                        // wakeup-allow: backoff only after a persistent accept error (the shared
+                        // Backoff, reset by a good accept); the next accept blocks on the listener
                         tokio::time::sleep(self.accept_backoff.next_delay()).await;
                     }
                 }
@@ -1622,6 +1627,7 @@ pub async fn serve_unix_with_shutdown(
                                     connections.shutdown().await;
                                     return Ok(())
                                 },
+                                // wakeup-allow: backoff only after a failed accept, each gap doubled (10 to 250 ms) and reset by a good one; shutdown ends it first
                                 _ = tokio::time::sleep(delay) => {}
                             }
                             continue;

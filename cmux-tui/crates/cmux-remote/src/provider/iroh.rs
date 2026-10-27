@@ -823,7 +823,9 @@ async fn serve_iroh_connection(
     let (authenticated_tx, authenticated_rx) = watch::channel(false);
     let per_connection =
         Arc::new(Semaphore::new(admission.limits.maximum_pending_streams_per_connection));
+    // wakeup-allow: deadline the connection's one first-stream bound; the first stream ends it first
     let first_stream_deadline = tokio::time::sleep_until(first_stream_deadline);
+    // wakeup-allow: deadline the connection's one authentication bound; authenticating ends it first
     let unauthenticated_deadline = tokio::time::sleep(admission.limits.unauthenticated_timeout);
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);

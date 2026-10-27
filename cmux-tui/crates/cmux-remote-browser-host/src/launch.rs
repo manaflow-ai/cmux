@@ -119,6 +119,7 @@ pub fn admit_within(
         if left.is_zero() {
             return Ok(Admission::Refused("no hello before the deadline".into()));
         }
+        // wakeup-allow: deadline what is left of the one hello deadline; each chunk ends a read first
         stream.set_read_timeout(Some(left))?;
         let n = match stream.read(&mut buf) {
             Ok(n) => n,

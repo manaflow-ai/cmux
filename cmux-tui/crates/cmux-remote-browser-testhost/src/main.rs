@@ -156,6 +156,7 @@ fn reader(mut stream: TcpStream) -> Receiver<(u8, Vec<u8>)> {
 fn session(mut stream: TcpStream, o: Options) -> Res<String> {
     let frames = reader(stream.try_clone()?);
     let hello = loop {
+        // wakeup-allow: fixture the test-only host's one 10 s hello bound; the hello ends the wait first
         let (kind, payload) =
             frames.recv_timeout(Duration::from_secs(10)).map_err(|_| "no hello within 10 s")?;
         if kind == STREAM_CONTROL {
@@ -240,6 +241,8 @@ fn stream_frames(
         let wait = next_paint.saturating_duration_since(Instant::now());
         let deadline =
             engine.next_deadline_us().map(|d| Duration::from_micros(d.saturating_sub(now())));
+        // wakeup-allow: fixture the test-only host paints synthetic frames at --fps; its paint clock
+        // is the stream it exists to produce
         match frames.recv_timeout(deadline.map_or(wait, |d| d.min(wait))) {
             Ok((STREAM_DATAGRAM, datagram)) => {
                 let out = engine.on_datagram(&datagram, true, now());

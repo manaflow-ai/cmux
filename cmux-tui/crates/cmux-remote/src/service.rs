@@ -1326,6 +1326,8 @@ async fn send_reset_or_close_session(
                 if tokio::time::Instant::now() >= deadline {
                     break;
                 }
+                // wakeup-allow: backoff the RESET retry after a full lane, each gap doubled (2 to 32 ms),
+                // within the one reset_deadline
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_millis(32));
             }

@@ -174,6 +174,7 @@ pub async fn serve_wireguard_hub(
                                     connections.shutdown().await;
                                     return Ok(());
                                 }
+                                // wakeup-allow: backoff only after a failed accept, each gap doubled (10 to 250 ms) and reset by a good one; shutdown ends it first
                                 _ = tokio::time::sleep(delay) => {}
                             }
                             continue;

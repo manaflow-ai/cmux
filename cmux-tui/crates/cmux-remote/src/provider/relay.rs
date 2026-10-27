@@ -14,6 +14,7 @@ use bytes::Bytes;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
 };
+use cmux_tui_core::backoff::Backoff;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
@@ -52,6 +53,9 @@ const RELAY_BATCH_HEADER_BYTES: usize = 8;
 const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
 const MAX_RELAY_BATCH_FRAMES: usize = 32;
 const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
+/// Re-registration spacing after a failed or closed daemon control socket.
+const RELAY_REGISTRATION_BACKOFF: Backoff =
+    Backoff::new(Duration::from_millis(100), Duration::from_secs(5));
 // A batched sender lingers to fill a batch only after this many consecutive
 // sends each began within RELAY_BURST_LINGER of the previous one finishing.
 // A flood builds that streak within microseconds; typed input at human pace,
@@ -651,6 +655,8 @@ async fn run_batched_relay_sender(
                 if burst_sends < RELAY_BURST_SENDS {
                     tokio::task::yield_now().await;
                 } else if commands.len() + 1 < MAX_RELAY_BATCH_FRAMES {
+                    // wakeup-allow: bounded one burst linger, only during sustained output (after
+                    // RELAY_BURST_SENDS back-to-back sends); idle and interactive frames never wait
                     tokio::time::sleep(RELAY_BURST_LINGER).await;
                 }
                 while frames.len() < MAX_RELAY_BATCH_FRAMES {
@@ -1221,7 +1227,7 @@ async fn run_registration_loop(
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
 ) {
-    let mut backoff = Duration::from_millis(100);
+    let mut backoff = RELAY_REGISTRATION_BACKOFF;
     loop {
         if *shutdown.borrow() {
             return;
@@ -1236,6 +1242,7 @@ async fn run_registration_loop(
             &credentials,
             &mut shutdown,
             &mut first_ready,
+            &mut backoff,
         )
         .await;
         if let Err(error) = result
@@ -1251,7 +1258,9 @@ async fn run_registration_loop(
             return;
         }
         tokio::select! {
-            _ = tokio::time::sleep(backoff) => {}
+            // wakeup-allow: backoff the re-registration after a failed or closed control socket, each
+            // gap doubled (100 ms to 5 s, jittered) and reset by a held registration; shutdown ends it first
+            _ = tokio::time::sleep(backoff.next_delay()) => {}
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return;
@@ -1259,7 +1268,6 @@ async fn run_registration_loop(
                 continue;
             },
         }
-        backoff = (backoff * 2).min(Duration::from_secs(5));
     }
 }
 
@@ -1270,6 +1278,7 @@ async fn run_registration_once(
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
+    backoff: &mut Backoff,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
     tokio::pin!(authentication);
@@ -1282,11 +1291,16 @@ async fn run_registration_once(
             authentication.await?
         }
     };
-    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    // Only a daemon Ping renews the registration lease (cmux-relay
+    // `touch_control`); no other traffic can stand in for it.
+    let renew_every = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
-    let mut interval = tokio::time::interval(heartbeat);
+    // wakeup-allow: deadline the registration lease's renewal, a third of the lease the relay
+    // granted, re-armed after each Ping; the relay drops the slot without it
+    let renewal = tokio::time::sleep_until(Instant::now() + renew_every);
+    tokio::pin!(renewal);
     let mut nonce = 0_u64;
     let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
     let result = loop {
@@ -1295,13 +1309,18 @@ async fn run_registration_once(
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() { break Ok(()) }
             }
-            _ = interval.tick() => {
+            _ = &mut renewal => {
+                renewal.as_mut().reset(Instant::now() + renew_every);
                 nonce = nonce.wrapping_add(1);
                 if let Err(error) =
                     send_control(&mut socket, &RelayControl::Ping { nonce }).await
                 {
                     break Err(error);
                 }
+                // The registration held for a renewal: a later drop is a new
+                // failure, not the same one (a relay that accepts and drops at
+                // once keeps backing off).
+                backoff.reset();
             }
             message = read_control(&mut socket) => {
                 let message = match message {

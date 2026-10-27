@@ -5,6 +5,8 @@
 //! `cmux-remote` crate. VM lifecycle is intentionally absent.
 
 mod blocking;
+#[cfg(unix)]
+mod child_exit;
 mod codex_patch;
 mod files;
 mod git;
@@ -306,6 +308,7 @@ impl WorkspaceService {
         let deadline = async move {
             match timeout_ms {
                 Some(timeout_ms) => {
+                    // wakeup-allow: deadline the request's one timeout_ms; its answer or cancel ends it first
                     tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)).await;
                 }
                 None => std::future::pending().await,

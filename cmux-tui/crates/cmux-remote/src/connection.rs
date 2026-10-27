@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -19,6 +20,9 @@ use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ClientConnectionSnapshot, ConnectionState};
 use crate::provider::{LinkGroup, LinkRequest, ProviderError, lane_bindings};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
+
+mod keepalive;
+use keepalive::SilenceKeepalive;
 
 const TERMINAL_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -47,7 +51,9 @@ pub struct ReconnectPolicy {
     pub attempt_timeout: Duration,
     /// Randomize each backoff uniformly between zero and its current ceiling.
     pub full_jitter: bool,
-    /// `None` disables active liveness probes.
+    /// Probe liveness after this long with no inbound frame (any inbound
+    /// frame proves the carrier alive and restarts the wait). `None`
+    /// disables active liveness probes.
     pub heartbeat_interval: Option<Duration>,
     /// How long a heartbeat request may remain unanswered before reconnect.
     pub heartbeat_timeout: Duration,
@@ -147,7 +153,7 @@ pub struct ClientConnection {
     /// Reconnect attempts do not hold this gate while dialing or replaying.
     shutdown_gate: Mutex<()>,
     deferred_receive: StdMutex<Option<Result<ReceivedFrame, ConnectionError>>>,
-    last_received: StdMutex<Instant>,
+    last_received: StdMutex<tokio::time::Instant>,
     closed: AtomicBool,
     close_state: watch::Sender<CloseState>,
 }
@@ -270,7 +276,7 @@ impl ClientConnection {
             receiving: Mutex::new(()),
             shutdown_gate: Mutex::new(()),
             deferred_receive: StdMutex::new(None),
-            last_received: StdMutex::new(Instant::now()),
+            last_received: StdMutex::new(tokio::time::Instant::now()),
             closed: AtomicBool::new(false),
             close_state,
         });
@@ -455,7 +461,7 @@ impl ClientConnection {
     /// Heartbeat control frames are consumed internally. At most one
     /// application frame or terminal error is deferred, which keeps liveness
     /// independent of caller polling without creating an unbounded side queue.
-    async fn probe_liveness(&self, generation: u64, observed: Instant) -> bool {
+    async fn probe_liveness(&self, generation: u64, observed: tokio::time::Instant) -> bool {
         let _receiving = self.receiving.lock().await;
         if self.closed.load(Ordering::Acquire)
             || self.session.read().await.generation() != generation
@@ -670,10 +676,10 @@ impl ClientConnection {
 
     fn mark_received(&self) {
         *self.last_received.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Instant::now();
+            tokio::time::Instant::now();
     }
 
-    fn last_received(&self) -> Instant {
+    fn last_received(&self) -> tokio::time::Instant {
         *self.last_received.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
@@ -810,6 +816,8 @@ impl ClientConnection {
                         .unwrap_or(retry_delay);
                     tokio::select! {
                         biased;
+                        // wakeup-allow: backoff the reconnect policy's doubling retry delay after a
+                        // failed attempt, inside the recovery deadline; close ends it first
                         _ = tokio::time::sleep(retry_delay) => {}
                         _ = close_state.changed() => return Err(ConnectionError::Closed),
                     }
@@ -918,63 +926,84 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         return;
     }
     drop(initial);
+    let mut keepalive = SilenceKeepalive::new(interval, tokio::time::Instant::now());
     loop {
         tokio::select! {
             biased;
-            _ = tokio::time::sleep(interval) => {}
+            // wakeup-allow: deadline the silence deadline: `interval` after the last inbound frame
+            // or probe; any inbound frame moves it, so a busy connection is never probed
+            _ = tokio::time::sleep_until(keepalive.due_at()) => {}
             _ = close_state.changed() => return,
         }
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) {
             return;
         }
-        if connection
-            .deferred_receive
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_some()
-        {
-            // The consumer must drain its deferred frame before another probe
-            // can be observed without expanding local buffering.
+        if !keepalive.should_probe(connection.last_received()) {
             continue;
         }
-        let observed = connection.last_received();
-        let generation = connection.session.read().await.generation();
-        let deadline = tokio::time::Instant::now() + timeout;
-        let send = connection.send_in_generation(
-            Some(generation),
-            Lane::Control,
-            0,
-            Bytes::new(),
-            FrameFlags::HEARTBEAT_REQUEST,
-        );
-        let send_result = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, send) => result,
-            _ = close_state.changed() => return,
-        };
-        match send_result {
-            Ok(Ok(_)) => {}
-            Ok(Err(_)) => continue,
-            Err(_) => {
-                let _ = connection.recover(generation).await;
-                continue;
-            }
-        }
-        let live = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
-            _ = close_state.changed() => return,
-        };
-        if connection.closed.load(Ordering::Acquire)
-            || connection.session.read().await.generation() != generation
-        {
-            continue;
-        }
-        if !live && connection.last_received() <= observed {
-            let _ = connection.recover(generation).await;
+        let probe = probe_heartbeat(&connection, timeout, &mut close_state).await;
+        keepalive.probed(tokio::time::Instant::now());
+        if probe.is_break() {
+            return;
         }
     }
+}
+
+/// One heartbeat probe after a silent interval. `Break` when the connection
+/// is closing.
+async fn probe_heartbeat(
+    connection: &ClientConnection,
+    timeout: Duration,
+    close_state: &mut watch::Receiver<CloseState>,
+) -> ControlFlow<()> {
+    if connection
+        .deferred_receive
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some()
+    {
+        // The consumer must drain its deferred frame before another probe
+        // can be observed without expanding local buffering.
+        return ControlFlow::Continue(());
+    }
+    let observed = connection.last_received();
+    let generation = connection.session.read().await.generation();
+    let deadline = tokio::time::Instant::now() + timeout;
+    let send = connection.send_in_generation(
+        Some(generation),
+        Lane::Control,
+        0,
+        Bytes::new(),
+        FrameFlags::HEARTBEAT_REQUEST,
+    );
+    let send_result = tokio::select! {
+        biased;
+        result = tokio::time::timeout_at(deadline, send) => result,
+        _ = close_state.changed() => return ControlFlow::Break(()),
+    };
+    match send_result {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) => return ControlFlow::Continue(()),
+        Err(_) => {
+            let _ = connection.recover(generation).await;
+            return ControlFlow::Continue(());
+        }
+    }
+    let live = tokio::select! {
+        biased;
+        result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
+        _ = close_state.changed() => return ControlFlow::Break(()),
+    };
+    if connection.closed.load(Ordering::Acquire)
+        || connection.session.read().await.generation() != generation
+    {
+        return ControlFlow::Continue(());
+    }
+    if !live && connection.last_received() <= observed {
+        let _ = connection.recover(generation).await;
+    }
+    ControlFlow::Continue(())
 }
 
 fn jittered_delay(ceiling: Duration, full_jitter: bool) -> Duration {

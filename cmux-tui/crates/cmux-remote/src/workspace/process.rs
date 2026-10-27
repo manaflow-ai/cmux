@@ -28,6 +28,8 @@ use tokio::task::JoinSet;
 
 use super::ClientScope;
 #[cfg(unix)]
+use super::child_exit::ChildExit;
+#[cfg(unix)]
 use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
@@ -55,7 +57,6 @@ const MAX_PROCESS_ARGUMENTS: usize = 4_096;
 const MAX_PROCESS_ENVIRONMENT: usize = 4_096;
 const MAX_PROCESS_CONFIGURATION_BYTES: usize = 4 * 1024 * 1024;
 const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const MAX_OPERATION_ID_BYTES: usize = 256;
@@ -1217,13 +1218,14 @@ impl ProcessManager {
             }
         }
         #[cfg(unix)]
-        let mut child_events =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
-                .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
+        let child_events = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+            .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let mut child = command
             .spawn()
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let pid = child.id();
+        #[cfg(unix)]
+        let mut child_exit = ChildExit::watch(pid, child_events);
         #[cfg(unix)]
         let mut pending = PendingProcessGuard::new(pid, true);
         #[cfg(not(unix))]
@@ -1281,8 +1283,7 @@ impl ProcessManager {
         tokio::spawn(async move {
             #[cfg(unix)]
             let status =
-                wait_and_reap_pipe_child(&waiter_record.target, &mut child, &mut child_events)
-                    .await;
+                wait_and_reap_pipe_child(&waiter_record.target, &mut child, &mut child_exit).await;
             #[cfg(not(unix))]
             let status = child.wait().await;
             mark_target_exited(&waiter_record);
@@ -1366,14 +1367,15 @@ impl ProcessManager {
         }
         command.env("TERM", &term);
         #[cfg(unix)]
-        let mut child_events =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
-                .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
+        let child_events = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+            .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let cmux_pty::SpawnedPty { master, child } = pair
             .spawn(command)
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let mut pending_child = PendingPtyChild::new(child);
         let pid = pending_child.pid;
+        #[cfg(unix)]
+        let mut child_exit = ChildExit::watch(pid, child_events);
         #[cfg(unix)]
         let mut pending = PendingProcessGuard::new(pid, true);
         #[cfg(not(unix))]
@@ -1435,7 +1437,7 @@ impl ProcessManager {
             tokio::spawn(async move {
                 let _pty_slot = pty_slot;
                 let outcome =
-                    wait_and_reap_pty_child(&target, pending_child.child_mut(), &mut child_events)
+                    wait_and_reap_pty_child(&target, pending_child.child_mut(), &mut child_exit)
                         .await;
                 if outcome.is_ok() {
                     drop(pending_child.take());
@@ -2131,7 +2133,10 @@ async fn drain_output_tasks(
 ) -> Vec<ProcessOutputTruncationReason> {
     let mut reasons = Vec::new();
     let mut activity_open = true;
+    // wakeup-allow: deadline the exited child's one drain bound (idle, re-armed by output, and
+    // total); each reader's end of file ends the drain first
     let idle_deadline = tokio::time::sleep(idle_timeout);
+    // wakeup-allow: deadline the exited child's one total drain bound; the readers' end ends it first
     let total_deadline = tokio::time::sleep(total_timeout);
     tokio::pin!(idle_deadline);
     tokio::pin!(total_deadline);
@@ -2394,16 +2399,18 @@ fn validate_pty_size(cols: u16, rows: u16) -> Result<(), RpcError> {
 async fn wait_and_reap_pipe_child(
     target: &ProcessTarget,
     child: &mut tokio::process::Child,
-    child_events: &mut tokio::signal::unix::Signal,
+    exit: &mut ChildExit,
 ) -> std::io::Result<std::process::ExitStatus> {
     loop {
+        // wakeup-allow: bounded the non-blocking reap after the child's exit event (ChildExit);
+        // the loop waits on that event, never on a period
         match target.try_reap(|| child.try_wait()) {
             Ok(Some(status)) => return Ok(status),
             Ok(None) => {}
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        wait_for_child_exit_hint(child_events).await?;
+        exit.wait().await?;
     }
 }
 
@@ -2411,37 +2418,31 @@ async fn wait_and_reap_pipe_child(
 async fn wait_and_reap_pty_child(
     target: &ProcessTarget,
     child: &mut dyn Child,
-    child_events: &mut tokio::signal::unix::Signal,
+    exit: &mut ChildExit,
 ) -> std::io::Result<ExitOutcome> {
     if let Some(native_child) = child.downcast_mut::<cmux_pty::NativePtyChild>() {
         loop {
+            // wakeup-allow: bounded the non-blocking reap after the child's exit event (ChildExit);
+            // the loop waits on that event, never on a period
             match target.try_reap(|| native_child.try_wait_native()) {
                 Ok(Some(status)) => return Ok(exit_outcome(status)),
                 Ok(None) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error),
             }
-            wait_for_child_exit_hint(child_events).await?;
+            exit.wait().await?;
         }
     }
     loop {
+        // wakeup-allow: bounded the non-blocking reap after the child's exit event (ChildExit);
+        // the loop waits on that event, never on a period
         match target.try_reap(|| child.try_wait()) {
             Ok(Some(status)) => return Ok(portable_pty_exit_outcome(status)),
             Ok(None) => {}
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        wait_for_child_exit_hint(child_events).await?;
-    }
-}
-
-#[cfg(unix)]
-async fn wait_for_child_exit_hint(
-    child_events: &mut tokio::signal::unix::Signal,
-) -> std::io::Result<()> {
-    match tokio::time::timeout(CHILD_REAP_POLL_INTERVAL, child_events.recv()).await {
-        Ok(Some(())) | Err(_) => Ok(()),
-        Ok(None) => Err(std::io::Error::other("SIGCHLD listener closed before the child exited")),
+        exit.wait().await?;
     }
 }
 
@@ -2459,6 +2460,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
     let record = Arc::downgrade(&record);
     tokio::spawn(async move {
         tokio::select! {
+            // wakeup-allow: deadline the process's one timeout_ms; its exit ends the wait first
             _ = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)) => {
                 if let Some(record) = record.upgrade()
                     && !record.completion.is_finished()
@@ -2474,6 +2476,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
 fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError> {
     signal_record(&record, ProcessSignal::Terminate)?;
     tokio::spawn(async move {
+        // wakeup-allow: deadline the one termination grace after SIGTERM, then SIGKILL if still running
         tokio::time::sleep(TERMINATION_GRACE).await;
         if !record.completion.is_finished() {
             let _ = signal_record(&record, ProcessSignal::Kill);

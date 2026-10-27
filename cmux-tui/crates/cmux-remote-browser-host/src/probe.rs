@@ -360,6 +360,8 @@ fn probe(
     let deadline = t0 + Duration::from_millis(plan.first_frame_timeout_ms);
     while phase != Phase::Done {
         let wait_us = core.next_deadline_us().saturating_sub(now()).clamp(1_000, 10_000);
+        // wakeup-allow: cli-only the `--probe` proof viewer (main.rs `probe`, its only caller) paces its
+        // key schedule and frame clock for the few seconds it runs
         match rx.recv_timeout(Duration::from_micros(wait_us)) {
             Ok(bytes) => core.push_stream(&bytes, now()).map_err(|e| format!("push: {e:?}"))?,
             Err(RecvTimeoutError::Timeout) => {}

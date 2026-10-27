@@ -380,6 +380,8 @@ async fn run_workspace_http_server(
                             tokio::select! {
                                 biased;
                                 _ = &mut shutdown => break,
+                                // wakeup-allow: backoff only after a persistent accept error (the shared
+                                // Backoff, reset by a good accept); shutdown ends it first
                                 _ = tokio::time::sleep(accept_backoff.next_delay()) => {}
                             }
                         }
