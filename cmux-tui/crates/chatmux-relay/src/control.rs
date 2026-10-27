@@ -262,11 +262,14 @@ mod unix {
                 // A peer that withholds a newline must not grow relay memory.
                 break;
             }
-            while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-                let line: Vec<u8> = buffer.drain(..=newline).collect();
-                // `drain(..=newline)` ends the line with its newline.
-                let body = line.strip_suffix(b"\n").unwrap_or(&line);
-                let Ok(text) = std::str::from_utf8(body) else { continue };
+            let Some(last_newline) = buffer.iter().rposition(|byte| *byte == b'\n') else {
+                continue;
+            };
+            // Every complete line; the bytes after the last newline wait for
+            // the next read. The empty piece after that newline is blank.
+            let complete: Vec<u8> = buffer.drain(..=last_newline).collect();
+            for line in complete.split(|byte| *byte == b'\n') {
+                let Ok(text) = std::str::from_utf8(line) else { continue };
                 if text.trim().is_empty() {
                     continue;
                 }

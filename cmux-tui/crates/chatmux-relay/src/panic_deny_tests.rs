@@ -178,3 +178,24 @@ fn watch_record_merges_a_repeated_path() {
         ]
     );
 }
+
+#[test]
+fn random_ids_have_their_full_length_and_alphabet() {
+    let pair_id = crate::pairing::mint_pair_id().expect("pair id");
+    let tail = pair_id.strip_prefix("pair_").expect("pair_ prefix");
+    assert_eq!(tail.len(), 24);
+    assert!(tail.bytes().all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()));
+
+    let session = crate::tunnel_terminal::generate_session_name();
+    let suffix = session.strip_prefix("web-").expect("web- prefix");
+    assert_eq!(suffix.len(), 4);
+    assert!(suffix.bytes().all(|byte| b"abcdefghjkmnpqrstuvwxyz23456789".contains(&byte)));
+}
+
+#[test]
+fn alphabet_symbol_wraps_every_byte_into_the_alphabet() {
+    use crate::panic_free::alphabet_symbol;
+    assert_eq!(alphabet_symbol(b"abc", 0), 'a');
+    assert_eq!(alphabet_symbol(b"abc", 4), 'b');
+    assert_eq!(alphabet_symbol(b"abc", 255), 'a');
+}

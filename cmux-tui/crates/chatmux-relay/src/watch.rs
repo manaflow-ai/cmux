@@ -916,8 +916,13 @@ pub(crate) fn record(
     change_index: &mut HashMap<String, usize>,
     change: wire::FsWatchChange,
 ) {
-    match change_index.get(&change.path).and_then(|&index| changes.get_mut(index)) {
-        Some(existing) => {
+    match change_index.get(&change.path) {
+        Some(&index) => {
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "INVARIANT: change_index holds only indices `record` pushed into this burst's `changes`, which it never shortens"
+            )]
+            let existing = &mut changes[index];
             // Merge within one burst: created-then-modified stays created;
             // anything ending deleted is deleted; a rename target wins.
             existing.kind = match (existing.kind, change.kind) {

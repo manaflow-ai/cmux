@@ -9,7 +9,7 @@
 //! claim. Tests mirror `managed-enrollment.test.mjs`.
 
 use std::fs::OpenOptions;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
@@ -125,16 +125,8 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         // Truncation removes all logical contents. Limit the best-effort
         // physical overwrite so a large sparse file cannot force unbounded
         // cleanup I/O or temporary disk allocation.
-        let mut remaining = metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1);
-        let zeros = [0_u8; 4096];
-        while remaining > 0 {
-            let chunk = remaining.min(zeros.len() as u64) as usize;
-            let Some(block) = zeros.get(..chunk) else { break };
-            if write_file.write_all(block).is_err() {
-                break;
-            }
-            remaining -= chunk as u64;
-        }
+        let remaining = metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1);
+        let _ = std::io::copy(&mut std::io::repeat(0).take(remaining), write_file);
         let _ = write_file.set_len(0);
         let _ = write_file.sync_all();
     }

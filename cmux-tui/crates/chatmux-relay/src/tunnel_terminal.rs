@@ -51,7 +51,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::panic_free::filled;
+use crate::panic_free::{alphabet_symbol, filled};
 use crate::pty::{
     FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
 };
@@ -240,14 +240,10 @@ pub fn parse_tunnel_client_frame(payload: &[u8]) -> Option<ClientFrame> {
 /// Server-generated session names: same alphabet and prefix the Worker route
 /// uses, so pickers and process tables read consistently.
 pub fn generate_session_name() -> String {
-    const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+    const ALPHABET: &[u8; 31] = b"abcdefghjkmnpqrstuvwxyz23456789";
     let mut bytes = [0_u8; 4];
     let _ = getrandom::fill(&mut bytes);
-    let suffix: String = bytes
-        .iter()
-        .filter_map(|byte| ALPHABET.get(usize::from(*byte) % ALPHABET.len()))
-        .map(|letter| char::from(*letter))
-        .collect();
+    let suffix: String = bytes.iter().map(|byte| alphabet_symbol(ALPHABET, *byte)).collect();
     format!("web-{suffix}")
 }
 

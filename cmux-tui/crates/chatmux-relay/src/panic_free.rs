@@ -33,6 +33,17 @@ pub(crate) fn filled(buffer: &[u8], count: usize) -> &[u8] {
     &buffer[..count]
 }
 
+/// The symbol of `alphabet` that a random `byte` picks: `alphabet[byte % N]`.
+/// An empty alphabet fails the build, not the call.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: N > 0 is checked at compile time, so byte % N is less than N, the array's length"
+)]
+pub(crate) fn alphabet_symbol<const N: usize>(alphabet: &[u8; N], byte: u8) -> char {
+    const { assert!(N > 0, "alphabet_symbol needs a non-empty alphabet") };
+    char::from(alphabet[usize::from(byte) % N])
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};

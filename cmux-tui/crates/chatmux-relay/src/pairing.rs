@@ -14,6 +14,7 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::config::Config;
 use crate::error::RelayError;
 use crate::fingerprint::derive_cute_code;
+use crate::panic_free::alphabet_symbol;
 use crate::trust::Trust;
 use crate::wire::PAIRING_WIRE_VERSION;
 
@@ -56,9 +57,7 @@ pub fn mint_pair_id() -> Result<String, RelayError> {
             if byte >= 216 {
                 continue;
             }
-            if let Some(&character) = alphabet.get(usize::from(byte % 36)) {
-                tail.push(char::from(character));
-            }
+            tail.push(alphabet_symbol(alphabet, byte));
             if tail.len() == 24 {
                 break;
             }

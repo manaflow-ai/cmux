@@ -141,34 +141,29 @@ fn scoped_cwd(
         }
         value
     } else {
-        raw_owned =
-            match (local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())) {
-                (Some(local), Some(server)) => {
-                    let mut candidates: Vec<PathBuf> = local
-                        .iter()
-                        .chain(server.iter())
-                        .filter_map(|root| {
-                            std::fs::canonicalize(expand_path(root, home, home)).ok()
+        raw_owned = match (local_roots, server_roots) {
+            (Some(local @ [_, ..]), Some(server @ [_, ..])) => {
+                let mut candidates: Vec<PathBuf> = local
+                    .iter()
+                    .chain(server.iter())
+                    .filter_map(|root| std::fs::canonicalize(expand_path(root, home, home)).ok())
+                    .collect();
+                candidates.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+                candidates
+                    .into_iter()
+                    .find(|candidate| {
+                        local.iter().chain(server.iter()).all(|root| {
+                            std::fs::canonicalize(expand_path(root, home, home))
+                                .map(|root| candidate.starts_with(root))
+                                .unwrap_or(false)
                         })
-                        .collect();
-                    candidates.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
-                    candidates
-                        .into_iter()
-                        .find(|candidate| {
-                            local.iter().chain(server.iter()).all(|root| {
-                                std::fs::canonicalize(expand_path(root, home, home))
-                                    .map(|root| candidate.starts_with(root))
-                                    .unwrap_or(false)
-                            })
-                        })
-                        .map(|path| path.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "~".to_owned())
-                }
-                (Some(roots), None) | (None, Some(roots)) => {
-                    roots.first().cloned().unwrap_or_else(|| "~".to_owned())
-                }
-                (None, None) => "~".to_owned(),
-            };
+                    })
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "~".to_owned())
+            }
+            (Some([first, ..]), _) | (_, Some([first, ..])) => first.clone(),
+            _ => "~".to_owned(),
+        };
         &raw_owned
     };
     let path = expand_path(raw, home, home);
@@ -2154,6 +2149,21 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn scoped_cwd_defaults_to_the_first_root_of_the_only_non_empty_list() {
+        let home = TestDirectory::new("cwd-home");
+        let root = TestDirectory::new("cwd-root");
+        let root_text = root.path.to_string_lossy().into_owned();
+        let roots = [root_text.clone()];
+        let canonical = std::fs::canonicalize(&root.path).expect("canonical root");
+        for (local, server) in [(Some(&[][..]), Some(&roots[..])), (Some(&roots[..]), None)] {
+            let resolved = scoped_cwd(None, &home.path, local, server).expect("cwd in root");
+            assert_eq!(resolved.path, canonical);
+        }
+        let resolved = scoped_cwd(None, &home.path, Some(&[]), None).expect("home cwd");
+        assert_eq!(resolved.path, std::fs::canonicalize(&home.path).expect("canonical home"));
     }
 
     /// A fake PTY: emit() calls the subscribed sink synchronously, like the
