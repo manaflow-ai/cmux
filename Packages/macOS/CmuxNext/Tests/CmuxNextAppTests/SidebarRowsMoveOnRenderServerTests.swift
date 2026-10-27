@@ -144,13 +144,15 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aSecondInsertStacksOnTheFirstMove() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        let key = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
+        // Both inserts go under the first row, which holds still (as `anInsertAtTheTopMovesTheRowsBelowOnTheRenderServer`):
+        // above it, the list keeps what the user sees still and no row moves. Workspace 2 is pushed by both.
+        let key = SidebarRowKey.workspace(try #require(Self.sections([2]).first?.workspaces.first?.id))
         let view = try #require(list.rowViews[key])
 
-        model.sections = Self.sections([0] + Array(1...30))
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(Self.positionSprings(view) == 1)
-        model.sections = Self.sections([999, 0] + Array(1...30))
+        model.sections = Self.sections([1, 999, 0] + Array(2...30))
         list.reload(animated: true)
 
         #expect(list.rowViews[key] === view)
@@ -166,7 +168,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aMoveTheDisplaySleepsThroughEndsAtTheSlots() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        model.sections = Self.sections([0] + Array(1...30))
+        // Under the first row, so the rows below move (above it, the list holds what the user sees still).
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(list.rowViews.values.contains { Self.positionSprings($0) > 0 })
 
