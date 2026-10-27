@@ -43,7 +43,10 @@ struct HomeDockNewTerminalFocusTests {
                 }
             }
             defer { focus.observer = previous }
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: dock.id), origin: .user)
+            // A script's (or the CLI's) new terminal with focus, as the perf lab's first-keys check sends it: it is made in
+            // the dock and moved beside it (HomeDockOpens.placing -> LinkOpener.moveBeside). A person's own new terminal
+            // from a lone dock opens its column directly (ChatColumnPlacement.besideDock) and is not this path.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: dock.id), origin: .script, focusRequested: true)
             invocation.opensTerminal = true
             #expect(services.registry.perform("newSurface", invocation: invocation))
             try await PasswordManagerRouteTests.until({
