@@ -88,8 +88,10 @@ struct AgentChatsLaunchResumeTests {
         let tabs = Self.tabs([(key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-late"))], host: host)
         tabs.localHost = nil
         var resolutions = 0
+        let (resolutionEvents, resolutionContinuation): (AsyncStream<Int>, AsyncStream<Int>.Continuation) = AsyncStream.makeStream()
         tabs.resolveLocalHost = {
             resolutions += 1
+            resolutionContinuation.yield(resolutions)
             return resolutions >= 2 ? Self.thisMac : nil
         }
         let store = DaemonStore()
@@ -99,6 +101,11 @@ struct AgentChatsLaunchResumeTests {
         store.applyProvisional(snapshot: tree)
         store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "late-host-test")), generationChanged: false))
         store.apply(snapshot: tree)
+        let firstResolution = try await withAgentPaneDeadline(Duration.seconds(5), label: "first install host resolution") {
+            for await resolution in resolutionEvents where resolution == 1 { return resolution }
+            throw AgentPaneDeadlineExceeded(label: "first install host resolution")
+        }
+        #expect(firstResolution == 1)
         // The first live revision sees no install host. A later tree revision is the real readiness
         // signal for this Mac's daemon and must retry the launch census instead of ending the task.
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,

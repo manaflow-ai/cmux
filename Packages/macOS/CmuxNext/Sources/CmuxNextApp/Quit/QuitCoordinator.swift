@@ -175,6 +175,8 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: {
+                // A launch warm cannot restart an agent after End Sessions has stopped the local daemon.
+                await services.agentTabs.cancelLaunchResume()
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()

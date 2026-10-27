@@ -76,24 +76,43 @@ extension AgentTabStore {
         guard localHost != nil else { return false }
         let targets = resumeTargetsAtLaunch()
         guard !targets.isEmpty else { return true }
-        await withTaskGroup(of: Void.self) { group in
+        return await withTaskGroup(of: Bool.self) { group in
             var pending = targets.makeIterator()
-            let warm: @Sendable ((session: String, host: any AgentPaneHostProviding)) async -> Void = { target in
+            let warm: @Sendable ((session: String, host: any AgentPaneHostProviding)) async -> Bool = { target in
                 do {
                     try await target.host.warm(sessionIds: [target.session])
+                    return true
                 } catch {
                     Self.launchLogger.error("launch resume of chat \(target.session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    return false
                 }
             }
             for target in targets.prefix(Self.launchResumesInFlight) {
                 _ = pending.next()
                 group.addTask { await warm(target) }
             }
-            for await _ in group {
+            var allSucceeded = true
+            for await succeeded in group {
+                allSucceeded = allSucceeded && succeeded
+                if Task.isCancelled {
+                    group.cancelAll()
+                    continue
+                }
                 if let target = pending.next() { group.addTask { await warm(target) } }
             }
+            // A transient daemon handoff can reject a warm request. Keep the observer alive so
+            // the next live-tree revision retries the complete idempotent census.
+            return allSucceeded
         }
-        return true
+    }
+
+    /// Stops launch warming before Quit ends local agents or terminals, and waits for any in-flight
+    /// request to finish so it cannot restart a daemon after the quit choice took effect.
+    func cancelLaunchResume() async {
+        let task = launchResumeTask
+        launchResumeTask = nil
+        task?.cancel()
+        await task?.value
     }
 
     /// Resumes every chat once `store` (this Mac's tree) first loads.
