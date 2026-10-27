@@ -87,7 +87,7 @@ import Testing
                                         markedUnread: Bool = false) throws -> (WorkspaceModel, TabModel) {
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
-        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: name), name: name, screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
         tab.applyState(SessionStateMirror.TabRecord(markedUnread: markedUnread, attention: Self.attention(reason, at: 1_000)), progress: nil)
@@ -97,7 +97,7 @@ import Testing
     /// A tab on this Mac and one on an SSH machine with the same id (a forked machine keeps its
     /// tab ids): going into the remote one hides only its ring, and Dismiss Highlight on one
     /// workspace leaves the other's.
-    @Test func goingIntoARemoteMarkedTabHidesOnlyItsOwnRing() throws {
+    @Test func goingIntoARemoteMarkedTabHidesOnlyItsOwnRing() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
@@ -122,5 +122,27 @@ import Testing
         notifications.dismissHighlight(localWorkspace)
         #expect(notifications.attentionMarks(for: localWorkspace).isEmpty, "Dismiss Highlight left the ring")
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "Dismiss Highlight here hid the remote ring")
+
+        // A strip click is delayed until mouse-up. A titlebar tracking loop can consume that
+        // mouse-up, so it reaches the service in screen coordinates with no window. The click
+        // must still read the originating remote tab rather than this Mac's tab with the same id.
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        notifications.leftButtonIsDown = { true }
+        let controller = try #require(services.windows.openWindow(workspaces: [remoteWorkspace.id],
+                                                                 frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
+        let window = try #require(controller.window)
+        defer { controller.teardown(); window.close() }
+        try await PinnedPageTests.until { controller.content?.panes.isEmpty == false }
+        let content = try #require(controller.content)
+        try #require(content.workspace === remoteWorkspace)
+        let strip = try #require(content.panes.values.first?.view.stripView)
+        content.contentView.layoutSubtreeIfNeeded()
+        let point = strip.convert(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY), to: nil)
+        notifications.noteMouseDown(in: window, at: point, synthetic: true)
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "the strip press read before mouse-up")
+        notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
+        #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "the remote strip click left its ring")
+        #expect(localTab.markedUnread, "the remote strip click read this Mac's tab with the same id")
     }
 }
