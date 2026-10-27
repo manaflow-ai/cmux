@@ -30,11 +30,21 @@ async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<(
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
     let client = connect(false).await?;
-    let params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
+    let mut params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
+    // The daemon of the person's own home refuses a client from an unstable path unless allowed.
+    if crate::daemon::exe_path::allowed_by_env() {
+        params["allowUnstablePath"] = json!(true);
+    }
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.
-    let _ = client.request(method::MUX_SHUTDOWN, params).await;
+    let answer = client.request(method::MUX_SHUTDOWN, params).await;
+    // A refusal of this client (`exe_path::shutdown_refusal`) leaves the daemon running.
+    if let Err(e) = &answer
+        && e.to_string().contains("refused to stop the daemon")
+    {
+        return Err(anyhow!("{e}"));
+    }
     drop(client);
     // The daemon holds its lock until it exits, so a `daemon start` right
     // after this cannot lose the lock to the stopping one.
