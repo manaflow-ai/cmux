@@ -244,20 +244,45 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("changes.body", condition)
         self.assertNotIn("changes.title", condition)
 
-    def run_step(self, script_exit: int, gh_exit: int = 0, checkout: str = "success") -> int:
-        """The job's own count step, with gh and the script stubbed."""
+    def run_step(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
+                 live_body: str | None = None, event_body: str = "", lines: int = 10) -> int:
+        """The job's own count step with gh stubbed, and the script stubbed (SCRIPT_EXIT) or the real one (None)."""
         run = self.job["steps"][-1]["run"]
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "scripts/ci").mkdir(parents=True)
-            (directory / "scripts/ci/pr_size.py").write_text(f"import sys\nsys.exit({script_exit})\n", encoding="utf-8")
+            if script_exit is None:
+                for name in ("pr_size.py", "pr_size_exclusions.json"):
+                    (directory / "scripts/ci" / name).write_bytes((SCRIPT.parent / name).read_bytes())
+            else:
+                (directory / "scripts/ci/pr_size.py").write_text(f"import sys\nsys.exit({script_exit})\n",
+                                                                 encoding="utf-8")
+            files = json.dumps({"filename": "src/a.swift", "additions": lines, "deletions": 0})
+            live = json.dumps({"pull_request": {"body": live_body, "changed_files": 1}})
+            (directory / "files.out").write_text(files + "\n", encoding="utf-8")
+            (directory / "live.out").write_text(live + "\n", encoding="utf-8")
+            event = directory / "event.json"
+            event.write_text(json.dumps({"pull_request": {"body": event_body}}), encoding="utf-8")
             bin_dir = directory / "bin"
             bin_dir.mkdir()
-            (bin_dir / "gh").write_text(f"#!/bin/sh\nexit {gh_exit}\n", encoding="utf-8")
+            live_exit = 1 if live_body is None else 0
+            (bin_dir / "gh").write_text(
+                "#!/bin/sh\n"
+                f'case "$*" in *pulls/1/files*) [ {gh_exit} = 0 ] && cat "{directory}/files.out"; exit {gh_exit};; esac\n'
+                f'[ {live_exit} = 0 ] && cat "{directory}/live.out"; exit {live_exit}\n', encoding="utf-8")
             (bin_dir / "gh").chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
-                   "GITHUB_EVENT_PATH": "/dev/null", "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
+                   "GITHUB_EVENT_PATH": str(event), "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
             return subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True).returncode
+
+    def test_the_current_body_decides_not_the_events_copy(self) -> None:
+        # A re-run of an older run whose event still had the `Size:` line the body has since dropped.
+        self.assertEqual(self.run_step(None, lines=900, live_body="Why.", event_body="Size: atomic rename"), 1)
+        self.assertEqual(self.run_step(None, lines=900, live_body="Size: atomic rename", event_body="Why."), 0)
+        # The body unread: the event's copy answers.
+        self.assertEqual(self.run_step(None, lines=900, live_body=None, event_body="Size: atomic rename"), 0)
+        self.assertEqual(self.run_step(None, lines=900, live_body=None, event_body="Why."), 1)
+        self.assertEqual(self.run_step(None, lines=10, live_body="Why."), 0)
 
     def test_the_step_fails_only_on_a_measured_size(self) -> None:
         self.assertEqual(self.run_step(0), 0)

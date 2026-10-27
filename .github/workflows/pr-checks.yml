@@ -254,8 +254,17 @@ jobs:
             echo "::warning title=PR size::could not read the pull request's files; size not measured"
             exit 0
           fi
+          # The body as it is now, not the event's copy: a re-run of an older run must not
+          # answer with a `Size:` line the body no longer has. A failed read keeps the event's.
+          event="$GITHUB_EVENT_PATH"
+          if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+            > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+            event="$RUNNER_TEMP/live-event.json"
+          else
+            echo "::notice title=PR size::could not read the current body; using the event's"
+          fi
           status=0
-          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$GITHUB_EVENT_PATH" || status=$?
+          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$event" || status=$?
           case "$status" in
             0) ;;
             3) exit 1 ;;  # over the limit with no `Size:` line: the pull request's own red
