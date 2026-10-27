@@ -394,12 +394,22 @@ github_api() {
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
 # commit has tree <key>, nothing when the runs list has none, or "unknown" when
-# the runs list cannot be read (rate limit, network, an unparsable body): a
-# caller that fails fast on "no publisher" must not read a failed read as none.
-# A commit missing locally is fetched once (best effort; depth 1 only in a
-# shallow clone, so a full clone stays full); one it cannot read does not count.
+# the runs list cannot be read (rate limit, network, an unparsable body) or the
+# fetch deadline passed before every run commit was compared: a caller that
+# fails fast on "no publisher" must not read an unread run as none.
+# Run commits missing locally are fetched together, by exact SHA (no tags, no
+# ref listing), and in a shallow or partial clone with depth 1 and no blobs: the
+# key reads only trees. A depth-1 fetch with blobs is the whole source tree
+# (about 560 MB) per run, and a burst of lane-branch pushes lists up to 50
+# active runs, so one fetch per run held cmux-next path routing past its limit
+# (2026-10-27). A full clone stays full (no depth) and complete (no filter).
+# All fetches share CMUX_TUI_TREE_RUN_FETCH_SECONDS (default 60); runs on the
+# cmux-next branches are compared first. A commit no remote serves is skipped.
 active_publisher_for_key() {
-  local key="$1" body candidate depth=()
+  local key="$1" body candidate fetch_args=() candidates=() missing=() unread=0 deadline left
+  local budget="${CMUX_TUI_TREE_RUN_FETCH_SECONDS:-60}" public
+  [[ "$budget" =~ ^[0-9]+$ ]] || budget=60
+  public="${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}"
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
     echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
   python3 -c '
@@ -409,29 +419,72 @@ assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("
 ' <<<"$body" 2>/dev/null || {
     echo "note: the cmux-tui artifacts runs list is unreadable: a same-tree run is unknown" >&2; echo unknown; return 0; }
   # Depth 1 only in a shallow checkout: in a full clone --depth writes
-  # .git/shallow and truncates history for every worktree sharing it.
-  [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+  # .git/shallow and truncates history for every worktree sharing it. The blob
+  # filter likewise only where history is already incomplete (shallow or partial).
+  if [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]]; then
+    fetch_args=(--depth=1 --filter=blob:none)
+  elif [[ -n "$(git -C "$repo_root" config --get extensions.partialclone 2>/dev/null)" ]]; then
+    fetch_args=(--filter=blob:none)
+  fi
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
-    # A fleet step's origin may be a local warm checkout or the controller's depot, which lack other
-    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen). The
-    # fallback takes the same depth rule: --depth=1 there made a full clone shallow, and a shallow
-    # clone skips the unpushed-commit refusal (refuse_unpushed_source).
-    git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
-      || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
-    if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
+    candidates+=("$candidate")
+    git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null || missing+=("$candidate")
   done < <(python3 -c '
 import json, sys
 try:
     runs = json.loads(sys.stdin.read()).get("workflow_runs", [])
 except Exception:
     runs = []
-for run in runs:
-    if run.get("status") != "completed":
-        print(run.get("head_sha", ""))
+active = [r for r in runs if r.get("status") != "completed"]
+# The cmux-next branches publish the trees other runs wait for: compare them first.
+active.sort(key=lambda r: r.get("head_branch") not in ("feat-cmux-next", "feat-cmux-next-acpmux"))
+seen = set()
+for run in active:
+    sha = run.get("head_sha", "")
+    if sha not in seen:
+        seen.add(sha)
+        print(sha)
 ' <<<"$body")
+  (( ${#candidates[@]} > 0 )) || return 0
+  deadline=$(( $(date +%s) + budget ))
+  if (( ${#missing[@]} > 0 )); then
+    # One fetch for all of them from origin, then from the public repository (a
+    # fleet step's origin may be a local warm checkout or the controller's depot,
+    # which lack other commits; 2026-10-25: a same-tree run went unseen).
+    bounded_run_fetch "$deadline" origin "${missing[@]}" \
+      || bounded_run_fetch "$deadline" "$public" "${missing[@]}" || true
+  fi
+  for candidate in "${candidates[@]}"; do
+    if ! git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null; then
+      # A batch fails as a whole when one commit is gone; fetch the rest alone.
+      left=$(( deadline - $(date +%s) ))
+      if (( left <= 0 )); then unread=$((unread + 1)); continue; fi
+      bounded_run_fetch "$deadline" origin "$candidate" \
+        || bounded_run_fetch "$deadline" "$public" "$candidate" \
+        || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
+    fi
+    if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
+  done
+  if (( unread > 0 )); then
+    echo "note: $unread active run commits were not fetched within ${budget}s: a same-tree run is unknown" >&2
+    echo unknown
+  fi
+  return 0
+}
+
+# bounded_run_fetch <deadline> <remote> <sha>...: fetches exactly those
+# commits (fetch_args from the caller), no tags, no submodules and no
+# FETCH_HEAD, stopped at <deadline> (epoch seconds) where timeout(1) exists.
+bounded_run_fetch() {
+  local deadline="$1" remote="$2" left limiter=()
+  shift 2
+  left=$(( deadline - $(date +%s) ))
+  (( left > 0 )) || return 1
+  if command -v timeout >/dev/null 2>&1; then limiter=(timeout "$left")
+  elif command -v gtimeout >/dev/null 2>&1; then limiter=(gtimeout "$left"); fi
+  ${limiter[@]+"${limiter[@]}"} git -C "$repo_root" fetch -q --no-tags --no-recurse-submodules --no-write-fetch-head \
+    ${fetch_args[@]+"${fetch_args[@]}"} "$remote" "$@" 2>/dev/null
 }
 
 # ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1,
