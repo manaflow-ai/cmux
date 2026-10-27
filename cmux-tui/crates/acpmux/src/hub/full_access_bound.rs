@@ -505,9 +505,13 @@ impl Hub {
     /// closed while the host still runs. What it reported since
     /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
     /// would reattach it, but the push does not wait for one. Host records that cannot be read
-    /// do not prove the host gone (`host_record_gone`, review 67).
+    /// do not prove the host gone (`host_record_gone`, review 67). A slot held past its bound
+    /// counts too, as for `host_replaying`.
     async fn host_unheard(session: &Session) -> bool {
-        let child = session.child.lock().await.clone();
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        let Ok(slot) = tokio::time::timeout(wait, session.child.lock()).await else { return true };
+        let child = (*slot).clone();
+        drop(slot);
         let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
         child.is_broken()
             || child.is_stopped()
@@ -769,8 +773,11 @@ impl Hub {
             }
             // What waits on an agent this daemon no longer hears is answered first: a start
             // waiting on its `initialize` holds the spawn lock below, and its link may have broken
-            // while MDM was unset, when nothing failed it (review 3 of #26059).
-            let child = session.child.lock().await.clone();
+            // while MDM was unset, when nothing failed it (review 3 of #26059). The agent slot is
+            // waited on only so long, as the end's is: a slot held elsewhere keeps no push
+            // waiting, and the end below marks itself pending.
+            let held = tokio::time::timeout(super::shutdown::SHUTDOWN_GRACE, session.child.lock());
+            let child = held.await.ok().and_then(|slot| (*slot).clone());
             if let Some(child) = child.filter(|c| c.host_record().is_some()) {
                 child.fail_pending_if_unheard().await;
             }
