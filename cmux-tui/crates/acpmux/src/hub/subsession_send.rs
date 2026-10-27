@@ -24,8 +24,9 @@ impl Hub {
         }
         // The uploads it names as its own (by their owner token) go if it is refused
         // (`attach::OwnedUploads`, `Saved`).
-        let mut owned =
-            crate::attach::OwnedUploads(crate::prompt_uploads::owned(&target.id, &attachments));
+        let mut owned = crate::attach::OwnedUploads(
+            crate::prompt_uploads::owned(&target.id, &attachments).await,
+        );
         if text.trim().is_empty() {
             return Err(RpcError::invalid_params("text must not be empty"));
         }

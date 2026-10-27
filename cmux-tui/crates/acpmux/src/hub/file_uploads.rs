@@ -780,12 +780,22 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
-    // The whole upload goes, finished or not (a sender that will not send the prompt naming it),
-    // under the sweep's lock, so a prompt reading it at that moment never sees it half gone.
+    let token = params.get("ownerToken").and_then(Value::as_str).unwrap_or_default();
+    // Under the sweep's lock, so a prompt reading it at that moment never sees it half gone.
     let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _held = hold(&upload);
-    if let Some(dir) = part_path(id, &upload).as_deref().and_then(Path::parent) {
-        let _ = std::fs::remove_dir_all(dir);
+    let Some(dir) = upload_dir(id, &upload) else { return Ok(json!({})) };
+    // An upload begun for a prompt goes whole, finished or not, only with its owner token (a
+    // sender that will not send the prompt naming it): nobody else's cancel deletes it. Any
+    // other upload's cancel deletes it while it is unfinished, as before.
+    let owner = dir.join(OWNER);
+    let goes = if owner.exists() {
+        owned_dir(id, &upload, token).is_some()
+    } else {
+        dir.join(".part").exists()
+    };
+    if goes {
+        let _ = std::fs::remove_dir_all(&dir);
     }
     Ok(json!({}))
 }

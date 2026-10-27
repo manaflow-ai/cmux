@@ -120,23 +120,27 @@ pub(super) async fn handle(
 }
 
 /// A send that the outbox answered with an earlier delivery of the same prompt id: the uploads
-/// it named as its own and the earlier one does not (`attach::blocks_for` uploaded them for this
-/// send) are never read, so they go, on this daemon or on the peer that holds the chat.
+/// it named as its own and the earlier one names not at all (`attach::blocks_for` uploaded them
+/// for this send) are never read, so they go, on this daemon or on the peer that holds the chat.
+/// Each cancel carries its owner token, which the daemon that holds the upload checks.
 async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
-    let ids = |d: &Delivery| {
-        let blocks = d.request.get("prompt").and_then(Value::as_array);
-        crate::prompt_uploads::owned_ids(blocks.map_or(&[][..], Vec::as_slice))
+    let blocks = |d: &Delivery| {
+        d.request.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default()
     };
-    let keep = ids(kept);
-    for upload in ids(new).into_iter().filter(|id| !keep.contains(id)) {
+    let keep = crate::prompt_uploads::upload_ids(&blocks(kept));
+    let own = crate::prompt_uploads::owned_refs(&blocks(new));
+    let spelled = |id: &str| uuid::Uuid::try_parse(id).map(|id| id.to_string()).ok();
+    for (upload, token) in
+        own.into_iter().filter(|(id, _)| spelled(id).is_some_and(|id| !keep.contains(&id)))
+    {
         if let Ok(session) = hub.resolve(&new.target) {
-            let params = json!({"uploadId": upload});
+            let params = json!({"uploadId": upload, "ownerToken": token});
             let id = session.id.clone();
             let _ =
                 tokio::task::spawn_blocking(move || crate::hub::file_uploads::cancel(&id, &params))
                     .await;
         } else if let Some((peer, id, _)) = hub.resolve_remote(&new.target) {
-            let params = json!({"sessionId": id, "uploadId": upload});
+            let params = json!({"sessionId": id, "uploadId": upload, "ownerToken": token});
             let _ = peer.request(method::MUX_FILE_PUT_CANCEL, params).await;
         }
     }

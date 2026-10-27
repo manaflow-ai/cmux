@@ -510,7 +510,8 @@ use crate::hub::SIDE_TAG;
 /// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
 /// `hub/remote_floor.rs`) sends no files: not through `acpmux send --attach` from its shell, now
 /// or queued (`--no-wait`), nor by uploading one, as `send_message` may not either
-/// (`hub/subsession_send.rs`). Refused before anything is saved, sent or forwarded.
+/// (`hub/subsession_send.rs`); nor does it cancel an upload. Refused before anything is saved,
+/// sent, deleted or forwarded.
 fn caller_sends_no_files(
     hub: &Arc<Hub>,
     conn: &Conn,
@@ -532,6 +533,7 @@ fn caller_sends_no_files(
             | method::MUX_FILE_PUT_BEGIN
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
     );
     if !(files || upload) {
         return Ok(());
@@ -1043,7 +1045,7 @@ async fn dispatch_request(
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks)
+                crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;

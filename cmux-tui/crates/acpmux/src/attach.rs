@@ -193,7 +193,7 @@ pub async fn blocks_for(
     }
     if let Some(e) = failure {
         for one in &sent {
-            let cancel = json!({"sessionId": chat, "uploadId": one.id});
+            let cancel = json!({"sessionId": chat, "uploadId": one.id, "ownerToken": one.owner});
             let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
         }
         return Err(e);

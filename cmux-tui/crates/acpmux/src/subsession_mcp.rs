@@ -251,6 +251,10 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
         .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
         .collect::<Option<_>>()
         .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
+    // No files: a text message, as without the field.
+    if paths.is_empty() {
+        return Ok(args);
+    }
     let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
     // The daemon says first whether this agent may send files (not while a remote device drives
     // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
