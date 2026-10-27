@@ -57,6 +57,63 @@ Still open: the 984 old refusal lines in the live memory. The inspector's `rebui
 (`inspect/edit.rs`) can rebuild them. The order is the 652 original refusals first, then their
 parents. This writes to the user's live memory, so it waits for the user's word.
 
+## Trace metrics (Oct 27)
+
+`measure/chief_health.py` gives the health of a real Chief home in about 1 s, no model.
+Baseline, Lawrence's default Chief (copy of Oct 26 22:57), last 7 days:
+
+| Number | Last 7 days | All time |
+| --- | ---: | ---: |
+| Messages the person typed (no acks) | 541 | 949 |
+| Time to first reply, p50 / p90 | 25 s / 75 s | 24 s / 69 s |
+| Replied within 10 s | 10.5% | 9.0% |
+| No reply within 15 min | 4.4% | 2.7% |
+| Turns cut by a server restart | 9 | 10 |
+| Turns that ended in an error | 1.2% | 2.2% |
+| Turn first token p50 / p95 | 2.9 s / 8.4 s | 3.2 s / 11.4 s |
+| "No such tool" calls | 13 of 61,559 | 14 of 86,832 |
+| `cmux` usage errors | 18 (3.1%) | 18 (1.7%) |
+| Subagents without a workspace | 25 of 298 | 25 of 478 |
+
+17 of the 18 usage errors are `browser right navigate --url`, which the show block taught
+(fixed in d43a10946c6). The 2 "refusal lines" of all time are Chief's own Oct 13 reply
+"Could you open the a12 link ...", kept verbatim: not refusals.
+
+## Replays of real messages, evals 1 to 3 (Oct 27)
+
+`measure/replay_cases.py` makes model cases from Lawrence's default Chief memory (Lawrence's
+messages only; the cases stay outside the repo, mode 600). Rules only, no model judge. Gold
+is what Lawrence accepted: Chief spawned within 15 minutes and his next message was no
+correction. 12 dispatch and 12 feedback messages were sampled from 114 and 127 such
+messages (seed 11); 1 was left out because its repo was named only in older memory. 4 rule
+cases: links, short replies, Group lines, landing on feat-cmux-next.
+
+Real brain (`chief_eval`, Opus 5.5, medium effort, sr2 gateway), 3 runs per case:
+
+| Eval | Cases | Pass |
+| --- | ---: | ---: |
+| 1. Dispatch fidelity | 11 | 33/33 |
+| 2. Feedback to action | 12 | 35/36 |
+| 3. Rules stick | 4 | 12/12 |
+
+The one failure used "hold" where the check wanted "holding": a check that is too strict, not
+a Chief failure. Turn p50 13 s, cache hit 0.87.
+
+What the first two runs taught about the cases, all fixed in the generator before the run above:
+
+- The history lacked Chief's own earlier spawns, so Chief redid older asks first and
+  sometimes skipped the new one. The history now shows them ("Started a12: Title").
+- A check on the person's first five words verbatim failed on any paraphrase or fixed
+  typo. Now: any one of up to 3 key words that the accepted task kept.
+- A case whose repo was named only in older memory could not pass from its 8-message
+  history, so it is left out.
+- A spawn without a cwd fails on purpose. The host then runs it in the Chief's own folder,
+  not the repo (2 of the 5 failures in run 2).
+
+These cases are too easy to show a change in this form: they pass at 99%. Next, harder
+sets: messages that Lawrence corrected (the regex finds about 10% of dispatches), rules
+taught more than 100 messages before the request, and a fresh draw of seeds.
+
 ## Next
 
 1. A `chief-replay` runner that runs each replay above with one command against a scratch home and
