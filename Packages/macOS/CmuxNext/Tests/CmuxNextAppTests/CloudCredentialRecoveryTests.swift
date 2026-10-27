@@ -25,6 +25,10 @@ struct CloudCredentialRecoveryTests {
         }))
     }
 
+    @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
+        #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
+    }
+
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {
         var host = AgentTabRemoteHost(surface: 7, session: "chat-1", machine: "Workspace",
                                       endpoint: { throw CancellationError() })
