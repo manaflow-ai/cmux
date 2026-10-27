@@ -54,6 +54,7 @@ public final class TerminalLaunchFrames {
     init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: made in the app's main() before the deadline scheduler exists, on the injected clock the tests step; one drop of decoded frames per launch
         discard = DemandTimer(owner: "terminal.launch-frames.keep", clock: clock)
     }
 
@@ -92,6 +93,7 @@ public final class TerminalLaunchFrames {
         // A deadline: the frames no pane took by then are dropped (decoded frames are large).
         discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: shows the frames of the panes that asked before the read ended; ends then.
+        // main-hop-allow: made in the app's main() before the app's MainWorkScheduler exists; the one resume per launch shows the frames of the panes that asked before the read ended
         return Task { [weak self] in
             _ = await read.finished()
             self?.showWaiting()
@@ -162,6 +164,7 @@ public final class TerminalLaunchFrames {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
+            // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
                   let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)

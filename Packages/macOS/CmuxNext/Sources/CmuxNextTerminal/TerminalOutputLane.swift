@@ -281,8 +281,14 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// not lane-safe. The main thread never blocks on it.
     func drained() async {
         _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
-            queue.async { done.resume(returning: ()) }
+            whenDrained { done.resume(returning: ()) }
         }
+    }
+
+    /// Calls `body` on the lane once every chunk queued so far has been parsed: ``drained()`` for a caller
+    /// that posts its main-thread part with a class instead of awaiting.
+    func whenDrained(_ body: @escaping @Sendable () -> Void) {
+        queue.async(execute: body)
     }
 
     /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence

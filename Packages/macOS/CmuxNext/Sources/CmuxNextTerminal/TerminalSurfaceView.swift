@@ -110,7 +110,8 @@ public final class TerminalSurfaceView: NSView {
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
     private var lastFocus: Bool?
-    private var windowObservers: [any NSObjectProtocol] = []
+    /// Its window's notices while shown, by its tab node (``TerminalWindowWatch``).
+    private let windowWatch: TerminalWindowWatch
     /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
     private var occlusionWatch: WindowOcclusionSubscription?
     private var appliedContentScale: NSSize?
@@ -164,7 +165,7 @@ public final class TerminalSurfaceView: NSView {
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         gpuResidency: (any TerminalGPUResidency)? = nil) {
+         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
@@ -175,8 +176,11 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
+        windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
+        bridge.followLinkAnswers(on: mainWork)
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 
@@ -189,7 +193,7 @@ public final class TerminalSurfaceView: NSView {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+            windowWatch.stop()
             secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
@@ -277,6 +281,7 @@ public final class TerminalSurfaceView: NSView {
         syncWindowState()
     }
 
+    // visibility-walk-allow: drawing follows AppKit's own view state in the hide's turn (WindowDrawPolicy), as WindowVisibilitySource says a drawing reader must
     public override func viewDidHide() {
         super.viewDidHide()
         isShown = false
@@ -286,6 +291,7 @@ public final class TerminalSurfaceView: NSView {
         updateOcclusion()
     }
 
+    // visibility-walk-allow: drawing follows AppKit's own view state in the unhide's turn (WindowDrawPolicy), as WindowVisibilitySource says a drawing reader must
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         syncWindowState()
@@ -294,6 +300,7 @@ public final class TerminalSurfaceView: NSView {
     /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
     /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
     private func syncWindowState() {
+        // visibility-walk-allow: a transition (move, hide, park), not per frame; the surface draws and sizes by AppKit's own state
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
         isShown = shown
         observeWindow(shown)
@@ -319,41 +326,31 @@ public final class TerminalSurfaceView: NSView {
     private var pendingForcedReport = false
 
     private func observeWindow(_ observe: Bool) {
-        guard observe == windowObservers.isEmpty else { return }
-        let center = NotificationCenter.default
-        for observer in windowObservers { center.removeObserver(observer) }
-        windowObservers.removeAll()
+        guard observe != windowWatch.isWatching else { return }
+        windowWatch.stop()
         occlusionWatch = nil
         guard observe, let window else { return }
         occlusionWatch = watchOcclusionFamily(of: window)
-        let names: [Notification.Name] = [
-            NSWindow.didChangeOcclusionStateNotification,
-            NSWindow.didBecomeKeyNotification,
-            NSWindow.didResignKeyNotification,
-            NSWindow.didChangeScreenNotification,
-        ]
-        for name in names {
-            windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                let name = note.name
-                MainActor.assumeIsolated { self?.windowStateChanged(name) } // main-proof: observer on queue: .main
-            })
-        }
+        windowWatch.watch(WindowEvents.of(window))
     }
 
-    /// Window notifications handled (`debug.layout_counters`): only shown terminals count.
+    /// Window notices handled (`debug.layout_counters`): only shown terminals count, key and screen changes only
+    /// while their tab is visible.
     public static var windowStateUpdates: UInt64 = 0
     /// Grid reports views made to their session (`debug.window_transition`).
     public static var gridReports: UInt64 = 0
 
-    private func windowStateChanged(_ name: Notification.Name) {
+    /// Applies the window's current state for `change`: each step is a no-op when nothing changed, so a missed
+    /// notice read on show costs nothing.
+    private func windowStateChanged(_ change: TerminalWindowWatch.Change) {
         Self.windowStateUpdates &+= 1
-        switch name {
-        case NSWindow.didChangeOcclusionStateNotification:
+        switch change {
+        case .occlusion:
             updateOcclusion()
-        case NSWindow.didChangeScreenNotification:
+        case .screen:
             updateContentScale()
             updateSurfaceSize()
-        default:
+        case .focus:
             updateFocus()
         }
     }

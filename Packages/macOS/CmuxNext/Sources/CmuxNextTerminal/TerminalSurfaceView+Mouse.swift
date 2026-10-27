@@ -67,12 +67,14 @@ extension TerminalSurfaceView {
         super.rightMouseUp(with: event)
     }
 
+    // local-monitor-allow: Ghostty's pointer input goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order; the link state reset is two stores
     public override func mouseMoved(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every move over a terminal)
         linkPointer.movedWithoutButton()
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event)
     }
 
+    // local-monitor-allow: Ghostty's drag goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order
     public override func mouseDragged(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every left drag event)
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event, phase: .followingPress)
@@ -102,6 +104,7 @@ extension TerminalSurfaceView {
 
     /// A trackpad scroll while the program has the mouse waits for the frame, summed per phase
     /// (``TerminalPointerFrames``); a scroll through the scrollback and a wheel's lines go at once.
+    // local-monitor-allow: a mouse-reporting trackpad scroll goes through the window's FrameInputCoalescer (pointerFrames); a scrollback scroll goes to Ghostty at once, in order
     public override func scrollWheel(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every scroll event)
         if let pointerFrames, event.hasPreciseScrollingDeltas, scrollReportsToProgram(event),
            pointerFrames.post(event, in: window) { return }

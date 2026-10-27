@@ -152,6 +152,7 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
         return hit === scroller ? hit : nil
     }
 
+    // local-monitor-allow: forwards the wheel to the terminal under the scroller (TerminalHostView.onWheel), which coalesces it per frame; order and count kept
     override func scrollWheel(with event: NSEvent) {
         onWheel?(event)
     }
