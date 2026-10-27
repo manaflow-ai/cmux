@@ -11,8 +11,8 @@ refuse() {
   { echo "refused=true"; echo "refusal_reason=${1//[$'\r\n']/ }"; } >> "$GITHUB_OUTPUT"
   exit 0
 }
-# A deliberate stop (an operator made linux or none the writer, or set
-# the hold, while this run built): publish nothing, and open no
+# A deliberate stop (an operator made linux or none the writer while this
+# run built): publish nothing, and open no
 # failure issue, since the next Mac publication may never come.
 stand_down() {
   echo "::notice title=Publication stood down::$SOURCE build $NIGHTLY_BUILD ($BUILD_SHA): $1; nothing published"
@@ -33,15 +33,14 @@ var() {
 if [ "$TRACK" = nightly-next ]; then
   [ -n "$WRITER_TOKEN" ] || refuse "the release App token could not be minted, so NIGHTLY_NEXT_WRITER is unreadable"
   writer="$(var NIGHTLY_NEXT_WRITER)" || refuse "NIGHTLY_NEXT_WRITER read live is unreadable: $writer"
+  # Unset means the Mac (the default since the transition-week
+  # NIGHTLY_NEXT_HOLD was retired); an empty value still refuses.
   case "$writer" in
-    mac) ;;
+    mac|'<unset>') ;;
     linux|none) stand_down "NIGHTLY_NEXT_WRITER read live is '$writer', not mac" ;;
     *) refuse "NIGHTLY_NEXT_WRITER read live is '${writer:-<empty>}', not mac" ;;
   esac
-  # Transition week only (until 2026-10-23): remove with NIGHTLY_NEXT_HOLD.
-  hold="$(var NIGHTLY_NEXT_HOLD)" || refuse "NIGHTLY_NEXT_HOLD read live is unreadable: $hold"
-  [ "$hold" != 1 ] || stand_down "NIGHTLY_NEXT_HOLD read live is 1"
-  echo "NIGHTLY_NEXT_WRITER read live: mac (NIGHTLY_NEXT_HOLD: $hold); this pipeline publishes nightly-next"
+  echo "NIGHTLY_NEXT_WRITER read live: $writer; this pipeline publishes nightly-next"
 fi
 if [ "$SOURCE" = recovered ]; then
   status=0
