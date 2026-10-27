@@ -116,9 +116,19 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `settings_file` | `set`, `unset`, `mark` | edits the app's own settings file (`CMUX_NEXT_CONFIG_FILE`, the slot's) as an editor does: `set` merges nested keys, `unset` removes dotted keys |
 | `remember` | `source`, `name` | keeps `daemon_cols`, `daemon_rows` or `app_cell_height` of the current terminal as `${name}` |
 | `fresh_app` | | the app must be the one capture-host launched from empty state with no journey before it (`not run` otherwise); the journey file says `"first_in_app": true`, so `run.py` starts a lease with it |
+| `outwait_hold` | | the next key waits out the creation hold after the last key (below); use it after a tab switch onto a terminal whose view may come later |
 
 Any step may say `"as": "NAME"`: the current terminal after it is named NAME, for `use` and for
 conditions that take `name`. `key` also takes `repeat` and `gap` (seconds between presses).
+
+A capture slot's window is never the key window (the app runs with `CMUX_NEXT_NO_ACTIVATE`).
+Keys typed while the app holds them for a terminal still being made (`CreationInputCoordinator`:
+after Cmd-D, Ctrl-\`, a restore; at most its 2 s `holdLimit`) are replayed through
+`NSApp.sendEvent`, which only reaches the key window, so in a slot they are lost. A person's
+window is key, so this is the slot's limit, not the app's. After `focused_terminal`, `relaunch`
+and `outwait_hold`, the next `type` or `key` therefore waits until 2.5 s after the key that made
+the terminal (checks do not wait). Typing ahead into a terminal still being made is not covered
+by journeys in a slot.
 
 `mark` names the moment of a step (for `type` with `enter`, the moment Return is pressed);
 `expect`'s `since` measures from it. Strings may use `${nonce}` (six digits, new each run, so

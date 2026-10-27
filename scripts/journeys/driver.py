@@ -63,6 +63,11 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
 # Seconds a quit (Cmd-Q or a crash) may take to end the app's process, and a relaunch to answer.
 QUIT_SECONDS = 60
 RELAUNCH_SECONDS = 90
+# A capture slot's window is never the key window (the app runs with CMUX_NEXT_NO_ACTIVATE). Keys typed while
+# the app holds them for a terminal still being made (CreationInputCoordinator: after Cmd-D, Ctrl-` or a restore,
+# at most its holdLimit of 2 s) are replayed through NSApp.sendEvent, which only reaches the key window, so in a
+# slot they are lost (a person's window is key). Steps that make a terminal wait this long before the next key.
+CREATION_HOLD_SECONDS = 2.5
 # Launch variables a relaunch passes on (restore-journey.py's rule): what a capture slot sets.
 LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
 
@@ -299,7 +304,7 @@ def last_line(text):
 
 
 # Letters text recognition confuses in a monospace terminal font, folded to one form.
-OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "|": "1", "i": "1", "S": "5", "s": "5",
+OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
                           "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
 
 
@@ -433,6 +438,7 @@ class Journey:
     def step_type(self, step):
         # The mark is the moment the command is entered (Return), else the first key.
         text = self.sub(step["text"])
+        held = self.before_keys()
         replies = []
         if step.get("mark") and not step.get("enter"):
             self.marks[step["mark"]] = now()
@@ -444,9 +450,15 @@ class Journey:
                 self.marks[step["mark"]] = now()
             replies.append(self.key("return", []))
         routes = sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})
-        return {"typed": text, "keys": len(replies), "handled_by": routes}
+        # One full reply per route (its trace says who took the key): evidence when typing went astray.
+        samples = {}
+        for char, reply in zip(text + ("\r" if step.get("enter") else ""), replies):
+            if isinstance(reply, dict) and str(reply.get("handled_by")) not in samples:
+                samples[str(reply.get("handled_by"))] = {"char": char, "reply": reply}
+        return {"typed": text, "keys": len(replies), "handled_by": routes, "samples": samples, "waited_out_hold_s": held}
 
     def step_key(self, step):
+        held = self.before_keys()
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         # `repeat`: the same key N times, `gap` seconds apart (a person pressing it again and again).
@@ -458,9 +470,15 @@ class Journey:
             replies.append(self.key(step["key"], step.get("modifiers", [])))
             took.append(round((now() - t) * 1000, 1))
         if repeat == 1:
-            return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": replies[0]}
+            return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": replies[0], "waited_out_hold_s": held}
         return {"key": step["key"], "modifiers": step.get("modifiers", []), "presses": repeat,
                 "reply_ms_max": max(took), "reply_ms": took, "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
+
+    def step_outwait_hold(self, step):
+        """After a key that can show a terminal whose view comes later (a tab switch onto an evicted terminal):
+        the next key waits until CREATION_HOLD_SECONDS after the last key (see CREATION_HOLD_SECONDS)."""
+        self.hold_from = getattr(self, "last_key_at", now())
+        return {"next_key_waits_from": "the last key"}
 
     def step_wait(self, step):
         time.sleep(float(step.get("seconds", 1)))
@@ -470,7 +488,20 @@ class Journey:
         return {"reply": self.app.rpc(step["method"], self.sub(step.get("params") or {}))}
 
     def key(self, key, modifiers):
+        self.last_key_at = now()
         return self.app.rpc("debug.key", {"key": key, "modifiers": modifiers})
+
+    def before_keys(self):
+        """Before a step's first key: waits out a creation hold a step before may have opened; seconds waited."""
+        since, self.hold_from = getattr(self, "hold_from", None), None
+        return None if since is None else self.outwait_creation_hold(since)
+
+    def outwait_creation_hold(self, since):
+        """Sleeps until CREATION_HOLD_SECONDS after `since` (see CREATION_HOLD_SECONDS); returns the seconds slept."""
+        left = since + CREATION_HOLD_SECONDS - now()
+        if left > 0:
+            time.sleep(left)
+        return round(max(0.0, left), 2)
 
     def need_term(self):
         if not self.term:
@@ -553,6 +584,8 @@ class Journey:
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
                 self.wait_screen(end)
+                # The next key waits out the creation hold (CREATION_HOLD_SECONDS); checks need not.
+                self.hold_from = getattr(self, "last_key_at", now())
                 return dict(adopted, workspace=place[0].get("name"))
             time.sleep(0.2)
         raise StepError(f"no new focused terminal pane within {step.get('timeout', 20)} s ({last or 'no focused terminal pane'})")
@@ -640,6 +673,7 @@ class Journey:
         record = {"how": how, "old_pid": old}
         started = now()
         if how == "quit":
+            record["waited_out_hold_s"] = self.before_keys()
             try:
                 record["key"] = self.key("q", ["cmd"])
             except (StepError, OSError, ValueError) as error:
@@ -708,6 +742,19 @@ class Journey:
             if place:
                 alias["pane"] = place[1].get("id")
         record["named_terminals"] = found
+        # Restore settles when every shown terminal view is attached live (restore-journey.py's rule); then the
+        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS).
+        settled = False
+        while now() < end and not settled:
+            try:
+                shown = [p for p in app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]
+                settled = bool(shown) and all(p.get("attach") == "live" for p in shown)
+            except (StepError, OSError, ValueError):
+                pass
+            if not settled:
+                time.sleep(0.25)
+        record["settled_after_s"] = round(now() - t, 2) if settled else None
+        self.hold_from = now()
         if self.term:
             place = self.place_of(self.term, topo) if topo else None
             if place:
