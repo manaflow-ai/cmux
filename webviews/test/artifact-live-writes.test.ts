@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { OrderedRows } from "../src/agent-session/acpmux/direct";
+import { expect, spyOn, test } from "bun:test";
+import { AcpmuxDirectClient, OrderedRows, type EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ArtifactLiveSource } from "../src/agent-session/acpmux/conversation/artifactLive";
 import { RowUpdates } from "../src/agent-session/acpmux/rowUpdates";
@@ -24,6 +24,87 @@ const put = (rows: OrderedRows, next: AcpmuxRow, seq: number) => {
 };
 const open = (rows: OrderedRows) =>
   new ArtifactLiveSource({ kind: "html", lang: "html", path, code: "<p>First</p>" }, rows.sorted());
+
+const SESSION = "artifact-reset";
+const recordedUpdate = (seq: number, update: Record<string, unknown>): EventRecord => ({
+  sessionId: SESSION,
+  seq,
+  at: seq,
+  dir: "in",
+  kind: String(update.sessionUpdate),
+  msg: { method: "session/update", params: { update } },
+});
+const writtenUpdate = (seq: number, code: string) =>
+  recordedUpdate(seq, {
+    sessionUpdate: "tool_call",
+    toolCallId: `write-${seq}`,
+    title: "Write",
+    kind: "edit",
+    status: "completed",
+    rawInput: { file_path: path, content: code },
+  });
+
+test("the direct thought caller passes the changed item index after a large tool row", () => {
+  const tools = Array.from({ length: 1000 }, (_, index) =>
+    recordedUpdate(index + 1, {
+      sessionUpdate: "tool_call",
+      toolCallId: `tool-${index}`,
+      title: "Read",
+      kind: "read",
+      status: "in_progress",
+    }),
+  );
+  const thought = (seq: number) =>
+    recordedUpdate(seq, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "more" } });
+  const client = AcpmuxDirectClient.replay(SESSION, [...tools, thought(1001), thought(1002)], () => {});
+  client.seekReplay(1000);
+  const set = OrderedRows.prototype.set;
+  const changed: (number | undefined)[] = [];
+  const observer = spyOn(OrderedRows.prototype, "set").mockImplementation(function (
+    this: OrderedRows,
+    id,
+    next,
+    changedItem,
+    removedId,
+  ) {
+    if (next.kind === "activity") changed.push(changedItem);
+    return set.call(this, id, next, changedItem, removedId);
+  });
+  try {
+    client.seekReplay(1002);
+    expect(changed).toEqual([1000, 1000]);
+  } finally {
+    observer.mockRestore();
+    client.close();
+  }
+});
+
+test("a same-session reset accepts lower-sequence writes and rejects old producer snapshots", () => {
+  const client = AcpmuxDirectClient.replay(SESSION, [writtenUpdate(1000, "<p>First</p>")], () => {});
+  client.seekReplay(1000);
+  // Exercise the same reset that a changed createdAt invokes, without a network attach.
+  const state = client as unknown as {
+    rows: OrderedRows;
+    resetSessionState(): void;
+    reduce(event: EventRecord): void;
+  };
+  const oldRows = state.rows;
+  const oldSnapshot = oldRows.sorted();
+  const source = open(oldRows);
+  try {
+    state.resetSessionState();
+    state.reduce(writtenUpdate(1, "<p>Recreated</p>"));
+    expect(source.read(state.rows.sorted()).artifact.code).toBe("<p>Recreated</p>");
+    put(oldRows, row("late-old", 1, [write("<p>Late old response</p>")]), 1001);
+    expect(source.read(oldRows.sorted()).artifact.code).toBe("<p>Recreated</p>");
+    expect(source.read(oldSnapshot).artifact.code).toBe("<p>Recreated</p>");
+    state.reduce(writtenUpdate(2, "<p>New live write</p>"));
+    expect(source.read(state.rows.sorted()).artifact.code).toBe("<p>New live write</p>");
+  } finally {
+    source.dispose();
+    client.close();
+  }
+});
 
 test("a thought-token update only reads its changed item in a large tool row", () => {
   const producer = new RowUpdates(() => undefined);
