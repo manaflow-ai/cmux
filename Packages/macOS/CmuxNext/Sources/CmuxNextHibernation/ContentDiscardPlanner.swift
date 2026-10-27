@@ -128,7 +128,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// per critical pressure event (`UrgentPageDiscardingPolicy`,
         /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
         /// every 5 s while it stays critical. Browser pages keep their own paces
-        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        /// (`HibernationPlanner.pace(at:urgent:)`): at critical, cmux's relieves more within 30 s
+        /// (`HibernationPlanner.UrgentPace.browsers`).
         package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
     }
 
