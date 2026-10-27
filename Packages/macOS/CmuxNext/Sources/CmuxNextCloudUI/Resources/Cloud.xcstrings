@@ -1,5 +1,418 @@
 {
   "sourceLanguage" : "en",
-  "strings" : {},
+  "strings" : {
+    "cloud.codexDevice.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "cloud.codexDevice.code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Codex sign-in on this Mac. Enter this one-time code: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى Codex على جهاز Mac هذا. أدخل هذا الرمز المخصص للاستخدام مرة واحدة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf diesem Mac bei Codex an. Gib diesen Einmalcode ein: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en Codex en este Mac. Introduce este código de un solo uso: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à Codex sur ce Mac. Saisissez ce code à usage unique : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacでCodexにログインしてください。次のワンタイムコードを入力してください：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 Codex에 로그인하세요. 다음 일회용 코드를 입력하세요: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上登录 Codex。输入此一次性验证码：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這部 Mac 上登入 Codex。輸入此一次性驗證碼：%@"
+          }
+        }
+      }
+    },
+    "cloud.codexDevice.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open sign-in"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح تسجيل الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir inicio de sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン画面を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开登录页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟登入頁面"
+          }
+        }
+      }
+    },
+    "cloud.codexDevice.scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only short-lived access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُنقل إلى الآلة الافتراضية إذن وصول قصير الأجل فقط؛ ويبقى رمز التجديد على جهاز Mac هذا. أبقِ cmux قيد التشغيل على جهاز Mac هذا لتجديد الوصول إلى Codex."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur der kurzlebige Zugang wird auf die VM übertragen; das Aktualisierungstoken bleibt auf diesem Mac. Lass cmux auf diesem Mac laufen, um den Codex-Zugang zu erneuern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se transfiere a la máquina virtual el acceso de corta duración; el token de renovación permanece en este Mac. Mantén cmux en ejecución en este Mac para renovar el acceso a Codex."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul un accès de courte durée est transféré à la machine virtuelle ; le jeton de renouvellement reste sur ce Mac. Laissez cmux en cours d’exécution sur ce Mac pour renouveler l’accès à Codex."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VMには短期間のアクセス権限のみが転送され、更新トークンはこのMacに残ります。Codexのアクセス権限を更新するには、このMacでcmuxを実行したままにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단기 액세스 권한만 VM으로 전송되며 갱신 토큰은 이 Mac에 남습니다. Codex 액세스 권한을 갱신하려면 이 Mac에서 cmux를 계속 실행해 두세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有短期访问权限会传送至虚拟机；刷新令牌会保留在这台 Mac 上。请保持 cmux 在这台 Mac 上运行，以续期 Codex 访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有短期存取權限會傳送至虛擬機器；更新權杖會留在這部 Mac 上。請保持 cmux 在這部 Mac 上執行，以更新 Codex 存取權限。"
+          }
+        }
+      }
+    },
+    "cloud.codexDevice.signedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I signed in"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقد سجّلت الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ich habe mich angemeldet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya inicié sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je me suis connecté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログインしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인했어요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我已登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我已登入"
+          }
+        }
+      }
+    },
+    "cloud.codexDevice.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Codex anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codexにログイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex에 로그인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 Codex"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.credentialDisclosure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude runs claude setup-token on this Mac when needed and saves the long-lived token for later VMs. Codex signs in on this Mac once when needed. Only short-lived Codex access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access. The selected credential is installed on %@ for %@, replacing that provider's login for future launches. Existing sessions stay unchanged. Select one or both providers, then confirm the transfer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل Claude الأمر claude setup-token على جهاز Mac هذا عند الحاجة ويحفظ الرمز طويل الأجل للآلات الافتراضية اللاحقة. يسجّل Codex الدخول على جهاز Mac هذا مرة واحدة عند الحاجة. يُنقل إلى الآلة الافتراضية إذن وصول قصير الأجل إلى Codex فقط؛ ويبقى رمز التجديد على جهاز Mac هذا. أبقِ cmux قيد التشغيل على جهاز Mac هذا لتجديد الوصول إلى Codex. تُثبّت بيانات الاعتماد المحددة على %@ للمستخدم %@، لتحل محل تسجيل الدخول إلى هذا الموفّر في عمليات التشغيل اللاحقة. تبقى الجلسات الحالية دون تغيير. اختر أحد الموفّرين أو كليهما، ثم أكّد النقل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude führt bei Bedarf claude setup-token auf diesem Mac aus und speichert das langlebige Token für spätere VMs. Codex meldet sich bei Bedarf einmal auf diesem Mac an. Nur der kurzlebige Codex-Zugang wird auf die VM übertragen; das Aktualisierungstoken bleibt auf diesem Mac. Lass cmux auf diesem Mac laufen, um den Codex-Zugang zu erneuern. Die ausgewählten Zugangsdaten werden auf %@ für %@ installiert und ersetzen die Anmeldung dieses Anbieters für künftige Starts. Bestehende Sitzungen bleiben unverändert. Wähle einen oder beide Anbieter aus und bestätige dann die Übertragung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ejecuta claude setup-token en este Mac cuando es necesario y guarda el token de larga duración para futuras máquinas virtuales. Codex inicia sesión una sola vez en este Mac cuando es necesario. Solo se transfiere a la máquina virtual el acceso de corta duración a Codex; el token de renovación permanece en este Mac. Mantén cmux en ejecución en este Mac para renovar el acceso a Codex. Las credenciales seleccionadas se instalan en %@ para %@ y sustituyen el inicio de sesión de ese proveedor en futuros inicios. Las sesiones existentes no cambian. Selecciona uno o ambos proveedores y confirma la transferencia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude exécute claude setup-token sur ce Mac si nécessaire et enregistre le jeton de longue durée pour les prochaines machines virtuelles. Codex se connecte une seule fois sur ce Mac si nécessaire. Seul un accès Codex de courte durée est transféré à la machine virtuelle ; le jeton de renouvellement reste sur ce Mac. Laissez cmux en cours d’exécution sur ce Mac pour renouveler l’accès à Codex. Les identifiants sélectionnés sont installés sur %@ pour %@ et remplacent la connexion à ce fournisseur pour les prochains lancements. Les sessions existantes restent inchangées. Sélectionnez un ou deux fournisseurs, puis confirmez le transfert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeは必要に応じてこのMacでclaude setup-tokenを実行し、今後のVMで使用する長期間有効なトークンを保存します。Codexは必要に応じてこのMacで一度ログインします。VMには短期間のCodexアクセス権限のみが転送され、更新トークンはこのMacに残ります。Codexのアクセス権限を更新するには、このMacでcmuxを実行したままにしてください。選択した認証情報は%@に%@用としてインストールされ、今後の起動時に使用するそのプロバイダーのログイン情報を置き換えます。既存のセッションは変更されません。プロバイダーを一方または両方選択してから、転送を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude는 필요할 때 이 Mac에서 claude setup-token을 실행하고 이후 VM에서 사용할 장기 토큰을 저장합니다. Codex는 필요할 때 이 Mac에서 한 번 로그인합니다. 단기 Codex 액세스 권한만 VM으로 전송되며 갱신 토큰은 이 Mac에 남습니다. Codex 액세스 권한을 갱신하려면 이 Mac에서 cmux를 계속 실행해 두세요. 선택한 자격 증명은 %@에 %@용으로 설치되며 이후 실행 시 해당 제공업체의 로그인 정보를 대체합니다. 기존 세션은 변경되지 않습니다. 제공업체 하나 또는 둘 다를 선택한 다음 전송을 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 会在需要时于这台 Mac 上运行 claude setup-token，并保存长期令牌，供之后的虚拟机使用。Codex 会在需要时于这台 Mac 上登录一次。只有短期 Codex 访问权限会传送至虚拟机；刷新令牌会保留在这台 Mac 上。请保持 cmux 在这台 Mac 上运行，以续期 Codex 访问权限。所选凭据将安装在 %@ 上供 %@ 使用，并替换该服务提供商在后续启动时使用的登录信息。现有会话不受影响。请选择一个或两个服务提供商，然后确认传送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 會在需要時於這部 Mac 上執行 claude setup-token，並儲存長期權杖，供之後的虛擬機器使用。Codex 會在需要時於這部 Mac 上登入一次。只有短期 Codex 存取權限會傳送至虛擬機器；更新權杖會留在這部 Mac 上。請保持 cmux 在這部 Mac 上執行，以更新 Codex 存取權限。選取的憑證將安裝在 %@ 上供 %@ 使用，並取代該服務供應商在之後啟動時使用的登入資訊。現有工作階段不受影響。請選取一個或兩個服務供應商，然後確認傳送。"
+          }
+        }
+      }
+    }},
   "version" : "1.0"
 }

@@ -87,6 +87,16 @@ struct CloudWorkspaceSetupWizardTests {
 
 
     @MainActor
+    @Test func codexConsentDoesNotTransferClaudeCredentials() async throws {
+        var moved: [CloudWorkspaceSetupWizard.Provider] = []
+        try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account",
+            present: { _ in CmuxDialogAnswer(button: "transfer", role: .normal, values: ["codex": .bool(true)]) },
+            transfer: { moved.append($0) })
+        #expect(moved == [.codex])
+    }
+
+
+    @MainActor
     @Test func completedCloneOpensItsAbsoluteProjectDirectory() async throws {
         var opened: [String] = []
         try await CloudWorkspaceSetupWizard().finishBootstrap(.finished(repoPath: "/workspace/paint")) {
