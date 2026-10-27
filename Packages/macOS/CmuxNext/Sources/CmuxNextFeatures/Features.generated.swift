@@ -1947,7 +1947,7 @@ nonisolated extension Feature {
 
     /// Every cmux page that shows in WebKit shares a web content process with pages of its capability group, up to the memory budget's pages per group; off, only the New Tab page and agent chats share.
     public static let webKitPageProcessGroups = Feature(
-        index: 111,
+        index: 112,
         name: "webKitPageProcessGroups",
         owner: "PL-memory",
         description: "Every cmux page that shows in WebKit shares a web content process with pages of its capability group, up to the memory budget's pages per group; off, only the New Tab page and agent chats share.",
@@ -1964,7 +1964,7 @@ nonisolated extension Feature {
 
     /// Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.
     public static let webKitSameSiteProcesses = Feature(
-        index: 112,
+        index: 113,
         name: "webKitSameSiteProcesses",
         owner: "PL-memory",
         description: "Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.",
@@ -1981,7 +1981,7 @@ nonisolated extension Feature {
 
     /// A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.
     public static let windowOcclusionFamily = Feature(
-        index: 113,
+        index: 114,
         name: "windowOcclusionFamily",
         owner: "Performance Lead",
         description: "A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.",
@@ -1999,7 +1999,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.
     public static let cefHelperHost = Feature(
-        index: 114,
+        index: 115,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
         description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.",
@@ -2017,7 +2017,7 @@ nonisolated extension Feature {
 
     /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
     public static let cefLayerHostingEveryPage = Feature(
-        index: 115,
+        index: 116,
         name: "cefLayerHostingEveryPage",
         owner: "PL-cef-layer",
         description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
@@ -2035,7 +2035,7 @@ nonisolated extension Feature {
 
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 116,
+        index: 117,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -2058,7 +2058,7 @@ nonisolated extension Feature {
 
     /// With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.
     public static let chromiumHostTabs = Feature(
-        index: 116,
+        index: 118,
         name: "chromiumHostTabs",
         owner: "PL-cef-helper",
         description: "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
@@ -2076,7 +2076,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 117,
+        index: 119,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -2093,7 +2093,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 118,
+        index: 120,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
