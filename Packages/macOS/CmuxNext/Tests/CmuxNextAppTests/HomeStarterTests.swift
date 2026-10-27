@@ -48,10 +48,8 @@ import Testing
     }
 
     @Test func chipSendsExactlyOnceAndPreservesATypedDraft() async throws {
-        let source = MockHomeSource(options: .immediate)
-        let chief = await source.chief.id
-        let created = try await source.submit(HomeIntent(key: .make(), op: .createGroup(title: "", participants: [chief])))
-        let id = try #require(created.conversation)
+        let source = EmptyChiefSource()
+        let id = ConversationID("conv_chief")
         let inbox = try await source.inbox()
         let store = HomeStore(source: source)
         store.start()
@@ -75,11 +73,45 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         var sent: [Message] = []
         repeat {
-            sent = try await source.snapshot(of: id, tail: 10).messages.filter { $0.author == inbox.me.id }
+            sent = try await source.base.snapshot(of: id, tail: 10).messages.filter { $0.author == inbox.me.id }
             if !sent.isEmpty { break }
             await Task.yield()
         } while ContinuousClock.now < deadline
         #expect(sent.count == 1)
         #expect(sent.first?.parts == [.text(HomeStarterStrings.setup)])
     }
+}
+
+/// An empty initial Chief over the normal in-memory owner; later sends use its real ledger.
+private struct EmptyChiefSource: HomeSource {
+    let base = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
+    func events() async -> AsyncStream<HomeEvent> {
+        let snapshot = try? await inbox()
+        return AsyncStream { stream in
+            stream.yield(.connection(.online))
+            if let snapshot { stream.yield(.inbox(snapshot)) }
+            stream.finish()
+        }
+    }
+    func inbox() async throws -> InboxSnapshot {
+        var inbox = try await base.inbox()
+        for index in inbox.conversations.indices where inbox.conversations[index].id == ConversationID("conv_chief") {
+            inbox.conversations[index].lastSeq = 0
+            inbox.conversations[index].lastMessage = nil
+        }
+        return inbox
+    }
+    func snapshot(of id: ConversationID, tail: Int) async throws -> ConversationPage {
+        var page = try await base.snapshot(of: id, tail: tail)
+        if page.conversation.lastSeq == 1 {
+            page.conversation.lastSeq = 0
+            page.conversation.lastMessage = nil
+            page.messages = []
+        }
+        return page
+    }
+    func history(of id: ConversationID, before seq: Seq, limit: Int) async throws -> [Message] { [] }
+    func submit(_ intent: HomeIntent) async throws -> HomeOpResult { try await base.submit(intent) }
+    func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
+    func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await base.resolve(contact) }
 }
