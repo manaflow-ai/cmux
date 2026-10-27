@@ -117,9 +117,13 @@ impl AuthGate {
     fn fail(&mut self) -> Vec<Out> {
         self.failed = Some("Codex broker unavailable".into());
         self.login_id = None;
-        self.held.clear();
-        self.held_client
+        self.held
             .drain(..)
+            .filter_map(|out| match out {
+                Out::Client(msg) => Some(msg),
+                Out::Server(_) => None,
+            })
+            .chain(self.held_client.drain(..))
             .filter_map(|msg| {
                 msg.get("id").cloned().map(|id| {
                     Out::Client(serde_json::json!({
@@ -263,7 +267,7 @@ impl Translator {
                         if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
                             out.extend(self.inner.from_client(msg));
                         }
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        out.extend(self.settle_pending("Codex broker unavailable"));
                         // This request has not reached the inner translator yet.
                         if let Some(id) = msg.get("id") {
                             out.push(Out::Client(serde_json::json!({
@@ -275,7 +279,7 @@ impl Translator {
                     }
                 }
                 if auth.failed.is_some() {
-                    let mut out = self.inner.server_closed("Codex broker unavailable");
+                    let mut out = self.settle_pending("Codex broker unavailable");
                     if let Some(id) = msg.get("id").cloned() {
                         out.push(Out::Client(serde_json::json!({
                             "jsonrpc":"2.0", "id": id,
@@ -307,7 +311,7 @@ impl Translator {
                 if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read) {
                     if auth.failed.is_some() {
                         let mut out = out;
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                     return out;
@@ -318,7 +322,7 @@ impl Translator {
                 if raw.get("id") == Some(&login_id) {
                     if raw.get("error").is_some() {
                         let mut out = auth.fail();
-                        out.extend(self.inner.server_closed("Codex broker login failed"));
+                        out.extend(self.settle_pending("Codex broker login failed"));
                         return out;
                     }
                     let valid = matches!(
@@ -330,7 +334,7 @@ impl Translator {
                     );
                     if !valid {
                         let mut out = auth.fail();
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                     auth.previous_account_id =
@@ -351,8 +355,9 @@ impl Translator {
                     if let Some(out) = background.response(raw) {
                         out
                     } else {
-                        background.observe(raw);
-                        self.inner.from_server(raw)
+                        let mut out = background.observe(raw);
+                        out.extend(self.inner.from_server(raw));
+                        out
                     }
                 };
                 auth.held.extend(out);
@@ -394,12 +399,12 @@ impl Translator {
                     }
                     Ok(None) | Err(_) => {
                         let mut out = auth.fail();
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                     Ok(Some(_)) => {
                         let mut out = auth.fail();
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                 }
@@ -418,6 +423,13 @@ impl Translator {
 
     /// The app-server exited or its pipe closed.
     pub fn server_closed(&self, why: &str) -> Vec<Out> {
+        let mut out = self.settle_pending(why);
+        #[cfg(unix)]
+        out.extend(self.auth.lock().unwrap_or_else(|e| e.into_inner()).fail());
+        out
+    }
+
+    fn settle_pending(&self, why: &str) -> Vec<Out> {
         let mut out = self.inner.server_closed(why);
         out.extend(self.background().closed(why));
         out
@@ -756,6 +768,7 @@ mod tests {
         gate.failed = None;
         gate.login_id = Some(json!("login"));
         gate.held_client.push(json!({"id":"queued", "method":"session/new"}));
+        gate.held.push(Out::Client(json!({"id":"settled", "result":{}})));
         let out = gate
             .handle_refresh(
                 &json!({
@@ -766,6 +779,8 @@ mod tests {
             .unwrap();
         assert!(out.iter().any(|out| matches!(out, Out::Client(v)
             if v["id"] == "queued" && v["error"]["code"] == -32001)));
+        assert!(out.iter().any(|out| matches!(out, Out::Client(v)
+            if v["id"] == "settled" && v["error"]["code"] == -32001)));
         assert!(out.iter().any(|out| matches!(out, Out::Server(v)
             if v["id"] == "refresh" && v["error"]["code"] == -32001)));
     }
@@ -782,16 +797,18 @@ mod tests {
         };
         *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(Some(file.clone())));
         tr.auth.lock().unwrap().login_id = Some(json!("login"));
+        tr.background().request(&json!({"id":"inflight", "method":TERMINATE,
+            "params":{"threadId":"thread", "processId":"process"}}));
         assert!(
             tr.from_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
                 .is_empty()
         );
         let out =
             tr.from_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
-        for id in ["queued", "current"] {
+        for id in ["queued", "current", "inflight"] {
             assert!(
                 out.iter().any(|out| matches!(out, Out::Client(v)
-                if v["id"] == id && v["error"]["code"] == -32001)),
+                if v["id"] == id && v.get("error").is_some())),
                 "missing reply for {id}"
             );
         }
