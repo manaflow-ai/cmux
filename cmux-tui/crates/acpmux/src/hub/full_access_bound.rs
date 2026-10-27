@@ -177,14 +177,65 @@ pub(crate) fn full_access_allowed_by(managed: Option<bool>, file_allows: bool) -
     managed != Some(false) && file_allows
 }
 
+/// Whether a permission policy auto-approves every request (`approve-all`, also spelled `yolo`):
+/// the policy form of full access, refused or capped while the setting is off.
+pub(crate) fn policy_is_full_access(policy: PermissionPolicy) -> bool {
+    policy == PermissionPolicy::ApproveAll
+}
+
+/// Tests only: a pause right before a family message is written to its agent, so a test can
+/// push MDM's off while one waits there: `arrived` fires there, the write waits for `release`.
+/// Empty: no pause.
+#[cfg(test)]
+pub(super) type WriteSeam = std::sync::Mutex<
+    Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>,
+>;
+
 impl Hub {
-    /// Whether a mode that skips every approval may run now: the settings file under
+    /// Tests only: waits at the pause a test set (`WriteSeam`), once.
+    #[cfg(test)]
+    pub(super) async fn pause_at_family_write(&self) {
+        let seam = self.family_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((arrived, release)) = seam {
+            let _ = arrived.send(());
+            let _ = release.await;
+        }
+    }
+
+    /// A family message about to reach `session`'s agent (`provenance` a family prompt's, a
+    /// sub-session's retry, or a continuation of either; any other prompt: Ok(None), no gate):
+    /// checked again
+    /// (`family_dispatch_check`) under the family gate, which the caller holds until the
+    /// message is written. An MDM off push waits on the gate (`full_access_turned_off`), so a
+    /// message checked under the old bound is written before the push returns, and one checked
+    /// after it is checked under the off.
+    pub(super) async fn family_gate(
+        &self,
+        session: &Session,
+        provenance: Option<&Value>,
+    ) -> Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>, RpcError> {
+        if !super::subsession_guard::is_family(provenance) {
+            return Ok(None);
+        }
+        let gate = self.family_gate.read().await;
+        self.family_dispatch_check(session, provenance).await?;
+        Ok(Some(gate))
+    }
+
+    /// Whether a mode or policy that skips every approval may run now: the settings file under
     /// the value MDM or the team policy forces (`full_access_allowed_by`).
     pub fn full_access_allowed(&self) -> bool {
         full_access_allowed_by(
             self.full_access_managed(),
             super::start_mode::file_allows_full_access(),
         )
+    }
+
+    /// Whether approve-all (the policy form of full access) may answer requests itself: always,
+    /// unless MDM or the team policy forces `sessions.allowFullAccess` off. The person's own off
+    /// never capped a policy before #23322, and with MDM unset nothing changes.
+    pub(crate) fn approve_all_allowed(&self) -> bool {
+        !self.full_access_managed_off()
     }
 
     /// Whether MDM or the team policy forces `sessions.allowFullAccess` off: the pane's mode menu
@@ -262,8 +313,20 @@ impl Hub {
         OffLatch { offs, seen, was_off }
     }
 
-    /// MDM has just forced full access off (`apply_full_access_push`).
-    pub(super) async fn full_access_turned_off(&self) {
+    /// MDM has just forced full access off (`apply_full_access_push`): an ask that read the
+    /// policy before the push (`policy_for` reads the bound under the prompt's lock, where it
+    /// decides) finishes first, and so does a family message or answer checked under the old
+    /// bound (`family_gate`), so no approve-all decision made after the push returns uses the
+    /// old bound.
+    /// `changed`: this push turned it off; the pool drains only then.
+    pub(super) async fn full_access_turned_off(&self, changed: bool) {
+        drop(self.family_gate.write().await);
+        for session in self.sessions() {
+            drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
+        }
+        if !changed {
+            return;
+        }
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
         self.drain_pool();
@@ -478,5 +541,233 @@ mod tests {
         assert!(!full_access_allowed_by(None, false));
         assert!(full_access_allowed_by(Some(true), true));
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
+    }
+
+    /// A hub with two open chats on a stand-in agent that fails over to itself with
+    /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
+    async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        two_chats_on(&[], true).await
+    }
+
+    /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code),
+    /// and `fails_over` or not.
+    async fn two_chats_on(
+        env: &[&str],
+        fails_over: bool,
+    ) -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        use crate::config::{Config, StoreMode};
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut argv = vec!["/usr/bin/env"];
+        argv.extend(env);
+        argv.extend(["python3", fake]);
+        let mut cfg = json!({
+            "harnesses": {"fake": {"argv": argv}},
+            "defaultHarness": "fake",
+        });
+        if fails_over {
+            cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
+            let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
+            cfg["harnesses"]["fake-fallback"] = json!({"argv": fallback});
+            cfg["autoResumeDelaysMs"] = json!([1000]);
+        }
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let a = hub.new_session(req()).await.unwrap();
+        let b = hub.new_session(req()).await.unwrap();
+        (hub, a, b)
+    }
+
+    /// Review 26 of #23322: under MDM's off a stored approve-all runs as ask, and sub-session
+    /// checks rank it so. A parent in approve-all may message an approve-edits child before the
+    /// push, never after it: the child would approve edits the parent must ask about.
+    #[tokio::test]
+    async fn under_an_mdm_off_approve_all_ranks_as_ask_between_sessions() {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        assert!(hub.receiver_check(&parent, &child).await.is_ok(), "before the push");
+        hub.apply_full_access_push(Some(false)).await;
+        let r = hub.receiver_check(&parent, &child).await;
+        assert!(r.is_err(), "an approve-all parent messaged an approve-edits child under the off");
+        assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
+    }
+
+    /// Review 33 of #23322: a family message checked under the old bound (an approve-all
+    /// parent to an approve-edits child) and not yet written to its agent holds an off push
+    /// until it is written: no message the old bound let through reaches an agent after the
+    /// push returns. A message checked after the push is refused (the test above).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_for_a_family_message_checked_under_the_old_bound() {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+        let send = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                let text = vec![json!({"type": "text", "text": "hello"})];
+                hub.send_family_prompt(&parent, &child, text, None, false, false, None, None).await
+            })
+        };
+        let wait = std::time::Duration::from_secs(10);
+        tokio::time::timeout(wait, arrived)
+            .await
+            .expect("the message reaches its write")
+            .expect("the seam fires");
+        let push = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(wait, push).await.expect("the push returns").unwrap();
+        let _ = tokio::time::timeout(wait, send).await;
+        assert!(
+            !returned,
+            "an off push returned while a message checked under the old bound was still unwritten"
+        );
+    }
+
+    /// Review 33 of #23322: a family message checked before MDM's off (`receiver_check`, an
+    /// approve-all parent to an approve-edits child) that steers into the child's running turn
+    /// after the push is checked again at the steer, and refused: the parent now asks.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_family_steer_after_an_off_push_is_checked_again() {
+        let (hub, parent, child) = two_chats_on(&["FAKE_CLAUDE_STEER=1"], false).await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        assert!(hub.receiver_check(&parent, &child).await.is_ok(), "checked before the push");
+        let running = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "until-cancel"})];
+            tokio::spawn(async move {
+                hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await
+            })
+        };
+        let started = async {
+            while child.meta().status != SessionStatus::Running {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let wait = std::time::Duration::from_secs(20);
+        tokio::time::timeout(wait, started).await.expect("the child's turn runs");
+        hub.apply_full_access_push(Some(false)).await;
+        let text = vec![json!({"type": "text", "text": "hello"})];
+        let sent = tokio::time::timeout(
+            wait,
+            hub.send_family_prompt(&parent, &child, text, None, true, false, None, None),
+        )
+        .await
+        .expect("the steer answers");
+        running.abort();
+        assert!(
+            sent.is_err(),
+            "a family steer checked under the old bound ran after the push: {sent:?}"
+        );
+    }
+
+    /// Review 26 of #23322: a second push of the same off waits, as the first does, for an ask
+    /// deciding under the old bound (it holds the session's permission lock), so no push returns
+    /// before that decision is made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn every_off_push_waits_for_an_ask_deciding_under_the_old_bound() {
+        let (hub, session, _) = two_chats().await;
+        // An ask deciding under the permission lock across the pushes: held on its own thread,
+        // never across this task's awaits.
+        let (locked_tx, locked) = std::sync::mpsc::channel();
+        let (deciding, release) = std::sync::mpsc::channel::<()>();
+        let holder = {
+            let session = session.clone();
+            std::thread::spawn(move || {
+                let held = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                let _ = locked_tx.send(());
+                let _ = release.recv();
+                drop(held);
+            })
+        };
+        locked.recv().expect("the ask holds the permission lock");
+        let push = || {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
+        };
+        let first = push();
+        let stored = async {
+            while !hub.full_access_managed_off() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), stored)
+            .await
+            .expect("the off is stored");
+        let second = push();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = second.is_finished();
+        drop(deciding);
+        holder.join().expect("the ask's thread ends");
+        let (_, _) = (first.await, second.await);
+        assert!(!returned, "a second off push returned while an ask decided under the old bound");
+    }
+
+    const WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+    /// `two_chats`, the first an approve-all parent of the second, an approve-edits child: the
+    /// parent's message passes under the old bound and is refused under MDM's off.
+    async fn approve_all_parent() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        (hub, parent, child)
+    }
+
+    fn send(hub: &Arc<Hub>, from: &Arc<Session>, to: &Arc<Session>, text: &str) {
+        let (hub, from, to) = (hub.clone(), from.clone(), to.clone());
+        let text = vec![json!({"type": "text", "text": text})];
+        tokio::spawn(async move {
+            hub.send_family_prompt(&from, &to, text, None, false, false, None, None).await
+        });
+    }
+
+    /// Waits for the first entry of `session`'s log whose kind is one of `kinds`: its kind.
+    async fn logged(hub: &Hub, session: &Session, kinds: &[&str]) -> String {
+        let found = async {
+            loop {
+                let events = hub.events(&session.id, 0, 10_000).unwrap();
+                if let Some(e) = events.iter().find(|e| kinds.contains(&e.kind.as_str())) {
+                    return e.kind.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        tokio::time::timeout(WAIT, found).await.unwrap_or_else(|_| panic!("no {kinds:?} logged"))
+    }
+
+    /// Review 40 of #23322: a family message whose agent hit its limit after the off push is
+    /// checked again before it is resent to the fallback, and refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_family_message_that_fails_over_is_checked_again_before_its_resend() {
+        let (hub, parent, child) = approve_all_parent().await;
+        send(&hub, &parent, &child, "slow-limit");
+        logged(&hub, &child, &["turn_started"]).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let end = logged(&hub, &child, &["turn_end", "turn_error"]).await;
+        assert_eq!(end, "turn_error", "the fallback ran a family message the off push refuses");
+    }
+
+    /// Review 40 of #23322: the automatic continuation of a family message's cut turn speaks
+    /// for its sender: after an off push it is checked again, and refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_continuation_of_a_family_message_is_checked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        send(&hub, &parent, &child, "net-fail-once: x");
+        logged(&hub, &child, &["auto_resume_scheduled"]).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let end = logged(&hub, &child, &["turn_end", "auto_resume_skipped"]).await;
+        assert_eq!(end, "auto_resume_skipped", "a family turn was continued after the off push");
     }
 }

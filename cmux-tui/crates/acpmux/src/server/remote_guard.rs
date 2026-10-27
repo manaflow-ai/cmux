@@ -751,6 +751,7 @@ async fn web_starts_asking(
         hub.config.read().await.vm_host,
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
+        hub.approve_all_allowed(),
     );
     if m == method::SESSION_NEW {
         let meta = params.pointer("/_meta/acpmux");

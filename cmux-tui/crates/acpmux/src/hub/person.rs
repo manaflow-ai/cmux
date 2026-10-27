@@ -934,7 +934,7 @@ impl Hub {
                     return Ok(());
                 };
                 let default = self.config.read().await.permission_policy;
-                if asks(self.policy_for(&s, default)) {
+                if asks(Self::stored_policy_for(&s, default)) {
                     Ok(())
                 } else {
                     Err(person_required(

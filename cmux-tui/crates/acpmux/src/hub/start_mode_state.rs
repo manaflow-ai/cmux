@@ -193,9 +193,11 @@ impl Hub {
                 super::start_mode::ALLOW_FULL_ACCESS
             );
             self.start_mode_changed();
-            if after.full_access_managed == Some(false) {
-                self.full_access_turned_off().await;
-            }
+        }
+        // Every push of the off crosses the permission barrier, not only the one that changed
+        // it: a second push may otherwise return while an ask still decides under the old bound.
+        if after.full_access_managed == Some(false) {
+            self.full_access_turned_off(before.full_access_managed != Some(false)).await;
         }
     }
 

@@ -30,6 +30,7 @@ impl Hub {
             starter,
             route,
             subsession,
+            lineage,
             disallowed_tools,
             checked_cwd,
         } = req;
@@ -151,6 +152,7 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
+        meta.lineage = lineage;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -226,6 +228,7 @@ impl Hub {
         let (session, created_stops) = session;
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
+            self.child_tags.forget(&id);
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -236,6 +239,7 @@ impl Hub {
                 crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
             {
                 self.sessions.lock().unwrap().remove(&id);
+                self.child_tags.forget(&id);
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }

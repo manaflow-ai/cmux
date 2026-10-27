@@ -283,9 +283,13 @@ public struct RootView: View {
         }
         store.resetForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
-        PushSnapshots().removeAll()
-        PushOutbox(group: .current())?.removeAll()
         PushRetryStore.app?.removeAll()
+        // The App Group is resolved and emptied off the main thread.
+        Task.detached(priority: .utility) {
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushSnapshotStore(group: group)?.removeAll()
+            PushOutbox(group: group)?.removeAll()
+        }
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -550,7 +554,7 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { PushSnapshots().save() }
+                if phase == .background { Task { await PushSnapshots().save() } }
             }
     }
 }

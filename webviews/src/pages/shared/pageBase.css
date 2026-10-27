@@ -67,7 +67,6 @@ input {
   background: transparent;
   padding: 3px 10px;
   border-radius: 5px;
-  cursor: default;
 }
 
 .page-menu-item.active:not([data-disabled]):not([aria-disabled="true"]),

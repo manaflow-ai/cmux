@@ -2405,7 +2405,8 @@
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox"
+        "fox",
+        "mochi"
       ],
       "title" : "Character",
       "type" : "string"

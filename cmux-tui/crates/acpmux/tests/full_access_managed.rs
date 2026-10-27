@@ -313,6 +313,11 @@ impl Client {
         assert_eq!(mode, "agent", "{why}");
         let r = self.switch(&chat, "agent-full-access").await;
         assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{why}: {r}");
+        // Nor the policy form of full access: approve-all is refused.
+        let r = self
+            .call("_acpmux/set_policy", json!({"sessionId": chat, "policy": "approve-all"}))
+            .await;
+        assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{why}: {r}");
     }
 }
 
@@ -348,6 +353,17 @@ const BOUND: &[Case] = &[
             app.pinned_profiles(&dir, false, "no keys").await;
             app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": false})).await;
             app.full_access_available(&dir, "an unforced off").await;
+        })
+    }),
+    ("MDM unset: the person's own off leaves approve-all as it was", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, false).await;
+            app.push(json!({})).await;
+            let (chat, _) = app.chat(&dir).await;
+            let r = app
+                .call("_acpmux/set_policy", json!({"sessionId": chat, "policy": "approve-all"}))
+                .await;
+            assert!(r.get("error").is_none(), "the person's own off refused approve-all: {r}");
         })
     }),
     ("MDM off is an upper bound over the person's on", |name| {
