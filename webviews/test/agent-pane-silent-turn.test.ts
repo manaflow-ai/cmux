@@ -201,7 +201,7 @@ test("an attach in the middle of a turn uses the summary start when its event is
 });
 
 test("a newer summary start replaces a previous live turn before its start event arrives", async () => {
-  const daemon = fakeDaemon(record([started]));
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "old prompt" }]]));
   let snapshot: any;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
@@ -211,7 +211,7 @@ test("a newer summary start replaces a previous live turn before its start event
   );
   try {
     await until(() => snapshot?.connection === "connected", "the attach");
-    expect(snapshot.turnStartedAtMs).toBe(START + 1_000);
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
     daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
     await until(() => snapshot.summary?.title === "next", "the newer summary");
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
@@ -232,6 +232,14 @@ test("a newer summary start replaces a previous live turn before its start event
     await until(() => snapshot.isWorking === false, "the turn result");
     expect(snapshot.turnStartedAtMs).toBeUndefined();
     expect(client.turnRunning()).toBe(false);
+    let prepareFailed = false;
+    try {
+      await client.continueIn("claude");
+    } catch {
+      prepareFailed = true;
+    }
+    expect(prepareFailed).toBe(true);
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(1);
   } finally {
     client.close();
   }
