@@ -64,6 +64,30 @@ import CmuxNextDesignTokens
         #expect(ActiveLookScope.imageKind(path: "") == .other)
     }
 
+    /// A hosting view updating on its own is scoped to its window only inside an
+    /// `ActiveLookGlassEffectView` and outside its content view; a plain glass's is not.
+    @Test func onlyTheActiveLookGlassScopesItsHostingView() {
+        guard #available(macOS 26.0, *) else { return }
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let root = NSView()
+        window.contentView = root
+        let glass = ActiveLookGlassEffectView(frame: .zero)
+        let plain = NSGlassEffectView()
+        let content = NSView()
+        glass.contentView = content
+        root.addSubview(glass)
+        root.addSubview(plain)
+        let host = NSView(), inContent = NSView(), inPlain = NSView()
+        glass.addSubview(host)
+        content.addSubview(inContent)
+        plain.addSubview(inPlain)
+        #expect(ActiveLookScope.glassWindow(of: host) === window)
+        #expect(ActiveLookScope.glassWindow(of: inContent) == nil, "the content view is the app's")
+        #expect(ActiveLookScope.glassWindow(of: inPlain) == nil, "a plain glass follows the key state")
+        #expect(ActiveLookScope.glassWindow(of: root) == nil)
+    }
+
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
     /// nest; an unrelated window never is, and nothing is after the update.
     @Test func theScopeNamesOnlyTheUpdatingWindow() {

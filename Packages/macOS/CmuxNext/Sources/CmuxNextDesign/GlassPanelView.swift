@@ -177,7 +177,7 @@ public final class GlassPanelView: NSView {
 /// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. It draws
 /// from a private SwiftUI graph whose environment it builds from its window, and the inactive grey
 /// frost follows the window's `_hasActiveAppearanceIgnoringKeyFocus` read there. While this view
-/// updates its own subtree, ``ActiveLookScope`` answers that one read true for this view's window;
+/// or its private hosting view updates, ``ActiveLookScope`` answers that one read true for this view's window;
 /// every other read (the graph's second one, which the traffic lights follow, and any read
 /// outside the glass) gets AppKit's answer. Measured on macOS 27.0.1, a glass window tinted
 /// 0.85/0.45/0.2 at 0.55: key 0.689/0.504/0.378; another app active, plain glass 0.541 grey and
@@ -196,7 +196,10 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     override func layout() { ActiveLookScope.during(window) { super.layout() } }
     override func updateConstraints() { ActiveLookScope.during(window) { super.updateConstraints() } }
     override func viewWillDraw() { ActiveLookScope.during(window) { super.viewWillDraw() } }
-    override func viewDidMoveToWindow() { ActiveLookScope.during(window) { super.viewDidMoveToWindow() } }
+    override func viewDidMoveToWindow() {
+        scopeGraphHosts()
+        ActiveLookScope.during(window) { super.viewDidMoveToWindow() }
+    }
     override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during(window) { super.viewDidChangeEffectiveAppearance() } }
 
     // AppKit lays out and updates constraints for the subtree (the glass's own hosting view, where
@@ -223,6 +226,26 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         let selector = NSSelectorFromString("_windowChangedKeyState")
         guard let implementation = Self.superImplementation(selector) else { return }
         ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        scopeGraphHosts()
+    }
+
+    /// AppKit also lays out the glass's private hosting view on its own, not through this view: on
+    /// a fleet mini the app's deactivation re-rendered the graph from that view's layout alone and
+    /// drew the frost. Its class gets the same scope (``ActiveLookScope/scopeUpdates(of:)``), for
+    /// views inside an `ActiveLookGlassEffectView` only. The content view's subtree is the app's.
+    private func scopeGraphHosts() {
+        var views = subviews.filter { $0 !== contentView }
+        while let view = views.popLast() {
+            if NSStringFromClass(type(of: view)).contains("HostingView") {
+                if let hostClass = object_getClass(view) { ActiveLookScope.scopeUpdates(of: hostClass) }
+            } else {
+                views += view.subviews
+            }
+        }
     }
 
     /// The glass's own implementation (NSView's when it has none), or nil when AppKit has none.
@@ -286,6 +309,69 @@ enum ActiveLookScope {
             if windows.isEmpty, materialSite == nil { finishCalibration() }
         }
         body()
+    }
+
+    /// The hosting view classes whose updates run in the scope.
+    private static var scopedHostClasses: Set<ObjectIdentifier> = []
+
+    /// Runs the updates of `hostClass`'s views (an `ActiveLookGlassEffectView`'s private hosting
+    /// view) in the scope of their window, once per class. A view of that class anywhere else, such
+    /// as a plain `NSGlassEffectView`'s, updates as before.
+    @available(macOS 26.0, *)
+    static func scopeUpdates(of hostClass: AnyClass) {
+        guard scopedHostClasses.insert(ObjectIdentifier(hostClass)).inserted else { return }
+        for name in ["layout", "updateConstraints", "viewWillDraw"] { scope(hostClass, NSSelectorFromString(name)) }
+        scopeSize(hostClass, NSSelectorFromString("_layoutSubtreeWithOldSize:"))
+        scopePointer(hostClass, NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:"))
+    }
+
+    /// The window to scope `view`'s update to: its window when its nearest glass ancestor is an
+    /// `ActiveLookGlassEffectView` and it is not in that glass's content view, else nil.
+    @available(macOS 26.0, *)
+    static func glassWindow(of view: NSView) -> NSWindow? {
+        var child = view
+        while let parent = child.superview {
+            if let glass = parent as? NSGlassEffectView {
+                return glass is ActiveLookGlassEffectView && child !== glass.contentView ? view.window : nil
+            }
+            child = parent
+        }
+        return nil
+    }
+
+    @available(macOS 26.0, *)
+    nonisolated private static func scoped(_ view: NSView, _ body: () -> Void) {
+        guard pthread_main_np() != 0 else { return body() }
+        MainActor.assumeIsolated { during(glassWindow(of: view), body) }
+    }
+
+    @available(macOS 26.0, *)
+    nonisolated private static func scope(_ hostClass: AnyClass, _ selector: Selector) {
+        typealias Method = @convention(c) (NSView, Selector) -> Void
+        guard let method = class_getInstanceMethod(hostClass, selector) else { return }
+        let previous = unsafeBitCast(method_getImplementation(method), to: Method.self)
+        let block: @convention(block) (NSView) -> Void = { view in scoped(view) { previous(view, selector) } }
+        class_replaceMethod(hostClass, selector, imp_implementationWithBlock(block), method_getTypeEncoding(method))
+    }
+
+    @available(macOS 26.0, *)
+    nonisolated private static func scopeSize(_ hostClass: AnyClass, _ selector: Selector) {
+        typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
+        guard let method = class_getInstanceMethod(hostClass, selector) else { return }
+        let previous = unsafeBitCast(method_getImplementation(method), to: Method.self)
+        let block: @convention(block) (NSView, NSSize) -> Void = { view, size in scoped(view) { previous(view, selector, size) } }
+        class_replaceMethod(hostClass, selector, imp_implementationWithBlock(block), method_getTypeEncoding(method))
+    }
+
+    @available(macOS 26.0, *)
+    nonisolated private static func scopePointer(_ hostClass: AnyClass, _ selector: Selector) {
+        typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
+        guard let method = class_getInstanceMethod(hostClass, selector) else { return }
+        let previous = unsafeBitCast(method_getImplementation(method), to: Method.self)
+        let block: @convention(block) (NSView, UnsafeMutableRawPointer?) -> Void = { view, pointer in
+            scoped(view) { previous(view, selector, pointer) }
+        }
+        class_replaceMethod(hostClass, selector, imp_implementationWithBlock(block), method_getTypeEncoding(method))
     }
 
     /// The window whose glass is updating now (tests read it).
