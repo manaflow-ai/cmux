@@ -39,6 +39,13 @@ def redact(text):
     return re.sub(r'((?<!\w)t=|pair_?token"?\s*[:=]\s*"?)[A-Za-z0-9_-]+', r"\1<redacted>", text, flags=re.I)
 
 
+def shows_a_code():
+    """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
+    code is the expected "before"; on one with it, no code is a failure."""
+    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextPages/MobilePairing/MobilePairingPageProvider.swift")
+    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+
+
 def dev_credential():
     """(email, password) of the DEBUG dev account (AuthCoordinator's "42" shortcut), as mac.py reads it."""
     src = os.path.join(ROOT, "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift")
@@ -200,7 +207,8 @@ def main():
 
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired = [], None, None
+    streams, app, paired, url = [], None, None, None
+    expects_code = shows_a_code()
     try:
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
@@ -216,10 +224,10 @@ def main():
         streams.append(mac_log := Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact",
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
         # Signed in, hostd online, iPhone connections on: the page shows the code.
-        qr = (wait_for(lambda: status().get("qr"), 300, every=2) or {})
+        qr = (wait_for(lambda: status().get("qr"), 300 if expects_code else 60, every=2) or {})
         url = qr.get("url")
         note(f"- Mac pairing page: state {last.get('state')}, Mac {last.get('macName')!r}, "
-             f"{'code ' + redact(url) if url else 'NO pairing code (a ref without it: pairing skipped)'} "
+             f"{'code ' + redact(url) if url else 'NO pairing code (FAIL: this ref shows one)' if expects_code else 'NO pairing code (a ref without it: pairing skipped)'} "
              f"in {time.monotonic() - t0:.0f} s; {mac_shot('mac-pairing')}")
 
         # ---- the phone ------------------------------------------------------
@@ -247,7 +255,9 @@ def main():
         if url:
             t1 = time.monotonic()
             # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
-            subprocess.run(simctl + ["openurl", a.udid, url], check=True, capture_output=True)
+            opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True)
+            if opened.returncode != 0:  # the error names the link: redacted, never raised with it
+                raise SystemExit(f"simctl openurl failed ({opened.returncode}): {redact(opened.stderr.strip())[-400:]}")
             paired = mac_log.wait(PAIRED, 180)
             took = time.monotonic() - t1
             if not paired:  # the stream may have missed it: the store keeps info lines a while
@@ -285,6 +295,8 @@ def main():
         for path in (sock, f"/tmp/cmux-debug-{tag}.log"):
             if os.path.exists(path):
                 os.unlink(path)
+    if not url and not expects_code:
+        return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     return 0 if paired else 1
 
 
