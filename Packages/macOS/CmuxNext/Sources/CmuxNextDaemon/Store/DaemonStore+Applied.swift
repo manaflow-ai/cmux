@@ -26,7 +26,12 @@ extension DaemonStore {
     /// snapshot (daemon truth replaces the tree).
     public func whenApplied(_ transaction: ClientTransactionID, reaching sequence: UInt64? = nil,
                             _ body: @escaping @MainActor () -> Void) {
-        // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
+        // A read-your-writes wait never waits on the drain's tail or a script batch's stage: what it needs shows now.
+        if !confirmedTransactions.contains(transaction), sequence.map({ appliedSequence < $0 }) ?? true {
+            applyAwaitedTail { envelope in
+                envelope.event.clientTransactionID == transaction || sequence.map { envelope.sequence <= $0 } == true
+            }
+        }
         if let stage, stage.holds(through: sequence, echo: transaction) { stage.commitAll() }
         if confirmedTransactions.contains(transaction) { return body() }
         if let sequence, appliedSequence >= sequence { return body() }

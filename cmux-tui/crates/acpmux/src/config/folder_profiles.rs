@@ -749,6 +749,7 @@ fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
     if meta.len() > MAX_PROFILE_BYTES {
         return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
     }
+    // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     if meta.uid() != uid || meta.mode() & 0o022 != 0 {
         return Err(error(

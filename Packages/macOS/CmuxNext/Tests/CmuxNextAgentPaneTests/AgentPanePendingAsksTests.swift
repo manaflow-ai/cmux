@@ -63,7 +63,7 @@ struct AgentPanePendingAsksTests {
 
     /// The op from a pane wired as ``AgentPaneView`` wires it.
     static func call(_ params: [String: JSONValue], model: AgentPaneModel, daemons: Daemons) async throws -> JSONValue {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         provider.pendingAsks = daemons.reader
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
         return try await provider.call(AgentPageOps.namespace + "chat.asks.pending", params: .object(params), context: context)
@@ -192,13 +192,13 @@ struct AgentPanePendingAsksTests {
         let beforeHandshake = Self.pane(socket: nil)
         #expect(try await Self.call(["sessionId": .string("a-chat-on-this-mac")], model: beforeHandshake, daemons: daemons) == .null)
         // A provider no pane has wired fails closed too.
-        let unwired = AgentPageProvider { _ in nil }
+        let unwired = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         unwired.pendingAsks = daemons.reader
         let reply = try await unwired.call(AgentPageOps.namespace + "chat.asks.pending",
                                            params: .object(["sessionId": .string("a-chat-on-this-mac")]), context: Self.context)
         #expect(reply == .null)
         // A pane that closed (its model is gone) reads nothing either.
-        let closed = AgentPageProvider { _ in nil }
+        let closed = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         closed.pendingAsks = daemons.reader
         do {
             var gone: AgentPaneModel? = Self.pane(socket: Self.mainSocket)
