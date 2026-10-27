@@ -611,8 +611,9 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 ### 5.1 Launch screen
 
 - `UILaunchScreen` in Info.plist: `UIColorName` = `LaunchBackground` (#000000 dark /
-  #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux mark, template, 72 x 72 pt, tinted
-  `label`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
+  #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux chevron in the app icon's gradient
+  with its soft glow, 72 x 72 pt in a 104 pt image; `scripts/generate-launch-mark.swift`),
+  centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
   on their background.)
 - `LaunchHandoff` (first SwiftUI frame): the same mark at the same position. When auth resolves
   (Keychain read, < 300 ms typical) to a signed-in destination, the mark scales 1.0 → 0.92 and

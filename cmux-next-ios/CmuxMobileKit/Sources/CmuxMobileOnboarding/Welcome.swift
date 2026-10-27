@@ -10,15 +10,13 @@ private let welcomeLog = Logger(subsystem: "dev.cmux.mobile", category: "welcome
 private let theme = CmuxMobileTheme.standard
 
 /// The launch screen's mark, re-drawn as the first SwiftUI frame so the handoff
-/// is seamless (SPEC 5.1): same 72 pt mark, same center, on `bg`.
+/// is seamless (SPEC 5.1): same 72 pt gradient chevron, same center, on `bg`.
 public struct LaunchMarkView: View {
     public init() {}
 
     public var body: some View {
-        CmuxMark()
-            .fill(theme.colors.label)
+        WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
             .frame(width: 72, height: 72)
-            .accessibilityHidden(true)
     }
 }
 
@@ -177,9 +175,9 @@ public struct WelcomeView: View {
         .accessibilityLabel(Text(verbatim: "cmux"))
     }
 
-    /// The launch screen's mark (72 pt, centered, `label`) on the first frame,
-    /// gliding into the lockup slot while it takes the app icon's gradient.
-    /// It stays the lockup's chevron afterwards, so nothing is swapped.
+    /// The launch screen's mark (72 pt, centered, the app icon's gradient) on
+    /// the first frame, gliding into the lockup slot. It stays the lockup's
+    /// chevron afterwards, so nothing is swapped.
     private func launchMark(t: Double) -> some View {
         typealias E = IntroEase
         return GeometryReader { proxy in
@@ -187,18 +185,19 @@ public struct WelcomeView: View {
             let target = CGPoint(x: lockupMark.midX, y: lockupMark.midY)
             let glide = reduceMotion ? 1 : E.outQuint(E.seg(t, 0, 0.45))
             let size = E.lerp(Self.launchMarkSize, lockupMark.width > 0 ? lockupMark.width : lockupMarkSize, glide)
-            let colour = reduceMotion ? E.seg(t, 0, 0.35) : E.seg(t, 0.05, 0.4)
+            // Reduce Motion: the launch mark crossfades into the lockup's.
+            let fade = reduceMotion ? E.seg(t, 0, 0.35) : 1
             ZStack {
                 if reduceMotion {
-                    WelcomeMark(gradient: 0, glow: 0)
+                    WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
                         .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
                         .position(center)
-                        .opacity(1 - colour)
+                        .opacity(1 - fade)
                 }
-                WelcomeMark(gradient: colour, glow: 0.3 * colour, opaqueBase: !reduceMotion)
+                WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
                     .frame(width: size, height: size)
                     .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
-                    .opacity(reduceMotion ? colour : 1)
+                    .opacity(fade)
             }
         }
         .ignoresSafeArea()
@@ -413,14 +412,15 @@ private final class WelcomeIntroClock {
     }
 }
 
-/// The cmux chevron. `gradient` 0 is the monochrome launch mark (`label`),
-/// 1 is the app icon's cyan-to-indigo gradient with a soft glow (`glow` 0...1).
-/// `opaqueBase` keeps the `label` chevron fully under the gradient so a
-/// crossfade never turns the mark translucent.
+/// The cmux chevron. `gradient` 0 is a monochrome mark (`label`), 1 is the app
+/// icon's cyan-to-indigo gradient with a soft glow (`glow` 0...1).
 struct WelcomeMark: View {
     var gradient: Double
     var glow: Double
-    var opaqueBase = false
+
+    /// The launch screen's glow. `scripts/generate-launch-mark.swift` draws
+    /// the launch image (`LaunchMark`) with the same gradient and glow.
+    static let launchGlow = 0.3
     @Environment(\.colorScheme) private var colorScheme
 
     /// Sampled from `AppIcon.icon` (leading edge to the chevron tip).
@@ -431,7 +431,7 @@ struct WelcomeMark: View {
 
     var body: some View {
         ZStack {
-            CmuxMark().fill(theme.colors.label).opacity(opaqueBase ? 1 : 1 - gradient)
+            CmuxMark().fill(theme.colors.label).opacity(1 - gradient)
             CmuxMark()
                 .fill(Self.iconGradient)
                 .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 4 + 8 * glow)
