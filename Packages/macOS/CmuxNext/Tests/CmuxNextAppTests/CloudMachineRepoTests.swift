@@ -156,7 +156,7 @@ struct CloudMachineRepoTests {
                 "an earlier start's runner that has not taken over yet keeps its files")
         let alive = try #require(runner.range(of: "flock 8\n")), late = try #require(runner.range(of: "-ge 60 ]; then"))
         let running = try #require(runner.range(of: "status running null"))
-        #expect(alive.upperBound < late.lowerBound && late.lowerBound < running.lowerBound && runner.contains("status failed 75; exit 75"),
+        #expect(alive.upperBound < late.lowerBound && late.lowerBound < running.lowerBound && runner.contains(#"status failed 75 ',"late":true'; exit 75"#),
                 "a runner a minute late (an apply may have stopped waiting) does not run, checked while it holds `alive`")
         #expect(!runner.contains("start.lock"), "the runner never waits on start.lock, which an apply holds while it waits for the runner")
     }
