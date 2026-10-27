@@ -16,7 +16,7 @@ import Testing
 /// `CMUX_BENCH=1`, in a Release build, on the fleet.
 ///
 /// ```
-/// CMUX_BENCH=1 swift test -c release --filter MetricsRecordBench
+/// CMUX_BENCH=1 swift test -c release --no-parallel --filter MetricsRecordBench
 /// ```
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_BENCH"] == "1"))
 struct MetricsRecordBench {
@@ -221,20 +221,30 @@ nonisolated private enum MetricsBenchMallocs {
     nonisolated(unsafe) static var sink: UnsafeMutableRawPointer?
 
     /// Runs `body` with the hook installed, after checking that the hook sees this thread's allocations.
+    /// `malloc_logger` is one word per process and this hook reads only this bench's key: it fails when another
+    /// hook is in at the start or replaced this one before `body` returned (a test of another target running in parallel).
     static func hooked<T>(_ body: () throws -> T) throws -> T {
         // RTLD_DEFAULT, a C macro Swift does not import.
         let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger"), "libmalloc exports malloc_logger")
         let hook = symbol.assumingMemoryBound(to: MetricsBenchMallocLogger?.self)
         _ = key // made before the hook runs: its lazy initializer is not counted
-        let previous = hook.pointee
+        let installed = hook.pointee != nil
+        try #require(!installed, "another malloc_logger is installed: run the benches alone (swift test --no-parallel)")
         hook.pointee = countMetricsBenchMalloc
-        defer { hook.pointee = previous }
+        defer { if holdsOwn(hook) { hook.pointee = nil } }
         let control = count {
             sink = malloc(64)
             free(sink)
         }
         try #require(control >= 1, "malloc_logger saw no allocation on this thread: the bench cannot count here")
-        return try body()
+        let result = try body()
+        try #require(holdsOwn(hook), "another malloc_logger replaced the bench's hook while it counted: run the benches alone (swift test --no-parallel)")
+        return result
+    }
+
+    /// Whether `hook` holds this bench's counting function.
+    private static func holdsOwn(_ hook: UnsafeMutablePointer<MetricsBenchMallocLogger?>) -> Bool {
+        unsafeBitCast(hook.pointee, to: UInt.self) == unsafeBitCast(countMetricsBenchMalloc as MetricsBenchMallocLogger, to: UInt.self)
     }
 
     /// The allocations the calling thread makes in `body` while the hook is installed.

@@ -12,15 +12,18 @@ import Testing
 /// called the way ghostty-next calls it (the IOSurface handoff, or the presented frame with
 /// `GHOSTTY_RENDERER_FRAMES`):
 /// - between echo samples, the Release steady state: the hook stays set for `key.echo_frame` sampling and each
-///   frame pays two loads. It must make no heap allocation.
+///   frame pays two loads.
 /// - while the probe records with no press open (`CMUX_TYPING_FLOWS`, `cmux trace record --keys`).
 /// - the frame that shows a parsed press's echo: the mark that closes the press, timed one call at a time.
+///
+/// Each case asserts that the mark makes no heap allocation: done check 3 wants it before the per-frame sites (037,
+/// 057, 113) use it.
 ///
 /// A measurement, not a CI test (as TraceEventBench): the suite runs only with `CMUX_BENCH=1`, in a Release build,
 /// on the fleet.
 ///
 /// ```
-/// CMUX_BENCH=1 swift test -c release --filter GhosttyTraceHookBench
+/// CMUX_BENCH=1 swift test -c release --no-parallel --filter GhosttyTraceHookBench
 /// ```
 @MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_BENCH"] == "1"))
 struct GhosttyTraceHookBench {
@@ -97,6 +100,7 @@ struct GhosttyTraceHookBench {
         try #require(rig.hook.isInstalled && probe.isRecording)
         let (nanos, mallocs) = try Self.timeFrames(rig)
         print(Self.line("contents mark, recording, no press open", nanos, mallocs, per: "per frame, batches of \(Self.batch)"))
+        #expect(mallocs == 0, "a frame while the probe records, with no press open, allocated")
     }
 
     /// The frame that shows a parsed press's echo: one mark per press, each timed alone, less the cost of the
@@ -136,6 +140,7 @@ struct GhosttyTraceHookBench {
         print(Self.line("contents mark of an echo", nanos, mallocs, per: "per mark, clock pair \(clockPair) ns removed")
               + String(format: "; %.2f mallocs per mark", Double(mallocs) / Double(Self.echoes)))
         #expect(closed == Self.echoes, "each frame closed its press")
+        #expect(mallocs == 0, "the mark that closes a press allocated \(Double(mallocs) / Double(Self.echoes)) times per mark")
     }
 
     /// One key press on `key` whose echo was parsed (GhosttyTraceHookTests' press).
@@ -170,20 +175,30 @@ nonisolated private enum HookBenchMallocs {
     nonisolated(unsafe) static var sink: UnsafeMutableRawPointer?
 
     /// Runs `body` with the hook installed, after checking that the hook sees this thread's allocations.
+    /// `malloc_logger` is one word per process and this hook reads only this bench's key: it fails when another
+    /// hook is in at the start or replaced this one before `body` returned (a test of another target running in parallel).
     static func hooked<T>(_ body: () throws -> T) throws -> T {
         // RTLD_DEFAULT, a C macro Swift does not import.
         let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger"), "libmalloc exports malloc_logger")
         let hook = symbol.assumingMemoryBound(to: HookBenchMallocLogger?.self)
         _ = key // made before the hook runs: its lazy initializer is not counted
-        let previous = hook.pointee
+        let installed = hook.pointee != nil
+        try #require(!installed, "another malloc_logger is installed: run the benches alone (swift test --no-parallel)")
         hook.pointee = countHookBenchMalloc
-        defer { hook.pointee = previous }
+        defer { if holdsOwn(hook) { hook.pointee = nil } }
         let control = count {
             sink = malloc(64)
             free(sink)
         }
         try #require(control >= 1, "malloc_logger saw no allocation on this thread: the bench cannot count here")
-        return try body()
+        let result = try body()
+        try #require(holdsOwn(hook), "another malloc_logger replaced the bench's hook while it counted: run the benches alone (swift test --no-parallel)")
+        return result
+    }
+
+    /// Whether `hook` holds this bench's counting function.
+    private static func holdsOwn(_ hook: UnsafeMutablePointer<HookBenchMallocLogger?>) -> Bool {
+        unsafeBitCast(hook.pointee, to: UInt.self) == unsafeBitCast(countHookBenchMalloc as HookBenchMallocLogger, to: UInt.self)
     }
 
     /// The allocations the calling thread makes in `body` while the hook is installed.
