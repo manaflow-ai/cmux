@@ -53,6 +53,7 @@ final class FindPillButton: NSButton {
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
+    // visibility-walk-allow: a tint, a layer fill, an alpha and (titled buttons) one short title's color; the pill lives only while its find is open, so a deferral costs more
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
