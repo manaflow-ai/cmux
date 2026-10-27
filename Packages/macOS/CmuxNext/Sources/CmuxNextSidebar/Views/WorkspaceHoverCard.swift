@@ -217,10 +217,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
         custom = nil
     }
 
-    /// Arms the next one-second tick while a card with a running time shows, stops it otherwise.
+    /// Arms one deadline for a shown running time's next change (no periodic tick), stops it otherwise.
     private func updateTicker() {
-        // A group's summary card has no running time: only a workspace card ticks.
-        guard let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay else {
+        // A group's summary card has no running time: only a workspace card ticks. wall-clock: a model Date.
+        guard let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay(now: Date()) else {
             ticker.cancel()
             return
         }
@@ -263,14 +263,13 @@ final class WorkspaceHoverCardView: NSView {
     /// The body font with digits of one width, for lines whose running time ticks.
     private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
 
-    /// When the card's running times next change their text: every second under an hour, then
-    /// every minute ("1h 3m"); nil when nothing runs.
-    var nextTickDelay: Duration? {
+    /// How long until a shown running time next changes its text
+    /// (``WorkspaceHoverCardContent/nextElapsedChange(since:now:)``); nil when nothing runs.
+    func nextTickDelay(now: Date) -> Duration? {
         guard isLive, let content else { return nil }
-        let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
-        guard let newest = starts.max() else { return nil }
-        // wall-clock: the shown running time counts from a model Date.
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        let starts = ([activityWord == nil ? nil : content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
+        guard let soonest = starts.map({ WorkspaceHoverCardContent.nextElapsedChange(since: $0, now: now) }).min() else { return nil }
+        return .milliseconds(Int((soonest * 1000).rounded(.up)))
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
