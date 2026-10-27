@@ -194,6 +194,19 @@ public actor CloudCodexBroker {
         cached = nil; refreshTask?.cancel(); refreshTask = nil
     }
 
+    /// The server has confirmed deletion; there is no VM file left to restore.
+    /// This is not a substitute for revocation of an existing machine.
+    public func discardDeletedTarget(_ machineID: String) {
+        targetGenerations[machineID, default: 0] += 1
+        targets.removeValue(forKey: machineID)
+        revocationTargets.removeValue(forKey: machineID)
+        pendingRevocations.remove(machineID)
+        previousModeByMachine.removeValue(forKey: machineID)
+        installedAccess.removeValue(forKey: machineID)
+        loadedPreviousMode.remove(machineID)
+        if targets.isEmpty { cached = nil; refreshTask?.cancel(); refreshTask = nil }
+    }
+
     private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
         guard !stopped else { throw CloudCodexBrokerError.cancelled }
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
@@ -483,6 +496,12 @@ public actor CloudCodexBrokerRegistry {
 
     /// Returns the existing holder without creating or signing in to one.
     public func existing(for scope: CloudCodexBrokerScope) -> CloudCodexBroker? { brokers[scope] }
+
+    /// Called only after the service successfully deletes this VM.
+    public func discardDeletedTarget(_ machineID: String, scope: CloudCodexBrokerScope) async {
+        await brokers[scope]?.discardDeletedTarget(machineID)
+        await pendingCleanup[scope]?.discardDeletedTarget(machineID)
+    }
 
     /// Stops a scoped holder before releasing it. Credentials remain on disk.
     public func remove(scope: CloudCodexBrokerScope) async -> Set<String> {
