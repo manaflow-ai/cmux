@@ -55,6 +55,7 @@ enum ProcessExit {
     static func exitEvent(pid: Int32, within timeout: Duration, clock: any Clock<Duration>) async -> Bool {
         // Abandoned (the source and the deadline dropped without an answer) is not an exit.
         (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            // timer-class-allow: off main: the exit wait's bound answers on the process source's own queue; no main-thread job
             let deadline = DemandTimer(owner: "daemon.handoff.exit", clock: clock)
             let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)", qos: .userInitiated)
             let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
