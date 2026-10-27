@@ -355,6 +355,8 @@ public struct CloudMachineConfig: Equatable, Sendable {
                     raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
                 # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
                 text = f.read().decode("utf-8", "surrogateescape")
+            if "\0" in text:  # bash drops a NUL when it sources the file, so the value it sets is not the one masked
+                raise Refused(f"{SECRETS_FILE} has a NUL byte: deliver the secrets again (cmux cloud deliver-secrets)")
             # Every value, however short (`cmux cloud secret set` takes 8 characters and up; a shorter one was
             # written by hand), as the file holds it too (a setup that prints the file prints that form), and each
             # line of one that spans lines. Only the form the receiver writes: any other line (a hand-written
@@ -377,11 +379,28 @@ public struct CloudMachineConfig: Equatable, Sendable {
             Occurrences are all found in the original bytes (never in output already rewritten) and may overlap,
             so no part of a longer value survives a shorter one's mask. The last (longest value - 1) bytes wait
             for more output or the end: an occurrence starting before them is whole in the buffer, and its bytes
-            past the cut stay masked in the next write (`carry`)."""
+            past the cut stay masked in the next write (`carry`). Overlapping occurrences of one value are taken
+            as one run: from an occurrence on, while the text keeps the value's smallest period (overlapping
+            occurrences of a value sit a period apart), compared block by block, so a repetitive value costs
+            linear time, never a search and a write per occurrence. Up to period - 1 bytes after the last
+            whole occurrence of a run may be masked too."""
 
             def __init__(self, log, values):
-                self.log, self.values, self.pending, self.carry = log, values, b"", 0
+                self.log, self.values, self.pending, self.carry, self.periods = log, values, b"", 0, {}
                 self.keep = max((len(v) for v in values), default=1) - 1
+
+            def period(self, v):
+                """v's smallest period (len(v) minus its longest proper border, by KMP), once per value seen."""
+                if v not in self.periods:
+                    border, k = [0] * len(v), 0
+                    for i in range(1, len(v)):
+                        while k and v[i] != v[k]:
+                            k = border[k - 1]
+                        if v[i] == v[k]:
+                            k += 1
+                        border[i] = k
+                    self.periods[v] = len(v) - border[-1]
+                return self.periods[v]
 
             def write(self, final):
                 buf = self.pending
@@ -392,9 +411,15 @@ public struct CloudMachineConfig: Equatable, Sendable {
                 for v in self.values:
                     i = buf.find(v)
                     while 0 <= i < cut:
-                        cover[i:i + len(v)] = b"\1" * len(v)
-                        end = max(end, i + len(v))
-                        i = buf.find(v, i + 1)
+                        p, e, step = self.period(v), i + len(v), len(v)
+                        while step:  # extend while buf[k] == buf[k - p]: whole blocks, then halving
+                            if e + step <= len(buf) and buf[e:e + step] == buf[e - p:e - p + step]:
+                                e += step
+                            else:
+                                step //= 2
+                        cover[i:e] = b"\1" * (e - i)
+                        end = max(end, e)
+                        i = buf.find(v, e - len(v) + 1)  # every occurrence starting before that is inside [i, e)
                 out = []
                 for run in re.finditer(rb"\x00+|\x01+", bytes(cover[:cut])):
                     out.append(b"***" if run.group()[0] else buf[run.start():run.end()])
