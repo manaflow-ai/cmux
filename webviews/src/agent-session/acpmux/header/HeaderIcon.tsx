@@ -27,7 +27,8 @@ export function HeaderIcon({ name, size = 16, selected = false }: { name: string
     if (symbol) loadHarnessSymbol(symbol);
   }, [symbol]);
   const src = symbol ? symbols.get(symbol) : undefined;
-  if (!src) return <Icon name={name} size={size} selected={selected} />;
+  const color = selected ? "var(--agent-accent)" : undefined;
+  if (!src) return <Icon name={name} size={size} selected={selected} color={color} />;
   const mask = `url("${src}") center / contain no-repeat`;
   return (
     <span
@@ -38,6 +39,7 @@ export function HeaderIcon({ name, size = 16, selected = false }: { name: string
       style={{
         width: size,
         height: size,
+        color,
         mask,
         WebkitMask: mask,
         rotate: name === "action.more.vertical" ? "90deg" : undefined,

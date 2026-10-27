@@ -368,7 +368,7 @@ export default componentEntry<HeaderToolsProps>({
   },
   variants: {
     "unified-compact": {
-      note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. Fits the shared 28px tab row without a second band; only the hovered button changes ink.",
+      note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",
       props: { ...base, hasChanges: true, onChanges: () => undefined, summary: panelToggle(true) },
       play: groupTreatment(24, 2),
     },
@@ -378,9 +378,9 @@ export default componentEntry<HeaderToolsProps>({
       play: groupTreatment(28, 4),
     },
     "unified-tight": {
-      note: "Alternative: 22px targets on a 23px pitch. Saves width, but leaves less separation for adjacent terminal and browser actions.",
+      note: "Alternative: 24px targets without gaps. Saves width, but leaves less separation for adjacent terminal and browser actions.",
       props: { ...base, hasChanges: true, onChanges: () => undefined, summary: panelToggle(true) },
-      play: groupTreatment(22, 1),
+      play: groupTreatment(24, 0),
     },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",

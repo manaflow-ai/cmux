@@ -142,6 +142,11 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     expect(glyph.style.width).toBe("16px");
     expect(glyph.style.height).toBe("16px");
     expect(glyph.style.mask).toContain(template);
+    expect(glyph.style.color).toBe(button.getAttribute("aria-pressed") === "true" ? "var(--agent-accent)" : "");
   }
+  await act(async () => root!.render(<PanelToggle label="Session Info" shown={false} onToggle={() => {}} />));
+  const unpressed = host.querySelector<HTMLElement>("[data-symbol]")!;
+  expect(unpressed.dataset.symbol).toBe("list.bullet");
+  expect(unpressed.style.color).toBe("");
   act(() => setHarnessSymbolHost(undefined));
 });

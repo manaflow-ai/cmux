@@ -77,10 +77,10 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       play: standaloneHeight(32),
     },
-    "standalone-original": {
-      note: "Previous 44px row, retained for comparison: 20px of unused vertical space around the same controls.",
+    "standalone-tight": {
+      note: "Alternative: 24px row. Fits the controls exactly, but leaves no vertical breathing room around their targets.",
       snapshot: chat(finished),
-      play: standaloneHeight(44),
+      play: standaloneHeight(24),
     },
     quiet: {
       note: "Connected after a turn: tools only, no title, status or repeated machine and folder label.",

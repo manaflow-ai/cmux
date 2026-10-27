@@ -14,7 +14,7 @@
 .acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
-/* On: a toggle whose panel is open (aria-pressed, cx-00n1): the text's ink, and the panel toggle's glyph its filled form. */
+/* On: toggles use the text's ink; HeaderIcon gives the selected panel glyph accent ink, without a backdrop. */
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text)}
 /* Start Agent's floating chat (FloatingChat.tsx) borrows the tool's square and keeps its soft tint on hover and while on. */
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
