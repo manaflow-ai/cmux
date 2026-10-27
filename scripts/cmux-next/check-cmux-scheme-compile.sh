@@ -112,7 +112,7 @@ if [[ "$browser_data_import" == compiled-out ]]; then
   swift_import_flags="-DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT"
   browser_sources_backup="$(mktemp "${TMPDIR:-/tmp}/browser-sources.XXXXXX")"
   cp -f "$browser_sources" "$browser_sources_backup"
-  printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' > "$browser_sources"
+  cp -f "$repo_root/scripts/cmux-next/lib/browser-sources-compiled-out.json" "$browser_sources"
 fi
 echo "check-cmux-scheme-compile: browser-data import ${browser_data_import} (flags: ${swift_import_flags:-none})"
 build_attempt=0
@@ -137,6 +137,8 @@ build() {
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   [[ -n "$swift_import_flags" ]] && xcode_args+=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_import_flags")
   [[ -n "$swift_compilation_mode" ]] && xcode_args+=("SWIFT_COMPILATION_MODE=$swift_compilation_mode")
+  # The Linux whole-app build's REF capture (hybrid_ref_capture.py) reads the frontend lines from the log.
+  [[ "${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1 ]] && xcode_args+=(EMIT_FRONTEND_COMMAND_LINES=YES)
   if (( use_cache )); then
     while IFS= read -r setting; do xcode_args+=("$setting"); done < <(cmux_next_cas_settings)
   fi
