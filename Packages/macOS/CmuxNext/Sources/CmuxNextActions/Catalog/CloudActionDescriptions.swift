@@ -92,6 +92,12 @@ nonisolated enum CloudActionDescriptions {
             missing or failed), the identity it set and, while the sign-in waits, device_code and \
             verification_uri for the person to approve; --focus also opens that page.
             """,
+        "cloudEnrollMachine": """
+            Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
+            --ssh-key (default ~/.ssh/id_ed25519.pub) for its cmux user, pins its host key, writes a Host \
+            block in ~/.ssh/cmux-cloud/config named --name that dials through this app's tunnel, then peers \
+            acpmux. Returns ssh_host, address, steps_done, steps_pending, rerun_command and registry_command.
+            """,
         "cloudFilesList": """
             Lists a directory on the machine (--target machine:<id> --path /absolute/dir) and returns path, \
             count and text with one line per entry (d for a directory, - for a file, with its size).
