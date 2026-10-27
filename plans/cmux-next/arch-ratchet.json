@@ -755,6 +755,12 @@
       "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
     },
     {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
+    },
+    {
       "date": "2026-10-27",
       "row": "blocking_allow_escapes",
       "allow": 1,
