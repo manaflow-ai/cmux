@@ -22,7 +22,8 @@ final class CloudService {
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
-    @ObservationIgnored private let work: BackgroundWork
+    /// One app-lifetime owner of confirmed, per-account Codex delivery.
+    let codexBroker: CloudCodexBrokerAdapter
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
@@ -34,8 +35,7 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
-    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
-    @ObservationIgnored let binary: URL?
+    @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -99,7 +99,6 @@ final class CloudService {
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
-        self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -110,6 +109,29 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
+        let api = api
+        let build = LaunchIdentity.current().build
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let environment = ProcessInfo.processInfo.environment
+        let userHome = FileManager.default.homeDirectoryForCurrentUser
+        codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
+            currentScope: {
+                guard auth.isSignedIn, let user = auth.user else { return nil }
+                return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            },
+            launch: {
+                try await work.run(.userVisible, mayBlock: .files) {
+                    guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
+                        environment: environment, userHome: userHome) else { throw CloudCodexBrokerError.brokerUnavailable }
+                    let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+                        + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
+                    guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
+                        .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+                        throw CloudCodexBrokerError.brokerUnavailable
+                    }
+                    return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
+                }
+            }, target: { scope, machineID in CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) })
         installIdentity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
@@ -257,6 +279,7 @@ final class CloudService {
             var last = account
             for await account in ObservationStream({ self.account }) where account != last {
                 last = account
+                await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
                 startSessionAsks.endAll()
             }
@@ -295,6 +318,8 @@ final class CloudService {
     }
 
     func stop() {
+        // task-owner: final app teardown; the holder also closes when its private pipes close.
+        Task { await codexBroker.shutdown() }
         for observer in observers { observer.cancel() }
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
@@ -369,7 +394,6 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
-            await startHubForSSHRoutes()
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
@@ -421,6 +445,12 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
+            if let user = auth.user {
+                let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+                let machineID = session.machineID
+                // task-owner: server-driven removal; the adapter stops renewal before cleanup.
+                Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
+            }
             creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
         }
@@ -558,6 +588,9 @@ final class CloudService {
     static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
+        if let user = auth.user {
+            try? await codexBroker.revoke(machineID: machineID, scope: .init(userID: user.id, teamID: auth.teamID))
+        }
         try await api.deleteMachine(machineID)
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
@@ -586,19 +619,6 @@ final class CloudService {
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
-    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
-    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
-    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
-    /// that failed to start (offline at launch) or to restart gets another try; a running hub
-    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
-    func startHubForSSHRoutes() async {
-        guard unavailableReason == nil, auth.isSignedIn else { return }
-        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
-        // Cloud may have been turned off while the check waited: then no hub starts.
-        guard unavailableReason == nil, auth.isSignedIn else { return }
-        do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
-    }
-
     func renameMachine(_ machineID: String, to name: String) async throws {
         try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
@@ -613,6 +633,7 @@ final class CloudService {
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
+        await codexBroker.signOut()
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
