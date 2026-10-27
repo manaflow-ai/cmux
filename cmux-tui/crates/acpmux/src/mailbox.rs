@@ -6,6 +6,7 @@
 //! the recipient so one agent cannot acknowledge another agent's message.
 
 use anyhow::{Context, Result, bail};
+use cmux_blocking::{BlockingKind, scoped_blocking_call};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -148,7 +149,7 @@ impl Mailbox {
         crate::config::private_state_dir(root)
             .with_context(|| format!("create private mailbox {}", root.display()))?;
         let path = root.join("mailbox.json");
-        let state = if path.exists() {
+        let state = if cmux_blocking::fs::exists(&path).unwrap_or(false) {
             use std::io::Read;
             let mut bytes = Vec::new();
             crate::config::private_state_file(&path)?
@@ -460,11 +461,14 @@ fn persist_state(
         .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     let tmp = path.with_extension("json.tmp");
     write_private(&tmp, &bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    std::fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+    cmux_blocking::fs::rename(&tmp, path)
+        .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+    #[cfg(unix)]
     if let Some(parent) = path.parent() {
-        #[cfg(unix)]
-        std::fs::File::open(parent)
-            .and_then(|file| file.sync_all())
+        let dir = cmux_blocking::fs::open(parent)
+            .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || dir.sync_all())
             .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     }
     Ok(())
@@ -477,32 +481,39 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let mut file = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+    })?;
     if file.metadata()?.permissions().mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     file.write_all(bytes)?;
-    file.sync_all()
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || file.sync_all())?;
+    Ok(())
 }
 
 #[cfg(windows)]
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
-    match std::fs::remove_file(path) {
+    match cmux_blocking::fs::remove_file(path) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
     let mut file = crate::owner_only::create_new(path)?;
     file.write_all(bytes)?;
-    file.sync_all()
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || file.sync_all())?;
+    Ok(())
 }
 
 #[cfg(test)]

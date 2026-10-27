@@ -53,12 +53,22 @@ nonisolated enum TasksWire {
         case snapshot(TasksSnapshot)
         case event(TasksEvent)
         case reply(id: UInt64, reject: String?)
+        /// A snapshot the mirror refuses; the source drops the connection (Chromium's
+        /// mojo::ReportBadMessage closes the pipe of a peer that sent a bad message).
+        case badSnapshot(TasksSnapshotError)
         case ignored
     }
 
     static func decode(_ data: Data) -> Line {
         guard let line = try? JSONDecoder().blockingDecode(ReplyLine.self, from: data) else { return .ignored }
-        if let snapshot = line.snapshot { return .snapshot(snapshot) }
+        if let snapshot = line.snapshot {
+            do throws(TasksSnapshotError) {
+                try snapshot.checkUniqueIDs()
+            } catch {
+                return .badSnapshot(error)
+            }
+            return .snapshot(snapshot)
+        }
         if let event = line.event {
             let change: TasksChange
             if event.change.type == "remove", let entity = event.change.entity, let id = event.change.id {

@@ -17,7 +17,7 @@ struct AgentPaneTopBarDeferredLayoutTests {
 
     @Test func aBarUpdateLaysOutInTheWindowsPass() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
                                               source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // sync-layout: the test starts from a laid-out pane, so a later needsLayout is the bar's own.
