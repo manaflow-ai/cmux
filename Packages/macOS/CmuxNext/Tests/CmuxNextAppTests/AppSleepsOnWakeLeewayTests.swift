@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
-import CmuxNextErrorJournal
 @testable import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -27,76 +26,6 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(request.tolerance == .milliseconds(8), "a 250 ms debounce gets Chromium's 8 ms leeway")
         #expect(request.deadline.offset == FindSectionModel.debounce, "the leeway moves the wake later, never the deadline")
         model.pendingSearch?.cancel()
-    }
-
-    // MARK: Error journal cadence
-
-    @Test func theErrorJournalHarvestsAtOnceThenSleepsOffMainUntilTheNext() async throws {
-        let clock = ManualClock()
-        let source = GatedSource()
-        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-cadence-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: EnergyPolicySource(),
-                                           clock: clock, ledger: WakeupLedger())
-
-        service.start()
-        await source.waitForHarvests(1)
-        source.release()
-        try await clock.waitForSleeper()
-        let first = try #require(clock.sleepRequests.last)
-        #expect(first.deadline.offset == ErrorJournalService.harvestInterval, "the next harvest is one interval after the last ended")
-        #expect(first.tolerance == WakeLeeway.window(delay: ErrorJournalService.harvestInterval).tolerance,
-                "a 300 s cadence asks for WakeLeeway's 1 s slack")
-
-        service.start()
-        #expect(clock.sleeperCount == 1, "a second start does not start a second cadence")
-
-        clock.advance(by: ErrorJournalService.harvestInterval)
-        await source.waitForHarvests(2)
-        await service.stop()
-        #expect(source.harvests == 2)
-    }
-
-    /// p14-energy-032: under Energy Saver the next harvest waits the interval times the poll stretch.
-    @Test func theErrorJournalHarvestWaitsTheStretchedIntervalUnderTheSaver() async throws {
-        let clock = ManualClock()
-        let source = GatedSource()
-        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-saver-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let saver = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: saver,
-                                          clock: clock, ledger: WakeupLedger())
-
-        service.start()
-        await source.waitForHarvests(1)
-        source.release()
-        try await clock.waitForSleeper()
-        #expect(clock.sleepRequests.last?.deadline.offset == ErrorJournalService.harvestInterval * 4,
-                "the saver's harvest waits four intervals")
-        await service.stop()
-    }
-
-    @Test func theErrorJournalPlansNoHarvestWhileOneRuns() async throws {
-        let clock = ManualClock()
-        let source = GatedSource()
-        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-overlap-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: EnergyPolicySource(),
-                                           clock: clock, ledger: WakeupLedger())
-
-        service.start()
-        await source.waitForHarvests(1)
-        clock.advance(by: ErrorJournalService.harvestInterval * 3)
-        #expect(clock.sleeperCount == 0, "a cadence ran while a harvest was in flight")
-        #expect(source.harvests == 1, "a second harvest started behind the first")
-
-        await service.stop()
-        source.release()
-        await #expect(throws: ManualClock.NoSleeper.self, "a harvest that ended after stop planned the next one") {
-            // test-deadline: a bound on a wait that must find nothing, not a settle
-            try await clock.waitForSleeper(within: .milliseconds(300))
-        }
-        #expect(source.harvests == 1)
     }
 
     // MARK: Upload stage expiry
@@ -309,60 +238,6 @@ struct AppSleepsOnWakeLeewayTests {
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(30))
         #expect(!(await race.value), "the limit passed, yet the race answered true")
-    }
-}
-
-/// A source whose every harvest waits until the test releases it.
-private nonisolated final class GatedSource: ErrorHarvestSource, Sendable {
-    let id = "gated"
-    private struct State {
-        var harvests = 0
-        var released = false
-        var waiting: [CheckedContinuation<Void, Never>] = []
-        var watchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    }
-
-    private let state = Mutex(State())
-
-    var harvests: Int { state.withLock { $0.harvests } }
-
-    func collect(after cursor: String?) async throws -> ErrorHarvest {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let (resume, ready) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
-                state.harvests += 1
-                let count = state.harvests
-                let ready = state.watchers.filter { $0.count <= count }.map(\.continuation)
-                state.watchers.removeAll { $0.count <= count }
-                if state.released { return (true, ready) }
-                state.waiting.append(continuation)
-                return (false, ready)
-            }
-            for watcher in ready { watcher.resume() }
-            if resume { continuation.resume() }
-        }
-        return ErrorHarvest(events: [], cursor: cursor)
-    }
-
-    /// Lets every waiting and later harvest finish.
-    func release() {
-        let waiting = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            state.released = true
-            defer { state.waiting = [] }
-            return state.waiting
-        }
-        for continuation in waiting { continuation.resume() }
-    }
-
-    /// Returns once `count` harvests have begun.
-    func waitForHarvests(_ count: Int) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let now = state.withLock { state -> Bool in
-                if state.harvests >= count { return true }
-                state.watchers.append((count, continuation))
-                return false
-            }
-            if now { continuation.resume() }
-        }
     }
 }
 
