@@ -1161,6 +1161,9 @@ mod tests {
                                 "update": {"sessionUpdate": "current_mode_update",
                                            "currentModeId": "full-access"}})),
             agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
         };
         hub.end_managed_full_access(&chat).await;
         for _ in 0..8 {
