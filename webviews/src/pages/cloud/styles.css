@@ -1032,6 +1032,7 @@ select {
   margin-top: 0;
   padding: 0;
   border-inline-start: 0;
+  border-top: 0;
 }
 
 .cloud-header .cloud-title {

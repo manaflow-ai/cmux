@@ -92,14 +92,19 @@ await requireBrowserLane("cloud-sidebar-layout.test.tsx", async () => {
     }
     test(`${language}: storefront has no rail separator`, async () => {
       for (const browser of browsers) {
-        const page = await browser.newPage({ viewport: { width: 1200, height: 680 } });
+        const page = await browser.newPage();
         try {
-          await page.setContent(`<html dir="${language === "ar" ? "rtl" : "ltr"}"><head><style>
-            :root { --font-ui: sans-serif; --page-edge: 18px; }
-            ${css}</style></head><body>${content(language, "rows", true)}</body></html>`);
-          expect(
-            await page.locator(".cloud-account").evaluate((node) => getComputedStyle(node).borderInlineStartWidth),
-          ).toBe("0px");
+          for (const width of [560, 1200]) {
+            await page.setViewportSize({ width, height: 680 });
+            await page.setContent(`<html dir="${language === "ar" ? "rtl" : "ltr"}"><head><style>
+              :root { --font-ui: sans-serif; --page-edge: 18px; }
+              ${css}</style></head><body>${content(language, "rows", true)}</body></html>`);
+            const borders = await page.locator(".cloud-account").evaluate((node) => {
+              const style = getComputedStyle(node);
+              return [style.borderInlineStartWidth, style.borderTopWidth];
+            });
+            expect(borders, `${browser.browserType().name()} ${language} ${width}px`).toEqual(["0px", "0px"]);
+          }
         } finally {
           await page.close();
         }
