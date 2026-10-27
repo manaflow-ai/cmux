@@ -584,6 +584,20 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     });
     std::process::exit(code) // crash-allow: keeper returns the sandbox status to its launcher
 }
+// Red-phase lifecycle contract; G1b will use this guard around supervisor::run.
+#[cfg(test)]
+struct SupervisorThread;
+#[cfg(test)]
+impl Drop for SupervisorThread {
+    fn drop(&mut self) {}
+}
+#[cfg(test)]
+impl SupervisorThread {
+    fn start(_worker: impl FnOnce(OwnedFd) -> io::Result<()> + Send + 'static) -> Result<Self> {
+        Err("supervisor lifecycle is not wired".into())
+    }
+}
+
 /// Table loops stop at finite input exhaustion. Socket connects have a two-second
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
 #[cfg(test)]
@@ -808,6 +822,40 @@ mod tests {
         let (fd, port) = listener("127.0.0.1");
         assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
     }
+    #[test]
+    fn handoff_without_notify_fd_is_refused() {
+        let (fd, port) = listener("127.0.0.1");
+        // Bypass namespace proof only: this isolates the missing-notify failure.
+        assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
+    }
+
+    /// The worker's poll times out after two seconds; peer reads have the same
+    /// deadline. Guard drop must signal stop, join, and release worker resources.
+    #[test]
+    fn supervisor_thread_stops_and_releases_fds_on_session_end() {
+        use std::io::Read;
+        let (mut peer, owned) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let captured = std::sync::Arc::new(());
+        let worker_capture = captured.clone();
+        let (done, result) = std::sync::mpsc::channel();
+        let guard = SupervisorThread::start(move |stop| {
+            let _owned = owned;
+            let _capture = worker_capture;
+            let mut wait = libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            // SAFETY: wait is writable and stop remains owned throughout poll.
+            let stopped =
+                unsafe { libc::poll(&mut wait, 1, 2_000) } == 1 && wait.revents & libc::POLLIN != 0;
+            done.send(stopped).unwrap();
+            Ok(())
+        })
+        .unwrap();
+        drop(guard); // The child/session exit path must drop this guard.
+        assert!(result.try_recv().expect("supervisor was joined before cleanup returned"));
+        assert_eq!(std::sync::Arc::strong_count(&captured), 1, "worker capture leaked");
+        assert_eq!(peer.read(&mut [0]).unwrap(), 0, "worker descriptor leaked");
+    }
+
     #[test]
     fn child_exit_status_mapping() {
         for code in [0, 1, 7, 125, 127, 255] {
