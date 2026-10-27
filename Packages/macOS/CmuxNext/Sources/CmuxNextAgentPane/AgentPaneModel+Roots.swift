@@ -102,6 +102,7 @@ extension AgentPaneModel {
             chosenFolder = folder
             pickedFolder = nil
             _ = beginPick()
+            await transport.grantPicked(folder)
             return AgentPaneReply.success(["cwd": folder])
         case .cancelled:
             return AgentPaneReply.success()

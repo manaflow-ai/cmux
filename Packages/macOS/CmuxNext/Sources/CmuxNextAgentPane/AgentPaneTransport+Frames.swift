@@ -148,10 +148,14 @@ extension AgentPaneTransport {
         while !pending.isEmpty || !pendingHost.isEmpty {
             guard let entry = pending.first else {
                 guard let host = pendingHost.first else { break }
-                guard host.connection == current, sentFirst, let socket, let ids = requestIds else {
+                guard host.connection == current else {
                     pendingHost.removeFirst()
-                    host.reply.resume(returning: .staleConnection)
+                    host.reply?.resume(returning: .staleConnection)
                     continue
+                }
+                guard sentFirst, let socket, let ids = requestIds else {
+                    draining = false
+                    return
                 }
                 let requestID = host.requestID
                 ids.whenAnswered(requestID) { [weak self] in
@@ -161,7 +165,7 @@ extension AgentPaneTransport {
                 pendingHost.removeFirst()
                 if let error {
                     ids.cancel(requestID)
-                    host.reply.resume(returning: error)
+                    host.reply?.resume(returning: error)
                 } else {
                     awaitingHost[host.requestID] = host
                 }

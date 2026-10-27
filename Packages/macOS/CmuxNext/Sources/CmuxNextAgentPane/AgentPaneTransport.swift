@@ -57,6 +57,7 @@ import CmuxNextCompat
     var pendingHost: [PendingHostSend] = []
     var awaitingHost: [Int: PendingHostSend] = [:]
     var personProofID: Int?
+    var pendingTrustFolders: [String] = []
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
@@ -236,6 +237,7 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        flushPendingTrust()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
            !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
@@ -302,9 +304,9 @@ import CmuxNextCompat
         let connection: Int
         let requestID: Int
         let frame: String
-        let reply: CheckedContinuation<AgentPaneTransportError?, Never>
+        let reply: CheckedContinuation<AgentPaneTransportError?, Never>?
 
-        init(connection: Int, requestID: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>) {
+        init(connection: Int, requestID: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>?) {
             self.connection = connection
             self.requestID = requestID
             self.frame = frame
@@ -313,7 +315,7 @@ import CmuxNextCompat
     }
 
     func hostAnswered(_ id: Int) {
-        awaitingHost.removeValue(forKey: id)?.reply.resume(returning: nil)
+        awaitingHost.removeValue(forKey: id)?.reply?.resume(returning: nil)
     }
 
     func failHostRequests(connection id: Int) {
@@ -321,9 +323,9 @@ import CmuxNextCompat
         for host in waiting {
             awaitingHost.removeValue(forKey: host.requestID)
             requestIds?.cancel(host.requestID)
-            host.reply.resume(returning: .closed)
+            host.reply?.resume(returning: .closed)
         }
-        for host in pendingHost where host.connection == id { host.reply.resume(returning: .closed) }
+        for host in pendingHost where host.connection == id { host.reply?.resume(returning: .closed) }
         pendingHost.removeAll { $0.connection == id }
         if let personProofID { requestIds?.cancelAndNotify(personProofID) }
     }
