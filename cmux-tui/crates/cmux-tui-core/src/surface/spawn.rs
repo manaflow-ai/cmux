@@ -408,7 +408,7 @@ impl Surface {
                     pty.publish_final_frame();
                     pty.local_pty_drained.store(true, Ordering::Release);
                 }
-                publish_local_exit_if_ready(&surface);
+                post_local_exit_if_ready(&surface);
             }
         })?;
         *surface

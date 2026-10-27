@@ -1,6 +1,6 @@
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
-use cmux_threads::work::{Lane, Priority};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 
 impl Mux {
     /// Commit terminal cwd under the same registry -> state fence as topology.
@@ -110,6 +110,18 @@ impl Mux {
             }
         })
         .is_ok()
+    }
+
+    /// Publishes local terminal `surface`'s exit, if it is ready, on the
+    /// Files lane: its reader may not commit to the registry itself
+    /// (`exit_state::post_local_exit_if_ready`).
+    pub(crate) fn post_local_terminal_exit(&self, surface: Arc<Surface>) {
+        let _ = self.post_mux_work(
+            Priority::UserVisible,
+            Lane::Files,
+            Shutdown::SkipOnShutdown,
+            move |_| surface.publish_local_exit_if_ready(),
+        );
     }
 
     /// Close the startup race where the first prompt preceded runtime registration.
