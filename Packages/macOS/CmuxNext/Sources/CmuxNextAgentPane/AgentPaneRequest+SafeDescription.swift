@@ -58,6 +58,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chatsPage: "chatsPage"
         case .environment: "environment"
         case .cloudMachine: "cloudMachine"
+        case .cloudCredentialTransfer: "cloudCredentialTransfer"
         case .appAction: "appAction"
         case .paneAction, .diffTurn: "paneAction"
         case .preview: "preview"

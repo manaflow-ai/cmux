@@ -132,6 +132,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case environment(AgentPaneEnvironmentRequest)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
+    /// A user-confirmed provider credential transfer for one Cloud chat.
+    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
