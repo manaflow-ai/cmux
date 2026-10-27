@@ -310,7 +310,7 @@
   padding: 6px;
   overflow-x: auto;
 }
-.acpmux-quick-menu:not(.acpmux-quick-newtab) .acpmux-quick-rail {
+.acpmux-quick-menu[data-side="top"] .acpmux-quick-rail {
   order: 1;
   border-block-end: 0;
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);

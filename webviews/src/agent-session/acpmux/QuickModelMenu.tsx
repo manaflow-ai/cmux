@@ -106,7 +106,7 @@ export type QuickFamily = {
   logIn?(): void;
   /// The launch configurations shown in its Profile submenu.
   profiles?: QuickProfile[];
-  /// The account the tab runs or starts on.
+  /// The launch profile the tab runs or starts on.
   profile?: string;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
@@ -204,6 +204,7 @@ export function QuickModelMenu({
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
+  const [scrolled, setScrolled] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -211,6 +212,7 @@ export function QuickModelMenu({
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
       setMoreFor(undefined);
+      setScrolled(false);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -222,7 +224,11 @@ export function QuickModelMenu({
   const popup = useRef<HTMLDivElement | null>(null);
   // A changed tab or filter starts with its first model in view.
   const body = useRef<HTMLDivElement | null>(null);
-  const [scrolled, setScrolled] = useState(false);
+  const rail = useRef<HTMLFieldSetElement | null>(null);
+  useLayoutEffect(() => {
+    const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [open, tab]);
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
     setScrolled(false);
@@ -773,7 +779,7 @@ export function QuickModelMenu({
         {families ? (
           <div className="acpmux-quick-layout">
             {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset className="acpmux-quick-rail" aria-label={t("picker.harness")}>
+            <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
               {families.list.map((family) => (
                 <button
                   key={family.id}

@@ -54,7 +54,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   });
 
   test("harness controls keep their position while each direction follows visible content", async () => {
-    for (const variant of ["claude-many-harnesses", "combined"]) {
+    for (const variant of ["claude-many-harnesses", "combined", "chat-flipped"]) {
       const page = await open(variant);
       try {
         const rail = await bounds(page, ".acpmux-quick-rail");
@@ -74,6 +74,42 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       } finally {
         await page.close();
       }
+    }
+  });
+
+  test("keyboard-selected harnesses stay visible in an overflowing strip", async () => {
+    const page = await open("claude-many-harnesses", 320);
+    try {
+      await page.keyboard.press("ArrowLeft");
+      const selected = page.locator(".acpmux-quick-rail-tab[aria-pressed=true]");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Goose",
+      );
+      const button = (await selected.boundingBox())!;
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      expect(button.x).toBeGreaterThanOrEqual(rail.x);
+      expect(button.x + button.width).toBeLessThanOrEqual(rail.x + rail.width);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("reopening a scrolled menu restores its first-row inset without a top fade", async () => {
+    const page = await open("claude-many-harnesses", 320, 290);
+    try {
+      await page.locator(".acpmux-quick-body").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-scrolled"));
+      await page.keyboard.press("Escape");
+      await page.locator(".acpmux-quick-menu").waitFor({ state: "hidden" });
+      await page.locator("button[data-menu=model]").click();
+      await page.locator(".acpmux-quick-menu").waitFor();
+      expect(await page.locator(".acpmux-quick-body").getAttribute("data-scrolled")).toBeNull();
+      expect(await page.locator(".acpmux-quick-body").evaluate((node) => node.scrollTop)).toBe(0);
+    } finally {
+      await page.close();
     }
   });
 

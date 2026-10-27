@@ -7,7 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
 
-type Props = { tab?: string; expand?: boolean; chat?: boolean; fast?: boolean; many?: boolean };
+type Props = { tab?: string; expand?: boolean; chat?: boolean; fast?: boolean; many?: boolean; anchorTop?: boolean };
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
 
@@ -74,7 +74,7 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many }: Props) {
+        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
@@ -93,7 +93,10 @@ export default componentEntry<Props>({
           const list = tab ? [...available].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : available;
           return (
             <OnNewTab.Provider value={!chat}>
-              <div style={{ padding: 16, paddingTop: chat ? 400 : 16 }} data-expand={expand ? "" : undefined}>
+              <div
+                style={{ padding: 16, paddingTop: chat && !anchorTop ? 400 : 16 }}
+                data-expand={expand ? "" : undefined}
+              >
                 <QuickModelMenu
                   open={isOpen}
                   onOpenChange={setOpen}
@@ -136,6 +139,7 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
