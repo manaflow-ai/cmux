@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Reads a palette query as a path or a web address.
@@ -25,9 +26,7 @@ public struct PaletteQueryTargetParser: Sendable {
 
     /// The real file system.
     public static let diskKind: @Sendable (String) -> Kind? = { path in
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return nil }
-        return isDirectory.boolValue ? .folder : .file
+        FileManager.default.entryKind(atPath: path).map { $0 == .directory ? Kind.folder : Kind.file }
     }
 
     /// Hosts typed without a scheme or a path still read as web addresses

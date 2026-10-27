@@ -216,6 +216,28 @@ struct ShortcutHintTests {
         #expect(log.keepsHintsCalls == 0, "a key after resigning key still did hint work")
     }
 
+    /// The app's resign-active notice reaches the watcher through the app's one observer (AppEvents) and hides the
+    /// hints in the notice's own turn; another window's resign-key leaves them up (p06-scheduler-311).
+    @Test func resigningActiveHidesTheHintsInItsTurnAndAnotherWindowsResignKeyDoesNot() throws {
+        let tap = InputEventTap()
+        let rig = MainDeadlineRig()
+        let window = Self.window()
+        let other = Self.window()
+        defer { window.orderOut(nil); other.orderOut(nil) }
+        let log = Log()
+        let notifications = NotificationCenter()
+        let monitor = Self.monitor(window, tap: tap, notifications: notifications, rig: rig, log: log)
+        monitor.setEnabled(true)
+        defer { monitor.stop() }
+
+        try Self.showHints(in: window, tap: tap, rig: rig, log: log)
+        notifications.post(name: NSWindow.didResignKeyNotification, object: other)
+        #expect(log.changes == [.command], "another window resigning key hid this window's hints")
+        notifications.post(name: NSApplication.didResignActiveNotification, object: nil)
+        #expect(log.changes == [.command, nil], "resigning active left the hints up past its turn")
+        #expect(!tap.flags.contains(.hintsShowing))
+    }
+
     @Test func turningHintsOffWhileTheyShowClearsTheFlag() async throws {
         let tap = InputEventTap()
         let rig = MainDeadlineRig()
@@ -237,7 +259,8 @@ struct ShortcutHintTests {
 
     private static func monitor(_ window: NSWindow, tap: InputEventTap, notifications: NotificationCenter = NotificationCenter(),
                                 rig: MainDeadlineRig = MainDeadlineRig(), log: Log) -> WindowScopedShortcutHintModifierMonitor {
-        WindowScopedShortcutHintModifierMonitor(window: window, tap: tap, deadlines: rig.deadlines, notifications: notifications,
+        WindowScopedShortcutHintModifierMonitor(window: window, tap: tap, deadlines: rig.deadlines, events: AppEvents(center: notifications),
+                                                windowEvents: WindowEvents(window: window, center: notifications),
                                                 isFront: { _ in log.frontCalls += 1; return log.front },
                                                 keepsHints: { _ in log.keepsHintsCalls += 1; return log.keeps }) { flags in
             log.changes.append(flags)

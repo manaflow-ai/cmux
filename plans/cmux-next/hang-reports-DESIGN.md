@@ -271,6 +271,12 @@ server refuses unknown keys and literals with a `400` and the client then drops 
 `HangReportServerRules` (CmuxNextHangReportsTests) is the client's copy of these key and literal
 sets; the goldens of both schemas pass it.
 
+Schema 3 also adds `counts.userBlockingWaitP99Ms` (p02-threads-123,
+`HangReport.WireSchema.carriesLaneWait`): the background lanes' user-blocking queue-wait p99 since
+launch, one of `0-1`, `1-2`, `2-4`, `4-8`, `8-16`, `16-32`, `32-64`, `64+` (milliseconds,
+`CoarseCounts.waitLabels`). The schema-3 decoder must list it as an optional closed literal set
+before a build sends schema 3; a schema-2 report never has it.
+
 ## 5. Server
 
 - `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program

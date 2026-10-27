@@ -53,12 +53,18 @@ extension PaneHandlers {
             let controller = ctx.services.paneController(for: pane)
             // The pane's own daemon decides: a remote pane's close waits for no local connection.
             let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
+            // The close's end shows on screen (the pane goes, or a refused close brings it back): the run's completion.
+            let end = ctx.registry.completion(on: ctx.services.mainWork)
             ctx.send("close-pane") { connection in
                 do {
                     try await connection.closePane(handle)
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
+                    await end.apply(owner: "PaneHandlers.closePane", answering: true) {
+                        if let controller { controller.finishPaneClose(shown, failed: false) }
+                    }
                 } catch {
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: true) }
+                    await end.apply(owner: "PaneHandlers.closePane", answering: true) {
+                        if let controller { controller.finishPaneClose(shown, failed: true) }
+                    }
                     throw error
                 }
             }

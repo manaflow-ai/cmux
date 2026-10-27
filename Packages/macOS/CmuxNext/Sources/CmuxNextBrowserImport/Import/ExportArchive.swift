@@ -20,7 +20,7 @@ public struct ExportArchive: Sendable {
     public init(contentsOf file: URL) throws {
         let bytes: SecretBytes
         do { bytes = try PasswordCSVImporter.read(file, limit: Self.maximumSize) } catch { throw Failure.unreadable }
-        self = try bytes.withUnsafeBytes { try Self.archive(in: $0) }
+        self = try Self.archive(in: bytes)
     }
 
     public enum Failure: Error, Equatable, Sendable {
@@ -54,19 +54,27 @@ public struct ExportArchive: Sendable {
         head.starts(with: [0x50, 0x4B, 0x03, 0x04])
     }
 
-    static func archive(in zip: UnsafeRawBufferPointer) throws -> ExportArchive {
+    /// The parts of the zip held in `file`, read in place.
+    static func archive(in file: SecretBytes) throws(Failure) -> ExportArchive {
+        try file.withUnsafeBytes { (raw) throws(Failure) in
+            // SAFETY: the view lives only for this closure, while `file` lends its bytes; the archive
+            // holds parts copied (inflated) out of it.
+            try archive(in: unsafe ByteView(raw))
+        }
+    }
+
+    static func archive(in zip: ByteView) throws(Failure) -> ExportArchive {
         guard let end = endOfCentralDirectory(zip) else { throw Failure.notAnArchive }
-        let count = Int(zip.u16(end + 10)), start = Int(zip.u32(end + 16))
+        let count = zip.littleEndian16(end + 10).widened, start = zip.littleEndian32(end + 16).widened
         var archive = ExportArchive()
         var offset = start, inflated = 0
         for _ in 0..<count {
-            guard offset >= 0, offset + 46 <= zip.count, zip.u32(offset) == 0x0201_4B50 else { throw Failure.notAnArchive }
-            let flags = zip.u16(offset + 8), method = zip.u16(offset + 10)
-            let compressed = Int(zip.u32(offset + 20)), size = Int(zip.u32(offset + 24))
-            let nameLength = Int(zip.u16(offset + 28)), local = Int(zip.u32(offset + 42))
-            guard offset + 46 + nameLength <= zip.count else { throw Failure.notAnArchive }
-            let name = String(decoding: UnsafeRawBufferPointer(rebasing: zip[(offset + 46)..<(offset + 46 + nameLength)]), as: UTF8.self)
-            offset += 46 + nameLength + Int(zip.u16(offset + 30)) + Int(zip.u16(offset + 32))
+            guard offset >= 0, offset + 46 <= zip.count, zip.littleEndian32(offset) == 0x0201_4B50 else { throw .notAnArchive }
+            let flags = zip.littleEndian16(offset + 8), method = zip.littleEndian16(offset + 10)
+            let compressed = zip.littleEndian32(offset + 20).widened, size = zip.littleEndian32(offset + 24).widened
+            let nameLength = zip.littleEndian16(offset + 28).widened, local = zip.littleEndian32(offset + 42).widened
+            guard let name = zip.view((offset + 46)..<(offset + 46 + nameLength))?.text else { throw .notAnArchive }
+            offset += 46 + nameLength + zip.littleEndian16(offset + 30).widened + zip.littleEndian16(offset + 32).widened
             // Encrypted entries and oversized (or zip64) parts are skipped, never guessed at;
             // so is anything past the archive's size in all, and a second passwords file.
             guard let part = Part(name), flags & 1 == 0, size <= maximumPart, inflated + size <= maximumSize,
@@ -77,14 +85,19 @@ public struct ExportArchive: Sendable {
             case .passwords:
                 var ok = false
                 let secret = SecretBytes(capacity: size) { out in
-                    let written = inflate(source, method: method, size: size, into: out)
+                    // SAFETY: `out` is the buffer SecretBytes lends for this closure, max(size, 1) bytes;
+                    // inflate writes at most `size` of them.
+                    let written = unsafe inflate(source, method: method, size: size, into: out)
                     ok = written != nil
                     return written ?? 0
                 }
                 if ok { archive.passwordCSVs.append(secret) }
             case .bookmarks, .history:
                 var data = Data(count: size)
-                let written = data.withUnsafeMutableBytes { inflate(source, method: method, size: size, into: $0) }
+                let written = data.withUnsafeMutableBytes { out in
+                    // SAFETY: `out` is the Data's `size` bytes, lent for this closure; inflate writes at most `size`.
+                    unsafe inflate(source, method: method, size: size, into: out)
+                }
                 guard written != nil else { continue }
                 if part == .bookmarks {
                     archive.bookmarksHTML.append(String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self))
@@ -97,54 +110,52 @@ public struct ExportArchive: Sendable {
     }
 
     /// The end-of-central-directory record, searched back from the end (it may carry a comment).
-    private static func endOfCentralDirectory(_ zip: UnsafeRawBufferPointer) -> Int? {
+    private static func endOfCentralDirectory(_ zip: ByteView) -> Int? {
         guard zip.count >= 22 else { return nil }
         let last = zip.count - 22
-        for offset in stride(from: last, through: max(0, last - 0xFFFF), by: -1) where zip.u32(offset) == 0x0605_4B50 {
+        for offset in stride(from: last, through: max(0, last - 0xFFFF), by: -1) where zip.littleEndian32(offset) == 0x0605_4B50 {
             return offset
         }
         return nil
     }
 
     /// An entry's stored bytes, after its local header.
-    private static func payload(_ zip: UnsafeRawBufferPointer, local: Int, compressed: Int) -> UnsafeRawBufferPointer? {
-        guard local >= 0, local + 30 <= zip.count, zip.u32(local) == 0x0403_4B50 else { return nil }
-        let start = local + 30 + Int(zip.u16(local + 26)) + Int(zip.u16(local + 28))
+    private static func payload(_ zip: ByteView, local: Int, compressed: Int) -> ByteView? {
+        guard local >= 0, local + 30 <= zip.count, zip.littleEndian32(local) == 0x0403_4B50 else { return nil }
+        let start = local + 30 + zip.littleEndian16(local + 26).widened + zip.littleEndian16(local + 28).widened
         guard start <= zip.count, compressed <= zip.count - start else { return nil }
-        return UnsafeRawBufferPointer(rebasing: zip[start..<(start + compressed)])
+        return zip.view(start..<(start + compressed))
     }
 
     /// Stored or deflated bytes into `out`; how many, or nil when they do not come to `size`.
-    private static func inflate(_ source: UnsafeRawBufferPointer, method: UInt16, size: Int,
-                                into out: UnsafeMutableRawBufferPointer) -> Int? {
+    /// `out` must hold at least `size` writable bytes for the call (checked).
+    @unsafe private static func inflate(_ source: ByteView, method: UInt16, size: Int,
+                                        into out: UnsafeMutableRawBufferPointer) -> Int? {
         guard size > 0 else { return 0 }
-        guard size <= out.count, let destination = out.baseAddress else { return nil }
-        switch method {
-        case 0:
-            guard source.count == size, let from = source.baseAddress else { return nil }
-            destination.copyMemory(from: from, byteCount: size)
-            return size
-        case 8:
-            guard let from = source.baseAddress else { return nil }
-            // COMPRESSION_ZLIB is raw DEFLATE, what a zip entry holds.
-            let written = compression_decode_buffer(destination.assumingMemoryBound(to: UInt8.self), size,
-                                                    from.assumingMemoryBound(to: UInt8.self), source.count, nil, COMPRESSION_ZLIB)
-            return written == size ? size : nil
-        default:
-            return nil
+        // SAFETY: reads the count and start of the buffer the caller lends for this call.
+        guard unsafe size <= out.count, let destination = unsafe out.baseAddress else { return nil }
+        return source.withUnsafeBytes { input -> Int? in
+            switch method {
+            case 0:
+                // SAFETY: reads the count and start of the entry's bytes, lent for this closure.
+                guard unsafe input.count == size, let from = unsafe input.baseAddress else { return nil }
+                // SAFETY: copies `size` bytes: the stored entry holds exactly that many (checked) and
+                // `destination` at least that many (checked above); the ranges are different buffers.
+                unsafe destination.copyMemory(from: from, byteCount: size)
+                return size
+            case 8:
+                // SAFETY: reads the start of the entry's bytes, lent for this closure.
+                guard let from = unsafe input.baseAddress else { return nil }
+                // COMPRESSION_ZLIB is raw DEFLATE, what a zip entry holds.
+                // SAFETY: the decoder reads at most input.count bytes from `from` and writes at most `size`
+                // to `destination`, the counts passed, both inside their lent buffers (checked above).
+                let written = unsafe compression_decode_buffer(destination.assumingMemoryBound(to: UInt8.self), size,
+                                                               from.assumingMemoryBound(to: UInt8.self), input.count, nil,
+                                                               COMPRESSION_ZLIB)
+                return written == size ? size : nil
+            default:
+                return nil
+            }
         }
-    }
-}
-
-private extension UnsafeRawBufferPointer {
-    /// Little-endian fields; 0 past the end (the callers bound their offsets first).
-    func u16(_ offset: Int) -> UInt16 {
-        guard offset >= 0, offset + 2 <= count else { return 0 }
-        return UInt16(littleEndian: loadUnaligned(fromByteOffset: offset, as: UInt16.self))
-    }
-
-    func u32(_ offset: Int) -> UInt32 {
-        guard offset >= 0, offset + 4 <= count else { return 0 }
-        return UInt32(littleEndian: loadUnaligned(fromByteOffset: offset, as: UInt32.self))
     }
 }

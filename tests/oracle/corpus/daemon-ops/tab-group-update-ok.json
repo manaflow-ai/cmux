@@ -81,7 +81,9 @@
         "method": "tab_group.update",
         "params": {
           "tab_group": "$step:fx-tab-group#/value/id",
-          "name": "oracle"
+          "name": "renamed",
+          "color": "red",
+          "collapsed": true
         },
         "idempotencyKey": "tab-group-update-ok.call"
       },
@@ -93,7 +95,34 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "name, color and collapsed of the group change in one commit"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.update",
+        "params": {
+          "tab_group": "$step:fx-tab-group#/value/id",
+          "name": "renamed",
+          "color": "red",
+          "collapsed": true
+        },
+        "idempotencyKey": "tab-group-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

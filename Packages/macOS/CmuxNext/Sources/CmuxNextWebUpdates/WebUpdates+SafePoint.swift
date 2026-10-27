@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextPages
 import CmuxNextUpdater
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CoreGraphics
 import WebKit
 
@@ -16,7 +19,7 @@ extension WebUpdates {
     /// apps, else when the input quiet period could end. Replaces a booked look.
     func scheduleSafePoint() {
         guard pending != nil else { return safePoint.cancel() }
-        let wait: Duration = if WebBundleServedViews.shared.shown.isEmpty {
+        let wait: Duration = if servedViews.shown.isEmpty {
             .zero
         } else if NSApp.isActive {
             .milliseconds(Int(max(0, WebSwapGate.seconds(WebSwapGate.quietInput) - Self.idleSeconds()) * 1000))
@@ -36,14 +39,14 @@ extension WebUpdates {
         let generation = pendingGeneration
         var decision = appDecision()
         if decision == .askPages {
-            let views = WebBundleServedViews.shared.shown
+            let views = servedViews.shown
             let documents = views.map(\.url)
             decision = WebSwapGate.pages(await Self.askAll(views))
             if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(views)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
-               Set(WebBundleServedViews.shared.shown.map(ObjectIdentifier.init)) != Set(views.map(ObjectIdentifier.init))
+               Set(servedViews.shown.map(ObjectIdentifier.init)) != Set(views.map(ObjectIdentifier.init))
                || views.map(\.url) != documents || views.contains(where: \.isLoading) {
                 decision = .later(after: .seconds(1), reason: "page.changed")
             }
@@ -67,7 +70,7 @@ extension WebUpdates {
 
     private func appDecision() -> WebSwapGate.Decision {
         let away = resignedAt.map { WebSwapGate.seconds(.now - $0) } ?? .infinity
-        return WebSwapGate.app(pagesShown: !WebBundleServedViews.shared.shown.isEmpty, active: NSApp.isActive,
+        return WebSwapGate.app(pagesShown: !servedViews.shown.isEmpty, active: NSApp.isActive,
                                idle: Self.idleSeconds(), blocked: Self.appBlocked(), away: away)
     }
 
@@ -97,11 +100,13 @@ extension WebUpdates {
         const held = await swap.hold();
         return typeof held === "string" && held ? held : null;
         """
-        return await withCheckedContinuation { (done: CheckedContinuation<[String?], Never>) in
+        // Answers dropped before they resumed read as no page answering.
+        let unanswered = [String?](repeating: "page.no-answer", count: views.count)
+        return (try? await withOnceContinuation { (done: OnceContinuation<[String?], OnceContinuationError>) in
             let answers = Answers(count: views.count, done)
             let deadline = DemandTimer(owner: "web-updates.page-answer")
             answers.deadline = deadline
-            deadline.schedule(after: WebSwapGate.answerWithin) { @MainActor in answers.finish() }
+            deadline.scheduleOnMain(after: WebSwapGate.answerWithin) { answers.finish() }
             for (index, view) in views.enumerated() {
                 if view.isLoading {
                     answers.set(index, "page.loading")
@@ -114,7 +119,7 @@ extension WebUpdates {
                     }
                 }
             }
-        }
+        }) ?? unanswered
     }
 
     /// The pages' answers for one ask: resumes once, when every page answered or at the deadline
@@ -122,10 +127,10 @@ extension WebUpdates {
     @MainActor private final class Answers {
         private var values: [String??]
         private var left: Int
-        private var done: CheckedContinuation<[String?], Never>?
+        private var done: OnceContinuation<[String?], OnceContinuationError>?
         var deadline: DemandTimer?
 
-        init(count: Int, _ done: CheckedContinuation<[String?], Never>) {
+        init(count: Int, _ done: OnceContinuation<[String?], OnceContinuationError>) {
             values = Array(repeating: nil, count: count)
             left = count
             self.done = done

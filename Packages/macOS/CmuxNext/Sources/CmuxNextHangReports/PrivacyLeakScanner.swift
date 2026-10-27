@@ -7,7 +7,8 @@ public import Foundation
 /// address, time, assignment or quote), at most 128 characters, no run of 32 or more letters and
 /// digits that mixes both (a token), and none of ``forbiddenTerms`` (the user's names, home
 /// folder, host name), compared case-insensitively. A finding names the JSON path only, never
-/// the value.
+/// the value. A field whose values form a catalog (``catalogValues``: the histogram names, the black box's
+/// processes) holds only a member of it.
 ///
 /// ```swift
 /// let findings = PrivacyLeakScanner(forbiddenTerms: ImageClassifier.personalTerms()).findings(in: body)
@@ -21,6 +22,8 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         case tooLong
         case token
         case personalTerm
+        /// A value outside its field's catalog (``catalogValues``).
+        case notInCatalog
     }
 
     /// One finding: where, and what it looked like.
@@ -68,6 +71,19 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         "$.scroll_jank.histograms[].name": HangReportBuilder.scrollJankNames,
     ]
 
+    /// The fields that hold only a catalog member, by schema path: schema 3's histogram names (this build's
+    /// ``HistogramID`` catalog, p09-observability-063) and black-box processes. Any other value there is refused.
+    static let catalogValues: [String: Set<String>] = [
+        "$.histograms[].name": HangReport.histogramCatalog,
+        "$.launch_sections[].histograms[].name": HangReport.histogramCatalog,
+        "$.blackbox[].process": HangReport.blackBoxProcesses,
+    ]
+
+    /// The fields that hold a hash (schema 3's blocking site ids, ``HangReport/BlockingSiteCount/siteID(location:)``),
+    /// by schema path: a value of exactly 16 lowercase hex digits there is a hash and holds no text, so it is not
+    /// checked for personal terms (a person named Abbe and the id `0abbe12f3c4d5e6f`); any other value there is.
+    static let hashPaths: Set<String> = ["$.blocking_sites[].site"]
+
     private func walk(_ value: Any, path: String, schemaPath: String, into found: inout [Finding]) {
         switch value {
         case let object as [String: Any]:
@@ -83,8 +99,14 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
                 walk(child, path: "\(path)[\(index)]", schemaPath: schemaPath + "[]", into: &found)
             }
         case let string as String:
+            if let catalog = Self.catalogValues[schemaPath] {
+                if !catalog.contains(string) { found.append(Finding(path: path, kind: .notInCatalog)) }
+                return
+            }
             let closedSetMember = Self.closedSetValues[schemaPath]?.contains(string) ?? false
-            if let kind = kind(of: string, personal: !closedSetMember) { found.append(Finding(path: path, kind: kind)) }
+            let hash = Self.hashPaths.contains(schemaPath)
+                && string.range(of: HangReportBuilder.blockingSitePattern, options: .regularExpression) != nil
+            if let kind = kind(of: string, personal: !closedSetMember && !hash) { found.append(Finding(path: path, kind: kind)) }
         default:
             break
         }

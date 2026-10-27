@@ -166,6 +166,32 @@ holder's live terminals, with the A3 reconcile notice. Target: every daemon op <
 
 Owners: D1-D8 cmux-b6 PL-daemon (speed) with PL-holder (cmux-4f) for the holder side; acpmux (A1-A3 and its share of D1-D8) end to end cmux-4f PL-acpmux, audit and fixes (lead decision 2026-10-23; OWNERS.md 8b1e64c6130; [acpmux-audit.md](acpmux-audit.md)). Every fix meets the brief's REVIEW AND FIX STANDARD and gets the deep review (cmux-next-deep-review).
 
+### Chrome runtime idle services (p13-webui-084)
+
+Rule (chrome-parity p13 F, "Home at the floor"): a Chrome runtime service cmux does not use does
+not run at Home. Census from the Chromium 154 sources (cef-154.0.28-cmux.28, Chromium 154.0.8037.58);
+each switch and its source is a constant in `CEFSwitches.swift` (`syncOffSwitch`, and
+`idleServiceOffFeatures` in the one `disable-features` entry), which the Chromium Host passes too. Not measured yet: the home bench and the browser automation suite run
+before and after on the fleet (test phase); the wake rates below are from the sources.
+
+| Service | Idle work at Home (source) | Decision |
+|---|---|---|
+| HangWatcher | a thread per Chromium process (app, GPU, network, renderers) wakes every 10 s, `base/threading/hang_watcher.cc` | off: `disable-features=EnableHangWatcher,EnableHangWatcherOnGpuProcess`; its dumps need Crashpad upload, cmux ships no `crash_reporter.cfg` |
+| Sync | SyncServiceImpl, engine and invalidations per profile, `components/sync/base/command_line_switches.h` | off: `disable-sync`; no Google sign-in, cmux owns bookmarks, password code is null-safe |
+| Optimization Hints | hints component registered with the component updater, `optimization_hints_component_installer.cc` | off: `disable-features=OptimizationHints` (Puppeteer and chrome-launcher do the same) |
+| Optimization guide models (`OptimizationTargetPrediction`) | model downloads through the optimization guide | kept: Safe Browsing client-side detection gets its model here (`client_side_detection_service.cc`) |
+| Component updater | first check 1 min after start, then every 5 h, `components/component_updater/configurator_impl.cc` | kept (written decision): it installs the Widevine CDM (browser.md, Lawrence 2026-10-17) and CRLSet |
+| Safe Browsing | list updates | kept (written decision): no change; phishing and malware protection stays on (p14-energy: "Safe Browsing and CRLSet stay") |
+| Variations seed fetch | none: a build without Chrome branding fetches only with `--variations-server-url`, `components/variations/service/variations_service.cc` IsFetchingEnabled | already off; `disable-field-trial-config` stays |
+| Media Router (Cast) | none before a Cast click: `kDelayMediaSinkDiscovery` is on by default, `chrome/browser/media/router/media_router_feature.cc` | kept: the page menu's Cast row works |
+| Translate | language detection after a page load, not at idle | kept: the page menu's Translate rows work |
+| GCM | delayed start; no app handler registers (`disable-notifications` turns off Push, sync is off) | no switch |
+| Network time | a timer every 360 s, a query at about 1.2 % of checks, `components/network_time/network_time_tracker.cc` | kept: it feeds the cert verifier's clock (`cert_verifier_service_time_updater.cc`); 0.003 wakes/s |
+| Domain Reliability | none without metrics consent, `chrome/browser/domain_reliability/service_factory.cc` | already off |
+
+Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files; this task holds the `CEFSwitches.swift`
+lease, coordination/cefs-leases.md).
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
@@ -188,6 +214,14 @@ push), and writes its before/after table into this file's section 5.
   `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a590 (the
   sidebar owner, who took a576's work).
+- **PL-input** (chrome-parity program p04-input, 2026-10-26): input before all other main-thread
+  work, continuous input once per frame, scroll on layers, prediction that moves only pixels,
+  O(1) key routing, and EventLatency from the OS event to the presented frame. Owns the
+  CmuxNextInput* targets ([OWNERS.md](OWNERS.md)); PL-typing keeps the key router. Red rows: 5
+  and 6 (key to frame under load) and the input half of 26. Target: key to presented frame p50
+  <= 8.3 ms and p99 <= 16.7 ms at 120 Hz, light and STRESS. Design:
+  [input-pipeline-DESIGN.md](input-pipeline-DESIGN.md); spec and task table:
+  [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 
@@ -281,6 +315,8 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p01-process-005 baseline (pending) | - | process census (light) | not measured: `process-model-census.py` (task p01-process-004) is not on perf/chrome-parity yet. Earlier run, quoted, standard session (speed-of-sound-DESIGN.md section 7, cmux20, macOS 27.0, Release, 7eeba1d596c, 5 terminals and 6 hidden tabs per engine): 52 processes, 677 threads | - |
 | 2026-10-26 | p01-process-005 baseline (pending) | - | process census (heavy) | not measured with the census tool. Earlier run, quoted (cmux20, Apple M6, macOS 27.0, Hz not recorded, Release, 7eeba1d596c, fleet step c347f45ee8d6f0328e7dda54, 150 workspaces; speed-of-sound-DESIGN.md section 7): 392 processes (172 terminal hosts, 171 shells, 25 renderers), 3,300 threads (daemon 797, app 91); app footprint 844 MB, daemon 284 MB | - |
 | 2026-10-26 | p01-process-005 baseline (pending) | - | per-role memory split (light to heavy) | not measured. Earlier estimate, quoted as written (speed-of-sound-DESIGN.md gap 11; its parts are approximate and do not add up to its total): "Each workspace costs 8.2 MB: a terminal host process (2.3 MB) and a shell (2.3 MB) per terminal, ~1.5 MB in the daemon and ~3 MB in the app". No split by role with shared mappings counted once exists yet | - |
+| 2026-10-26 | p04-input-077 (day-1 input hotspots, queue MQ-input-hotspots) | perf/chrome-parity, this push (scripts only) | 5, 26: the main-thread stacks that own a key's or a click's time, light and STRESS | no per-stack view of input windows: trace.py summarizes stalls and key-flow hops, the benches report percentiles only | `scripts/cmux-next/input-hotspots.py run --app APP --out DIR` records typing-frame-bench (terminal, home, omnibar), home-perf, sidebar-churn-typing `--input real` (400 workspaces in light) and an every-action sweep of nextSurface and commandPalette, and its own `clicks` bench (40 tab clicks and 40 sidebar row clicks through `debug.mouse`, light and STRESS) under `trace.py record --bundle` with key-press flows (`BENCH_LAUNCH_TRACE_FLOWS`), then folds the main-thread samples of the app process that emitted each input window (key.flow to the echo commit, key.frame, a switch.tab or switch.workspace that a driven click caused, from the click's send; a person's action.commit) into artifacts/input-hotspots.json (`cmux-input-hotspots/v1`: one row per stack top that is the largest of a window over 4 ms, with surface, session, stack_top, file:line, share_ms_p95) and the click-to-commit gaps (prewarm candidate for p04-input-042 at p95 >= 30 ms over at least 20 clicks). Switches that automation caused (setup, restore) are left out and counted. plan.json keeps each recording's exit after each one; a failed, timed-out or empty recording sets `ok` false and `run` / `fold` exit 3. `--self-test` green (fixtures, Linux). **Not measured yet**: the GUI base run on a mini with the input grant is the next step; each row it prints is one fix task |
+| 2026-10-26 | p13-webui-052 (code cache spike for cmux pages) | perf/chrome-parity, this push (bench arm only); manaflow-ai/cef `cp/p13-webui-052` at `a65b72d6` (code at `c6af944a`; not built, not pinned) | F3: a cmux page's cold open (its renderer is new) | every cmux-page script compiles again in each new renderer: Chromium caches no custom-scheme script and makes no code cache for the off-the-record pages profile | **not measured** (it needs the split build of 049, which is on perf/chrome-parity: inline scripts get no code cache): `bench-webui.py open` with and without `--page-code-cache` on one mini, one build of the fork branch ([webui-DESIGN.md](webui-DESIGN.md) 5.4). No app code lands unless `settings.cold_open_ms` p95 gains beyond the off arm's spread and `settings.open_ms` (warm, the control) gets no worse. Cold open replaces the task's warm open: a live renderer already holds its scripts in V8, so no warm open can show this cache. Entries are keyed by the renderer's lock, so on this fork ref (one lock per page origin) two pages do not share a `cmux-page://cmux.shared/` chunk's entry; that needs 011's group lock and is not claimed |
 | | | | | | |
 
 ### Process-model baseline and per-role budgets (p01-process-005)

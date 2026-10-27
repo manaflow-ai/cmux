@@ -78,7 +78,7 @@ final class StagedUpdateRefresh {
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
         let probe = updater.probe()
-        clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
+        clickTimer.scheduleOnMain(after: Self.clickProbeDeadline) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.settleClick(answered: false, updater: updater)
         }
@@ -162,7 +162,7 @@ final class StagedUpdateRefresh {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
         armedFast = probesFast(updater)
-        timer.schedule(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { @MainActor [weak self, weak updater] in
+        timer.scheduleOnMain(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }

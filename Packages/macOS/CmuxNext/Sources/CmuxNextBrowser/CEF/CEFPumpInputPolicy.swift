@@ -36,6 +36,10 @@ final class CEFPumpInputPolicy {
         case runAfterDispatch(target: InputTarget)
         /// Input is still pending, and the pass has waited as long as it may.
         case runAtBound
+        /// Only keys are pending and a Chromium page has the keyboard: they go to the page, whose
+        /// input Chromium acks inside the pump, so the pass runs before them (counted under
+        /// `chromiumPage` in ``CEFPumpStats/passesWhileInputPending``).
+        case runForFocusedPage
         /// Input is pending: hold the pass until its dispatch ends, or `deadline` at the latest.
         /// `began`: this hold starts the wait (a pass that waits across several inputs is one hold).
         case hold(deadline: TimeInterval, began: Bool)
@@ -93,9 +97,11 @@ final class CEFPumpInputPolicy {
 
     /// Whether the pass due at `now` (seconds since boot, the `NSEvent.timestamp` base) runs. A hold
     /// keeps its first deadline until a pass runs or the hold ends (``holdEnded()``), however many
-    /// inputs follow.
-    func admit(now: TimeInterval) -> Admission {
+    /// inputs follow. `pageHasKeyboard`: a Chromium page is key, so pending keys go to it and hold
+    /// nothing; pending pointer input goes to whatever view is under the pointer and still holds.
+    func admit(now: TimeInterval, pageHasKeyboard: Bool = false) -> Admission {
         guard pending.hasPendingInput(uptime: now) else { return .run }
+        if pageHasKeyboard, !pending.hasPendingPointerInput(uptime: now) { return .runForFocusedPage }
         if let heldUntil {
             return now + Self.slop < heldUntil ? .hold(deadline: heldUntil, began: false) : .runAtBound
         }
@@ -145,17 +151,22 @@ final class CEFPumpTapDispatches: CEFPumpInputDispatches {
     static let followedClasses: InputEventClasses = [.key, .button, .scroll, .drag]
 
     private let tap: InputEventTap
-    private let pageWindowClass: () -> AnyClass?
-    /// `CefNSWindow` once CEF's framework has registered it.
-    private var pageClass: AnyClass?
+    private let pages: ChromiumPageWindowClassifier
+
+    /// - Parameters:
+    ///   - tap: The app's one input tap.
+    ///   - pages: What tells a Chromium page window (the pump's board shares it for its focus check).
+    init(tap: InputEventTap, pages: ChromiumPageWindowClassifier = ChromiumPageWindowClassifier()) {
+        self.tap = tap
+        self.pages = pages
+    }
 
     /// - Parameters:
     ///   - tap: The app's one input tap.
     ///   - pageWindowClass: Chromium's page window class, nil until it is registered (a test passes
     ///     its own subclass).
-    init(tap: InputEventTap, pageWindowClass: @escaping () -> AnyClass? = ChromiumPageWindowMain.pageClass) {
-        self.tap = tap
-        self.pageWindowClass = pageWindowClass
+    convenience init(tap: InputEventTap, pageWindowClass: @escaping () -> AnyClass?) {
+        self.init(tap: tap, pages: ChromiumPageWindowClassifier(pageWindowClass: pageWindowClass))
     }
 
     func observeDispatchEnd(_ handler: @escaping (InputTarget) -> Void) -> InputSubscription {
@@ -171,8 +182,6 @@ final class CEFPumpTapDispatches: CEFPumpInputDispatches {
     /// allocation once the class is found.
     func target(of event: NSEvent, outcome: InputEventTap.DispatchOutcome) -> InputTarget {
         guard outcome == .delivered, let window = event.window else { return .other }
-        if pageClass == nil { pageClass = pageWindowClass() }
-        guard let pageClass else { return .other }
-        return window.isKind(of: pageClass) ? .chromiumPage : .other
+        return pages.isPage(window) ? .chromiumPage : .other
     }
 }

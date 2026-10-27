@@ -8,8 +8,8 @@ import Testing
 /// content/browser/child_process_launcher_helper.cc), and the child itself runs at that QoS.
 @Suite(.timeLimit(.minutes(1)))
 struct ProcessOwnThreadTests {
-    /// The process's owner, as the helper's FixChild: configured here, then touched only by the spawn thread and
-    /// the termination handler.
+    /// A test owner of a process configured up front, then touched only by the spawn thread and the termination
+    /// handler. (The helper's FixChild stores no `Process`: it makes one inside `child`.)
     nonisolated final class Child: @unchecked Sendable {
         let process = Process()
         let output = Pipe()

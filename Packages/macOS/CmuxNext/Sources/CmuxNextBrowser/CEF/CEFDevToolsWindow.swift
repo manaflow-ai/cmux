@@ -29,6 +29,7 @@ final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting {
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable],
                    backing: .buffered, defer: false)
         isReleasedWhenClosed = false
+        isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         isFloatingPanel = false
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false

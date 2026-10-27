@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension TabStripDebug {
     /// `debug.new_tab {action: "frame_strip", gesture: "drag_new"}` (motion proofs): drags `strip`'s
@@ -23,7 +26,9 @@ extension TabStripDebug {
         send(.leftMouseDown, 0)
         for step in 1...12 {
             let tick = DemandTimer(owner: "debug.frame_strip.drag")
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in tick.schedule(after: .milliseconds(16)) { @MainActor in done.resume() } }
+            _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+                tick.scheduleOnMain(after: .milliseconds(16)) { done.resume(returning: ()) }
+            }
             send(.leftMouseDragged, CGFloat(step) * 18)
             if step == 4 { midway() }
         }

@@ -24,6 +24,7 @@ public extension WebKitRenderRate {
                        clock: any Clock<Duration> = ContinuousClock()) -> Task<Void, Never> {
         previous?.cancel()
         let hidden = Duration.milliseconds(33), covered = Duration.milliseconds(50)
+        // main-hop-allow: one sequential re-show of a page the owner cancels; each step hides or shows the web view
         return Task { [weak webView] in
             await previous?.value
             guard !Task.isCancelled, let webView, let host = webView.superview,
@@ -40,6 +41,7 @@ public extension WebKitRenderRate {
             let handedTo = webView.window?.firstResponder
             // wakeup-allow: deadline of a render-rate change's hidden step (33 ms): a step of one sequential task the owner
             // cancels, not a DemandTimer; injected clock
+            // timer-class-allow: a step of that cancellable sequence on the owner's injected clock; one per rate change
             let shown: Void? = try? await clock.sleep(for: hidden, tolerance: WakeLeeway.window(delay: hidden).tolerance)
             webView.isHidden = false
             if focused, let window = webView.window, window.firstResponder === handedTo {
@@ -47,6 +49,7 @@ public extension WebKitRenderRate {
             }
             if shown != nil {
                 // wakeup-allow: deadline of a render-rate change's covered step (50 ms), the same sequential task's next step
+                // timer-class-allow: the sequence's covered step, the same task and clock
                 try? await clock.sleep(for: covered, tolerance: WakeLeeway.window(delay: covered).tolerance)
             }
             cover.removeFromSuperview()

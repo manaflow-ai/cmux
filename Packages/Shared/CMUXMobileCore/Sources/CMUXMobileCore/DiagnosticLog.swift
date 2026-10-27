@@ -1,3 +1,4 @@
+internal import CmuxSafeConcurrency
 public import Foundation
 #if canImport(os)
 internal import os
@@ -127,7 +128,7 @@ public final class DiagnosticLog: Sendable {
                         anchorWallNanos: anchorWallNanos,
                         anchorMonotonicNanos: anchorMonotonicNanos
                     )
-                    acknowledgement.resume()
+                    acknowledgement.resume(returning: ())
                     for await sequenced in nextEvents {
                         if await store.append(sequenced.event) {
                             tap.deliver(sequenced)
@@ -347,7 +348,8 @@ public final class DiagnosticLog: Sendable {
         anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async {
-        await withCheckedContinuation { acknowledgement in
+        // An abandoned acknowledgement (the drain ended first) returns: there is nothing left to clear after.
+        _ = try? await withOnceContinuation { (acknowledgement: OnceContinuation<Void, OnceContinuationError>) in
             ingress.clear(
                 anchorWallNanos: anchorWallNanos,
                 anchorMonotonicNanos: anchorMonotonicNanos,
@@ -386,7 +388,7 @@ public final class DiagnosticLog: Sendable {
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64,
             nextEvents: AsyncStream<SequencedEvent>,
-            acknowledgement: CheckedContinuation<Void, Never>
+            acknowledgement: OnceContinuation<Void, OnceContinuationError>
         )
     }
 
@@ -490,7 +492,7 @@ public final class DiagnosticLog: Sendable {
         func clear(
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64,
-            acknowledgement: CheckedContinuation<Void, Never>
+            acknowledgement: OnceContinuation<Void, OnceContinuationError>
         ) {
             let result: ClearEnqueueResult = state.withLock { state in
                 guard !state.isFinished else {
@@ -526,7 +528,7 @@ public final class DiagnosticLog: Sendable {
             case let .terminated(previous, next):
                 previous?.finish()
                 next.finish()
-                acknowledgement.resume()
+                acknowledgement.resume(returning: ())
             }
         }
 
@@ -627,7 +629,7 @@ public final class DiagnosticLog: Sendable {
         }
 
         func clear(anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64) {
-            slots = Array(repeating: nil, count: capacity)
+            slots = Array(repeating: nil, count: slots.count)
             head = 0
             filled = 0
             totalProcessed = 0
@@ -670,22 +672,27 @@ public final class DiagnosticLog: Sendable {
     }
 }
 
-private final class TerminalTraceRateLimiter: @unchecked Sendable {
+/// Admits at most ``maximumPerMinute`` terminal trace events per minute. The
+/// window lives in a `Mutex`, so the limiter is plainly `Sendable`.
+final class TerminalTraceRateLimiter: Sendable {
+    private struct Window {
+        var start: UInt64 = 0
+        var admitted = 0
+    }
+
     // Carve-out: the synchronous terminal event tap must admit/drop before queuing diagnostic work.
-    private let lock = NSLock()
-    private var windowStart: UInt64 = 0
-    private var admitted = 0
-    private let maximumPerMinute = 120
+    private let window = Mutex(Window())
+    let maximumPerMinute = 120
 
     func admit(at now: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if windowStart == 0 || now < windowStart || now - windowStart >= 60 * 1_000_000_000 {
-            windowStart = now
-            admitted = 0
+        window.withLock { window in
+            if window.start == 0 || now < window.start || now - window.start >= 60 * 1_000_000_000 {
+                window.start = now
+                window.admitted = 0
+            }
+            guard window.admitted < maximumPerMinute else { return false }
+            window.admitted += 1
+            return true
         }
-        guard admitted < maximumPerMinute else { return false }
-        admitted += 1
-        return true
     }
 }

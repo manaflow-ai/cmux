@@ -22,13 +22,15 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
     public static func < (lhs: ObservationCause, rhs: ObservationCause) -> Bool { lhs.rawValue < rhs.rawValue }
 
     /// The budgeted class a flush of this cause runs in when the input-response pass does not
-    /// apply it first (``ObservationCauses/flushPersonCaused()``). Until the userBlocking class
-    /// (task 208) exists, a person flush that missed the pass runs as `visible`: capped, ahead of
-    /// automation, never ahead of the person's own pending input.
+    /// apply it first (``ObservationCauses/flushPersonCaused()``). A person flush that missed the
+    /// pass is the rest of the person's action: ``BudgetedWorkClass/userBlocking``, ahead of visible
+    /// work, capped at the visible + automation shares, never ahead of the person's own pending
+    /// input.
     public var budgetedClass: BudgetedWorkClass {
         switch self {
         case .automation: .automation
-        case .program, .frontend, .person: .visible
+        case .program, .frontend: .visible
+        case .person: .userBlocking
         }
     }
 
@@ -95,7 +97,7 @@ public final class ObservationCauses {
     /// Applies the person-caused observations, oldest first, unbudgeted, until they took the
     /// userBlocking cap (the visible + automation shares, p06-scheduler.md "userBlocking"); the
     /// first always applies. The input-response pass calls it before the input turn's commit.
-    /// What it leaves applies in its `visible` flush, in a later frame.
+    /// What it leaves applies in its `userBlocking` flush, in a later frame.
     ///
     /// - Returns: How many observations it applied.
     @discardableResult

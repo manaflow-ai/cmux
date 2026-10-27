@@ -52,8 +52,11 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
         mix(0)  // separates the kind from the context
         violation.context.rawValue.utf8.forEach(mix)
         for frame in violation.frames {
-            withUnsafeBytes(of: frame.imageUUID.uuid) { $0.forEach(mix) }
-            withUnsafeBytes(of: frame.offset.littleEndian) { $0.forEach(mix) }
+            // SAFETY: reads the 16 bytes of the UUID tuple and the 8 of the offset, both copied by value, only inside
+            // each closure.
+            unsafe withUnsafeBytes(of: frame.imageUUID.uuid) { unsafe $0.forEach(mix) }
+            // SAFETY: as above.
+            unsafe withUnsafeBytes(of: frame.offset.littleEndian) { unsafe $0.forEach(mix) }
         }
         let hex = String(hash, radix: 16)
         return String(repeating: "0", count: 16 - hex.count) + hex

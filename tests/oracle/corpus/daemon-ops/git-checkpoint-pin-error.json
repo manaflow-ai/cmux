@@ -14,14 +14,18 @@
   "fixture": {
     "seed": "daemon-ops.git-checkpoint-pin",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "repo": "oracle"
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote",
+    "HOME is the case's own folder under $CASE_ROOT, as for every case with a generated repository"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "git_repo"
   ],
   "platforms": [
     "linux",
@@ -29,55 +33,35 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
+      "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current"
       },
       "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "git-checkpoint-pin-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
-      "id": "call",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id",
-        "terminal": "$step:fx-workspace#/value/terminal_id"
-      },
-      "args": {
         "method": "git.checkpoint.pin",
         "params": {
-          "checkpoint_id": "",
+          "checkpoint_id": "oracle-no-such-checkpoint",
           "pin_id": "oracle",
-          "reason": "oracle"
+          "reason": "oracle",
+          "path": "$CASE_ROOT/repos/oracle"
         },
         "idempotencyKey": "git-checkpoint-pin-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "git_checkpoint",
+          "id": "oracle-no-such-checkpoint"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "checkpoint_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a checkpoint id the repository has no record of (git_ops/checkpoint.rs not_found)"
     }
   ],
   "invariants": [
@@ -86,9 +70,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.checkpoint_id is a fixed placeholder, not a fixture object; git/_tuning.json tunes it",
-    "params.pin_id is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

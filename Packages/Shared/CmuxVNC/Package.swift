@@ -20,15 +20,42 @@ let package = Package(
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
     dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089), and for the
+        // demo server's start (p10-stability-171).
+        .package(path: "../CmuxSafeConcurrency"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
-        .target(name: "CmuxVNC", swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
-        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
-                linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+                swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNCDemoServer", dependencies: [
+            "CmuxVNC", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+        ], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .testTarget(name: "CmuxVNCTests", dependencies: [
             "CmuxVNC", "CmuxVNCDemoServer", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
         ], swiftSettings: swiftSettings),
     ]
 )
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "CmuxVNC",
+            "CmuxVNCDemoServer",
+            "CmuxVNCTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

@@ -29,6 +29,31 @@
   ],
   "steps": [
     {
+      "id": "observe",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.observe",
+        "params": {
+          "source": "oracle",
+          "entries": [
+            {
+              "path": "/srv/oracle-project",
+              "last_used_ms": "1"
+            }
+          ]
+        },
+        "idempotencyKey": "project-remove-error.observe"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +63,22 @@
       "args": {
         "method": "project.remove",
         "params": {
-          "path": 7
+          "path": "/srv/oracle-unknown"
         },
         "idempotencyKey": "project-remove-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "unknown_project: /srv/oracle-unknown"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "path breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "a path the store has no project for"
     }
   ],
   "invariants": [
@@ -59,8 +87,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

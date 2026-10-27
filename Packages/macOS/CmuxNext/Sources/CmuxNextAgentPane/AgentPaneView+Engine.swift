@@ -1,9 +1,8 @@
 public import AppKit
 public import CmuxNextPages
-import WebKit
 
 // The pane's page in whichever engine shows it: the page host's ``PageWebView`` may show it in
-// Chromium, and ``AgentPaneView/webView`` is then a hidden WebKit view. Focus goes
+// Chromium, and ``PageWebView/webKitEngine`` is then nil. Focus goes
 // through ``AgentPaneView/focusChat()``, scripts through ``AgentPaneView/callPageScript(_:arguments:)``,
 // pictures and the Chromium page's window through these.
 extension AgentPaneView {

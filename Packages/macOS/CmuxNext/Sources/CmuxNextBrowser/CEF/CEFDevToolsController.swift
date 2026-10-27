@@ -193,7 +193,7 @@ final class CEFDevToolsController {
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
             let size = views.host.bounds.size
-            shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
+            shim.devToolsSetPlacement(browserID, CEFParentView(view: views.host), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
         } else {
             opening = false
@@ -231,10 +231,10 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
-        // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // only on a developer's layer hosting override (fork API 26; the Track A default keeps it in its
-        // own window, `CEFLayerHosting.Widget`), from this open on (a later tunable change applies
-        // at the next open). In host mode it shows in the hosted page view, from the context the host gives.
+        // A docked DevTools is its own page window on its own host view: the feature `cefLayerHosting`
+        // keeps it in its own window (`CEFLayerHosting.Widget`) until p03-rendering-056 hosts it; only the
+        // benches' arm `cefLayerHostingEveryPage` hosts it now.
+        // In host mode it shows in the hosted page view, from the context the host gives.
         if docked, tab.host.isHostMode {
             showHostedContext(of: browser)
         } else if docked {
@@ -292,9 +292,9 @@ final class CEFDevToolsController {
     /// cmux's own emulation of the tab yields to the frontend's until it ends.
     func deviceModeChanged(on: Bool) {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        let bounds = on && shim.devToolsInspectedBounds(browserID, &x, &y, &width, &height) == 1
-            ? CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height)) : nil
+        let read = on ? shim.devToolsInspectedBounds(browserID) : CEFShimBounds()
+        let bounds = read.result == 1
+            ? CGRect(x: CGFloat(read.x), y: CGFloat(read.y), width: CGFloat(read.width), height: CGFloat(read.height)) : nil
         let wasOn = deviceModeBounds != nil
         guard bounds != deviceModeBounds else { return }
         deviceModeBounds = bounds
@@ -354,6 +354,9 @@ final class CEFDevToolsController {
         tab.container.addSubview(host)
         tab.container.addSubview(divider)
         views = (host, divider)
+        // Host mode: the DevTools frontend is a widget context filling this view, docked in the pane or
+        // in cmux's DevTools window, as the view moves (dockViews, undockViews).
+        if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: host) }
         return (host, divider)
     }
 
@@ -361,6 +364,7 @@ final class CEFDevToolsController {
         closeWindow()
         guard let views else { return }
         self.views = nil
+        if let tab, let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: nil) }
         views.host.layerHosting.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()

@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1150,
+   "cmux-tui-core": 1132,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -63,7 +63,7 @@
    "CmuxNextApp": 1,
    "CmuxNextBrowser": 12,
    "CmuxNextBrowserAutomation": 17,
-   "CmuxNextDesign": 14,
+   "CmuxNextDesign": 12,
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
@@ -73,23 +73,10 @@
    "MessagesLabHome": 4
   },
   "unchecked": {
-   "CMUXMobileCore": 7,
-   "CmuxHomeCore": 1,
-   "CmuxHomeRender": 5,
-   "CmuxIrohTransport": 7,
-   "CmuxIrxTransport": 14,
-   "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
-   "CmuxMobileShellModel": 7,
-   "CmuxMobileSupport": 4,
-   "CmuxMobileTunnel": 4,
+   "CmuxMobileSupport": 1,
    "CmuxNextBrowser": 4,
    "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 1,
-   "CmuxNextDictation": 6,
-   "CmuxNextServerHelper": 5,
-   "CmuxNextTerminal": 7,
-   "MessagesLabSidebar": 1
+   "CmuxNextBrowserImport": 1
   }
  },
  "waived": {
@@ -125,7 +112,7 @@
     "CmuxNextAgentPane": 1,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
-    "CmuxNextDesign": 1,
+    "CmuxNextDesign": 2,
     "CmuxNextPages": 2,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
@@ -140,17 +127,20 @@
    "unchecked": {
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxHomeRender": 1,
+    "CmuxIrohTransport": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 6,
     "CmuxNextApp": 7,
     "CmuxNextBrowser": 1,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 10,
+    "CmuxNextCompat": 11,
     "CmuxNextControl": 2,
-    "CmuxNextCrashReporting": 12,
-    "CmuxNextDaemon": 1,
+    "CmuxNextCrashReporting": 4,
+    "CmuxNextDaemon": 2,
     "CmuxNextDesign": 4,
+    "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,
     "CmuxNextHomeEngine": 1,
@@ -166,13 +156,15 @@
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTasks": 1,
+    "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
-    "CmuxSafeConcurrency": 1,
+    "CmuxSafeConcurrency": 2,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 5
+    "CmuxVNCWebRTC": 7,
+    "MessagesLabHome": 5,
+    "MessagesLabSidebar": 1
    }
   }
  }

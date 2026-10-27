@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextSidebar
 
 /// The window's chrome resizing the content area over several frames. Only the
@@ -14,6 +15,11 @@ extension WindowRootView {
     /// reads it through the window, so it holds for every view in the window.
     var isContentAreaInMotion: Bool { sidebar.isWidthAnimating }
 
+    /// The window's ``slideHoldsContent``: feature `sidebarSlideHoldsContent` of `features`.
+    static func slideHoldsContent(in features: FeatureList) -> @MainActor () -> Bool {
+        { features.isEnabled(.sidebarSlideHoldsContent) }
+    }
+
     /// Tells the window's content when the sidebar's motion lands, so what held
     /// a costly resize does it once, now. The whole window and not only the
     /// content host: the motion is window-scoped, so a terminal anywhere in it
@@ -26,6 +32,7 @@ extension WindowRootView {
             // workspace sizes its layout in `layout()` (an empty autoresizing mask), so the subtree is
             // laid out now, or a terminal would settle at the held width and report a stale grid.
             contentHost.contentHold = nil
+            // sync-layout: notifyPaneMotionSettled reads the landed sizes (the comment above).
             layoutSubtreeIfNeeded()
             notifyPaneMotionSettled()
         }
@@ -40,8 +47,9 @@ extension WindowRootView {
     /// a hide once now. A slide that turns around mid-flight keeps the widest width either leg needs.
     /// The rail style opens over the content (`WindowRootView+SidebarRail`), which never resizes:
     /// nothing to hold. The card clips the held content while it holds it, square or rounded.
+    /// Feature `sidebarSlideHoldsContent` (on by default; ``slideHoldsContent``) decides, at each slide's start.
     private func holdContentThroughSlide(from: CGFloat, to: CGFloat) {
-        guard SidebarTunables.slideHoldsContent.value, sidebar.model.style != .rail else {
+        guard slideHoldsContent(), sidebar.model.style != .rail else {
             contentHost.contentHold = nil
             return
         }

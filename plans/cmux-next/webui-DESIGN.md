@@ -91,6 +91,55 @@ in a content hook (below), with the rules of Chrome's process-per-site threshold
 The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
 delivered the message, never from the payload.
 
+Fork implementation, proposed and not settled (task 077, manaflow-ai/cef `cp/p13-webui-077` at `d110ee57`, on the
+cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not done. Snapshots stop using DevTools
+(`Page.captureScreenshot`), because one DevTools agent ends main-frame renderer reuse for the whole browser
+(`RenderFrameDevToolsAgentHost::WasEverAttachedToAnyFrame` in `render_frame_host_manager.cc`).
+
+- One capture export. `cmux_browser_capture(browser_id, max_width, max_height, format, jpeg_quality, done, context)`
+  is the export that PL-cef-layer planned for agent screenshots in the helper app
+  ([cef-helper-app-DESIGN.md](cef-helper-app-DESIGN.md), "Page screenshots for agents"), built once here for both
+  users; the train carries no second copy export. It copies the page as Chrome copies a tab thumbnail
+  (`thumbnail_tab_helper.cc`, `RenderWidgetHostView::CopyFromSurface`), scales it down to fit (never up; the
+  limiting side exactly at its limit, integer math) and encodes it on Chromium's thread pool as a fast PNG with alpha
+  or as a JPEG. `done` runs exactly once on a thread pool worker, never on the main thread; a 2 s Viz deadline answers
+  a page that never draws. `cmux_tab_devtools_state(browser_id)` reports a session on the page (the app's own
+  protocol client included) and the process-wide ever-attached flag, which Chromium never clears.
+- Native debug input. Debug clicks use the API 29 native click that already exists: `cmux_shim_tab_send_click`
+  (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). Debug hovers
+  use a move with no button, `cmux_shim_tab_send_mouse_move(browser_id, x, y, modifiers)`
+  (`CefBrowserHost::SendMouseMoveEvent`, view points, `CEFTab.sendMouseMove`, host op `kOpTabSendMouseMove`): a
+  `post` optional export with `fork_api` 38, which 077's fork line adds next to the capture and the train (086)
+  numbers with it. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
+- Binding (078, as built). The shim wraps the capture export as
+  `cmux_shim_tab_copy_surface(browser_id, reply, max_width, max_height, format, jpeg_quality)`, an `async` entry in
+  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 38: the app's claimed numbers
+  end at 37 (`CEFForkFeatures.tabVisibilityForkAPI`), and 086 confirms 38 or moves `surfaceCopyForkAPI` with the pin.
+  Its answer is a `CMUX_SHIM_REPLY` under the caller's reply id, as `cmux_shim_download_favicon` answers its image:
+  value = width | height << 32 in pixels (0: no picture), json = the image in base64. The site-reply path already
+  carries that event through the generated host wire, so no new event kind is needed. `CEFTab.copySurface` sends
+  the request in the caller's turn, so the picture the page lifecycle takes as a page hides leaves before the hide.
+  The answer stays base64 text (`CEFSurfaceCopy`, `PageSurfaceCopy`) on the main actor: a full window is megabytes,
+  so its base64 and image decodes run on the `.cpu` lane (the hide picture through `PageSnapshotEncoder.unpack`,
+  the other pictures in `PageWebView.chromiumPictureData`), as Chrome decodes images off its UI thread
+  (services/data_decoder/public/cpp/decode_image.h).
+  Its answer comes in a synchronous turn (`CEFSurfaceCopies`, as the built-in extension loads: the reply, a refused
+  start, a deadline on the main deadline queue, or the browser's close), with no task waiting. It gates on
+  `CEFForkFeatures.surfaceCopy` (the fork API at least 38, plus the shim export), never on a raw dlsym of the fork.
+- The page host's DevTools sites (MQ3, 078). Window image, cover snapshot and debug snapshot use the surface copy
+  (`PageWebView.chromiumPictureData`); the debug press uses the native click and the debug hover the native move,
+  and both report the path in `delivered` (`native` or `devtools`); the menu's Copy sends `execCommand('copy')`
+  through `tabEvaluate` with a user gesture and no waiter (`CEFTab.perform`); the selected text goes through
+  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 38,
+  clicks and Copy below 29).
+- Gate. A fork build must pass `ceftests --gtest_filter=CmuxTabSurfaceTest.*` in its own process, in order. Every
+  page test fails at once if the ever-attached flag is already set when its page draws. The capture test then checks
+  the exact fitted size (including a width limit that floating-point math missed by one pixel), an answer off the
+  UI thread, no session, and the flag still clear. The positive control (a protocol message shows as attached) runs
+  last. The test does not open a second same-site page to watch it share a renderer. On this line no main-frame
+  reuse policy is on by default (`kNoReuseFeatureEnabled`), so two same-site pages get two renderers with or
+  without DevTools. Sharing is measured by 011's `CmuxPageProcessTest` and 012's pages10 renderer count.
+
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
 `_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
 
@@ -156,6 +205,33 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; no API
+number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
+`FinishDiscardAndPreserveWebContents`): `AttemptFastKillForDiscard`, then `WebContents::Discard`. The fast kill ends
+the renderer only when `RenderProcessHostImpl::FastShutdownIfPossible` allows it: no other page in the process, and
+no beforeunload, unload, pagehide or visibilitychange listener, keepalive fetch or worker. Most sites have one of
+these. So the result says which: `CMUX_TAB_DISCARD_DONE` (the process ended) or `CMUX_TAB_DISCARD_DONE_RENDERER_KEPT`
+(the frames are gone and the page reloads when shown, but the process still runs). The tab keeps its WebContents, so
+its browser id, its window slot, its NavigationEntry list and its session storage stay. When the page shows again,
+`NavigationControllerImpl::SetActive` reloads the same URL and the document sees `document.wasDiscarded`.
+The fork refuses, and changes nothing, in these cases:
+- The page is not hidden: VISIBLE, or OCCLUDED, which shows as soon as its window is uncovered
+  (`CMUX_TAB_DISCARD_VISIBLE`).
+- The page is hidden but Chromium still paints it for a capture, Picture-in-Picture or XR
+  (`CMUX_TAB_DISCARD_PAINTING`).
+- Only the initial entry is committed, as in a renderer-less placeholder (017) or a first navigation that has not
+  committed. A show would reload nothing (`CMUX_TAB_DISCARD_NOTHING_TO_RELOAD`).
+- A navigation waits to commit (`CMUX_TAB_DISCARD_REFUSED`).
+
+Every other keep reason is native's. `cmux_tab_was_discarded` stays 1 until the reload starts. The fast kill is a
+`TERMINATION_STATUS_NORMAL_TERMINATION`, which CEF never sends to `OnRenderProcessTerminated`, so the crash budget
+never counts a discard. A real crash of a group renderer that still holds a discarded page is reported and counted
+as usual. The fork does not change Chrome's default: `WebContentsDiscard` stays off and `cmux_tab_discard` returns
+`CMUX_TAB_DISCARD_UNAVAILABLE`. The binding (031) adds a default-off feature in `schemas/features/features.d`; when it
+is on, the app passes `--enable-features=WebContentsDiscard` in `OnBeforeCommandLineProcessing`. Test:
+`ceftests --gtest_filter=CmuxDiscardTest.*` (its browser delegate turns the feature on the same way).
+
 ### 3.4 Why cmux freezes WebUI when Chrome does not
 
 Chrome never freezes WebUI: `CannotFreezeReason::kWebUI`
@@ -187,6 +263,22 @@ the spike must justify. A claim in the key's turn shows the cover in
 that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
 CEF spare windows keep the window with no renderer.
 
+Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `dfdbea5a`, on the cmux.33 line
+`c382c63b`). Nobody has built or run it. A Chrome-style browser created with an empty URL and
+`extra_info[CMUX_EXTRA_INFO_NO_RENDERER] = true` gets a first tab made with
+`WebContents::CreateParams::desired_renderer_state = kNoRendererProcess` and no navigation, as Chrome makes restored
+tabs (`chrome/browser/ui/browser_tabrestore.cc`; it is active, so it is hidden only in a minimized window). No
+`chrome://ignore/` load runs, so the tab takes no spare renderer and starts none. Its CEF browser is made before the
+insertion, so in a tabbed embedder window it owns the window's BrowserView, and tabs added with `cmux_tab_add` are
+plain tabs that load as before. `CefBrowserHostBase::Create` removes the key from extra_info in both runtime styles, so
+no renderer sees it. `cmux_tab_renderer_state(browser_id)` reports whether the main frame's own RenderFrame is live
+(`RenderFrameHost::IsRenderFrameLive`): a placeholder whose frame Chromium put in a shared live process above the
+renderer process limit still reports 0. No API number yet (the train, 086, gives one); the app honors the key only
+when it finds `cmux_tab_renderer_state` with dlsym (019, which also passes the key from the shim's window create).
+On a fork build, `ceftests --gtest_filter=CmuxPlaceholderTest.*` (a regular Chrome window, the key in both styles)
+and `scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared` (the tabbed embedder window the spare
+uses, and the placeholder at `--renderer-process-limit=1`) decide whether it stays.
+
 ### 3.6 Lazy loading, shared chunks and the Home floor
 
 No page view until its tab first shows, and no WKWebView in Chromium mode until a fallback needs it. Every page is
@@ -198,6 +290,21 @@ Allowed at Home idle: app, daemon, the Chromium engine processes when Chromium i
 (the agent group) with the parked New Tab preload (frozen or rendered-parked, per spike 090). Not allowed: the
 about:blank renderer, the WebKit Settings spare, the WebKit warmup page, a WebKit process for the update card, and
 the ad-blocker background page before the first browser tab.
+
+Chromium's own spare renderer, proposed (task 020, manaflow-ai/cef `cp/p13-webui-020` at `5d16aa91`, on 017's
+`1cb02dc4`). Nobody has built or run it. Chrome keeps one spare for the profile that last took a new process
+(`content/browser/renderer_host/spare_render_process_host_manager_impl.cc` PrepareForFutureRequests), with no
+destroy timer on desktop (only Android's kAndroidWarmUpSpareRendererWithTimeout sets one) and
+kKillSpareRenderOnMemoryPressure disabled by default. The fork patch `cmux_spare_renderer_policy` adds
+`ContentBrowserClient::ShouldWarmupSpareRenderProcessHost`; with `--cmux-spare-renderer-after-first-tab`
+(`CEFSwitches.spareRendererAfterFirstTab`) a profile gets a spare only after one of its browser tabs starts an
+http(s) navigation. The spare keeps Chrome desktop's lifetime (no timeout). The app passes the switch only with the
+default-off feature `chromiumSpareAfterFirstTab`. Expected, not yet measured: the pages profile gets no spare, a page
+open keeps the browser profile's spare, and Home with no browser tab has none. A cost to measure: today the default
+profile's spare comes from the ad-blocker background page at launch and the first browser tab takes it; with the
+policy, that first tab starts a renderer cold. The feature turns on by default only after a fork build gives these
+numbers: bench-webui.py home (0 spare renderers with no browser tab) and open (first-tab and later
+`cef_tab.new.visible` within the noise band), with the feature off and on. No fork ceftest checks the spare count yet.
 
 ### 3.7 Observability
 
@@ -305,3 +412,76 @@ process (p13-webui.md risk 2). Run: `cmux-ci build cef --ref 976745836370f6b40e2
 then `ceftests --gtest_filter=CmuxPageProcessTest.*` three times (no switch, `--cmux-page-process-lock=effective-url`,
 `--cmux-page-process-lock=webui-scheme`). Put the job id, the counts, the logged locks and the kills in the Measured
 column.
+
+### 5.4 Code cache for cmux pages (task 052): open, not run
+
+Status 2026-10-26: the fork change exists and has not been built; no number exists. No cmux product code changed: the
+app passes the switches only through the Debug-only `CMUX_NEXT_CEF_EXTRA_SWITCHES`, so no build ships the cache.
+
+What Chrome does. Chrome caches V8 bytecode of chrome: scripts only with `WebUICodeCache` (default off at 154):
+`content/renderer/render_thread_impl.cc` registers chrome: and chrome-untrusted: as "code cache with hashing" (an
+entry is used only for the same source text, `ScriptCachedMetadataHandlerWithHashing`), and
+`content/browser/renderer_host/code_cache_host_impl.cc` accepts such a script only from a renderer locked to a WebUI
+scheme, keys it by that lock and keeps it in its own `GeneratedCodeCache` (`webui_js`), never with the open web. Any
+other custom scheme gets no code cache (`CheckSecurityForAccessingCodeCacheData`: "Invalid URL scheme for code
+cache."). An off-the-record partition gets no code cache at all (`StoragePartitionImpl::Initialize`: V8 already keeps
+one copy per renderer). cmux pages are `cmux-page://` in the off-the-record pages profile, so today a page's new
+renderer compiles every script again. Build-time bytecode (`WebUIBundledCodeCache`, `generate_code_cache` in
+`docs/webui/webui_build_configuration.md`) maps GRIT resource ids in the renderer; cmux pages come from the
+embedder's scheme handler, so it is not available for them, and `webviews/scripts/pages/build-pages.mjs` does not
+change.
+
+The spike: manaflow-ai/cef `cp/p13-webui-052` at `a65b72d6` (code at `c6af944a`, on the pinned `c8953bc6`,
+`cmux/8037-helper-items`; patch `cmux_page_code_cache`; 267 added lines with the libcef part and the doc rows).
+`--cmux-code-cache-schemes=cmux-page` with `--enable-features=WebUICodeCache` gives cmux-page scripts the WebUI
+rules above: accepted only from a renderer locked to cmux-page (an http(s) renderer that writes one is a bad-message
+kill), keyed by the lock, kept in the WebUI cache; a renderer locked to cmux-page does not cache open-web scripts.
+The renderer registers the listed scheme with hashing (`CefRenderManager::WebKitInitialized`; the switch is copied
+to renderers). An off-the-record partition gets the WebUI
+cache alone, in memory (`GeneratedCodeCacheContext::InitializeInMemory`: a `MEMORY_CACHE` backend of
+`kMaxWebUICodeCacheSize`, 5 MB). Web, file, chrome and extension schemes are never listed. No export, no API number.
+Chrome's own hot-script rule still applies: Blink stores only a timestamp on a script's first load, the code cache on
+its second load within 72 h (`v8_code_cache.cc` `kHotHours`, `ProduceCacheOptions::kSetTimeStamp`), and uses it from
+the third. The cache keys a script file by its URL: inline scripts get none (Chrome's `InlineScriptCache` is http(s)
+only). The split build (049) has no inline script, and since 050 every page names every shared chunk by the shared
+origin (`webviews/scripts/pages/build-pages.mjs`: `SHARED_ORIGIN`, `cmux-page://cmux.shared/<chunk>.js`), so a chunk
+has one URL whichever page loads it. That one URL does not give one cache entry: the browser keys an entry by the
+script's URL and by the lock of the renderer that ran it (`GetSecondaryKeyForCodeCache` returns
+`process_lock.GetProcessLockURL()`, and the fork adds cmux-page to that rule). On this fork ref each page origin is its
+own lock (`cmux-page://cmux.settings`, `cmux-page://cmux.history`), so a Settings renderer and a History renderer store
+the same chunk under two keys, and each compiles it once. Two pages share a chunk's entry only under one lock: the
+group lock of option B (section 5.1, `--cmux-page-process-lock=webui-scheme` on the 091 ref, the mechanism of 011),
+where the pages of one group lock to `cmux-page://<group>`. This fork ref is on the pinned base, which has neither
+mechanism, so this measurement shows no sharing across pages and claims none. The gain it can show is a renderer that
+loads page scripts that another renderer of the same lock already ran twice: a cold Settings open after the Settings
+renderer ended.
+
+Cold open replaces the warm open of the task's acceptance (p13-webui.md 052: "warm open p95"; D4: "Warm open (group
+renderer live)"). In a warm open the page runs in a live renderer that already compiled its scripts, so V8's
+per-isolate cache serves them and the code cache is not read. A second page of the same group in that live renderer
+does not help either: on this ref it gets a renderer of its own (a cold open), and under the group lock the live
+renderer has already compiled the shared chunks at the same URLs, while the page's own entry has no code cache before
+its second load. So no warm open can show this cache. The rule that lands code is therefore the cold row alone, and
+the warm row is the control. The fork's `CMUX.md` row says the same since `a65b72d6`.
+
+The measurement (`bench-webui.py open --page-code-cache`, task 052's arm; refused, exit 2, when a Chromium renderer
+lacks the switch before the mode, while the first Settings open shows, or at the end, and when no renderer runs while
+Settings shows):
+
+0. A build that has 049 and 050 (`page-bundle-report.mjs`, task 051, shows the page's .js files and its
+   `cmux-page://cmux.shared/` chunks). Settings is one page under one lock, so its entries are the same in both arms
+   whether or not other pages run the chunks.
+1. `cmux-ci build cef --arch arm64 --ref a65b72d6 --tag cef-stage-a65b72d6-arm64` (the fork branch head: `c6af944a`'s
+   code and the `CMUX.md` row), staged with `scripts/cmux-next/cef-pin-staging.sh pin` on a test-only branch (never
+   landed), then a Debug tagged build of that branch.
+2. On one mini, the same build, alternating arms, 3 runs each:
+   `bench-webui.py open --app APP --runs 20 --cold-runs 20 --chat-turns 0` and the same with `--page-code-cache`.
+   The first open of each run sets only timestamps, so its cold sample is the same in both arms.
+3. The deciding row is `settings.cold_open_ms`, p95 (p50 reported). `settings.open_ms` (warm) is the control: it must
+   not get worse beyond the same noise. Noise is the spread of the off arm's three p95 values. A gain is an on-arm
+   p95 that is lower than every off-arm p95 by more than that spread.
+
+Result: not run. If the cold row does not gain beyond noise, or the warm row gets worse beyond it, the fork branch is
+not pinned and perf-lead.md's row says so. If the cold row gains, the next step is a default-off feature that adds the
+two switches, and the fork patch joins the train (178). Sharing across the pages of a group is measured only after
+011's group lock is on the fork pin, with a cold open of a second page of the group in this arm.

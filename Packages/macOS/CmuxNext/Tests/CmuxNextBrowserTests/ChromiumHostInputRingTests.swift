@@ -49,6 +49,11 @@ import Testing
         ChromiumHostFrame(.mouse, v: [x, 0, 0, 0, 0, 0])
     }
 
+    static func wheel(deltaY: Double, phase: UInt, momentum: UInt) -> ChromiumHostFrame {
+        .wheel(.init(x: 10, y: 20, deltaX: 0, deltaY: deltaY, precise: true, phase: phase, momentumPhase: momentum,
+                     modifierFlags: 0, time: 0))
+    }
+
     /// A ring and this test's own mapping of it (the reader's view).
     final class Fixture {
         let region: ChromiumHostInputRingRegion
@@ -87,6 +92,9 @@ import Testing
 
         /// v0 (x) of the frame at ring position `index`.
         func x(at index: UInt64) -> Int32 { Int32(bitPattern: field(at: index, offset: 8)) }
+
+        /// v[`slot`] of the frame at ring position `index`.
+        func v(_ slot: Int, at index: UInt64) -> Int32 { Int32(bitPattern: field(at: index, offset: 8 + 4 * slot)) }
 
         private func field(at index: UInt64, offset: Int) -> UInt32 {
             let slot = ChromiumHostInputRing.framesOffset + Int(index % ChromiumHostInputRing.capacity) * ChromiumHostInputRing.frameSize
@@ -220,6 +228,27 @@ import Testing
         #expect(fixture.x(at: 4_096) == 100)  // the newest position of page 1's folded move
         #expect(fixture.x(at: 4_096 + 102) == 500)
         #expect(ring.stats.dropped == 0)
+    }
+
+    /// A page's wheels fold only within one phase and momentum phase
+    /// (p04-input-063), so a gesture's begin and end and its momentum's start
+    /// each reach the host. Before, a waiting wheel took any newer one and
+    /// its phases with it.
+    @Test func wheelsFoldOnlyWithinAPhase() throws {
+        let fixture = try Fixture()
+        let ring = fixture.ring
+        for code in 1...4_096 { ring.write(Self.key(Int32(code)), browser: 1) }
+        let began: UInt = 1, changed: UInt = 4, ended: UInt = 8
+        let sent: [(phase: UInt, momentum: UInt)] = [(began, 0), (changed, 0), (changed, 0), (ended, 0), (0, began),
+                                                     (0, changed), (0, changed)]
+        for (phase, momentum) in sent { ring.write(Self.wheel(deltaY: -2, phase: phase, momentum: momentum), browser: 1) }
+        #expect(ring.backlogCount == 5)
+        #expect(ring.stats.coalesced == 2)
+        _ = fixture.drain()
+        let positions = UInt64(4_096)..<4_101
+        #expect(positions.map { fixture.v(4, at: $0) } == [1, 4, 8, 0, 0])
+        #expect(positions.map { fixture.v(5, at: $0) } == [0, 0, 0, 1, 4])
+        #expect(positions.map { fixture.v(3, at: $0) } == [-200, -400, -200, -200, -400])
     }
 
     @Test func aHeadNoReaderCanHaveBreaksTheRing() throws {

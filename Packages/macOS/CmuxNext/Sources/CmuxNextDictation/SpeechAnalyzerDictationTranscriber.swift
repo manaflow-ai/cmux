@@ -279,7 +279,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard let converter else {
             throw DictationFailure.audioCaptureFailed("audio format conversion unavailable")
         }
-        let converted = try converter.convertOne(buffer, to: analyzerFormat)
+        let converted = try converter.convertOne(input, to: analyzerFormat)
         let result = continuation.yield(
             timeline.input(converted, capturedAt: input.bufferStartTime)
         )

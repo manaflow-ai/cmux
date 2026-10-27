@@ -263,6 +263,20 @@ public nonisolated struct Signposter: Sendable {
         event(name, message, arg0: 0)
     }
 
+    /// Records one input event's ``SignpostName/inputLatency`` point event with its typed stages, formatted by the
+    /// log system only when something reads them: one per input event, so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - message: The event's kind, target, entrypoint, presentation source, variable refresh and stage offsets.
+    public func event(_ name: SignpostName, _ message: InputLatencySignpostMessage) {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        signposter.emitEvent(
+            name.staticName,
+            "kind=\(message.kind, privacy: .public) target=\(message.target, privacy: .public) entry=\(message.entrypoint, privacy: .public) source=\(message.presentationSource, privacy: .public) vrr=\(message.variableRefresh ? 1 : 0, privacy: .public) coalesced=\(message.coalescedCount, privacy: .public) frame=\(message.causedFrameUpdate ? 1 : 0, privacy: .public) gen_ns=\(message.generatedNanos, privacy: .public) last_gen_us=\(message.lastGeneratedMicros, privacy: .public) arrived_us=\(message.arrivedMainMicros, privacy: .public) dispatch_start_us=\(message.dispatchStartMicros, privacy: .public) ti_start_us=\(message.textInputStartMicros, privacy: .public) ti_end_us=\(message.textInputEndMicros, privacy: .public) dispatch_end_us=\(message.dispatchEndMicros, privacy: .public) commit_us=\(message.mainCommitMicros, privacy: .public) content_us=\(message.contentSubmittedMicros, privacy: .public) daemon_us=\(message.daemonReceivedMicros, privacy: .public) pty_us=\(message.ptyWrittenMicros, privacy: .public) echo_read_us=\(message.echoReadMicros, privacy: .public) echo_sent_us=\(message.echoSentMicros, privacy: .public) presented_us=\(message.presentedMicros, privacy: .public)"
+        )
+    }
+
     /// Records a point event named `name` with its numbers in the ring record (the name's doc comment in
     /// ``SignpostName`` says what `arg0` and `arg1` hold).
     ///
@@ -274,6 +288,17 @@ public nonisolated struct Signposter: Sendable {
     public func event(_ name: SignpostName, _ message: String, arg0: UInt64, arg1: UInt64 = 0) {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
         trace.event(name, arg0: arg0, arg1: arg1)
+    }
+
+    /// Records one input wait for Ghostty's terminal lock (``SignpostName/ghosttyLockWait``), formatted by the log
+    /// system only when something reads it (`wait_us=<wait>`), so the key handler that waited builds no `String`.
+    /// The ring record is an instant with the wait in ns in `arg0`.
+    ///
+    /// - Parameter nanos: The wait.
+    public func ghosttyLockWait(nanos: UInt64) {
+        assert(SignpostName.ghosttyLockWait.category == category, "ghostty.lock_wait is not in category \(category)")
+        signposter.emitEvent(SignpostName.ghosttyLockWait.staticName, "wait_us=\(nanos / 1_000, privacy: .public)")
+        trace.event(.ghosttyLockWait, arg0: nanos)
     }
 
     /// Now on the clock ``SignpostInterval/beginUptimeNanos`` reads, so an end measures its interval with one read.

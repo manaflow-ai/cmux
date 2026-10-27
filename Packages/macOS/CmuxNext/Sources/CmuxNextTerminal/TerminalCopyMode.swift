@@ -55,7 +55,8 @@ final class TerminalCopyMode {
     }
 
     private func enter() -> Bool {
-        guard let surface = view.surface, placeCursorAtTerminalCursor(surface) else { return false }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface), used for this call.
+        guard let surface = view.surface, unsafe placeCursorAtTerminalCursor(surface) else { return false }
         // Copy mode swallows keys, so an unfinished IME composition would
         // otherwise sit on screen until it ends.
         view.inputContext?.discardMarkedText()
@@ -66,11 +67,8 @@ final class TerminalCopyMode {
         box.isHidden = true
         let badge = TerminalCopyModeBadge()
         view.addSubview(box)
+        badge.pin(toTopTrailingOf: view)
         view.addSubview(badge)
-        NSLayoutConstraint.activate([
-            badge.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            badge.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-        ])
         session = CopyModeSession(cursorBox: box, badge: badge)
         syncCursor()
         return true
@@ -83,7 +81,8 @@ final class TerminalCopyMode {
         session.cursorBox.removeFromSuperview()
         session.badge.removeFromSuperview()
         guard let surface = view.surface else { return }
-        _ = ghostty_surface_clear_selection(surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        _ = unsafe ghostty_surface_clear_selection(surface)
     }
 
     // MARK: Keys
@@ -110,7 +109,8 @@ final class TerminalCopyMode {
             modifiers: modifiers, hasSelection: current.selection != .off, state: &current.input)
         session?.input = current.input
         guard case .perform(let action, let count) = resolution else { return true }
-        performCopyMode(action, count: count, surface: surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        unsafe performCopyMode(action, count: count, surface: surface)
         return true
     }
 
@@ -127,27 +127,38 @@ final class TerminalCopyMode {
             // The cursor already is a one-cell selection; it starts growing.
             session?.selection = .character
         case .startLineSelection:
-            startLineSelection(lines: count, surface: surface)
+            // SAFETY: every call in this switch passes `surface`, the caller's live surface (the view's).
+            unsafe startLineSelection(lines: count, surface: surface)
         case .clearSelection:
-            collapseToEnd(surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe collapseToEnd(surface)
             session?.selection = .off
         case .copyAndExit:
-            if copyModeCopySelection(surface: surface) { exit() }
+            // SAFETY: as above: `surface` is the caller's live surface.
+            if unsafe copyModeCopySelection(surface: surface) { exit() }
         case .copyLineAndExit:
-            startLineSelection(lines: count, surface: surface)
-            if copyModeCopySelection(surface: surface) { exit() }
+            // SAFETY: every call in this switch passes `surface`, the caller's live surface (the view's).
+            unsafe startLineSelection(lines: count, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            if unsafe copyModeCopySelection(surface: surface) { exit() }
         case .scrollLines(let delta):
-            scroll("scroll_page_lines:\(Self.clampedLines(delta * count))", surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe scroll("scroll_page_lines:\(Self.clampedLines(delta * count))", surface: surface)
         case .scrollPage(let delta):
-            scroll(delta < 0 ? "scroll_page_up" : "scroll_page_down", times: count, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe scroll(delta < 0 ? "scroll_page_up" : "scroll_page_down", times: count, surface: surface)
         case .scrollHalfPage(let delta):
-            scroll(delta < 0 ? "scroll_page_fractional:-0.5" : "scroll_page_fractional:0.5", times: count, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe scroll(delta < 0 ? "scroll_page_fractional:-0.5" : "scroll_page_fractional:0.5", times: count, surface: surface)
         case .jumpToPrompt(let delta):
-            scroll("jump_to_prompt:\(Self.clampedLines(delta * count))", surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe scroll("jump_to_prompt:\(Self.clampedLines(delta * count))", surface: surface)
         case .scrollToTop:
-            moveCopyModeCursor(.home, count: 1, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe moveCopyModeCursor(.home, count: 1, surface: surface)
         case .scrollToBottom:
-            moveCopyModeCursor(.end, count: 1, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe moveCopyModeCursor(.end, count: 1, surface: surface)
         case .startSearch:
             // The app's find prompt, the same one ⌘F opens.
             _ = view.handleHostAction(.find)
@@ -156,7 +167,8 @@ final class TerminalCopyMode {
         case .searchPrevious:
             for _ in 0..<count { view.session?.navigateSearch(.previous) }
         case .adjustSelection(let move):
-            moveCopyModeCursor(move, count: count, surface: surface)
+            // SAFETY: as above: `surface` is the caller's live surface.
+            unsafe moveCopyModeCursor(move, count: count, surface: surface)
         }
         syncCursor()
     }
@@ -166,32 +178,40 @@ final class TerminalCopyMode {
     /// A one-cell selection at the terminal cursor, scrolled into view.
     private func placeCursorAtTerminalCursor(_ surface: ghostty_surface_t) -> Bool {
         var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics) else { return false }
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface). Ghostty fills `metrics`, alive for the call.
+        guard unsafe ghostty_surface_grid_metrics(surface, &metrics) else { return false }
         if !metrics.cursor_in_viewport {
             _ = view.performBindingAction("scroll_to_bottom")
-            guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport else { return false }
+            // SAFETY: as above.
+            guard unsafe ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport else { return false }
         }
-        return ghostty_surface_select_viewport_cell(surface, metrics.cursor_column, metrics.cursor_row)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        return unsafe ghostty_surface_select_viewport_cell(surface, metrics.cursor_column, metrics.cursor_row)
     }
 
     /// The selection's moving end, in viewport cells.
     private func selectionEnd(_ surface: ghostty_surface_t) -> ghostty_surface_selection_end_s? {
         var end = ghostty_surface_selection_end_s()
-        return ghostty_surface_selection_end(surface, &end) ? end : nil
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface). Ghostty fills `end`, alive for the call.
+        return unsafe ghostty_surface_selection_end(surface, &end) ? end : nil
     }
 
     /// Moves the cursor to the selection's end (no selection grows).
     private func collapseToEnd(_ surface: ghostty_surface_t) {
-        guard let end = selectionEnd(surface), end.in_viewport, let row = UInt16(exactly: end.row) else { return }
-        _ = ghostty_surface_select_viewport_cell(surface, end.column, row)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        guard let end = unsafe selectionEnd(surface), end.in_viewport, let row = UInt16(exactly: end.row) else { return }
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        _ = unsafe ghostty_surface_select_viewport_cell(surface, end.column, row)
     }
 
     private func startLineSelection(lines: Int, surface: ghostty_surface_t) {
-        guard ghostty_surface_select_lines(surface) else { return }
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        guard unsafe ghostty_surface_select_lines(surface) else { return }
         for _ in 1..<max(1, CopyModeKeys.clampCount(lines)) {
             _ = view.performBindingAction("adjust_selection:down")
         }
-        _ = ghostty_surface_select_lines(surface)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        _ = unsafe ghostty_surface_select_lines(surface)
         session?.selection = .line
     }
 
@@ -201,8 +221,10 @@ final class TerminalCopyMode {
             _ = view.performBindingAction("adjust_selection:\(move.rawValue)")
         }
         switch session?.selection ?? .off {
-        case .off: collapseToEnd(surface)
-        case .line: _ = ghostty_surface_select_lines(surface)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        case .off: unsafe collapseToEnd(surface)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        case .line: _ = unsafe ghostty_surface_select_lines(surface)
         case .character: break
         }
     }
@@ -211,11 +233,14 @@ final class TerminalCopyMode {
     /// it moves to the nearest visible row in its column.
     private func scroll(_ action: String, times: Int = 1, surface: ghostty_surface_t) {
         for _ in 0..<CopyModeKeys.clampCount(times) { _ = view.performBindingAction(action) }
-        guard session?.selection == .off, let end = selectionEnd(surface), !end.in_viewport else { return }
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        guard session?.selection == .off, let end = unsafe selectionEnd(surface), !end.in_viewport else { return }
         var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0 else { return }
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface). Ghostty fills `metrics`, alive for the call.
+        guard unsafe ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0 else { return }
         let row = end.row < 0 ? 0 : metrics.rows - 1
-        _ = ghostty_surface_select_viewport_cell(surface, end.column, row)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        _ = unsafe ghostty_surface_select_viewport_cell(surface, end.column, row)
     }
 
     private static func clampedLines(_ value: Int) -> Int {
@@ -225,7 +250,8 @@ final class TerminalCopyMode {
     /// Publishes the selection to the standard clipboard through Ghostty's
     /// clipboard formatter (plain text, plus HTML when it fits).
     private func copyModeCopySelection(surface: ghostty_surface_t) -> Bool {
-        ghostty_surface_copy_selection_to_clipboard_bounded(surface, Self.maximumClipboardBytes)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        unsafe ghostty_surface_copy_selection_to_clipboard_bounded(surface, Self.maximumClipboardBytes)
     }
 
     /// Places the cursor box on the selection's end while nothing is
@@ -233,14 +259,17 @@ final class TerminalCopyMode {
     /// mouse cleared puts the cursor back at the terminal cursor.
     func syncCursor() {
         guard let session, let surface = view.surface else { return }
-        if !ghostty_surface_has_selection(surface) {
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        if unsafe !ghostty_surface_has_selection(surface) {
             self.session?.selection = .off
-            _ = placeCursorAtTerminalCursor(surface)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+            _ = unsafe placeCursorAtTerminalCursor(surface)
         }
         var metrics = ghostty_surface_grid_metrics_s()
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface). Ghostty fills `metrics`, alive for the call.
         guard self.session?.selection == .off,
-              let end = selectionEnd(surface), end.in_viewport,
-              ghostty_surface_grid_metrics(surface, &metrics),
+              let end = unsafe selectionEnd(surface), end.in_viewport,
+              unsafe ghostty_surface_grid_metrics(surface, &metrics),
               let frame = CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
                                               paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
                                               viewHeight: view.bounds.height)

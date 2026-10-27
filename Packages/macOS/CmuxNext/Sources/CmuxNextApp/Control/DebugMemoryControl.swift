@@ -28,7 +28,7 @@ final class DebugMemoryControl {
 
     /// - Parameters:
     ///   - services: The app's services, held weakly.
-    ///   - budget: The budgets the report shows; this Mac's by default (no GPU residency release yet).
+    ///   - budget: The budgets the report shows: the app passes this Mac's, sized for the terminal GPU release when it has one.
     ///   - sample: Reads the footprints; the app's processes by default.
     init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false),
          sample: @escaping Sampler = { await AppMemoryModel.processes($0) }) {

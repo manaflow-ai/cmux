@@ -84,12 +84,16 @@ REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "
 
 
 class Smoke:
+    # A suite built on this one (threads.py) names its own steps and its summary line.
+    suite = "smoke"
+    required = REQUIRED_STEPS
+
     def __init__(self, g: Guest, vnc_arg: str, out: str):
         self.g, self.out = g, out
         host, port, *pw = vnc_arg.split(":")
         self.vnc_args = (host, int(port), pw[0] if pw else None)
         self.vnc = RFB(*self.vnc_args)
-        self.result: dict = {"steps": {}, "findings": [], "suite": "smoke"}
+        self.result: dict = {"steps": {}, "findings": [], "suite": self.suite}
         self.since = time.time() - 5
 
     # --- plumbing ---------------------------------------------------------------------------
@@ -350,13 +354,13 @@ class Smoke:
         open(os.path.join(self.out, "faults.ndjson"), "w").write(faults.stdout)
         self.result["faults"] = sum(1 for line in faults.stdout.splitlines() if line.startswith("{"))
         failed = [name for name, s in self.result["steps"].items() if not s["ok"]]
-        missing = [name for name in REQUIRED_STEPS if name not in self.result["steps"]]
+        missing = [name for name in self.required if name not in self.result["steps"]]
         crashes = [r for r in reports if r["kind"] == "crash"]
         self.result.update(failed_steps=failed + [f"{name} (not run)" for name in missing], crashes=len(crashes),
                            hang_reports=sum(1 for r in reports if r["kind"] == "hang-report"),
                            ok=not failed and not missing and not crashes)
         json.dump(self.result, open(os.path.join(self.out, "result.json"), "w"), indent=1)
-        print("SMOKE %s os=%s failed=%s crashes=%d" % ("PASS" if self.result["ok"] else "FAIL", self.result.get("os"),
+        print("%s %s os=%s failed=%s crashes=%d" % (self.suite.upper(), "PASS" if self.result["ok"] else "FAIL", self.result.get("os"),
                                                        ",".join(self.result["failed_steps"]) or "-", len(crashes)), flush=True)
 
 
@@ -370,7 +374,7 @@ PERL_HTTP = (
 )
 
 
-def main() -> int:
+def main(suite: type[Smoke] = Smoke) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ssh", required=True, help="guest user@ip")
     ap.add_argument("--vnc", required=True, help="host:port[:password]")
@@ -382,11 +386,11 @@ def main() -> int:
     g = Guest(o.ssh, o.app, o.ssh_opt)
     if g.sh(f"test -d {shlex.quote(o.app)}").returncode != 0:
         sys.exit(f"no app at {o.app!r} in the guest")
-    smoke = Smoke(g, o.vnc, o.out)
+    run = suite(g, o.vnc, o.out)
     try:
-        smoke.run()
+        run.run()
     finally:
-        smoke.finish()
+        run.finish()
     return 0
 
 

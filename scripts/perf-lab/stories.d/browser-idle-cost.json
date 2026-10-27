@@ -1,0 +1,27 @@
+{
+  "id": "browser-idle-cost",
+  "tier": "T2",
+  "description": "What idle Chromium tabs cost (browser-idle-cost-live.py, the perf100 browser lane): 5 static tabs and a shown front tab, then a tab whose load never ends, then a shown tab that logs to the console 4 times a second; per phase and process class idle CPU, wakeups, footprint and disk bytes, cef.log growth, page console lines on disk and the FAIL count, light session.",
+  "command": ["scripts/cmux-next/browser-idle-cost-live.py", "--tabs", "5"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(static|loading|chatty)\\.[a-z-]+\\.cpu_percent", "unit": "percent",
+     "better": "lower"},
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(static|loading|chatty)\\.[a-z-]+\\.wakeups_per_s", "unit": "per_s",
+     "better": "lower"},
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(static|loading|chatty)\\.[a-z-]+\\.(footprint|disk_bytes)",
+     "unit": "bytes", "better": "lower"},
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(static|loading|chatty)\\.total_cpu_percent", "unit": "percent",
+     "better": "lower"},
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(static|loading|chatty)\\.cef_log_bytes_per_s", "unit": "bytes_per_s",
+     "better": "lower"},
+    {"name": "browser_idle\\.tabs-[0-9]+\\.(console_marker_lines|failures)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 420,
+  "needs": ["debug:debug.cef", "debug:debug.wakeups", "file:scripts/cmux-next/tab_pages.py"],
+  "owner": "PL-cefhost",
+  "component": "Browser>Idle"
+}

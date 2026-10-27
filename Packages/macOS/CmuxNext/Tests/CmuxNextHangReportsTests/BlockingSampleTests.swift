@@ -242,27 +242,34 @@ struct BlockingSampleTests {
     @Test func oneSendPerSitePer24Hours() {
         let start = Date(timeIntervalSince1970: 1_000_000)
         var budget = BlockingReportBudget()
-        #expect(budget.admit(site: "a", now: start))
-        #expect(!budget.admit(site: "a", now: start.addingTimeInterval(60)))
+        let admitted0 = budget.admit(site: "a", now: start)
+        #expect(admitted0)
+        let admitted1 = budget.admit(site: "a", now: start.addingTimeInterval(60))
+        #expect(!admitted1)
 
         // The next launch reads the saved times.
         var nextLaunch = BlockingReportBudget(lastSent: budget.lastSent)
-        #expect(!nextLaunch.admit(site: "a", now: start.addingTimeInterval(23 * 3_600)))
-        #expect(nextLaunch.admit(site: "a", now: start.addingTimeInterval(BlockingReportBudget.perSiteInterval)))
+        let admitted2 = nextLaunch.admit(site: "a", now: start.addingTimeInterval(23 * 3_600))
+        #expect(!admitted2)
+        let admitted3 = nextLaunch.admit(site: "a", now: start.addingTimeInterval(BlockingReportBudget.perSiteInterval))
+        #expect(admitted3)
     }
 
     @Test func aRefusedSiteDoesNotUseTheLaunchBudget() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         var budget = BlockingReportBudget(lastSent: ["held": now])
-        #expect(!budget.admit(site: "held", now: now))
-        #expect((0..<5).allSatisfy { budget.admit(site: "site\($0)", now: now) })
+        let admitted4 = budget.admit(site: "held", now: now)
+        #expect(!admitted4)
+        let allAdmitted = (0..<5).allSatisfy { budget.admit(site: "site\($0)", now: now) }
+        #expect(allAdmitted)
     }
 
     @Test func expiredTimesAreForgottenAndAClockMovedBackDoesNotHold() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         var budget = BlockingReportBudget(lastSent: ["old": now.addingTimeInterval(-2 * BlockingReportBudget.perSiteInterval),
                                                      "future": now.addingTimeInterval(3_600)])
-        #expect(budget.admit(site: "future", now: now))
+        let admitted5 = budget.admit(site: "future", now: now)
+        #expect(admitted5)
         #expect(budget.lastSent.keys.sorted() == ["future"])
     }
 

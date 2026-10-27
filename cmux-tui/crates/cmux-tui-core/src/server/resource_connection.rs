@@ -14,7 +14,6 @@ use super::prepare_sidebar_resource_attach;
 use super::prepare_terminal_resource_attach;
 use super::resource_browser_viewer_release;
 use super::resource_browser_viewer_resize;
-use super::resource_client_cell_pixels_set;
 use super::resource_client_get;
 use super::resource_client_list;
 use super::resource_client_metadata_update;
@@ -25,6 +24,7 @@ use super::resource_terminal_viewer_release;
 use super::resource_terminal_viewer_resize;
 use super::send_resource_response;
 use super::start_browser_resource_attach;
+use super::start_resource_client_cell_pixels_set;
 use super::start_resource_wait;
 use super::start_session_event_stream;
 use super::start_session_journal_stream;
@@ -191,7 +191,6 @@ pub(super) fn handle_resource_connection_message(
         | ResourceOperation::ClientMetadataUpdate
         | ResourceOperation::ClientSizingSet
         | ResourceOperation::ClientSizingRelease
-        | ResourceOperation::ClientCellPixelsSet
         | ResourceOperation::TerminalRendererGrantCreate
         | ResourceOperation::TerminalViewerResize
         | ResourceOperation::TerminalViewerRelease
@@ -199,6 +198,9 @@ pub(super) fn handle_resource_connection_message(
         | ResourceOperation::BrowserViewerRelease => {
             let result = handle_resource_connection_control(mux, client, &request);
             send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::ClientCellPixelsSet => {
+            start_resource_client_cell_pixels_set(mux, client, &request, id, writer)
         }
         ResourceOperation::ClientDetach => {
             let result = prepare_resource_client_detach(mux, client, &request);
@@ -389,9 +391,6 @@ fn handle_resource_connection_control(
         ResourceOperation::ClientSizingSet => resource_client_sizing_set(mux, client, request),
         ResourceOperation::ClientSizingRelease => {
             resource_client_sizing_release(mux, client, request)
-        }
-        ResourceOperation::ClientCellPixelsSet => {
-            resource_client_cell_pixels_set(mux, client, request)
         }
         ResourceOperation::TerminalViewerResize => {
             resource_terminal_viewer_resize(mux, client, request)

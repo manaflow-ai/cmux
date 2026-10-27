@@ -29,6 +29,31 @@
   ],
   "steps": [
     {
+      "id": "observe",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.observe",
+        "params": {
+          "source": "oracle",
+          "entries": [
+            {
+              "path": "/srv/oracle-project",
+              "last_used_ms": "1"
+            }
+          ]
+        },
+        "idempotencyKey": "project-sync-error.observe"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,7 +63,10 @@
       "args": {
         "method": "project.sync",
         "params": {
-          "existing": {}
+          "existing": {},
+          "gone": [
+            "/srv/oracle-project"
+          ]
         },
         "idempotencyKey": "project-sync-error.call"
       },

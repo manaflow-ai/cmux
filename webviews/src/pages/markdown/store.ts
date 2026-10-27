@@ -3,7 +3,7 @@
 // `save` page command (Cmd-S) and page hide, and a save whose text equals the last saved text is
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
-import { isPageError, PageKeepAlive, type PageClient } from "../shared/pageClient";
+import { isPageError, pageKeepAliveFor, type PageClient, type PageKeepAlive } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
@@ -152,6 +152,8 @@ export class MarkdownStore {
   private readonly reporter;
   /** `user_edits` while the document holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
   private readonly keepAlive: PageKeepAlive;
+  /** Whether the document held edits not on disk at the last state change; `user_edits` follows its changes. */
+  private dirty = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -159,7 +161,7 @@ export class MarkdownStore {
     reportSchedule: Schedule = defaultSchedule,
   ) {
     this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
-    this.keepAlive = new PageKeepAlive(client);
+    this.keepAlive = pageKeepAliveFor(client);
   }
 
   /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
@@ -191,7 +193,13 @@ export class MarkdownStore {
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
     const { readOnly, status, conflict } = this.state;
-    this.keepAlive.set("user_edits", !readOnly && (status !== "saved" || conflict !== null));
+    const dirty = !readOnly && (status !== "saved" || conflict !== null);
+    if (dirty !== this.dirty) {
+      this.dirty = dirty;
+      // Saved: what was typed into the page is on disk, so the automatic edits end too (pageEdits.ts).
+      if (dirty) this.keepAlive.set("user_edits", true, this);
+      else this.keepAlive.editsSaved();
+    }
     for (const listener of this.listeners) listener();
   }
 

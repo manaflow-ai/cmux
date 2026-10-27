@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -26,7 +27,7 @@ final class TerminalThemeStore {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
 
     /// `url` nil keeps themes in memory only (tests). Changes reach the
-    /// file once `load()` has read it.
+    /// file once ``load(on:replyingOn:then:)`` has read it.
     init(url: URL?) {
         self.url = url
     }
@@ -63,11 +64,20 @@ final class TerminalThemeStore {
         save()
     }
 
-    /// Reads the file once at launch, off the main thread.
-    func load() async {
-        guard let url else { return }
+    /// Reads the file once at launch on `work`'s files lane; its entries land as one `visible` task on
+    /// `mainWork` (terminals take their themes), Chrome's PostTaskAndReply (base/task/thread_pool.h).
+    /// `then` runs after they landed, at once when there is no file to read.
+    func load(on work: BackgroundWork, replyingOn mainWork: MainWorkScheduler, then: @escaping @MainActor @Sendable () -> Void) {
+        guard let url else { return then() }
         let logger = logger
-        let loaded = await Task.detached(priority: .userInitiated) { Self.read(url, logger: logger) }.value
+        work.run(.userBlocking, mayBlock: .files) { Self.read(url, logger: logger) }
+            .reply(on: mainWork, class: .visible, owner: "TerminalThemeStore.load") { [weak self] loaded in
+                self?.merge(loaded)
+                then()
+            }
+    }
+
+    private func merge(_ loaded: (themes: [String: String], complete: Bool)) {
         // A theme set before the file loaded wins.
         themes = loaded.themes.merging(themes) { _, current in current }
         keepsFile = !loaded.complete
@@ -88,7 +98,7 @@ final class TerminalThemeStore {
     nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return ([:], true) }
-        // concurrency-allow: called from a detached task in load(), off the main actor
+        // concurrency-allow: called on the files lane by the stores' loads, off the main actor
         guard let data = try? Data(contentsOf: url) else { return ([:], false) }
         guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] else {
             let first = url.appendingPathExtension("corrupt")
@@ -120,6 +130,7 @@ final class TerminalThemeStore {
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
         let previous = lastWrite, logger = logger
+        // priority-allow: only tests await lastWrite (flush); no person waits for a save
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {

@@ -1,5 +1,8 @@
 import AppKit
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The user-initiated chat root picker. Validation still runs at the shared settings writer.
 @MainActor
@@ -14,7 +17,8 @@ public struct ChatRootPicker {
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = false
-        return await withCheckedContinuation { continuation in
+        // A panel that went away without an answer chose nothing (nil).
+        return try? await withOnceContinuation { (continuation: OnceContinuation<[String]?, OnceContinuationError>) in
             panel.begin { response in
                 continuation.resume(returning: response == .OK ? panel.urls.map(\.path) : nil)
             }

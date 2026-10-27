@@ -39,7 +39,11 @@ public final class TerminalHostView: NSView {
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
         get { restartAction }
-        set { restartAction = newValue; syncRestartButton(); needsLayout = true }
+        set {
+            let offered = offersRestart // each tab switch sets it again (`TerminalTabContent.make`)
+            restartAction = newValue; syncRestartButton()
+            if offersRestart != offered { needsLayout = true }
+        }
     }
 
     /// The first cell's top-left in this view's coordinates (top-left
@@ -68,7 +72,7 @@ public final class TerminalHostView: NSView {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
             }
-            needsLayout = true
+            needsLayout = true // invalidate: another accessory (the guard above) takes its room
         }
     }
 
@@ -133,7 +137,7 @@ public final class TerminalHostView: NSView {
         // frame of a drag solves no constraints here.
         addSubview(banner)
         addSubview(scroller, positioned: .below, relativeTo: banner)
-        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true } // invalidate: a new style, another width
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         observeAppearance()
@@ -182,7 +186,7 @@ public final class TerminalHostView: NSView {
         let bar = TerminalFindBarView(find: find, mainWork: mainWork, node: node)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
-        needsLayout = true
+        needsLayout = true // invalidate: a new find bar (the guard above) to frame
     }
 
     /// The link status label over the terminal (hidden while connected).
@@ -207,7 +211,7 @@ public final class TerminalHostView: NSView {
             retryButton = button
         }
         retryButton?.show(status)
-        needsLayout = true
+        needsLayout = true // invalidate: a status event (one per change) changes the banner and its buttons
     }
 
     /// Builds the restart button once the shell has ended and the App gave an action.
@@ -240,21 +244,21 @@ public final class TerminalHostView: NSView {
             sizedForChip = chip
         }
         sizedForChip?.show(sizedFor)
-        needsLayout = true
+        needsLayout = true // invalidate: another chip text (the guard above)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
         banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
-        needsLayout = true
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
-        needsLayout = true
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     @available(*, unavailable)
@@ -418,7 +422,7 @@ public final class TerminalHostView: NSView {
         } apply: { [weak self] _ in
             guard let self else { return }
             configLayouts += 1
-            needsLayout = true
+            needsLayout = true // invalidate: a new config revision (the observation applies on a change only)
         }
     }
 

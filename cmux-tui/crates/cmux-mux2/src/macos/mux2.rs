@@ -255,7 +255,8 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     send(&writer, proto::ATTACH, &idp(t));
     let raw = RawMode::enter();
     let winch_writer = writer.clone();
-    std::thread::spawn(move || {
+    // A resize is a person's action but not the echo path.
+    cmux_threads::spawn("mux2-winch", cmux_threads::ThreadQos::UserInitiated, move || {
         loop {
             let mut sig = 0;
             // SAFETY: waiting on the blocked SIGWINCH set.
@@ -272,39 +273,44 @@ fn attach(s: UnixStream, t: u32) -> i32 {
                 return;
             }
         }
-    });
+    })
+    .unwrap_or_else(|e| die(e));
     let mut reader = s;
-    let out = std::thread::spawn(move || -> i32 {
-        let mut stdout = io::stdout().lock();
-        let mut strip = proto::QueryStripper::default();
-        let mut clean = Vec::new();
-        loop {
-            let Ok((k, body)) = proto::read_frame(&mut reader) else { return 0 };
-            clean.clear();
-            match k {
-                proto::SNAPSHOT if body.len() >= 4 => {
-                    // A snapshot replaces whatever the screen showed. Its
-                    // first four bytes are the server's size.
-                    strip = proto::QueryStripper::default();
-                    clean.extend_from_slice(b"\x1bc");
-                    strip.push(&body[4..], &mut clean);
+    // Output the person waits for: UserInitiated (only ECHO_PATH_QOS
+    // threads are user-interactive, threading-model.md).
+    let out =
+        cmux_threads::spawn("mux2-out", cmux_threads::ThreadQos::UserInitiated, move || -> i32 {
+            let mut stdout = io::stdout().lock();
+            let mut strip = proto::QueryStripper::default();
+            let mut clean = Vec::new();
+            loop {
+                let Ok((k, body)) = proto::read_frame(&mut reader) else { return 0 };
+                clean.clear();
+                match k {
+                    proto::SNAPSHOT if body.len() >= 4 => {
+                        // A snapshot replaces whatever the screen showed. Its
+                        // first four bytes are the server's size.
+                        strip = proto::QueryStripper::default();
+                        clean.extend_from_slice(b"\x1bc");
+                        strip.push(&body[4..], &mut clean);
+                    }
+                    proto::OUTPUT => strip.push(&body, &mut clean),
+                    proto::EXIT => {
+                        let _ = stdout.flush();
+                        return i32::from_le_bytes(body[..4].try_into().unwrap_or([0; 4]));
+                    }
+                    proto::ERR => {
+                        let _ = stdout.flush();
+                        eprintln!("mux2: {}", String::from_utf8_lossy(&body));
+                        return 2;
+                    }
+                    _ => {}
                 }
-                proto::OUTPUT => strip.push(&body, &mut clean),
-                proto::EXIT => {
-                    let _ = stdout.flush();
-                    return i32::from_le_bytes(body[..4].try_into().unwrap_or([0; 4]));
-                }
-                proto::ERR => {
-                    let _ = stdout.flush();
-                    eprintln!("mux2: {}", String::from_utf8_lossy(&body));
-                    return 2;
-                }
-                _ => {}
+                let _ = stdout.write_all(&clean);
+                let _ = stdout.flush();
             }
-            let _ = stdout.write_all(&clean);
-            let _ = stdout.flush();
-        }
-    });
+        })
+        .unwrap_or_else(|e| die(e));
     let mut buf = [0u8; 4096];
     let mut stdin = io::stdin().lock();
     loop {

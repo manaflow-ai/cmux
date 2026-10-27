@@ -121,19 +121,17 @@ import Testing
         let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
         try await runtime.start(layout: nil, environment: [:], trigger: "test")
         let host = try #require(runtime.hostStart)
-        let route = try #require(runtime.hostReplies)
-        #expect(route.replies === host.replies, "the route awaits a table the shim never resolves")
         let sink = try #require(RemoteSpy.replySink)
         let reply = try #require(sink.reply)
 
-        RemoteSpy.lastToken = 51
+        RemoteSpy.nextToken = 51
         var seen: [CEFContentSetting?] = []
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
         #expect(seen.isEmpty)
         CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue).withUnsafeBytes { reply(sink.context, 51, $0.baseAddress, $0.count) }
         #expect(seen == [.block])
 
-        RemoteSpy.lastToken = 52
+        RemoteSpy.nextToken = 52
         let asked = Task { await runtime.contentSetting(1, url: nil, kind: .camera) }
         for _ in 0..<1_000 where host.replies.count == 0 { await Task.yield() }
         CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue).withUnsafeBytes { reply(sink.context, 52, $0.baseAddress, $0.count) }
@@ -351,7 +349,7 @@ import Testing
 
     /// Chromium starts once per process: a runtime that already started keeps its backend.
     @Test func aStartedRuntimeIgnoresALaterSupervisor() throws {
-        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
+        let runtime = CEFRuntime.spy(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
         runtime.adopt(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), hostSupervisor: FakeSupervisor(controlFD: -1))
         #expect(runtime.hostStart == nil)
     }
@@ -443,6 +441,8 @@ private final class FakeSupervisor: ChromiumHostSupervising {
         return ChromiumHostAttachment(controlFD: controlFD, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                       frameworkLocales: ["en.lproj", "ja.lproj"])
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// The remote dylib's functions: the ABI id, attach (records the control descriptor and says hello
@@ -477,6 +477,8 @@ private nonisolated enum RemoteSpy {
     nonisolated(unsafe) static var replySink: (context: UnsafeMutableRawPointer?, reply: CEFRemoteShim.ReplyFn?)?
     /// What `cmux_remote_shim_last_reply_token` returns.
     nonisolated(unsafe) static var lastToken: UInt32 = 0
+    /// The token `cmux_shim_content_setting` sends its op under, as the remote shim's PostForReply does.
+    nonisolated(unsafe) static var nextToken: UInt32 = 0
     nonisolated(unsafe) private static let abiCString = strdup(abi)
 
     static var hasPendingHello: Bool { pendingHello != nil }
@@ -498,6 +500,7 @@ private nonisolated enum RemoteSpy {
         pendingHello = nil
         replySink = nil
         lastToken = 0
+        nextToken = 0
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
@@ -543,9 +546,14 @@ private nonisolated enum RemoteSpy {
             RemoteSpy.energySaverCalls.append(enabled)
             return RemoteSpy.energySaverResult
         }
+        let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _ in
+            RemoteSpy.lastToken = RemoteSpy.nextToken
+            return 0
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_content_setting": unsafeBitCast(contentSetting, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)

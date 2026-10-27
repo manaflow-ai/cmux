@@ -23,9 +23,11 @@ public nonisolated enum BrowserBackend: String, Sendable, Equatable {
 
 /// Debug Settings of the Chromium Host app: Debug and bench builds only, like the
 /// host app itself (embed-cef.sh) and its Swift side, so a NIGHTLY never lists a
-/// toggle for a host it does not bundle. A bench build registers the toggle so
-/// `debug.chromium_host` can measure the host (chromium-host-bench.py), but never
-/// moves a tab to it: ``backend(in:)`` stays in process there.
+/// toggle for a host it does not bundle. The switch is the bench-only feature
+/// `cefHelperHost` (schemas/features/features.d); ``helper`` is only its local
+/// override, which ``BrowserHostSwitch`` applies. A bench build has the
+/// feature so `debug.chromium_host` can measure the host (chromium-host-bench.py), but
+/// never moves a tab to it: ``backend(hostEnabled:)`` stays in process there.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 public nonisolated struct BrowserHostTunables {
     public nonisolated init() {}
@@ -39,12 +41,12 @@ public nonisolated struct BrowserHostTunables {
         #endif
     }
 
-    /// The backend the settings pick: ``BrowserBackend/host`` with `browserHost.helper` on
+    /// The backend the host's switch picks: ``BrowserBackend/host`` with `cefHelperHost` on
     /// (Debug builds only), otherwise ``BrowserBackend/inProcess``. The App builds its
     /// `CEFRuntimeSource` from it once the supervisor exists (task 080); until then no tab uses it.
-    public static func backend(in tunables: TunableStore) -> BrowserBackend {
+    public static func backend(hostEnabled: Bool) -> BrowserBackend {
         #if DEBUG
-        helper.value(in: tunables) ? .host : .inProcess
+        hostEnabled ? .host : .inProcess
         #else
         .inProcess
         #endif
@@ -54,13 +56,45 @@ public nonisolated struct BrowserHostTunables {
     /// The Debug Settings section of the host app's tunables.
     public static let section = TunableSection(id: "browserHost", title: "Chromium Host App", symbol: "macwindow.on.rectangle", order: 44)
 
-    /// Off (the default until task 100): `debug.chromium_host open` refuses.
-    /// On: it shows a Chromium page whose browser process runs in the Chromium
-    /// Host app, over a pane. Tabs stay in process until the supervisor (task
-    /// 080) hands ``backend(in:)`` to the runtime.
+    /// The local override of `cefHelperHost` (FeatureList step 3: DEV and NIGHTLY, below
+    /// policy and the environment). Unset, the feature's own value applies (off on every channel):
+    /// `debug.chromium_host open` refuses. On: it shows a Chromium page whose browser process
+    /// runs in the Chromium Host app, over a pane.
     public static let helper = Tunable<Bool>.toggle(
         "browserHost.helper", section, "Chromium Host app",
-        help: "Lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug and bench builds only.",
+        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug and bench builds only.",
         default: false, code: "BrowserHostTunables.helper")
     #endif
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The Chromium Host app's switch: the launch's `cefHelperHost`, with
+/// ``BrowserHostTunables/helper`` as its local override (FeatureList step 3) where the launch
+/// takes one: DEV and NIGHTLY, when neither policy nor the environment decided the feature.
+/// Chrome reads its `chrome://flags` entries before it builds the list
+/// (chrome/browser/about_flags.cc); the toggle file loads off the main thread after the
+/// launch list, so the override applies here, when the switch is read, and `features.list`
+/// reports ``localOverride`` the same way (source `local`).
+public nonisolated struct BrowserHostSwitch: Sendable {
+    /// `cefHelperHost` as the launch's feature list resolved it.
+    public let launchValue: Bool
+    /// Whether ``BrowserHostTunables/helper`` may override ``launchValue``.
+    public let takesLocalOverride: Bool
+    private let tunables: TunableStore
+
+    public init(launchValue: Bool, takesLocalOverride: Bool, tunables: TunableStore) {
+        self.launchValue = launchValue
+        self.takesLocalOverride = takesLocalOverride
+        self.tunables = tunables
+    }
+
+    /// The toggle's value when it is set and taken, else nil. Read with Observation tracking.
+    public var localOverride: Bool? {
+        takesLocalOverride ? tunables.override(BrowserHostTunables.helper.key)?.bool : nil
+    }
+
+    /// Whether the host is on. Read with Observation tracking, so a `FrameObservation` over it
+    /// follows the toggle.
+    public var isEnabled: Bool { localOverride ?? launchValue }
+}
+#endif

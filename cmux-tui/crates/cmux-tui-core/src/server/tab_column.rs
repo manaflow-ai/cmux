@@ -7,36 +7,8 @@
 /// `move-tab-to-column` `respawn`.
 pub const TAB_COLUMN_RESPAWN_CAPABILITY: &str = "tab-column-respawn-v1";
 
+use super::tabs_wire::MoveTabToColumnParams;
 use super::*;
-
-/// `move-tab-to-column`: a new column holding the tab, after `after_column`
-/// (default: right of the anchor's column). `dock` pins the new column;
-/// the column that held that edge scrolls again.
-#[derive(Deserialize)]
-pub(super) struct MoveTabToColumnParams {
-    surface: SurfaceId,
-    #[serde(default)]
-    pane: Option<PaneId>,
-    #[serde(default)]
-    screen: Option<ScreenId>,
-    #[serde(default)]
-    after_column: Option<SplitId>,
-    #[serde(default)]
-    width: Option<f32>,
-    #[serde(default)]
-    dock: Option<crate::model::ColumnDock>,
-    /// The pre-R87 name of `dock`, refused so an older client's pin never
-    /// silently becomes a plain column.
-    #[serde(default)]
-    sticky: Option<Value>,
-    #[serde(default)]
-    respawn: Option<SplitRespawnRequest>,
-    /// `tab-split-keep-focus-v1`: the focused pane stays focused.
-    #[serde(default)]
-    keep_focus: bool,
-    #[serde(default)]
-    transaction: Option<String>,
-}
 
 pub(super) fn move_tab_to_column(
     mux: &Arc<Mux>,

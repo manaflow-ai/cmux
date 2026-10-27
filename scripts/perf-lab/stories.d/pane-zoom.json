@@ -1,0 +1,23 @@
+{
+  "id": "pane-zoom",
+  "tier": "T2",
+  "description": "Cmd-Shift-Enter zoom and unzoom of a terminal in 1x2, 2x2 and 2x4 terminal grids, each terminal with scrollback (pane-zoom-terminal.py): every frame interval of the gesture, its missed frames and the grids sent to the PTY owner, light session.",
+  "command": ["scripts/cmux-next/pane-zoom-terminal.py", "--story", "pane-zoom"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "panes\\.(zoom|unzoom)\\.[0-9]+x[0-9]+\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/floor"}},
+    {"name": "panes\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower",
+     "target_ref": {"target": "motion-dropped"}},
+    {"name": "panes\\.(zoom|unzoom)\\.[0-9]+x[0-9]+\\.resizes_sent", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.frames", "debug:debug.motion", "debug:debug.window_transition"],
+  "hot_paths": ["motion-frame"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Motion"
+}

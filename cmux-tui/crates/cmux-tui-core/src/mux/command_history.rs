@@ -19,9 +19,12 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
+use cmux_threads::checked;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::{Value, json};
 
 use super::Mux;
+use super::mux_work::Answer;
 use crate::resource::TerminalPublicId;
 use crate::shell_history::{FinishedCommand, MAX_QUEUED_COMMANDS};
 use crate::state::command_history_store::{
@@ -39,7 +42,14 @@ pub(crate) enum CommandHistoryMessage {
     /// The retention changed: expire and compute the deadline again.
     Wake,
     /// A client delete; the worker answers with the deleted row count.
-    Delete(CommandDeletion, SyncSender<anyhow::Result<u64>>),
+    Delete(CommandDeletion, DeletionAnswer),
+}
+
+/// The answer of a delete: the deleted row count, or the worker stopped.
+pub(crate) type DeletionAnswer = Answer<anyhow::Result<u64>>;
+
+fn worker_stopped() -> anyhow::Result<u64> {
+    Err(anyhow::anyhow!("terminal command history worker stopped"))
 }
 
 impl Mux {
@@ -91,23 +101,49 @@ impl Mux {
         Ok(command_history_page_json(&page))
     }
 
-    /// `delete-terminal-commands`, run by the worker after every command
-    /// queued before it.
+    /// `delete-terminal-commands`: queued for the worker, which runs it after
+    /// every command queued before it and sends `done` the deleted row
+    /// count. Never waits: a full queue hands the send to the System lane.
+    pub(crate) fn delete_terminal_commands_then(
+        self: &Arc<Self>,
+        deletion: CommandDeletion,
+        done: impl FnOnce(anyhow::Result<u64>) + Send + 'static,
+    ) {
+        let answer = DeletionAnswer::new(done, worker_stopped);
+        let Some(sender) = self.command_history_sender() else {
+            answer.send(Err(anyhow::anyhow!("terminal command history worker not started")));
+            return;
+        };
+        let message = match sender.try_send(CommandHistoryMessage::Delete(deletion, answer)) {
+            Ok(()) => return,
+            Err(TrySendError::Disconnected(_)) => {
+                // Dropping the message answers that the worker stopped.
+                self.forget_command_history_worker();
+                return;
+            }
+            Err(TrySendError::Full(message)) => message,
+        };
+        // A refused item drops the message, which answers that the worker
+        // stopped; a send to a stopped worker does the same.
+        let _ =
+            self.post_mux_work(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, {
+                move |_| drop(sender.send(message))
+            });
+    }
+
+    /// [`Self::delete_terminal_commands_then`] for a caller that waits for
+    /// the count (history_ops/commands.rs). The wait is a checked `recv`:
+    /// a request thread that reaches it is reported by the blocking detector.
+    #[track_caller]
     pub(crate) fn delete_terminal_commands(
         self: &Arc<Self>,
         deletion: CommandDeletion,
     ) -> anyhow::Result<Value> {
         let (reply, answer) = std::sync::mpsc::sync_channel(1);
-        let sender = self
-            .command_history_sender()
-            .ok_or_else(|| anyhow::anyhow!("terminal command history worker not started"))?;
-        if sender.send(CommandHistoryMessage::Delete(deletion, reply)).is_err() {
-            self.forget_command_history_worker();
-            anyhow::bail!("terminal command history worker stopped");
-        }
-        let deleted = answer
-            .recv()
-            .map_err(|_| anyhow::anyhow!("terminal command history worker stopped"))??;
+        self.delete_terminal_commands_then(deletion, move |deleted| {
+            let _ = reply.send(deleted);
+        });
+        let deleted = checked::sync::recv(&answer).unwrap_or_else(|_| worker_stopped())?;
         Ok(json!({ "deleted": deleted }))
     }
 
@@ -216,10 +252,13 @@ impl Worker {
     fn run(mut self, receiver: Receiver<CommandHistoryMessage>, mut deadline: Option<u64>) {
         loop {
             let message = match deadline {
-                None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                None => checked::sync::recv(&receiver).map_err(|_| RecvTimeoutError::Disconnected),
                 Some(deadline) => {
                     let now = unix_epoch_ms().unwrap_or(deadline);
-                    receiver.recv_timeout(Duration::from_millis(deadline.saturating_sub(now)))
+                    checked::sync::recv_timeout(
+                        &receiver,
+                        Duration::from_millis(deadline.saturating_sub(now)),
+                    )
                 }
             };
             deadline = match message {
@@ -268,10 +307,7 @@ impl Worker {
 
     /// Runs client deletes in order, then an expiry pass.
     #[track_caller]
-    fn delete(
-        &mut self,
-        deletes: Vec<(CommandDeletion, SyncSender<anyhow::Result<u64>>)>,
-    ) -> Option<u64> {
+    fn delete(&mut self, deletes: Vec<(CommandDeletion, DeletionAnswer)>) -> Option<u64> {
         let mux = self.mux.upgrade()?;
         let mut deleted_any = false;
         for (deletion, reply) in deletes {
@@ -284,7 +320,7 @@ impl Worker {
                 self.checkpoint_pending = true;
                 deleted_any = true;
             }
-            let _ = reply.send(result);
+            reply.send(result);
         }
         drop(mux);
         if deleted_any {

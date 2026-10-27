@@ -14,6 +14,10 @@ the panes rest:
   sidepanel   the window's right sidebar shown (switchRightSidebarToFiles, keyboard stays put) and hidden
               (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
+  omnibar-toggle (--browser) Toggle Omnibar on the Chromium page (palette.browserToggleOmnibar): its address bar row
+              hidden (omnibar-hide) and shown again (omnibar-show); per toggle the page's own resize events
+              (page_resizes) and host mode's page resizes (host_resizes); with --tunable motion.renderServer=on
+              the render-server slide (p03-rendering-102: one page resize per toggle, 0 missed frames)
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
 
 The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
@@ -33,15 +37,27 @@ With --browser the top-left pane of each layout shows a Chromium page instead of
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
-trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), of the page's own animation
-frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
+trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), the host mode
+page resizes and their fences (fence_resizes: fenced resizes, fence_joined, fence_late, fence_cut: `debug.cef` host_resize,
+p01-process-052; None in process; host_resizes: every host page resize), of the page's own animation
+frames (page_frames) and resize events (page_resizes), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
+The summary is the median over rounds of each value (scripts/perf-lab/perf_stats.py through motion_bench_report.median).
+With --story ID (scripts/perf-lab/stories.d: pane-stress, pane-chromium) the run also writes cmux-perf-result/v1 into
+--out through BenchApp.record (motion_bench_report.pane_series): `panes.<action>.<layout>.frame` (every frame interval
+of the gesture, all rounds together), `.missed` and `.posts_per_frame` (one value per gesture), only the series the
+story declares and only of the layouts of its session whose window was key. The story's engine must be this run's
+(chromium with --browser, --content chromium or a Chromium STRESS session); a --story run that writes no series fails.
+
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
-       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
+       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle,omnibar-toggle] [--rounds 3] [--scrollback 5000]
+       [--stream] [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--story ID] [--tunable KEY=VALUE]
+
+--tunable KEY=VALUE (repeatable) sets a tunable over `debug.tunables` after launch and reads it back (another value
+fails the run before any layout); the run puts it back to its default at the end.
 """
-import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, time
+import argparse, json, os, pathlib, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -67,12 +83,46 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
+parser.add_argument("--enable-features", default="",
+                    help="comma-separated features the app starts with (CMUX_ENABLE_FEATURES), for example "
+                         "cefHelperHost,chromiumHostResizeFence (cef-resize-sync-bench.py --modes host)")
+
+
+def tunable_arg(text):
+    """KEY=VALUE for --tunable: on/true and off/false are booleans, else JSON, else the string."""
+    key, sep, raw = text.partition("=")
+    if not sep or not key.strip():
+        raise argparse.ArgumentTypeError(f"--tunable wants KEY=VALUE, not {text!r}")
+    lowered = raw.strip().lower()
+    if lowered in ("on", "true", "off", "false"):
+        return key.strip(), lowered in ("on", "true")
+    try:
+        return key.strip(), json.loads(raw)
+    except ValueError:
+        return key.strip(), raw
+
+
+parser.add_argument("--tunable", type=tunable_arg, action="append", default=[], metavar="KEY=VALUE",
+                    help="set over debug.tunables after launch and read back, e.g. motion.renderServer=on")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+import motion_bench_report  # noqa: E402  medians (perf_stats) and the result-v1 series
+
+# result-v1's engine: a Chromium page among the measured panes makes it chromium.
+ENGINE = "chromium" if opts.browser or opts.content == "chromium" or (
+    "stress" in opts.layouts.split(",") and opts.stress_selected == "chromium") else "none"
+STORY = None
+if opts.story:
+    try:
+        STORY = motion_bench_report.Story.load(opts.story, ENGINE)
+        STORY.check_sessions({motion_bench_report.layout_session(name) for name in opts.layouts.split(",")})
+    except motion_bench_report.StoryError as error:
+        parser.error(str(error))
 
 
 def load_stress():
@@ -115,6 +165,7 @@ ROWS, LAUNCHED = [], []
 BENCH = None  # the BenchApp of this run
 MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
 UNMEASURED = []  # layouts asked for and not measured: any fails the run, --gate or not
+UNRECORDED = []  # --story: a run that wrote no result-v1 series fails, --gate or not
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -129,6 +180,8 @@ header{position:sticky;top:0;display:flex;align-items:center;gap:12px;height:64p
 <div class="grid">""" + "<div></div>" * 240 + """</div>
 <script>
 window.__frames = 0;
+window.__resizes = 0;
+addEventListener('resize', () => window.__resizes++);
 const spin = document.getElementById('spin');
 requestAnimationFrame(function frame() {
   window.__frames++;
@@ -151,14 +204,19 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
+              ("fence_resizes", "host_resize", "fenced"), ("fence_joined", "host_resize", "joined"),
+              ("fence_late", "host_resize", "late"), ("fence_cut", "host_resize", "cut"),
+              ("host_resizes", "host_resize", "resizes")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
-BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames", "page_resizes"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "rAF", "catch", "reord", "post/f"]
-STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
+                 "fresz", "fjoin", "flate", "fcut", "hresz", "rAF", "resz", "catch", "reord", "post/f"]
+# Actions that move no layout spring (Toggle Omnibar moves the page's own rows, not the panes).
+STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle", "omnibar-hide", "omnibar-show")
+OMNIBAR = ("omnibar-hide", "omnibar-show")  # --browser: Toggle Omnibar on the Chromium page
 
 
 def rpc(method, params=None, timeout=30):
@@ -354,7 +412,10 @@ def perform(name):
     """Runs one action; returns an error string or None."""
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
              "column": "newColumn", "column-close": "closePane", "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom",
-             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar"}
+             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar",
+             "omnibar-hide": "palette.browserToggleOmnibar", "omnibar-show": "palette.browserToggleOmnibar"}
+    if name in OMNIBAR and not PROBE.get("tab"):
+        return f"{name} needs --browser"
     if name == "drag":
         return drag_divider()
     if name == "idle":
@@ -390,6 +451,7 @@ def measure(label, name):
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
+    resizes_before = page_eval("window.__resizes") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
@@ -397,7 +459,7 @@ def measure(label, name):
     error = perform(name)
     time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -419,6 +481,7 @@ def measure(label, name):
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
         "count250": hangs.get("count250") if isinstance(hangs, dict) else None,  # stalls >= 250 ms (perf-cron prints it)
+        "frame_intervals_ms": motion_bench_report.frame_intervals(frames),  # result-v1's raw frame samples
     }
     extra = ""
     if opts.browser:
@@ -426,6 +489,7 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        result["page_resizes"] = change(resizes_before, page_eval("window.__resizes"))
         layers_after = first_window(rpc("debug.layers"))
         for key, field in LAYER_DELTAS:
             result[key] = change(layers_before.get(field), layers_after.get(field))
@@ -436,7 +500,8 @@ def measure(label, name):
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
-                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
+                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']} "
+                 f"resizes {result['page_resizes']} (host {result['host_resizes']})")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
@@ -447,7 +512,8 @@ def measure(label, name):
 
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
-            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}
+            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "omnibar-toggle": list(OMNIBAR)}
 
 
 def steps():
@@ -476,7 +542,8 @@ def profile(name, label):
     pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "drag": ["drag"], "sidepanel": ["sidepanel", "sidepanel-close"],
-            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}[name]
+            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "omnibar-hide": list(OMNIBAR), "omnibar-show": list(OMNIBAR)}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
@@ -581,9 +648,23 @@ def main_thread_buckets(text):
     return out
 
 
+def apply_tunables():
+    """Sets each --tunable over `debug.tunables` and reads it back; returns {key: value read back}, or a problem."""
+    readback = {}
+    for key, value in opts.tunable:
+        rpc("debug.tunables", {"action": "set", "key": key, "value": value})
+        reply = rpc("debug.tunables", {"action": "get", "key": key})
+        readback[key] = reply.get("value") if isinstance(reply, dict) and "value" in reply and not reply.get("error") \
+            else f"absent: {str(reply)[:120]}"
+    wrong = [f"{key} reads back {readback[key]!r}, not {value!r}" for key, value in opts.tunable if readback[key] != value]
+    return readback, "; ".join(wrong) or None
+
+
 def cleanup():
     if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED or BENCH is None:
         return
+    for key, _ in opts.tunable:
+        rpc("debug.tunables", {"action": "set", "key": key, "value": None}, timeout=10)  # back to its default
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     BENCH.stop()  # debug.quit, then only this tag's processes and daemons (tag_teardown.py)
 
@@ -595,8 +676,10 @@ def main():
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
     # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
-                     log_name=f"app-{TAG}.log")
+    env = {"CMUX_NEXT_NO_ACTIVATE": None}
+    if opts.enable_features:
+        env["CMUX_ENABLE_FEATURES"] = opts.enable_features
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env=env, window=None, screen=None, log_name=f"app-{TAG}.log")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -608,13 +691,19 @@ def main():
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
+    tunables, tunable_problem = apply_tunables()
+    if opts.tunable:
+        row("the --tunable values are set", json.dumps(dict(opts.tunable)), tunable_problem or json.dumps(tunables),
+            tunable_problem is None)
+        if tunable_problem:
+            return
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
     # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
     # was key when it started (`layouts`).
-    conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
+    conditions = {"env": BENCH.launched_env, "tunables": tunables, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
                   "layouts": {}}
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
@@ -645,7 +734,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close", "omnibar-show"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=label, panes=panes, round=index)
@@ -654,6 +743,11 @@ def main():
                 if step not in STILL:
                     row(f"{label} {step} #{index}: animated (layout springs moved)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
+                if step in OMNIBAR:
+                    # The render-server slide lays the page out once per toggle; the main-thread step resizes it per frame.
+                    resized = run.get("page_resizes")
+                    row(f"{label} {step} #{index}: page resizes" + ("" if opts.gate else " (info)"), "<= 1", str(resized),
+                        isinstance(resized, int) and resized <= 1 or not opts.gate)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
@@ -675,11 +769,7 @@ def main():
     for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
-
-            def med(key):
-                values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
-                return values[len(values) // 2] if values else None
-            summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
+            summary = {key: motion_bench_report.median(r.get(key) for r in runs) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
                                                  "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
@@ -692,10 +782,20 @@ def main():
                   f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
                   + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
                   flush=True)
+    # Host mode's page resize counters at the end, with or without --browser: null when Chromium ran in process
+    # (cef-resize-sync-bench.py's host modes are valid only with them).
+    report["host_resize"] = (rpc("debug.cef") or {}).get("host_resize")
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
     MEASURED = bool(report["runs"])  # at least one action was measured
     report["unmeasured"] = UNMEASURED
+    if STORY and MEASURED:
+        series, skipped = motion_bench_report.pane_series(report["runs"], STORY)
+        report["result_v1"] = motion_bench_report.record(BENCH, series, skipped)
+        written = motion_bench_report.written_count(report["result_v1"])
+        row(f"result-v1 written under story {STORY.id}", ">= 1 series", f"{written} series", written > 0)
+        if not written:
+            UNRECORDED.append(STORY.id)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
 
@@ -727,9 +827,12 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
-    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL",
-          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else ""))
+    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and not UNRECORDED and ROWS and all(r[3] for r in ROWS) else "FAIL",
+          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else "")
+          + (f"; no result-v1 for story {', '.join(UNRECORDED)}" if UNRECORDED else ""))
     # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
-    # that measured nothing (the app never came up, an exception before the summary), or skipped a layout it
-    # was asked for (a refused STRESS shape, a Chromium page that never ran), fails either way.
-    sys.exit(0 if MEASURED and not UNMEASURED and ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
+    # that measured nothing (the app never came up, an exception before the summary), skipped a layout it
+    # was asked for (a refused STRESS shape, a Chromium page that never ran) or wrote no result-v1 for its
+    # --story fails either way.
+    sys.exit(0 if MEASURED and not UNMEASURED and not UNRECORDED and ROWS
+             and (all(r[3] for r in ROWS) or not opts.gate) else 1)

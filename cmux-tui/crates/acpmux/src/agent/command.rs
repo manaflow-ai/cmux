@@ -27,6 +27,9 @@ pub(crate) fn harness_command(
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
+    // Every launch's command line is built here (direct children, agent hosts,
+    // pooled hosts): a harness the kill switch does not allow gets none (cx-9ettq).
+    crate::launch_policy::refuse_unless_allowed(name)?;
     // A session's Claude Code (a planned command line) gets cmux's browser
     // and computer use tools and skills (agent_tools.rs); a remote chain's
     // sandboxed plan carries --strict-mcp-config and gets none.

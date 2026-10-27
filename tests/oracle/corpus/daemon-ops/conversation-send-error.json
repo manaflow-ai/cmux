@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.conversation-send",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -29,6 +30,22 @@
   ],
   "steps": [
     {
+      "id": "conversation",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.list",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +55,24 @@
       "args": {
         "method": "conversation.send",
         "params": {
-          "conversation": ""
+          "conversation": "conv_00000000000000000000000000",
+          "text": "oracle"
         },
         "idempotencyKey": "conversation-send-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "conversation",
+          "id": "conv_00000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "conversation breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a conversation id that names no conversation"
     }
   ],
   "invariants": [
@@ -59,8 +81,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.conversation is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

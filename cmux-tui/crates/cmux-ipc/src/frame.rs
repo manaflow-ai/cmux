@@ -237,6 +237,11 @@ impl CallFlags {
     pub const fn with(self, other: CallFlags) -> CallFlags {
         CallFlags(self.0 | other.0)
     }
+
+    /// `self` with `other` removed.
+    pub const fn without(self, other: CallFlags) -> CallFlags {
+        CallFlags(self.0 & !other.0)
+    }
 }
 
 /// The aux fields of a call frame.

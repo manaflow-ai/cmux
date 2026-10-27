@@ -40,6 +40,10 @@ public struct MoveTabToSplitKeepingFocusRequest: DaemonRequest {
         self.ratio = ratio
         self.transaction = transaction
     }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, pane, edge, ratio, keepFocus = "keep_focus", transaction
+    }
 }
 
 /// Destination screen of a column drop: named directly or by any of its panes.
@@ -76,7 +80,9 @@ public struct MoveTabToColumnRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
+    enum CodingKeys: String, CodingKey {
+        case surface, pane, screen, afterColumn = "after_column", width, dock, keepFocus = "keep_focus", transaction
+    }
     enum PinKeys: String, CodingKey { case edge, mode, role, pinned }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

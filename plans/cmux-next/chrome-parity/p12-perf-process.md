@@ -221,7 +221,7 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 - Checkpoint digests must be identical across 2 replays.
 - Stories: agent-swarm, dev-loop, browse-heavy, stress-recorded, launch-restore, long-day-soak (T2).
 - No user data. The recorder refuses a non-bench bundle id and refuses when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set. The manifest validator rejects text payloads.
-- Player API (task 115, used by stories that measure around a replay, first `blocking_hangs.py`, task 037): `play.py` exposes `replay(manifest, *, app, out, window=None)` next to its CLI.
+- Player API (task 115, used by stories that measure around a replay, first `blocking_hangs.py`, task 037, and story main-turn, task 032): `play.py` exposes `replay(manifest, *, app, out, window=None)` next to its CLI.
   - After the launch and the layout import, it calls `window(bench)` once with its `BenchApp`, and plays the input track inside the context manager that call returns. The measured window is the input track only.
   - A failed launch raises `bench_launch.LaunchError`, as `BenchApp.launch` does.
   - `out` gets the replay's own result-v1 files and the `host-env-full-<pid>.json` of each launch.

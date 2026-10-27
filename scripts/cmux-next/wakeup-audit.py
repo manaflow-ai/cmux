@@ -1313,18 +1313,34 @@ def audit(repo: Path, langs: list[str], budget: Path) -> tuple[list[Hit], list[s
 # Q13: DemandTimer closures on the main actor that never await (a sync overload runs them in the callout).
 
 _SCHEDULE = re.compile(r"\.schedule(?:IfIdle)?(\()\s*after:")
+# A name typed or built as a DemandTimer: `let t = DemandTimer(`, `var t: DemandTimer?`, a `t: DemandTimer` parameter.
+_DEMAND_TIMER_NAME = re.compile(r"\b(\w+)\s*:\s*DemandTimer\b|\b(?:let|var)\s+(\w+)\s*=\s*DemandTimer\s*\(")
+# The receiver of a `.schedule` call: the identifier just before it (`timer.`, `self.timer.`, `timer?.`).
+_RECEIVER = re.compile(r"(\w+)\s*[?!]?\s*$")
 
 
 def demand_sync(repo: Path) -> list[Hit]:
+    """Main-actor DemandTimer closures with no await. A timer is often declared in `Foo.swift` and
+    scheduled in an extension file (`Foo+Bar.swift`), so the DemandTimer names are gathered over the
+    whole module first, and a call counts when its receiver is one of them. A receiver that is not a
+    plain name (a call result, a subscript) counts too: the audit cannot rule it out."""
     root = repo / CMUXNEXT / "Sources"
-    hits = []
+    files = []
+    names: dict[str, set[str]] = {}
     for path in _walk(root, (".swift",)):
         raw = path.read_text(encoding="utf-8", errors="replace")
-        if "DemandTimer" not in raw or ".schedule" not in raw:
-            continue
         code = mask(raw, "swift")
+        module = path.relative_to(root).parts[0]
+        names.setdefault(module, set()).update(a or b for a, b in _DEMAND_TIMER_NAME.findall(code))
+        if ".schedule" in raw:
+            files.append((path, module, raw, code))
+    hits = []
+    for path, module, raw, code in files:
         starts = [0] + [m.end() for m in re.finditer("\n", code)]
         for m in _SCHEDULE.finditer(code):
+            receiver = _RECEIVER.search(code[max(0, m.start() - 120):m.start()])
+            if receiver and receiver.group(1) not in names[module]:
+                continue
             body = _closure_after_call(code, m.start(1))
             if not body:
                 continue
@@ -1333,7 +1349,7 @@ def demand_sync(repo: Path) -> list[Hit]:
                 continue
             line = bisect.bisect_right(starts, m.start())
             rel = path.relative_to(repo).as_posix()
-            hits.append(Hit("swift", f"swift:{path.relative_to(root).parts[0]}", rel, line, "demand-sync", "oneshot",
+            hits.append(Hit("swift", f"swift:{module}", rel, line, "demand-sync", "oneshot",
                             "hit", "", raw.split("\n")[line - 1].strip()))
     return hits
 

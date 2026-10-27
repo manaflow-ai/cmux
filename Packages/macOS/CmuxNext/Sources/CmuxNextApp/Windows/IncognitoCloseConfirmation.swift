@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// Closing an incognito window closes its workspaces and ends their
 /// terminals (coordinator decision 2026-09-30). Quitting with one open asks
@@ -32,11 +33,15 @@ enum IncognitoCloseConfirmation {
     /// Asks (a sheet on `window`) when the windows run programs; calls
     /// `done(true)` to go ahead.
     static func confirm(windows windowIDs: [String], sheetOn window: NSWindow?, _ services: AppServices,
-                        done: @escaping @MainActor (Bool) -> Void) {
-        Task { @MainActor in
-            let programs = await runningPrograms(inWindows: windowIDs, services)
-            guard let prompt = prompt(programs: programs) else { return done(true) }
-            DestructiveConfirmation.present(prompt, in: window) { done($0) }
+                        done: @escaping @MainActor @Sendable (Bool) -> Void) {
+        let mainWork = services.mainWork
+        // The person's close: the terminals are asked off main, the answer shows as one visible task.
+        services.work.task(.userBlocking) { [weak window] in
+            let programs = await IncognitoCloseConfirmation.runningPrograms(inWindows: windowIDs, services)
+            mainWork.postFromAnyThread(.visible, owner: "IncognitoCloseConfirmation.confirm") { [weak window] in
+                guard let prompt = IncognitoCloseConfirmation.prompt(programs: programs) else { return done(true) }
+                DestructiveConfirmation.present(prompt, in: window) { done($0) }
+            }
         }
     }
 }

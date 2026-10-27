@@ -8,18 +8,46 @@ extension CEFPaneHost {
     /// that pane on its empty themed area, or the page at the place and clip the fork last read.
     /// `activate`: false when Chromium already made it the active tab (`tab_add` with activate,
     /// the window's first tab), so one activation, and one echo of it, reaches Chromium.
+    ///
+    /// A hosted page (``CEFLayerHosting/showsInSwitchTransaction``) shows in the switch's own frame
+    /// with no fork call in its turn: the activation and the input window's place run after the
+    /// commit, as Chrome's tab strip commits the switch and the page's frame follows. The echo of
+    /// the activation is still this host's own (`lastActivated`, set now).
     func showBrowser(of tab: CEFTab, activate: Bool = true) {
         guard let browser = tab.browserID else { return }
-        if activate {
-            lastActivated = browser
-            tabSwitchMark("activate")
-            _ = runtime.shim?.tabActivate(browser)
-            tabSwitchMark("activated")
+        let hosting = hostView.layerHosting
+        if activate { lastActivated = browser }
+        if hosting.showsInSwitchTransaction {
+            hosting.pageShown(browser: browser, tabSwitch: tab.takeTabSwitchShow())
+            var activation: (@MainActor () -> Void)?
+            if activate { activation = { [weak self, weak tab] in self?.activateShown(tab, browser: browser) } }
+            hosting.showAfterCommit(activate: activation) { [weak self] in self?.hostView.postGeometryChange() }
+        } else {
+            if activate { activateNow(browser) }
+            hosting.pageShown(browser: browser, tabSwitch: tab.takeTabSwitchShow())
+            hostView.postGeometryChange()
         }
-        hostView.layerHosting.pageShown(browser: browser, tabSwitch: tab.takeTabSwitchShow())
-        hostView.postGeometryChange()
+        showPageCursor(of: browser)
+        showPageAccessibility(of: browser)
+        suggestionsFollowShownBrowser(browser)
+        // Host mode: a display the page view read while no tab was shown (it entered another
+        // window before this tab was shown in it) is placed now (task 221).
+        hostedPageView?.placeIfNeeded()
         // A window-wide side panel stays open across tabs: no event.
         tab.sidePanel.scheduleRefresh()
+    }
+
+    /// The held activation of a hosted show: only while `tab` is still the shown tab of that browser
+    /// (a later show of the turn held its own; a closed tab needs none).
+    private func activateShown(_ tab: CEFTab?, browser: Int32) {
+        guard let tab, visibleTab === tab, tab.browserID == browser, !tab.isClosed else { return }
+        activateNow(browser)
+    }
+
+    private func activateNow(_ browser: Int32) {
+        tabSwitchMark("activate")
+        _ = runtime.shim?.tabActivate(browser)
+        tabSwitchMark("activated")
     }
 
     /// `windowCreated`'s show of the tab shown now, already Chromium's active tab.

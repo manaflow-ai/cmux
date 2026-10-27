@@ -1,11 +1,15 @@
 //! The daemon's memory registry. The `Mux` composition root makes one
-//! (`Mux::memory`) and hands it to every consumer (the terminal work pool's
-//! standby slot today); the kernel pressure source of `cmux-memory` starts on
-//! first use, so a headless daemon that never needs it starts none. Other
-//! sources (the app's `memory.limit` push) vote through
-//! [`MemoryRegistry::voter`]; the level is the worst vote.
+//! (`Mux::memory`) and hands it to every consumer; the kernel pressure source
+//! of `cmux-memory` starts on first use, so a headless daemon that never
+//! needs it starts none. Other sources (the app's `memory.limit` push) vote
+//! through [`MemoryRegistry::voter`]; the level is the worst vote.
+//!
+//! Consumers: the standby host slot (lossless, `terminal.standby-host`), the
+//! Kitty pixel maps (lossless, `terminal.kitty-pixels`, which start the
+//! source with the mux) and the output store's scrollback budget (lossy,
+//! `terminal.scrollback`, which starts the source with the store).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use cmux_memory::{MemoryRegistry, PressureWatch, WatchError};
 
@@ -19,6 +23,32 @@ enum SystemSource {
     /// A stand-in kernel that votes this level when the watch starts.
     #[cfg(test)]
     StandIn(cmux_memory::PressureLevel),
+}
+
+/// What an owner's memory response starts with (`Mux` construction): its
+/// registry, and whether the output store's scrollback budget is one of the
+/// registry's consumers.
+pub(crate) struct MemorySetup {
+    pub(crate) memory: Arc<DaemonMemory>,
+    /// The `memoryScrollbackPressure` feature
+    /// (`crate::output_store::SCROLLBACK_PRESSURE_FEATURE`).
+    pub(crate) scrollback_pressure: bool,
+    /// The `memoryKittyShare` feature (`crate::mux::KITTY_SHARE_FEATURE`).
+    pub(crate) kitty_share: bool,
+}
+
+impl MemorySetup {
+    /// A registry fed by the kernel source, the feature from the process's
+    /// feature lists.
+    pub(crate) fn from_env() -> Self {
+        Self {
+            memory: Arc::new(DaemonMemory::new()),
+            scrollback_pressure: cmux_features::listed_in_env(
+                crate::output_store::SCROLLBACK_PRESSURE_FEATURE,
+            ),
+            kitty_share: cmux_features::listed_in_env(crate::mux::KITTY_SHARE_FEATURE),
+        }
+    }
 }
 
 /// A running system source; dropping it withdraws its vote.

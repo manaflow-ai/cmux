@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -11,6 +12,7 @@ import os
 @MainActor
 final class ChatSettingsPush {
     private let socket: String
+    private let mainWork: MainWorkScheduler
     private var watcher: ConfigFileWatcher?
     private var connection: AgentActivityLineConnection?
     private var desired: ChatSettings?
@@ -18,19 +20,19 @@ final class ChatSettingsPush {
     private var loggedUnsupported = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chat-settings")
 
-    init(socketPath: String) { socket = socketPath }
+    init(socketPath: String, mainWork: MainWorkScheduler) { (socket, self.mainWork) = (socketPath, mainWork) }
 
-    /// App-lifetime observation, started at composition after the initial settings load.
-    /// The observation task keeps the push alive for the app's lifetime (tests pass their own socket).
-    static func start(settings: SettingsController, socketPath: String?) {
-        guard let socketPath else { return }
-        let push = ChatSettingsPush(socketPath: socketPath)
+    /// Starts the push, after the initial settings load; nothing without a socket. The caller keeps the returned push
+    /// and its settings follower for as long as it pushes (the app's life; tests pass their own socket).
+    static func start(settings: SettingsController, socketPath: String?, on mainWork: MainWorkScheduler) -> [AnyObject] {
+        guard let socketPath else { return [] }
+        let push = ChatSettingsPush(socketPath: socketPath, mainWork: mainWork)
         push.watchSocket()
-        Task { @MainActor in
-            for await value in ObservationStream({ settings.chatSettings }) {
-                push.update(value)
-            }
-        }
+        // `background`: the daemon reads the settings at its next chat; nothing on screen waits for the push.
+        let follower = ServiceObservation(.background, owner: "ChatSettingsPush.settings", on: mainWork) {
+            settings.chatSettings
+        } apply: { [weak push] in push?.update($0) }
+        return [push, follower]
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -41,8 +43,8 @@ final class ChatSettingsPush {
     }
 
     private func watchSocket() {
-        watcher = ConfigFileWatcher(url: URL(fileURLWithPath: socket)) { [weak self] in
-            Task { @MainActor in
+        watcher = ConfigFileWatcher(url: URL(fileURLWithPath: socket)) { [weak self, mainWork] in
+            mainWork.postFromAnyThread(.background, owner: "ChatSettingsPush.socket") { [weak self] in
                 guard let self else { return }
                 self.connection?.cancel()
                 self.connection = nil
@@ -66,10 +68,10 @@ final class ChatSettingsPush {
               FileManager.default.fileExists(atPath: socket) else { return }
         let current = AgentActivityLineConnection(path: socket)
         connection = current
-        current.start(send: desired.request, onLine: { [weak self] line in
-            Task { @MainActor in self?.received(line, from: current, value: desired) }
-        }, onClose: { [weak self] in
-            Task { @MainActor in
+        current.start(send: desired.request, onLine: { [weak self, mainWork] line in
+            mainWork.postFromAnyThread(.background, owner: "ChatSettingsPush.reply") { [weak self] in self?.received(line, from: current, value: desired) }
+        }, onClose: { [weak self, mainWork] in
+            mainWork.postFromAnyThread(.background, owner: "ChatSettingsPush.closed") { [weak self] in
                 guard let self, self.connection === current else { return }
                 self.connection = nil
                 if self.desired != desired { self.send() }

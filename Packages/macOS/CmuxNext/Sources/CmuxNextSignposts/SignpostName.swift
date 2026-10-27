@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits`` and ``actionPresentedEstimate`` have an emitter today. The
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -68,8 +69,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: key (PL-typing)
 
-    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
-    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (begun with the
+    /// key's input latency slot in `CmuxApplication.sendEvent`, CmuxNextInput's `InputFrameSignposts`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
@@ -81,10 +82,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
     case keyFlow = 7
-    /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
-    /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
-    /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
-    /// ended|momentum|wheel> age_ms=<age>`, the event's wait in the queue. End message: `target=<layout|content>`,
+    /// A scroll event that opens an input latency slot (a trackpad gesture's began or change, its moving momentum,
+    /// or a mouse-wheel notch) from its dispatch to the end of the Core Animation commit that ends that turn (begun
+    /// with the slot, as ``keyToFrame``; ``ScrollFrameSignpost`` writes the same messages). Begin message:
+    /// `phase=<began|changed|momentum|wheel> age_ms=<age>` (older builds also wrote `touch` and `ended`), the
+    /// event's wait in the queue. End message: `target=<layout|content>`,
     /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
@@ -216,7 +218,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
 
     /// One task the main-thread scheduler runs, from its start to its return: a frame batch
-    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
+    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|userBlocking|visible|automation|background>
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
@@ -257,7 +259,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
     /// arg1 how many it carries.
     case frameCommit = 46
-    /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
+    /// Task 049. A Ghostty frame's Metal completion (`GhosttyTraceHook`). Ring: instant; arg0 surface id, arg1 frame seq.
     case frameGPUDone = 47
     /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
@@ -267,12 +269,18 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `FrameSequenceTracker`). Ring: instant; arg0 expected frames, arg1 frames that committed changes.
     case frameSequence = 49
 
-    // MARK: task (reserved: task 042, Performance Lead)
-    /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
-    /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
+    // MARK: task (task 042, Performance Lead)
+    /// Task 042 (``TaskTrace``). A work item posted to a ``BackgroundWork`` lane or accepted by the control
+    /// queue (Chrome's `TaskAnnotator::WillQueueTask` with `FROM_HERE`); a refused item writes none. Ring:
+    /// flow-out; arg0 the post site (the interned `#fileID`'s id in bits 0-15, the line in bits 16-47), arg1 the
+    /// flow id (bit 63 set).
     case taskPost = 50
-    /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
-    /// arg0 the lane and priority, arg1 the queue wait in us.
+    /// A posted item's run (Chrome's `ThreadPool_RunTask`): a BackgroundWork lane item's (emitter: CmuxNextWakeups
+    /// `LaneScheduler`, p02-threads-124) or a control request's on the main thread (``TaskTrace``, task 042). Ring:
+    /// B/E. B arg0 the lane in bits 8-15 (0 files, 1 system, 2 cpu, 3 main, 0xFF a lane made without one) and the
+    /// priority in bits 0-7 (a `WorkPriority`'s, or on the main lane a `MainWorkClass`'s, `rawValue`); B arg1 the
+    /// queue wait in us (on the main lane `UInt64.max` when the post was not traced). Right after the B, the flow-in
+    /// of a traced post (task 042): arg0 the post site, arg1 the flow id.
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)
@@ -291,6 +299,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
     /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
     case inputFrame = 55
+    /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
+    /// into the app's input dispatch by p04-input-005): a point event when its slot closes, at the presented estimate
+    /// of the frame that shows it (the turn's commit for a view, the target's own content submission for a terminal
+    /// or a page), so it never runs as an interval across turns. Message (``InputLatencySignpostMessage``, numbers
+    /// only): `kind target entry source vrr coalesced frame gen_ns`, then each stage in microseconds after `gen_ns`, -1
+    /// when skipped: `last_gen_us arrived_us dispatch_start_us ti_start_us ti_end_us dispatch_end_us commit_us
+    /// content_us daemon_us pty_us echo_read_us echo_sent_us presented_us`. Ring: instant, "estimated" when the
+    /// presented time is a vsync estimate (not when it was skipped); arg0 packs kind | target << 8 | entrypoint << 16
+    /// | source << 24 | caused frame update << 32 | variable refresh << 33, arg1 the generated-to-presented time in us
+    /// (0 when presented was skipped). Id 85: ids are append-only and 69-84 were taken first.
+    case inputLatency = 85
 
     // MARK: webview (reserved: task 114, PL-telemetry)
     /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
@@ -327,15 +346,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg0 the interned site.
     case crashDumpWithoutCrashing = 65
 
-    // MARK: control (reserved: tasks 042 and 115, Performance Lead)
-    /// Reserved (tasks 042 and 115, Performance Lead). One control-socket request, from the accept to the
-    /// reply, with instants for parsed, queued and dispatched. Ring: AB/AE keyed by the request; begin arg0
-    /// the method id, arg1 the source (cli, mcp, agent, app).
+    // MARK: control (task 042; reserved: task 115, Performance Lead)
+    /// Task 042 (`ControlRequestTrace`). One queued control request, from its enqueue on `MainActorWorkQueue` to
+    /// the end of its run or its failure. Ring: AB/AE keyed by an async id (`TraceRuntime.nextAsyncScope`, in
+    /// arg1 of both). AB arg0 the method's main task board owner index in bits 0-31 (0 without a board) and the
+    /// main work class code (`MainWorkClass.rawValue + 1`) in bits 32-39. AE arg0 the outcome (0 ran, 1 expired
+    /// while queued, 2 refused as busy: it never queued). Reserved (task 115): the accept-to-reply part and the
+    /// parsed, queued and dispatched instants.
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)
-    /// Reserved (task 049, PL-ghostty). One Ghostty frame on its renderer thread (`drawFrame`), through the
-    /// ghostty-next trace hook. Ring: B/E; arg0 the surface hash.
+    /// Task 049. One Ghostty `drawFrame` (`GhosttyTraceHook`). Ring: B/E; arg0 surface id, begin arg1 the echo's flow.
     case ghosttyRender = 67
 
     // MARK: resize (reserved: task 111, PL-motion-core)
@@ -437,6 +458,25 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg1 the presented time (uptime ns).
     case actionPresented = 84
 
+    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
+
+    /// cmux's memory pressure vote into Chromium's aggregator (`cmux_shim_memory_pressure_vote`), the synchronous
+    /// part of the call on the main thread: in process, the vote and the sync listeners Chromium runs when the
+    /// aggregate changes; in host library mode, one post to the Chromium Host. Async listeners are not in it: in
+    /// process they run in later `cef.pump` slices, in host mode in the host process. The memory coordinator's
+    /// release slices run on later frames. Message: `level=<0 none|1 moderate|2 critical>`. Ring: B/E; begin arg0
+    /// the level. Once per change of the coordinator's vote.
+    case cefMemoryPressureVote = 86
+
+    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
+
+    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
+    /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
+    /// (`ghostty_surface_set_lock_wait_callback`).
+    /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
+    /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
+    case ghosttyLockWait = 87
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -500,6 +540,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .hangInProgress: "hang.in_progress"
         case .hangInvalidated: "hang.invalidated"
         case .inputFrame: "input.frame"
+        case .inputLatency: "input.latency"
         case .webviewINP: "webview.inp"
         case .webviewLoAF: "webview.loaf"
         case .remoteInput: "remote.input"
@@ -524,6 +565,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .motionLateCommits: "motion.late_commits"
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
+        case .cefMemoryPressureVote: "cef.memory_pressure_vote"
+        case .ghosttyLockWait: "ghostty.lock_wait"
         }
     }
 }

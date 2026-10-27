@@ -65,6 +65,7 @@ import diff  # noqa: E402
 import expectations  # noqa: E402
 import normalize  # noqa: E402
 import oracle  # noqa: E402
+import patch_mutants  # noqa: E402
 
 TASK = "p15-oracle-019"
 DEFAULT_SEED = 13
@@ -551,6 +552,7 @@ def run_options(tmp: Path, out: Path) -> Any:
         product="daemon", suites=("all",), filters=(), shard=(0, 1), jobs=2, batch_limit=1, repeat=1, retry_limit=0,
         seed=None, platform="linux", build="debug", switch=None, arm=None, switches={}, ref=None, tag=None, binary=None,
         corpus=tmp / "corpus", out=out, state_base=Path("/tmp/o"), run_id="selftest", expectations_root=tmp / "none",
+        isolation="none",  # a fake driver: no case process to isolate, so no host probe
     )
 
 
@@ -720,6 +722,104 @@ class CheckedInData(unittest.TestCase):
                 self.assertFalse((baselines.DEFAULT_ROOT / suite).exists(), f"{suite} is differential: no baselines")
 
 
+MUTANT_HEADER = "Mutant: daemon/{name}\nSuite: daemon-ops\nExercises: index\nFault: off by one.\n\n"
+
+
+def fixture_patch(path: str, minus: str, plus: str) -> str:
+    """A one-line `git diff` body of `path` (no index line: the checks never read it)."""
+    return (f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n"
+            f" pub fn index(i: usize) -> usize {{\n-{minus}\n+{plus}\n }}\n")
+
+
+class PatchMutants(unittest.TestCase):
+    """The seeded patch mutants (p15-oracle-026, patch_mutants.py): ten per product, each in its product's
+    sources, applying at HEAD, and no fault hook in Packages or the crates."""
+
+    LIB = "cmux-tui/crates/core/src/lib.rs"
+
+    def write(self, root: Path, product: str, name: str, text: str) -> Path:
+        path = root / product / f"{name}.patch"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def errors_of(self, text: str, name: str = "m", product: str = "daemon") -> List[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, errors = patch_mutants.parse(self.write(Path(tmp), product, name, text), product)
+        return [error.split(": ", 1)[1] for error in errors]
+
+    def fixture_repo(self, tmp: Path) -> Path:
+        repo = tmp / "repo"
+        (repo / "cmux-tui/crates/core/src").mkdir(parents=True)
+        (repo / self.LIB).write_text("pub fn index(i: usize) -> usize {\n    i\n}\n", encoding="utf-8")
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"]):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, stdout=subprocess.DEVNULL)
+        return repo
+
+    def test_the_checked_in_mutants_pass_the_check_at_head(self) -> None:
+        mutants, errors = patch_mutants.check()
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted({m.product for m in mutants}), ["app", "daemon"])
+        for mutant in mutants:
+            self.assertIn(mutant.suite, baselines.SUITE_CLASSES, mutant.id)
+
+    def test_the_task_mutants_pass_the_check_at_head_with_no_count(self) -> None:
+        # p15-oracle-206: the double create its I10 test phase must catch, outside the smoke set of ten.
+        mutants, errors = patch_mutants.check(patch_mutants.TASK_ROOT, counted=False)
+        self.assertEqual(errors, [])
+        self.assertIn("daemon/tab-create-terminal-runs-again-on-replay", [m.id for m in mutants])
+        smoke, _ = patch_mutants.load()
+        self.assertFalse({m.id for m in smoke} & {m.id for m in mutants}, "a task mutant is not a smoke mutant")
+
+    def test_a_well_formed_mutant_has_no_errors(self) -> None:
+        self.assertEqual(self.errors_of(MUTANT_HEADER.format(name="m") + fixture_patch(self.LIB, "    i", "    i + 1")), [])
+
+    def test_the_checker_refuses_malformed_mutants(self) -> None:
+        body = fixture_patch(self.LIB, "    i", "    i + 1")
+        cases = {
+            "header names another mutant": (MUTANT_HEADER.format(name="other") + body,
+                                             "Mutant: daemon/other does not match its path daemon/m"),
+            "unknown suite": (MUTANT_HEADER.format(name="m").replace("daemon-ops", "nope") + body,
+                              "Suite: nope is not an oracle suite (baselines.SUITE_CLASSES)"),
+            "test file": (MUTANT_HEADER.format(name="m") + fixture_patch("cmux-tui/crates/core/src/lib_tests.rs", "    i", "    j"),
+                          "cmux-tui/crates/core/src/lib_tests.rs is outside the daemon's product sources"),
+            "app file in a daemon mutant": (
+                MUTANT_HEADER.format(name="m") + fixture_patch("Packages/macOS/CmuxNext/Sources/A/B.swift", "    i", "    j"),
+                "Packages/macOS/CmuxNext/Sources/A/B.swift is outside the daemon's product sources"),
+            "oracle named in an added line": (MUTANT_HEADER.format(name="m") + fixture_patch(self.LIB, "    i", "    i // oracle"),
+                                              "added line names the oracle: 'i // oracle'"),
+            "new file": (MUTANT_HEADER.format(name="m") + body.replace("--- a/", "new file mode 100644\n--- a/", 1),
+                         "new file mode 100644: a mutant only edits existing text files"),
+            "no header": (body, "no blank line between the header and the diff"),
+        }
+        for label, (text, error) in cases.items():
+            with self.subTest(label):
+                self.assertIn(error, self.errors_of(text))
+        big = MUTANT_HEADER.format(name="m") + body + "".join(f"+    // {i}\n" for i in range(patch_mutants.MAX_CHANGED_LINES))
+        self.assertTrue(any("changed lines" in e for e in self.errors_of(big)))
+
+    def test_a_mutant_that_no_longer_applies_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.fixture_repo(Path(tmp))
+            root = Path(tmp) / "mutants"
+            good = self.write(root, "daemon", "good", MUTANT_HEADER.format(name="good") + fixture_patch(self.LIB, "    i", "    i + 1"))
+            stale = self.write(root, "daemon", "stale", MUTANT_HEADER.format(name="stale") + fixture_patch(self.LIB, "    j", "    j + 1"))
+            mutants = [patch_mutants.parse(path, "daemon")[0] for path in (good, stale)]
+            errors = patch_mutants.apply_errors(mutants, "HEAD", repo)
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn("stale.patch: does not apply at", errors[0])
+            self.assertNotIn("i + 1", (repo / self.LIB).read_text(), "the check changes no file")
+
+    def test_a_fault_hook_in_the_sources_is_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.fixture_repo(Path(tmp))
+            self.assertEqual(patch_mutants.hook_errors("HEAD", repo), [])
+            (repo / self.LIB).write_text("pub struct OracleFaults;\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "hook"],
+                           check=True)
+            self.assertEqual(len(patch_mutants.hook_errors("HEAD", repo)), 1)
+
+
 class NoNetwork(unittest.TestCase):
     def test_the_guard_refuses_ip_connections(self) -> None:
         with self.assertRaises(NetworkRefused):
@@ -741,7 +841,8 @@ class NoNetwork(unittest.TestCase):
 # -------------------------------------------------------------------------------------------------- runner
 
 
-GROUPS: Tuple[type, ...] = (ModuleSelftests, ShardMath, HashAndDiffContract, CaseSchemaContract, CheckedInData, NoNetwork)
+GROUPS: Tuple[type, ...] = (ModuleSelftests, ShardMath, HashAndDiffContract, CaseSchemaContract, CheckedInData,
+                             PatchMutants, NoNetwork)
 
 
 def build_suite(patterns: Sequence[str]) -> unittest.TestSuite:

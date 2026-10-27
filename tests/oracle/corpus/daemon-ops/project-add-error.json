@@ -38,19 +38,22 @@
       "args": {
         "method": "project.add",
         "params": {
-          "path": 7
+          "path": "oracle"
         },
         "idempotencyKey": "project-add-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "invalid_path: oracle is not absolute"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "path breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "a relative path: the store takes only an absolute folder (state/projects_ops.rs state_project_add)"
     }
   ],
   "invariants": [
@@ -59,8 +62,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

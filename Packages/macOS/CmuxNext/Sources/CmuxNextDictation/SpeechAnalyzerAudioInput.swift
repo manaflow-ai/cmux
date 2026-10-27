@@ -6,10 +6,11 @@ import os
 // The handoff from the analyzer engine's real-time audio tap to its
 // conversion worker (SpeechAnalyzerDictationTranscriber).
 
-/// Raw audio-tap payload. `AVAudioNodeTapBlock` documents that callbacks
-/// receive copies of node output; retaining that framework-supplied copy
-/// here extends its lifetime until the single conversion worker consumes
-/// it. AnalyzerInput construction happens on that worker.
+/// Raw audio-tap payload, and the one carrier that moves a tap buffer between
+/// threads here: the tap hands it to the conversion worker, and the worker
+/// hands it to `AVAudioConverter`'s input block (``AnalyzerBufferFeed``).
+/// AnalyzerInput construction happens on that worker.
+// crash-allow: AVAudioPCMBuffer is not Sendable and AsyncThrowingStream needs a Sendable element; AVAudioNodeTapBlock gives each callback its own copy of the node output, and that copy is moved (tap, then worker, then converter block), never read by two threads at once nor by a sender after its hand-off.
 struct AnalyzerRawInput: @unchecked Sendable {
     let buffer: AVAudioPCMBuffer
     let sampleTime: AVAudioFramePosition?
@@ -27,25 +28,18 @@ struct AnalyzerRawInput: @unchecked Sendable {
 /// callback. It only snapshots the continuation and enqueues the tap's
 /// output copy; format conversion and AnalyzerInput allocation happen on
 /// the actor's worker task.
-final class AnalyzerInputBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
-    // The continuation is guarded by lock.
-    private var continuation:
-        AsyncThrowingStream<AnalyzerRawInput, any Error>.Continuation?
+final class AnalyzerInputBox: Sendable {
+    private typealias Sink = AsyncThrowingStream<AnalyzerRawInput, any Error>.Continuation
+    private let sink = OSAllocatedUnfairLock<Sink?>(initialState: nil) // lock-allow: realtime audio tap, os_unfair_lock donates
 
     func configure(
         continuation: AsyncThrowingStream<AnalyzerRawInput, any Error>.Continuation
     ) {
-        lock.lock()
-        defer { lock.unlock() }
-        self.continuation = continuation
+        sink.withLock { $0 = continuation }
     }
 
     func ingest(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {
-        lock.lock()
-        let continuation = self.continuation
-        lock.unlock()
-        guard let continuation else { return }
+        guard let continuation = sink.withLock({ $0 }) else { return }
         let result = continuation.yield(
             AnalyzerRawInput(
                 buffer: buffer,
@@ -62,34 +56,39 @@ final class AnalyzerInputBox: @unchecked Sendable {
         }
     }
 
+    /// Ends the stream; a tap after this is dropped.
     func finish() {
-        lock.lock()
-        defer { lock.unlock() }
-        continuation?.finish()
-        continuation = nil
+        let ended = sink.withLock { current in
+            defer { current = nil }
+            return current
+        }
+        ended?.finish()
     }
 }
 
-/// Hands one buffer to `AVAudioConverter`'s input block.
-/// The block runs synchronously inside convert(to:error:) on the
-/// conversion worker, so the buffer never actually crosses threads
-/// despite the @Sendable annotation.
-final class AnalyzerBufferFeed: @unchecked Sendable {
-    private var buffer: AVAudioPCMBuffer?
+/// Hands one tap buffer to `AVAudioConverter`'s input block, once. The block
+/// is `@Sendable` but runs synchronously inside convert(to:error:withInputFrom:)
+/// on the conversion worker, so the lock is never contended.
+final class AnalyzerBufferFeed: Sendable {
+    private let pending: OSAllocatedUnfairLock<AnalyzerRawInput?> // lock-allow: converter input block, one uncontended take per call
 
-    init(_ buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
+    init(_ input: AnalyzerRawInput) {
+        pending = OSAllocatedUnfairLock(initialState: input)
     }
 
     func take() -> AVAudioPCMBuffer? {
-        defer { buffer = nil }
-        return buffer
+        let input = pending.withLock { pending in
+            defer { pending = nil }
+            return pending
+        }
+        return input?.buffer
     }
 }
 
 extension AVAudioConverter {
     /// Converts one tap buffer to the analyzer's format.
-    func convertOne(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) throws -> AVAudioPCMBuffer {
+    func convertOne(_ input: AnalyzerRawInput, to format: AVAudioFormat) throws -> AVAudioPCMBuffer {
+        let buffer = input.buffer
         let ratio = format.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(
             (Double(buffer.frameLength) * ratio).rounded(.up) + 16
@@ -100,14 +99,17 @@ extension AVAudioConverter {
         ) else {
             throw DictationFailure.audioCaptureFailed("audio conversion buffer unavailable")
         }
-        let feed = AnalyzerBufferFeed(buffer)
+        let feed = AnalyzerBufferFeed(input)
         var conversionError: NSError?
-        convert(to: converted, error: &conversionError) { _, outStatus in
+        // SAFETY: the error pointer is a local live for the call; AVAudioConverter stores at most one NSError through
+        // it and keeps no reference. The input block runs synchronously inside convert, and each `outStatus` points
+        // at one status the converter owns for that block call, written once there and not kept.
+        unsafe convert(to: converted, error: &conversionError) { _, outStatus in
             guard let next = feed.take() else {
-                outStatus.pointee = .noDataNow
+                unsafe outStatus.pointee = .noDataNow
                 return nil
             }
-            outStatus.pointee = .haveData
+            unsafe outStatus.pointee = .haveData
             return next
         }
         if let conversionError {

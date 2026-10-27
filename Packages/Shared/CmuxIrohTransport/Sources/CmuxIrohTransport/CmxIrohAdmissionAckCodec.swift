@@ -52,8 +52,7 @@ public struct CmxIrohAdmissionAckCodec: Sendable {
         var frame = Self.magic
         frame.append(Self.version)
         frame.append(status)
-        let bigEndian = code.bigEndian
-        withUnsafeBytes(of: bigEndian) { frame.append(contentsOf: $0) }
+        frame.appendBigEndian(code)
         return frame
     }
 

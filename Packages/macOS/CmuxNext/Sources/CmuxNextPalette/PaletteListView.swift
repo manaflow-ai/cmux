@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
@@ -56,6 +58,16 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first
+    /// move hovers at once and the rest once at its frame, at the latest point. Nil: each move hovers.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { table.hoverMoves.frames }
+        set { table.hoverMoves.frames = newValue }
+    }
+
+    /// The table (tests: its hover moves).
+    var resultsTable: PaletteTableView { table }
 
     // MARK: Updates from the model
 
@@ -191,27 +203,39 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
 /// Table that never takes keyboard focus (the search field keeps it) and
 /// reports pointer movement and clicks by row. A click runs its row on the press.
+///
+/// Moves report on their window's frame (``hoverMoves``): a frame interval's first move at once, the
+/// rest once at the frame, at the latest point, as Chromium delivers rAF-aligned mouse moves
+/// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). An exit and a
+/// press are discrete: the pending move lands first (`ShouldFlushQueue`). A key is too: the
+/// application's `sendEvent` flushes every window's moves before it dispatches one, so a hover that
+/// waited for the frame never undoes a keyboard selection.
 final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
     private var trackingArea: NSTrackingArea?
+    /// The table's hover moves (feature `pointerFrameHover`, ``PaletteListView/hoverFrameInput``). The
+    /// point is converted at delivery, so a list that scrolled since the move hit-tests its rows now.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "PaletteListView.hover", view: self) { [weak self] point in
+        guard let self else { return }
+        onMouseMoved?(convert(point, from: nil))
+    }
 
     override var acceptsFirstResponder: Bool { false }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        onMouseMoved?(convert(event.locationInWindow, from: nil))
-    }
+    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
 
     override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         onMouseExited?()
     }
 
@@ -219,6 +243,7 @@ final class PaletteTableView: NSTableView {
     /// immediately open", Cmd+P rows included); the release runs nothing more. A press off every
     /// visible row (a row scrolled under the search bar or footer) runs nothing.
     override func mouseDown(with event: NSEvent) {
+        hoverMoves.flush() // the frame's pending hover lands before the press picks its row
         let point = convert(event.locationInWindow, from: nil)
         guard visibleRect.contains(point) else { return }
         let index = row(at: point)

@@ -5,8 +5,10 @@ import CmuxNextCompat
 /// CmuxNext may use outside animation frames (plans/cmux-next/idle-wakeups.md).
 ///
 /// It never repeats. ``schedule(after:tolerance:_:)`` replaces a pending
-/// deadline (reset); ``cancel()`` drops it. The clock is injected so tests do
-/// not wait. Each fire records one wakeup in the ledger under `owner`.
+/// deadline (reset); ``cancel()`` drops it. A synchronous main-actor action
+/// uses ``scheduleOnMain(after:tolerance:_:)`` and
+/// ``scheduleOnMainIfIdle(after:tolerance:_:)``. The clock is injected so tests
+/// do not wait. Each fire records one wakeup in the ledger under `owner`.
 ///
 /// A timer given the app's ``MainWakeUpQueue`` (``init(owner:policy:clock:ledger:mainWork:)``)
 /// puts main-actor deadlines on it, so they share the main thread's one run-loop timer and wake no
@@ -140,6 +142,14 @@ public final class DemandTimer: Sendable {
         schedule(after: delay, tolerance: tolerance, action)
     }
 
+    /// ``scheduleIfIdle(after:tolerance:_:)`` for a synchronous main-actor action: schedules
+    /// ``scheduleOnMain(after:tolerance:_:)`` only when nothing is pending.
+    public func scheduleOnMainIfIdle(after delay: Duration, tolerance: Duration? = nil,
+                                     _ action: @escaping @MainActor @Sendable () -> Void) {
+        guard !isScheduled else { return }
+        scheduleOnMain(after: delay, tolerance: tolerance, action)
+    }
+
     public func cancel() {
         drop(state.withLock { $0.supersede() })
     }
@@ -177,12 +187,24 @@ public final class DemandTimer: Sendable {
             let generation = state.generation
             let token = queue.insert(owner: owner, at: deadline, window: window) { [weak self] in
                 guard let self, self.take(generation) else { return }
-                action()
+                self.fire(action)
             }
             state.pending = .queued(token)
             return old
         }
         drop(dropped)
+    }
+
+    /// Runs a main-actor deadline's action. In a launch the main-job census armed (Debug and bench builds,
+    /// p08-startup-080) the fire is timed as a `timer` job named by ``owner``, since its stack shows only the queue.
+    @MainActor private func fire(_ action: @MainActor () -> Void) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let ring = MainJobRing.installed(),
+           let slot = ring.recordEnqueue(.timer, priority: MainJobRing.currentPriority, label: owner) {
+            return ring.run(slot: slot) { action() }
+        }
+        #endif
+        action()
     }
 
     /// Cancels a superseded sleep or drops a superseded queue entry. Called with no lock held: dropping an

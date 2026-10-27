@@ -194,7 +194,7 @@ import Testing
     @Test func checkForUpdatesFromTheCommandShowsTheLoadingCard() {
         let updater = Self.updater()
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: updater)
+        UpdateHandlers.bind(into: registry, updater: updater, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
         for phase in Self.attemptPhases {
             updater.debugIndicatorPhase = phase

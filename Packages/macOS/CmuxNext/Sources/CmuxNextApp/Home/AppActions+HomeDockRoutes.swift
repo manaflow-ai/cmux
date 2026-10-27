@@ -75,6 +75,7 @@ extension AppActions {
             }
             dock.switchTo(.channels)
             // task-owner: one wait for the switch in flight (bounded by its selection deadline), then the route
+            // main-hop-allow: userBlocking rest of the person's action (p06 rule 2): it awaits the main-actor dock switch; post has no userBlocking class
             Task { @MainActor [weak dock] in
                 await dock?.settled()
                 dock?.open(route: route)

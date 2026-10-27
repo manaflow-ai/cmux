@@ -49,6 +49,27 @@
       }
     },
     {
+      "id": "first-create",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "pane.create",
+        "params": {
+          "correlation_key": "oracle"
+        },
+        "idempotencyKey": "pane-create-error.first-create"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -60,19 +81,51 @@
       "args": {
         "method": "pane.create",
         "params": {
-          "correlation_key": ""
+          "correlation_key": "oracle",
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "exit 0"
+          ]
         },
         "idempotencyKey": "pane-create-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "creation.conflict",
+        "errorDetails": {
+          "correlation_key": "oracle",
+          "existing_operation": "pane.create"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a second create with the same correlation key and other fields: creation.conflict, no pane beyond the first create's"
+    },
+    {
+      "id": "two-panes",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "first-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:first-create#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

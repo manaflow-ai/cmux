@@ -151,6 +151,18 @@
         "id": 3596,
         "priority": "control"
       },
+      "agent-inventory": {
+        "id": 3597,
+        "priority": "control"
+      },
+      "agent-inventory-refresh": {
+        "id": 3598,
+        "priority": "background"
+      },
+      "agent-inventory-watch": {
+        "id": 3599,
+        "priority": "control"
+      },
       "agent-session-attach": {
         "id": 4864,
         "priority": "control"
@@ -373,6 +385,10 @@
       },
       "cancel-request": {
         "id": 4621,
+        "priority": "control"
+      },
+      "cancel-stream": {
+        "id": 794,
         "priority": "control"
       },
       "chief-inspect": {
@@ -678,6 +694,10 @@
       "create-workspace-group": {
         "id": 2575,
         "priority": "control"
+      },
+      "debug-daemon-locks": {
+        "id": 274,
+        "priority": "background"
       },
       "delete-bookmark": {
         "id": 3076,
@@ -1251,8 +1271,16 @@
         "id": 774,
         "priority": "input"
       },
+      "server-blocking": {
+        "id": 276,
+        "priority": "background"
+      },
       "server-stats": {
         "id": 266,
+        "priority": "background"
+      },
+      "server-threads": {
+        "id": 275,
         "priority": "background"
       },
       "set-cell-pixels": {
@@ -1799,6 +1827,10 @@
       },
       "status": {
         "id": 49420,
+        "priority": "control"
+      },
+      "stream-end": {
+        "id": 49164,
         "priority": "control"
       },
       "surface-exited": {

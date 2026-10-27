@@ -41,7 +41,7 @@
           "source": "oracle",
           "entries": [
             {
-              "path": "$CASE_ROOT/oracle",
+              "path": "/srv/oracle-project",
               "last_used_ms": "1"
             }
           ]
@@ -56,7 +56,37 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the source oracle reports a folder; the store reads no disk for a report, so the path only has to be absolute and outside the refused roots"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.observe",
+        "params": {
+          "source": "oracle",
+          "entries": [
+            {
+              "path": "/srv/oracle-project",
+              "last_used_ms": "1"
+            }
+          ]
+        },
+        "idempotencyKey": "project-observe-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -65,8 +95,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.entries[0].path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

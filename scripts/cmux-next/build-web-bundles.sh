@@ -164,8 +164,8 @@ out() {
 }
 
 rm -f "$STAMP"
-"$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+# The pages and the agent pane build together: the pane imports the pages' shared library (React).
+"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")" --agent-pane "$(out "$PANE")"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
@@ -173,6 +173,10 @@ rm -f "$STAMP"
 if [ -n "$OUT_ROOT" ]; then
   "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 fi
+# The trees import one React from cmux-page://cmux.shared/, which the pages build wrote into
+# pages/_shared: every shared file a bundle names must be in this tree, so a web update never
+# serves a page that names a file its own tree lacks.
+python3 "$KEY" "${OUT_ROOT:-$ROOT}" --shared
 
 if [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

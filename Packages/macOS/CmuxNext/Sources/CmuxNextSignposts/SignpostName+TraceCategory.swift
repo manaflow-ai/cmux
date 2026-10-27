@@ -13,7 +13,7 @@ nonisolated extension SignpostName {
             .key
         case .switchWorkspace, .switchTab, .switchPaneFocus, .switchAppActivation: .switch
         case .createTab, .createWorkspace: .create
-        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
+        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput, .cefMemoryPressureVote: .cef
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
              .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete, .launchReadDone:
             .launch
@@ -24,14 +24,14 @@ nonisolated extension SignpostName {
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
         case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
-        case .inputFrame: .input
+        case .inputFrame, .inputLatency: .input
         case .webviewINP, .webviewLoAF: .webview
         case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
         case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
              .crashDumpWithoutCrashing:
             .crash
         case .controlRequest: .control
-        case .ghosttyRender: .ghostty
+        case .ghosttyRender, .ghosttyLockWait: .ghostty
         case .resizeFrame: .resize
         case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
         case .burstEvent: .burst

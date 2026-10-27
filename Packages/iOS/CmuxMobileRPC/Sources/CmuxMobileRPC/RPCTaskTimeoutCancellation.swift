@@ -1,26 +1,31 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Bridges `withTaskCancellationHandler`'s `onCancel` callback to the timeout
 /// stream so the awaiting task's cancellation deterministically finishes the
 /// stream instead of racing the value and timeout tasks.
 ///
-/// Safety: `onCancel` is synchronous and can run on any thread concurrently
-/// with `install`, so it cannot await an actor; mutual exclusion uses an
-/// `NSLock` instead. `@unchecked Sendable` holds because both mutable
-/// properties are only touched inside `lock.withLock`, and the continuation
-/// is finished at most once because every finish path must first win `race`.
-final class RPCTaskTimeoutCancellation<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: AsyncThrowingStream<T, any Error>.Continuation?
-    private var isCancelled = false
+/// `onCancel` is synchronous and can run on any thread concurrently with
+/// `install`, so it cannot await an actor. The continuation and the
+/// cancellation flag live in one `Mutex`, so the type is plainly `Sendable`;
+/// the continuation is finished at most once because every finish path must
+/// first win `race`.
+final class RPCTaskTimeoutCancellation<T: Sendable>: Sendable {
+    private struct State {
+        var continuation: AsyncThrowingStream<T, any Error>.Continuation?
+        var isCancelled = false
+    }
+
+    // carve-out: `onCancel` is synchronous and cannot await an actor.
+    private let state = Mutex(State())
 
     func install(
         _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
         race: RPCTaskTimeoutRace
     ) {
-        let shouldCancel = lock.withLock {
-            self.continuation = continuation
-            return isCancelled
+        let shouldCancel = state.withLock { state in
+            state.continuation = continuation
+            return state.isCancelled
         }
         if shouldCancel {
             finishCancellation(continuation, race: race)
@@ -28,9 +33,9 @@ final class RPCTaskTimeoutCancellation<T: Sendable>: @unchecked Sendable {
     }
 
     func cancel(race: RPCTaskTimeoutRace) {
-        let continuation = lock.withLock {
-            isCancelled = true
-            return self.continuation
+        let continuation = state.withLock { state in
+            state.isCancelled = true
+            return state.continuation
         }
         guard let continuation else { return }
         finishCancellation(continuation, race: race)

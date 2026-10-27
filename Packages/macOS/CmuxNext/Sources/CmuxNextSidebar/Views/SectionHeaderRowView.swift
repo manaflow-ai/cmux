@@ -189,12 +189,14 @@ final class SectionHeaderRowView: SidebarRowView {
         setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID)")
         addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         addButton.isHidden = true
-        needsLayout = true
-        needsDisplay = true
+        // invalidate: the content changed (`needsConfigure` above).
+        needsLayout = true; needsDisplay = true
     }
 
-    var allowsAdd = true
+    /// The header offers New Workspace (a machine's section); its slot is laid out in `layout()`.
+    var allowsAdd = true { didSet { if allowsAdd != oldValue { needsLayout = true } } }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -267,14 +269,14 @@ final class SectionHeaderRowView: SidebarRowView {
             let bh = ceil(badge.intrinsicContentSize.height)
             badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
         }
-        needsDisplay = true
     }
 
     override func hoverChanged() {
         super.hoverChanged()
         // The running time and estimate move with the clock: a hover reads them now.
         if isHovered, cost != nil { themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date()) }
-        needsLayout = true
+        // No layout: the add button and chevron keep their slots at rest (`layout()` reads no hover); the fill
+        // repaints through `super`.
     }
 
     /// Whether the fold chevron shows (tests).

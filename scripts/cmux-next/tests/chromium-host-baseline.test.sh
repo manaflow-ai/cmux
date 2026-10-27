@@ -143,12 +143,13 @@ out = argv[argv.index("--out") + 1]
 json.dump({"census": 1, "session": {"terminals": 5, "hidden_terminals": 4}, "roles": {}}, open(out, "w"))
 PY
 python3 -I - "$bench" "$tmp" > "$tmp/bench.json" <<'PY'
-import importlib.util, json, sys, types
+import importlib.util, json, os, sys, types
 bench_path, tmp = sys.argv[1], sys.argv[2]
-sys.argv = [bench_path, "--app", f"{tmp}/cmux DEV t1.app", "--out", f"{tmp}/bench-out", "--baseline", "--stress"]
 spec = importlib.util.spec_from_file_location("chromium_host_bench", bench_path)
 bench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench)
+bench.opts = bench.parse(["--app", f"{tmp}/cmux DEV t1.app", "--out", f"{tmp}/bench-out", "--baseline", "--stress"])
+os.makedirs(bench.opts.out, exist_ok=True)
 bench.opts.idle_settle_seconds = 0
 bench.opts.pump_seconds = 0.01
 out = {}

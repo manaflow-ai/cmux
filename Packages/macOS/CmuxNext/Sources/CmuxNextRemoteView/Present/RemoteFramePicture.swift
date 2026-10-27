@@ -6,7 +6,8 @@ extension RemoteDecodedFrame {
     /// converted off the main thread.
     @concurrent public nonisolated func picture() async -> CGImage? {
         var image: CGImage?
-        guard VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image) == noErr else { return nil }
+        // SAFETY: VideoToolbox writes one +1 image to the local `image`, live for the call.
+        guard unsafe VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image) == noErr else { return nil }
         return image
     }
 }
@@ -17,6 +18,7 @@ extension RemoteVideoView {
     /// layout as the pane, so a picture of it lines up with the pane it stands in for. Nil when
     /// `host` cannot be drawn (no size).
     package func composite(_ frame: CGImage, in host: NSView) -> CGImage? {
+        // sync-layout: cacheDisplay below draws the laid-out host.
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -20,22 +21,17 @@ final class HiddenHistoryStore {
     private var loaded = false
     /// A hide came before the load: the load saves the merge.
     private var savesAfterLoad = false
-    private var observation: Task<Void, Never>?
+    /// Loads on each connect. `background`: nobody waits on the hides; a hide made first is kept and merged.
+    private var observation: ServiceObservation<Bool>?
 
     init(services: AppServices) {
         self.services = services
         let store = services.daemon.store
-        observation = Task { [weak self] in
-            for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
-                self?.load()
-            }
+        observation = ServiceObservation(.background, owner: "HiddenHistory.connect", on: services.mainWork) {
+            if case .connected = store.connectionState { true } else { false }
+        } apply: { [weak self] connected in
+            if connected { self?.load() }
         }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
     }
 
     func change(_ body: (inout HiddenHistory) -> Void) {
@@ -50,11 +46,12 @@ final class HiddenHistoryStore {
 
     private func load() {
         guard !loaded else { return }
+        let mainWork = services.mainWork
         services.daemon.send("history-hidden-load") { [weak self] connection in
             let projection = try await connection.frontendProjection(subject: Self.subject)
             let stored = projection.schemaVersion == HiddenHistory.schemaVersion && projection.projection != .null
                 ? try? JSONDecoder().blockingDecode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) : nil
-            await MainActor.run {
+            mainWork.postFromAnyThread(.background, owner: "HiddenHistory.loaded") {
                 guard let self else { return }
                 self.loaded = true
                 self.revision = projection.projectionRevision
@@ -70,12 +67,13 @@ final class HiddenHistoryStore {
     private func save() {
         let document = document
         let revision = revision
+        let mainWork = services.mainWork
         services.daemon.send("history-hidden-save") { [weak self] connection in
             let value = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(document))
             do {
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,
                                                                         projection: value, expectedRevision: revision)
-                await MainActor.run { self?.revision = stored.projectionRevision }
+                mainWork.postFromAnyThread(.background, owner: "HiddenHistory.saved") { self?.revision = stored.projectionRevision }
             } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 let current = try await connection.frontendProjection(subject: Self.subject)
                 let theirs = (try? JSONDecoder().blockingDecode(HiddenHistory.self, from: JSONEncoder().encode(current.projection))) ?? HiddenHistory()
@@ -83,7 +81,7 @@ final class HiddenHistoryStore {
                 let mergedValue = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(merged))
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,
                                                                         projection: mergedValue, expectedRevision: current.projectionRevision)
-                await MainActor.run {
+                mainWork.postFromAnyThread(.background, owner: "HiddenHistory.merged") {
                     self?.document = merged
                     self?.revision = stored.projectionRevision
                 }

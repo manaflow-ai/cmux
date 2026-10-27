@@ -109,15 +109,19 @@ public struct HomeFlightRecorder {
     /// Bench.loadAverage.
     static var loadAverage: Double {
         var l = [Double](repeating: 0, count: 3)
-        getloadavg(&l, 3)
+        // SAFETY: getloadavg writes at most 3 doubles (its count argument), the array's count, during the call only.
+        _ = unsafe getloadavg(&l, 3)
         return (l[0] * 100).rounded() / 100
     }
 
     /// LiveSendRun.grab: the window server's composite of one window.
     static func grab(_ wid: UInt32) -> CGImage? {
         typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-        return unsafeBitCast(sym, to: Fn.self)(.null, 8, wid, 1 | 8)?.takeRetainedValue()
+        // SAFETY: RTLD_DEFAULT (-2) looks the symbol up in every loaded image; it is Core Graphics'
+        // `CGImageRef CGWindowListCreateImage(CGRect, uint32_t, CGWindowID, uint32_t)`, which `Fn` spells exactly,
+        // and it returns a +1 image (the Create rule), which takeRetainedValue balances once.
+        guard let sym = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        return unsafe unsafeBitCast(sym, to: Fn.self)(.null, 8, wid, 1 | 8)?.takeRetainedValue()
     }
 
     /// LiveSendRun.writeJPEG.

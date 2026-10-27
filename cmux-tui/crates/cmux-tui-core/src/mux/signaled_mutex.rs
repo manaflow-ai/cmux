@@ -2,16 +2,19 @@
 //! acquisitions feed hold and wait telemetry (`server-stats`), and
 //! [`Mux::lock_state_pinned`], the state lock taken under the registry.
 //! Both locks admit by class (`server::priority_gate`): a frontend request
-//! goes before waiting automation, which still gets in every 4 ms.
+//! goes before waiting automation, which still gets in every 4 ms. Both also
+//! time every acquisition by the request's caller class and op
+//! (`debug-daemon-locks`, crate::diagnostics::DaemonLockTable).
 
+use cmux_threads::sync::Mutex;
 use std::ops::{Deref, DerefMut};
 #[cfg(test)]
 use std::sync::TryLockResult;
-use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError};
-#[cfg(test)]
-use std::time::Instant;
+use std::sync::{LockResult, MutexGuard, PoisonError, TryLockError};
+use std::time::{Duration, Instant};
 
 use super::{Mux, State, WorkspaceRegistry};
+use crate::diagnostics::{DaemonLockTable, LockSlot, lock_clock, timed_acquire};
 use crate::lock_rank::{HeldRank, LockRank};
 use crate::server::priority_gate::{Gated, HoldTicket, PriorityGate};
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
@@ -24,9 +27,12 @@ pub(crate) struct SignaledMutex<T> {
     /// Contention record with `#[track_caller]` attribution, reported by
     /// `server-stats` so lock convoys are visible without external sampling.
     stats: crate::diagnostics::LockStats,
+    /// Wait and hold by caller class and op (`debug-daemon-locks`).
+    by_request: DaemonLockTable,
 }
 
-/// A std mutex's `try_lock` as a gate attempt: `None` while it is held.
+/// A std mutex's `try_lock` as a gate attempt: `None` while it is held
+/// (also the free attempt [`timed_acquire`] makes first).
 fn try_std<T>(mutex: &Mutex<T>) -> Option<LockResult<MutexGuard<'_, T>>> {
     match mutex.try_lock() {
         Ok(guard) => Some(Ok(guard)),
@@ -49,6 +55,7 @@ impl<T> SignaledMutex<T> {
             value: Mutex::new(value),
             gate: PriorityGate::new(),
             stats: crate::diagnostics::LockStats::new(),
+            by_request: DaemonLockTable::new(),
         }
     }
 
@@ -61,19 +68,26 @@ impl<T> SignaledMutex<T> {
         self.gate.snapshot()
     }
 
+    pub(super) fn by_request(&self) -> &DaemonLockTable {
+        &self.by_request
+    }
+
     fn guard<'a>(
         &'a self,
         value: MutexGuard<'a, T>,
         ticket: HoldTicket,
         site: crate::diagnostics::LockSite,
+        acquired: Acquired<'a>,
         blocker: Option<crate::diagnostics::LockSite>,
         rank: HeldRank,
     ) -> SignaledMutexGuard<'a, T> {
-        self.stats.acquired(site, ticket.waited(), blocker);
+        let Acquired { held, waited } = acquired;
+        self.stats.acquired(site, waited, blocker, held.acquired_at);
         SignaledMutexGuard {
             value: Gated::new(value, &self.gate, ticket),
             owner: self,
             site,
+            held,
             _rank: rank,
         }
     }
@@ -85,15 +99,29 @@ impl<T> SignaledMutex<T> {
         // Raised before the wait (crate::lock_rank `RankWait`).
         let wait = HeldRank::acquire(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
-        let blocker = self.stats.wait_started();
-        let (value, ticket) = self.gate.acquire(|| try_std(&self.value), || self.value.lock());
-        map_poison(value, |value| self.guard(value, ticket, site, blocker, wait.held()))
+        let slot = self.by_request.current();
+        let admission = self.gate.admission();
+        let try_value = || try_std(&self.value);
+        // The holder site is read only when the lock is not taken at once: a
+        // free lock has no blocker to name.
+        let mut blocker = None;
+        let ((value, ticket), acquired_at, waited) = timed_acquire(
+            slot,
+            || admission.try_admit(&try_value),
+            || {
+                blocker = self.stats.wait_started();
+                admission.admit(&try_value, || self.value.lock())
+            },
+        );
+        drop(admission);
+        let acquired = Acquired { held: Held { slot, acquired_at }, waited };
+        map_poison(value, |value| self.guard(value, ticket, site, acquired, blocker, wait.held()))
     }
 
     #[cfg(test)]
     #[track_caller]
     pub(super) fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
+        self.try_lock_at(std::panic::Location::caller(), lock_clock(), None)
     }
 
     #[cfg(test)]
@@ -104,9 +132,12 @@ impl<T> SignaledMutex<T> {
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
         let value = try_std(&self.value).ok_or(TryLockError::WouldBlock)?;
-        let ticket = self.gate.ticket(waited_from.elapsed());
-        map_poison(value, |value| self.guard(value, ticket, site, blocker, registry_rank()))
-            .map_err(TryLockError::Poisoned)
+        let acquired = Acquired::since(self.by_request.current(), waited_from);
+        let ticket = self.gate.ticket(acquired.waited);
+        map_poison(value, |value| {
+            self.guard(value, ticket, site, acquired, blocker, registry_rank())
+        })
+        .map_err(TryLockError::Poisoned)
     }
 
     /// Deadline wait. The session journal writer used it on the registry
@@ -120,7 +151,7 @@ impl<T> SignaledMutex<T> {
         debug_assert_not_journal_writer_commit();
         HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
+        let waited_from = lock_clock();
         let blocker = self.stats.wait_started();
         // A release after the epoch read wakes the wait below, so none is
         // missed between the attempt and the wait.
@@ -160,11 +191,45 @@ fn debug_assert_not_journal_writer_commit() {
     );
 }
 
+/// One timed hold: its (caller class, op) slot and when it was acquired.
+struct Held<'a> {
+    slot: &'a LockSlot,
+    acquired_at: Instant,
+}
+
+/// A timed acquisition: its hold and how long it waited.
+struct Acquired<'a> {
+    held: Held<'a>,
+    waited: Duration,
+}
+
+impl<'a> Acquired<'a> {
+    /// An acquisition now whose wait began at `waited_from` (test paths
+    /// that acquire with `try_lock`).
+    #[cfg(test)]
+    fn since(slot: &'a LockSlot, waited_from: Instant) -> Self {
+        let acquired_at = lock_clock();
+        let waited = acquired_at.saturating_duration_since(waited_from);
+        slot.waited(waited);
+        Self { held: Held { slot, acquired_at }, waited }
+    }
+}
+
+impl Held<'_> {
+    /// Records the hold (the release's one clock read) and returns it.
+    fn release(&self) -> Duration {
+        let held = lock_clock().saturating_duration_since(self.acquired_at);
+        self.slot.held(held);
+        held
+    }
+}
+
 pub(crate) struct SignaledMutexGuard<'a, T> {
     /// The lock; dropping it unlocks, then wakes the gate's waiters.
     value: Gated<MutexGuard<'a, T>, &'a PriorityGate>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
+    held: Held<'a>,
     /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
     /// lock.
     _rank: HeldRank,
@@ -191,7 +256,8 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         // Clear holder attribution before the inner mutex is released (the
         // fields drop after this body), so a waiter that acquires next can
         // never have its holder record erased by this older unlock.
-        let held = self.value.end_hold().unwrap_or_default();
+        let held = self.held.release();
+        self.value.record_hold(held);
         self.owner.stats.released(self.site, held);
     }
 }
@@ -207,23 +273,27 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
 /// The mux state mutex. It counts holds per thread (`note_state_lock`) so
 /// the registry connection lock can assert it is never first taken while
 /// this thread holds state (lock order: registry -> connection -> state).
-/// It admits by class (`server::priority_gate`).
+/// It admits by class (`server::priority_gate`), and every acquisition is
+/// timed by caller class and op (`debug-daemon-locks`).
 pub(crate) struct StateMutex {
     state: Mutex<State>,
     gate: PriorityGate,
+    by_request: DaemonLockTable,
 }
 
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
     /// The lock; dropping it unlocks, then wakes the gate's waiters.
     guard: Gated<MutexGuard<'a, State>, &'a PriorityGate>,
+    held: Held<'a>,
     /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
 }
 
-impl StateGuard<'_> {
-    fn new<'a>(
+impl<'a> StateGuard<'a> {
+    fn new(
         guard: Gated<MutexGuard<'a, State>, &'a PriorityGate>,
+        held: Held<'a>,
         rank: HeldRank,
     ) -> StateGuard<'a> {
         // A request thread may hold state while it waits for a writer
@@ -234,7 +304,7 @@ impl StateGuard<'_> {
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, _rank: rank }
+        StateGuard { guard, held, _rank: rank }
     }
 }
 
@@ -254,6 +324,8 @@ fn registry_rank() -> HeldRank {
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
+        let held = self.held.release();
+        self.guard.record_hold(held);
         crate::workspace_registry::registry_connection::note_state_lock(false);
     }
 }
@@ -274,7 +346,15 @@ impl DerefMut for StateGuard<'_> {
 
 impl StateMutex {
     pub(crate) fn new(state: State) -> Self {
-        Self { state: Mutex::new(state), gate: PriorityGate::new() }
+        Self {
+            state: Mutex::new(state),
+            gate: PriorityGate::new(),
+            by_request: DaemonLockTable::new(),
+        }
+    }
+
+    pub(crate) fn by_request(&self) -> &DaemonLockTable {
+        &self.by_request
     }
 
     /// Lock, admitted by this thread's class (`server::priority_gate`).
@@ -282,18 +362,28 @@ impl StateMutex {
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         // Raised before the wait (crate::lock_rank `RankWait`).
         let wait = HeldRank::acquire(LockRank::MuxState, STATE_LOCK_NAME);
-        let (guard, ticket) = self.gate.acquire(|| try_std(&self.state), || self.state.lock());
+        let slot = self.by_request.current();
+        let admission = self.gate.admission();
+        let try_state = || try_std(&self.state);
+        let ((guard, ticket), acquired_at, _waited) = timed_acquire(
+            slot,
+            || admission.try_admit(&try_state),
+            || admission.admit(&try_state, || self.state.lock()),
+        );
+        drop(admission);
+        let held = Held { slot, acquired_at };
         map_poison(guard, |guard| {
-            StateGuard::new(Gated::new(guard, &self.gate, ticket), wait.held())
+            StateGuard::new(Gated::new(guard, &self.gate, ticket), held, wait.held())
         })
     }
 
     #[cfg(test)]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         let guard = try_std(&self.state).ok_or(TryLockError::WouldBlock)?;
-        let ticket = self.gate.ticket(std::time::Duration::ZERO);
+        let Acquired { held, waited } = Acquired::since(self.by_request.current(), lock_clock());
+        let ticket = self.gate.ticket(waited);
         map_poison(guard, |guard| {
-            StateGuard::new(Gated::new(guard, &self.gate, ticket), state_rank())
+            StateGuard::new(Gated::new(guard, &self.gate, ticket), held, state_rank())
         })
         .map_err(TryLockError::Poisoned)
     }
@@ -337,6 +427,15 @@ impl DerefMut for PinnedState<'_> {
 }
 
 impl Mux {
+    /// The registry and state locks' tables by caller class and op, named
+    /// by lock rank (`debug-daemon-locks`).
+    pub(crate) fn daemon_lock_tables(&self) -> [(&'static str, &DaemonLockTable); 2] {
+        [
+            (REGISTRY_LOCK_NAME, self.workspace_registry.by_request()),
+            (STATE_LOCK_NAME, self.state.by_request()),
+        ]
+    }
+
     /// Lock state for a flow that holds `registry` and touches its database
     /// while state is held. The connection lock is taken first (see the
     /// module docs); registry methods called meanwhile re-enter it.

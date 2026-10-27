@@ -74,6 +74,7 @@ public final class PagePreloadParkingView: NSView, PreloadParking {
         if let superview { frame = Self.frame(in: superview.bounds, size: size) } else { setFrameSize(size) }
         if view.superview !== self { addSubview(view) }
         view.frame = bounds
+        // sync-layout: the held page lays out at its size in the slot's no-actions transaction, before the slot waits for its paint there.
         layoutSubtreeIfNeeded()
     }
 

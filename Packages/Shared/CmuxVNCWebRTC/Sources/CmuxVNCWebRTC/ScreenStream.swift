@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CmuxVNC
 import CoreGraphics
 import CoreVideo
@@ -128,28 +129,51 @@ public protocol ScreenBackend: AnyObject, Sendable {
 /// (``run()``, held open and reopened) or one device hub session
 /// (``serve(_:)`` with a ``TicketSignaling``). A view-only host (a device
 /// hub `view` session) never passes input to the backend.
-// crash-allow: `session` is read and written only under `lock`.
-public final class ScreenStreamHost: @unchecked Sendable {
-    // @unchecked: `session` is behind `lock`; a session's fields are touched
-    // from its own tasks and the backend's callback queue.
-    // crash-allow: a session's mutable fields are read and written under its own `lock`.
-    private final class Session: @unchecked Sendable {
+public final class ScreenStreamHost: Sendable {
+    /// One viewer's session. Its tasks, the link's events task and the
+    /// backend's frame callbacks change its fields, all under `state`.
+    private final class Session: Sendable {
         let link: VNCPeerLink
         let video = ScreenVideoSource()
         let backend: any ScreenBackend
-        var tasks: [Task<Void, Never>] = []
-        let lock = NSLock()
-        var last: (buffer: CVPixelBuffer, crop: CGRect)?
-        var lastPush = DispatchTime.now()
-        var displays: [CGSize] = []
-        var current = 0
-        var quality = ScreenQuality.auto
-        /// The data channel opened: from here on only WebRTC ends the session.
-        var opened = false
+        let state = Mutex(SessionState())
+
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
         }
+
+        /// The data channel opened: from here on only WebRTC ends the session.
+        var opened: Bool { state.withLock { $0.opened } }
+
+        /// Keeps `task` until the session ends; a task started after the end is cancelled at once.
+        func adopt(_ task: Task<Void, Never>) {
+            let ended: Bool = state.withLock { state in
+                if !state.ended { state.tasks.append(task) }
+                return state.ended
+            }
+            if ended { task.cancel() }
+        }
+
+        /// Marks the session ended; returns its tasks (to cancel) and whether it had opened.
+        func end() -> (tasks: [Task<Void, Never>], opened: Bool) {
+            state.withLock { state in
+                state.ended = true
+                defer { state.tasks.removeAll() }
+                return (state.tasks, state.opened)
+            }
+        }
+    }
+
+    private struct SessionState: Sendable {
+        var tasks: [Task<Void, Never>] = []
+        var ended = false
+        var last: ScreenFrame?
+        var lastPush = DispatchTime.now()
+        var displays: [CGSize] = []
+        var current = 0
+        var quality = ScreenQuality.auto
+        var opened = false
     }
 
     /// What an app shows about the host: whether the room is open and
@@ -175,16 +199,21 @@ public final class ScreenStreamHost: @unchecked Sendable {
     public let viewOnly: Bool
     private let makeBackend: @Sendable () -> any ScreenBackend
     private let log: @Sendable (String) -> Void
-    private let lock = NSLock()
-    private var session: Session?
-    /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
-    private var ticketSignaling: (any ScreenSignaling)?
+
+    private struct State: Sendable {
+        var session: Session?
+        /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
+        var ticketSignaling: (any ScreenSignaling)?
+        var eventSink: (@Sendable (Event) -> Void)?
+    }
+
+    private let state = Mutex(State())
+
     /// Called from the host's tasks with each `Event` (any thread).
     public var onEvent: (@Sendable (Event) -> Void)? {
-        get { lock.withLock { eventSink } }
-        set { lock.withLock { eventSink = newValue } }
+        get { state.withLock { $0.eventSink } }
+        set { state.withLock { $0.eventSink = newValue } }
     }
-    private var eventSink: (@Sendable (Event) -> Void)?
 
     public init(pairing: VNCPairing, viewOnly: Bool = false, backend: @escaping @Sendable () -> any ScreenBackend,
                 log: @escaping @Sendable (String) -> Void = { print($0) }) {
@@ -233,7 +262,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// a device hub session gets `bye` and ends for good).
     public func disconnectViewer() {
         endSession()
-        guard let signaling = lock.withLock({ ticketSignaling }) else { return }
+        guard let signaling = state.withLock({ $0.ticketSignaling }) else { return }
         Task {
             try? await signaling.send(.bye)
             signaling.close()
@@ -241,7 +270,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
 
     private func emit(_ event: Event) {
-        lock.withLock { eventSink }?(event)
+        state.withLock { $0.eventSink }?(event)
+    }
+
+    private var currentSession: Session? {
+        state.withLock { $0.session }
     }
 
     /// Serves one signaling connection until it closes. A session that is
@@ -249,15 +282,16 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// ticket) ends with it: on `bye`, on a close, and on an error such as a
     /// fingerprint that does not verify.
     public func serve(_ signaling: any ScreenSignaling) async throws {
-        if signaling.endsSessionOnClose { lock.withLock { ticketSignaling = signaling } }
+        if signaling.endsSessionOnClose { state.withLock { $0.ticketSignaling = signaling } }
         defer {
             signaling.close()
             if signaling.endsSessionOnClose {
-                lock.withLock { if ticketSignaling === signaling { ticketSignaling = nil } }
+                state.withLock { state in
+                    if state.ticketSignaling === signaling { state.ticketSignaling = nil }
+                }
                 // A session whose channel opened lives on without its signaling
                 // (a dropped hub link): WebRTC, `bye` or `disconnectViewer()` ends it.
-                let current = lock.withLock { session }
-                if !(current.map { session in session.lock.withLock { session.opened } } ?? false) { endSession() }
+                if !(currentSession?.opened ?? false) { endSession() }
             }
         }
         for try await signal in signaling.messages() {
@@ -267,7 +301,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 emit(.waiting)
             case let .offer(sdp):
                 try await accept(offer: sdp, signaling: signaling)
-            case let .candidate(candidate): await lock.withLock({ session?.link })?.add(candidate: candidate.message)
+            case let .candidate(candidate): await currentSession?.link.add(candidate: candidate.message)
             case .bye:
                 log("the session ended")
                 endSession()
@@ -276,8 +310,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             case .peerLeft:
                 // The viewer's room connection dropped. A connected session
                 // lives on (WebRTC reports its own end); a half-open one ends.
-                let current = lock.withLock { session }
-                if let current, current.lock.withLock({ current.opened }) {
+                if currentSession?.opened ?? false {
                     log("viewer's room connection dropped; the stream continues")
                 } else {
                     log("viewer left")
@@ -291,8 +324,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         endSession()
         let link = try VNCPeerLink(iceServers: try await signaling.iceServers(), preferStreamRelays: false)
         let session = Session(link: link, backend: makeBackend())
-        lock.withLock { self.session = session }
-        session.tasks.append(Task { [weak self] in
+        state.withLock { $0.session = session }
+        session.adopt(Task { [weak self] in
             for await event in link.events {
                 switch event {
                 case let .candidate(message): try? await signaling.send(.candidate(ScreenICECandidate(message)))
@@ -317,17 +350,17 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
 
     private func start(_ session: Session) {
-        session.lock.withLock { session.opened = true }
+        session.state.withLock { $0.opened = true }
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
-        session.tasks.append(Task { [weak self] in
+        session.adopt(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
-                    self?.push(buffer, crop: crop, session: session)
+                    self?.push(ScreenFrame(buffer: buffer, crop: crop), session: session)
                 }, displays: { [weak self] sizes, current in
-                    session.lock.withLock {
-                        session.displays = sizes
-                        session.current = current
+                    session.state.withLock { state in
+                        state.displays = sizes
+                        state.current = current
                     }
                     self?.sendDisplays(session)
                     self?.applyQuality(session)
@@ -338,7 +371,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         })
         // Every 3 s: what the encoder is doing (codec, hardware, fps, limits).
-        session.tasks.append(Task { [weak self] in
+        session.adopt(Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3)) // sampling period
                 guard let self else { return }
@@ -347,29 +380,29 @@ public final class ScreenStreamHost: @unchecked Sendable {
         })
         // Idle refresh: capture sends nothing while the screen is still, but a
         // lost keyframe or a quality step needs a frame to encode.
-        session.tasks.append(Task { [weak self] in
+        session.adopt(Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500)) // idle refresh period
                 guard let self else { return }
-                let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
-                    guard let last = session.last, DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > 450_000_000 else { return nil }
-                    return (last.buffer, last.crop)
+                let stale: ScreenFrame? = session.state.withLock { state in
+                    guard DispatchTime.now().uptimeNanoseconds - state.lastPush.uptimeNanoseconds > 450_000_000 else { return nil }
+                    return state.last
                 }
-                if let stale { push(stale.0, crop: stale.1, session: session) }
+                if let stale { push(stale, session: session) }
             }
         })
     }
 
-    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
-        session.lock.withLock {
-            session.last = (buffer, crop)
-            session.lastPush = .now()
+    private func push(_ frame: ScreenFrame, session: Session) {
+        session.state.withLock { state in
+            state.last = frame
+            state.lastPush = .now()
         }
-        session.video.push(buffer, crop: crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
+        session.video.push(frame.buffer, crop: frame.crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
     }
 
     private func sendDisplays(_ session: Session) {
-        let (sizes, current) = session.lock.withLock { (session.displays, session.current) }
+        let (sizes, current) = session.state.withLock { ($0.displays, $0.current) }
         let message = ScreenHostMessage(t: "displays", displays: sizes.map { .init(w: Int($0.width), h: Int($0.height)) },
                                         current: current, name: name)
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
@@ -387,7 +420,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return
         }
         if input.t == "quality", let quality = input.s.flatMap(ScreenQuality.init(rawValue:)) {
-            session.lock.withLock { session.quality = quality }
+            session.state.withLock { $0.quality = quality }
             log("quality: \(quality.rawValue)")
             applyQuality(session)
             return
@@ -410,42 +443,55 @@ public final class ScreenStreamHost: @unchecked Sendable {
     static let viewOnlyMessages: Set<String> = ["refresh"]
 
     private func applyQuality(_ session: Session) {
-        let (quality, height) = session.lock.withLock { () -> (ScreenQuality, Int) in
-            let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
-            return (session.quality, Int(size.height))
+        let (quality, height): (ScreenQuality, Int) = session.state.withLock { state in
+            let size = state.displays.indices.contains(state.current) ? state.displays[state.current] : .zero
+            return (state.quality, Int(size.height))
         }
         session.link.applyVideo(quality, sourceHeight: height)
     }
 
     private func endSession(ifCurrent expected: Session? = nil) {
-        let ended = lock.withLock { () -> Session? in
-            guard let session, expected == nil || session === expected else { return nil }
-            self.session = nil
+        let ended: Session? = state.withLock { state in
+            guard let session = state.session, expected == nil || session === expected else { return nil }
+            state.session = nil
             return session
         }
         guard let ended else { return }
-        for task in ended.tasks { task.cancel() }
+        let (tasks, opened) = ended.end()
+        for task in tasks { task.cancel() }
         ended.backend.stop()
         ended.link.close()
         log("session ended")
-        if ended.lock.withLock({ ended.opened }) { emit(.viewerEnded) }
+        if opened { emit(.viewerEnded) }
     }
+}
+
+/// One captured picture and the part of it to stream.
+// Threads: the capture source (ScreenCaptureKit's sample-handler queue, or VNCLoopbackBackend's frames task) hands the
+// buffer over and never writes it again; the host's idle-refresh task and libwebrtc's encoder thread only read it.
+// Unchecked only because CoreVideo does not declare CVPixelBuffer Sendable (CmuxVNC's VNCFrame holds the same argument).
+// crash-allow: an immutable value (both fields `let`, the buffer never written after capture): there is nothing to lock.
+struct ScreenFrame: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+    let crop: CGRect
 }
 
 /// V1's frame source: this Mac's Screen Sharing over loopback (already
 /// authorized), displays found from the image, input sent back as RFB.
-// crash-allow: mutable state is read and written only under `lock`; `client` is an actor.
-public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
-    // @unchecked: state behind `lock`.
+public final class VNCLoopbackBackend: ScreenBackend {
     private let client: VNCClient
     private let log: @Sendable (String) -> Void
-    private let lock = NSLock()
-    private var displays: [CGRect] = []
-    private var current = 0
-    private var lastFrame: VNCFrame?
-    private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
-    private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
-    private var tasks: [Task<Void, Never>] = []
+
+    private struct State: Sendable {
+        var displays: [CGRect] = []
+        var current = 0
+        var lastFrame: VNCFrame?
+        var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
+        var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
+        var tasks: [Task<Void, Never>] = []
+    }
+
+    private let state = Mutex(State())
 
     private let inputStream: AsyncStream<ScreenInput>
     private let inputSink: AsyncStream<ScreenInput>.Continuation
@@ -460,9 +506,9 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
                       displays: @escaping @Sendable ([CGSize], Int) -> Void) async throws {
-        lock.withLock {
-            onFrame = frame
-            onDisplays = displays
+        state.withLock { state in
+            state.onFrame = frame
+            state.onDisplays = displays
         }
         let client = self.client
         let log = self.log
@@ -473,6 +519,8 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
             }
         }
         let frames = Task { [weak self] in
+            // The frames task's own converter: it converts one frame at a time.
+            let converter = NV12Converter()
             var lastDetection: UInt64 = 0
             for await frame in client.frames {
                 guard let self else { return }
@@ -480,7 +528,7 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
                     lastDetection = DispatchTime.now().uptimeNanoseconds
                     detect(frame)
                 }
-                deliver(frame)
+                deliver(frame, converter: converter)
             }
         }
         let inputs = Task { [weak self, inputStream] in
@@ -489,42 +537,43 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
                 await apply(input, client: client)
             }
         }
-        lock.withLock { tasks = [events, frames, inputs] }
+        state.withLock { $0.tasks = [events, frames, inputs] }
     }
 
     private func detect(_ frame: VNCFrame) {
         var found = VNCScreenLayout().screens(in: frame)
         if found.isEmpty { found = [CGRect(x: 0, y: 0, width: frame.width, height: frame.height)] }
-        let changed = lock.withLock { () -> ([CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?)? in
-            guard found != displays else { return nil }
-            if displays.isEmpty { current = found.firstIndex { $0.origin == .zero } ?? 0 }
-            displays = found
-            current = min(current, found.count - 1)
-            return (found.map(\.size), current, onDisplays)
+        let detected = found
+        let changed: ([CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?)? = state.withLock { state in
+            guard detected != state.displays else { return nil }
+            if state.displays.isEmpty { state.current = detected.firstIndex { $0.origin == .zero } ?? 0 }
+            state.displays = detected
+            state.current = min(state.current, detected.count - 1)
+            return (detected.map(\.size), state.current, state.onDisplays)
         }
         if let changed { changed.2?(changed.0, changed.1) }
     }
 
-    private func deliver(_ frame: VNCFrame) {
-        let (crop, sink) = lock.withLock { () -> (CGRect, (@Sendable (CVPixelBuffer, CGRect) -> Void)?) in
-            lastFrame = frame
-            let crop = displays.indices.contains(current) ? displays[current] : CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
-            return (crop, onFrame)
+    private func deliver(_ frame: VNCFrame, converter: NV12Converter) {
+        let (crop, sink): (CGRect, (@Sendable (CVPixelBuffer, CGRect) -> Void)?) = state.withLock { state in
+            state.lastFrame = frame
+            let crop = state.displays.indices.contains(state.current)
+                ? state.displays[state.current] : CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
+            return (crop, state.onFrame)
         }
         sink?(converter.nv12(frame.pixelBuffer) ?? frame.pixelBuffer, crop)
     }
 
-    private let converter = NV12Converter()
-
     public func select(display index: Int) {
-        let update = lock.withLock { () -> ([CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?, VNCFrame?)? in
-            guard displays.indices.contains(index) else { return nil }
-            current = index
-            return (displays.map(\.size), current, onDisplays, lastFrame)
+        let update: ([CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?, VNCFrame?)? = state.withLock { state in
+            guard state.displays.indices.contains(index) else { return nil }
+            state.current = index
+            return (state.displays.map(\.size), state.current, state.onDisplays, state.lastFrame)
         }
         guard let update else { return }
         update.2?(update.0, update.1)
-        if let frame = update.3 { deliver(frame) }
+        // Called off the frames task, so with a converter of its own (a display switch is rare).
+        if let frame = update.3 { deliver(frame, converter: NV12Converter()) }
     }
 
     /// Inputs go through one ordered queue, applied one at a time: a burst
@@ -534,7 +583,9 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     }
 
     private func apply(_ input: ScreenInput, client: VNCClient) async {
-        let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
+        let display: CGRect = state.withLock { state in
+            state.displays.indices.contains(state.current) ? state.displays[state.current] : .zero
+        }
         let (x, y) = input.pixel(in: display)
         switch input.t {
         case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
@@ -550,7 +601,7 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     }
 
     public func stop() {
-        let tasks = lock.withLock { self.tasks }
+        let tasks = state.withLock { $0.tasks }
         for task in tasks { task.cancel() }
         let client = self.client
         Task { await client.disconnect() }
@@ -559,37 +610,67 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
 
 /// The phone side of a screen stream: joins the room, receives the screen
 /// track, and sends input. Callbacks arrive on arbitrary threads.
-// crash-allow: the connection's mutable state is behind `lock`; the owner sets the public callbacks before connect().
-public final class ScreenStreamViewer: @unchecked Sendable {
-    // @unchecked: mutable state is behind `lock`.
-    public var onVideo: (@Sendable (VideoTrackBox) -> Void)?
-    public var onDisplays: (@Sendable (ScreenHostMessage) -> Void)?
-    public var onState: (@Sendable (String?) -> Void)?
-    public var onPath: (@Sendable (String) -> Void)?
+public final class ScreenStreamViewer: Sendable {
+    public var onVideo: (@Sendable (VideoTrackBox) -> Void)? {
+        get { state.withLock { $0.onVideo } }
+        set { state.withLock { $0.onVideo = newValue } }
+    }
+    public var onDisplays: (@Sendable (ScreenHostMessage) -> Void)? {
+        get { state.withLock { $0.onDisplays } }
+        set { state.withLock { $0.onDisplays = newValue } }
+    }
+    public var onState: (@Sendable (String?) -> Void)? {
+        get { state.withLock { $0.onState } }
+        set { state.withLock { $0.onState = newValue } }
+    }
+    public var onPath: (@Sendable (String) -> Void)? {
+        get { state.withLock { $0.onPath } }
+        set { state.withLock { $0.onPath = newValue } }
+    }
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
-    public var onICEError: (@Sendable (ICECandidateError) -> Void)?
+    public var onICEError: (@Sendable (ICECandidateError) -> Void)? {
+        get { state.withLock { $0.onICEError } }
+        set { state.withLock { $0.onICEError = newValue } }
+    }
     /// The connection stalled (true: no picture coming) or recovered (false).
-    public var onStall: (@Sendable (Bool) -> Void)?
+    public var onStall: (@Sendable (Bool) -> Void)? {
+        get { state.withLock { $0.onStall } }
+        set { state.withLock { $0.onStall = newValue } }
+    }
     /// How long `connect()` waits for the input channel to open (a reconnect's
     /// last try gets only what is left of its deadline).
-    public var openTimeout: TimeInterval = 30
+    public var openTimeout: TimeInterval {
+        get { state.withLock { $0.openTimeout } }
+        set { state.withLock { $0.openTimeout = newValue } }
+    }
     /// The data channel message that tells the host this viewer left.
     public static let byeMessage = #"{"t":"bye"}"#
 
     /// The signaling for each attempt (0 first); nil when there is no other.
     private let makeSignaling: @Sendable (Int) -> (any ScreenSignaling)?
-    private let lock = NSLock()
-    private var link: VNCPeerLink?
-    private var socket: (any ScreenSignaling)?
-    private var tasks: [Task<Void, Never>] = []
-    /// libwebrtc removes a track's renderers when its wrapper is released: keep it.
-    private var track: VideoTrackBox?
-    private var lastButtons: UInt8 = 0
-    private var offered = false
-    private var isOpen = false
-    private var pathReported = false
     /// TURN relay only (ICE transport policy `relay`): for checking the relay path. Off by default.
     private let relayOnly: Bool
+
+    private struct State: Sendable {
+        var onVideo: (@Sendable (VideoTrackBox) -> Void)?
+        var onDisplays: (@Sendable (ScreenHostMessage) -> Void)?
+        var onState: (@Sendable (String?) -> Void)?
+        var onPath: (@Sendable (String) -> Void)?
+        var onICEError: (@Sendable (ICECandidateError) -> Void)?
+        var onStall: (@Sendable (Bool) -> Void)?
+        var openTimeout: TimeInterval = 30
+        var link: VNCPeerLink?
+        var socket: (any ScreenSignaling)?
+        var tasks: [Task<Void, Never>] = []
+        /// libwebrtc removes a track's renderers when its wrapper is released: keep it.
+        var track: VideoTrackBox?
+        var lastButtons: UInt8 = 0
+        var offered = false
+        var isOpen = false
+        var pathReported = false
+    }
+
+    private let state = Mutex(State())
 
     /// A pairing link's room, reopened whenever it drops.
     public convenience init(pairing: VNCPairing, relayOnly: Bool = false) {
@@ -607,6 +688,32 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         self.relayOnly = relayOnly
     }
 
+    /// The signaling connection of the current attempt.
+    private var signaling: (any ScreenSignaling)? {
+        state.withLock { $0.socket }
+    }
+
+    /// Whether the input channel opened.
+    private var isOpen: Bool {
+        state.withLock { $0.isOpen }
+    }
+
+    private func markOpen() {
+        state.withLock { $0.isOpen = true }
+    }
+
+    private func keep(_ track: VideoTrackBox) {
+        state.withLock { $0.track = track }
+    }
+
+    /// True the first time only: the hub records the session's path once (`sessions.path`).
+    private func firstPathReport() -> Bool {
+        state.withLock { state in
+            defer { state.pathReported = true }
+            return !state.pathReported
+        }
+    }
+
     /// Connects; returns when the input channel is open (video follows).
     /// Once open, only WebRTC ends the session (`onState`): a dropped room
     /// connection is reopened quietly, and the Mac's room going away and
@@ -617,32 +724,31 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         let link = try VNCPeerLink(iceServers: ice, relayOnly: relayOnly, preferStreamRelays: false)
         link.onCandidateError = { [weak self] error in self?.onICEError?(error) }
         link.onStall = { [weak self] stalled in self?.onStall?(stalled) }
-        lock.withLock { self.link = link }
+        state.withLock { $0.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in
             for await event in link.events {
                 switch event {
-                case let .candidate(message): try? await self?.lock.withLock({ self?.socket })?.send(.candidate(ScreenICECandidate(message)))
+                case let .candidate(message): try? await self?.signaling?.send(.candidate(ScreenICECandidate(message)))
                 case .open:
-                    self?.lock.withLock { self?.isOpen = true }
+                    self?.markOpen()
                     opened.fire(nil)
                 case let .video(track):
-                    self?.lock.withLock { self?.track = track }
+                    self?.keep(track)
                     self?.onVideo?(track)
                 case let .message(data):
                     if let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) { self?.onDisplays?(message) }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
                     self?.onPath?(relay ? "Relay" : "Direct")
-                    // The hub records the session's path once (`sessions.path`).
-                    if let self, lock.withLock({ () -> Bool in defer { pathReported = true }; return !pathReported }) {
-                        try? await lock.withLock({ socket })?.send(.path(relay: relay))
+                    if let self, firstPathReport() {
+                        try? await signaling?.send(.path(relay: relay))
                     }
                 case .closed:
                     opened.fire(RFBError.connectionClosed)
                     // Before open, connect() reports the failure (it throws); reporting it here
                     // too would count one failed attempt as two drops.
-                    if self?.lock.withLock({ self?.isOpen }) == true { self?.onState?("The connection closed.") }
+                    if self?.isOpen == true { self?.onState?("The connection closed.") }
                 }
             }
         }
@@ -651,14 +757,14 @@ public final class ScreenStreamViewer: @unchecked Sendable {
             var attempt = 0
             var next: (any ScreenSignaling)? = first
             while !Task.isCancelled, let self, let socket = next {
-                lock.withLock { self.socket = socket }
+                state.withLock { $0.socket = socket }
                 do {
                     for try await message in socket.messages() {
                         delay = 1
                         try await handleSignal(message, link: link, opened: opened)
                     }
                 } catch {
-                    guard lock.withLock({ isOpen }) else {
+                    guard isOpen else {
                         let detail = (error as? ScreenSignalingError)?.description ?? error.localizedDescription
                         opened.fire(RFBError.transport("signaling: \(detail)"))
                         return
@@ -672,9 +778,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 delay = min(delay * 2, 15)
             }
             // A session's only signaling ended before the channel opened: connect() fails now, not at its deadline.
-            if let self, !lock.withLock({ self.isOpen }) { opened.fire(RFBError.transport("signaling ended")) }
+            if let self, !self.isOpen { opened.fire(RFBError.transport("signaling ended")) }
         }
-        lock.withLock { tasks = [peerTask, signalTask] }
+        state.withLock { $0.tasks = [peerTask, signalTask] }
         do {
             try await opened.wait(timeout: openTimeout)
         } catch {
@@ -690,24 +796,25 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         switch message {
         case .hello(peerPresent: true), .peerJoined:
             // One offer per session; the host's room reconnecting is not a new viewer.
-            guard lock.withLock({ () -> Bool in
-                defer { offered = true }
-                return !offered
-            }) else { return }
+            let first: Bool = state.withLock { state in
+                defer { state.offered = true }
+                return !state.offered
+            }
+            guard first else { return }
             let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
-            try await lock.withLock({ socket })?.send(.offer(sdp))
+            try await signaling?.send(.offer(sdp))
         case let .answer(sdp):
             try await link.accept(answer: sdp)
         case let .candidate(candidate):
             await link.add(candidate: candidate.message)
         case .peerLeft:
-            guard !lock.withLock({ isOpen }) else { return }
+            guard !isOpen else { return }
             opened.fire(RFBError.transport("the Mac's host left"))
             link.close()
         case .bye:
             // The session is over (the host left it, or the hub ended it). Once
             // open, closing the link reports it through onState.
-            if !lock.withLock({ isOpen }) { opened.fire(RFBError.transport("the session ended")) }
+            if !isOpen { opened.fire(RFBError.transport("the session ended")) }
             link.close()
         case .hello, .offer, .path:
             break
@@ -722,11 +829,15 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// Sends input: pointer moves with no button change on the unordered
     /// `pointer` channel (latest wins), everything else on the ordered one.
     public func send(_ input: ScreenInput) {
-        guard let link = lock.withLock({ link }), let data = try? JSONEncoder().encode(input) else { return }
+        guard let link = state.withLock({ $0.link }), let data = try? JSONEncoder().encode(input) else { return }
         let text = String(decoding: data, as: UTF8.self)
-        let pointerOnly = input.t == "move" && lock.withLock { () -> Bool in
-            defer { lastButtons = input.b ?? 0 }
-            return (input.b ?? 0) == lastButtons
+        var pointerOnly = false
+        if input.t == "move" {
+            let buttons = input.b ?? 0
+            pointerOnly = state.withLock { state in
+                defer { state.lastButtons = buttons }
+                return buttons == state.lastButtons
+            }
         }
         if pointerOnly, link.sendText(text, on: "pointer") { return }
         _ = link.sendText(text)
@@ -746,16 +857,16 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     }
 
     public func videoStats() async -> VideoStats {
-        guard let link = lock.withLock({ link }) else { return VideoStats() }
+        guard let link = state.withLock({ $0.link }) else { return VideoStats() }
         return await link.videoStats()
     }
 
     /// Ends the session: an open channel first tells the host (`bye`), so it
     /// ends at once instead of waiting for WebRTC to notice the peer is gone.
     public func close() {
-        let (link, socket, tasks, open) = lock.withLock { () -> (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>], Bool) in
-            defer { self.tasks.removeAll() }
-            return (self.link, self.socket, self.tasks, self.isOpen)
+        let (link, socket, tasks, open): (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>], Bool) = state.withLock { state in
+            defer { state.tasks.removeAll() }
+            return (state.link, state.socket, state.tasks, state.isOpen)
         }
         for task in tasks { task.cancel() }
         socket?.close()
@@ -775,17 +886,21 @@ public final class ScreenStreamViewer: @unchecked Sendable {
 
 /// BGRA → NV12 on the GPU (VTPixelTransferSession). The hardware H.264
 /// encoder takes NV12; without this libwebrtc converts on the CPU and its
-/// overuse detector lowers the frame rate ("limited-by cpu").
-// crash-allow: owned by one frame sink and called only from its single frame task, never concurrently.
-final class NV12Converter: @unchecked Sendable {
-    // @unchecked: used from one frame task.
+/// overuse detector lowers the frame rate ("limited-by cpu"). Not Sendable:
+/// each caller owns its converter (``VNCLoopbackBackend``'s frames task keeps
+/// one; a display switch uses its own).
+final class NV12Converter {
     private var session: VTPixelTransferSession?
     private var pool: CVPixelBufferPool?
     private var size = (0, 0)
 
     func nv12(_ source: CVPixelBuffer) -> CVPixelBuffer? {
         let width = CVPixelBufferGetWidth(source), height = CVPixelBufferGetHeight(source)
-        if session == nil { VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session) }
+        if session == nil {
+            // SAFETY: stores at most one +1 session in `session` (this object's field, not
+            // otherwise accessed during the call); the Swift import takes ownership of it.
+            _ = unsafe VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session)
+        }
         if pool == nil || size != (width, height) {
             let attributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
@@ -793,12 +908,16 @@ final class NV12Converter: @unchecked Sendable {
                 kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             ]
             pool = nil
-            CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 4] as CFDictionary, attributes as CFDictionary, &pool)
+            // SAFETY: stores at most one +1 pool in `pool` (this object's field, not otherwise
+            // accessed during the call); the Swift import takes ownership of it.
+            _ = unsafe CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 4] as CFDictionary,
+                                               attributes as CFDictionary, &pool)
             size = (width, height)
         }
         guard let session, let pool else { return nil }
         var output: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
+        // SAFETY: stores at most one +1 pixel buffer in the local `output`, live for this call.
+        _ = unsafe CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
         guard let output, VTPixelTransferSessionTransferImage(session, from: source, to: output) == noErr else { return nil }
         return output
     }

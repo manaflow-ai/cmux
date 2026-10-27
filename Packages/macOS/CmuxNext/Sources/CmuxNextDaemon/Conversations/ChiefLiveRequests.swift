@@ -73,6 +73,10 @@ public struct ConversationRunRequest: DaemonRequest {
         self.run = run
         self.afterRev = afterRev
     }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, run, afterRev = "after_rev"
+    }
 }
 
 /// `cloud-conversation-run {conversation, agent, run}` (`cloud-conversation-runs-v1`): a Cloud Chief's run.
@@ -90,6 +94,10 @@ public struct CloudConversationRunRequest: DaemonRequest {
         self.agent = agent
         self.run = run
         self.afterSeq = afterSeq
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, agent, run, afterSeq = "after_seq"
     }
 }
 

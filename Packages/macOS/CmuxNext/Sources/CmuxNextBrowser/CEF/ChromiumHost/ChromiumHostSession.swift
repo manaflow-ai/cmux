@@ -4,18 +4,21 @@ public import AppKit
 import CmuxNextWakeups
 import Darwin
 import Observation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// One Chromium page whose browser process runs in a host app of its own
-/// (prototype behind `browserHost.helper`;
+/// (prototype behind the feature `cefHelperHost`;
 /// plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Owns the host process and the wire to it, and keeps what a restart needs:
 /// the page's last committed URL and the view's geometry. When the host ends
 /// (a Chromium CHECK, a crash, a kill), cmux keeps running; the page view
 /// shows nothing until a new host gives its context, and
-/// ``ChromiumHostRestartPolicy`` decides whether a new host starts with the
-/// saved page. A host that could not start (``ChromiumHostExit/startFailure``)
-/// is not restarted: a new one would fail the same way. Frames that a host
+/// ``ChromiumHostRestartPolicy`` (Chrome's GPU crash budget) decides whether a
+/// new host starts with the saved page. A host that died before its `ready`
+/// is not restarted: a new one would die the same way, and the ended reason
+/// says whether the host's code signature is valid. Frames that a host
 /// sent before it ended and that arrive after it ended change nothing.
 ///
 /// Ending on purpose (``close()``) sends `quit` and SIGKILLs a host that has
@@ -70,16 +73,21 @@ public final class ChromiumHostSession {
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
 
-    private let configuration: ChromiumHostConfiguration
+    let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
-    private let policy: ChromiumHostRestartPolicy
-    private let now: () -> ContinuousClock.Instant
+    private var policy: ChromiumHostRestartPolicy
+    /// Checks the host's code signature when it could not start.
+    private let signatureChecker: any ChromiumHostSignatureChecking
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
-    private var connection: ChromiumHostConnection?
-    private var startedAt: ContinuousClock.Instant?
-    private var isFirstStart = true
+    /// Takes each presentation report of the host (ChromiumHostSession+InputPresented.swift).
+    let inputPresented: InputPresented
+    let reportsInputPresented: ReportsInputPresented
+    @ObservationIgnored var failedInputPresentations = 0
+    private(set) var connection: ChromiumHostConnection?
+    /// The current host sent `ready`: its Chromium context is initialized.
+    private var saidHello = false
     /// ``close()`` sent `quit` to the running host; its exit does not restart it.
     private var closing = false
     /// ``open(_:)`` came while the host was quitting: start a new host when it has ended.
@@ -87,22 +95,22 @@ public final class ChromiumHostSession {
     /// SIGKILLs the quitting host at the quit limit; cancelled when it ends.
     @ObservationIgnored private let quitDeadline = DemandTimer(owner: "ChromiumHostSession.quit")
     /// No live page this long quits the host; nil keeps it (the default).
-    private let idleExit: Duration?
+    let idleExit: Duration?
     /// The owner's last picture of the page, shown while no host shows it.
     private let standInPicture: @MainActor () -> CGImage?
     /// Quits the host ``idleExit`` after its page stopped being live; cancelled by a show or its end.
     /// Background class: nothing shows the page while it waits.
     @ObservationIgnored private let idleDeadline: MainDeadline?
     /// The page's view is in a window.
-    private var isLive = false
+    private(set) var isLive = false
     /// The quit in progress is the idle exit's: the host's end leaves ``Phase/exitedIdle``.
     private var idleQuitting = false
     private var geometry: ChromiumHostGeometry?
     // The measurement requests (ChromiumHostSession+Measure.swift).
     var seq: UInt32 = 0
-    var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
+    var pongs: [UInt32: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>] = [:]
     /// Stats requests by `seq`, which the host's reply echoes.
-    var statsWaiters: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
+    var statsWaiters: [UInt32: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>] = [:]
     private var tasks: [Task<Void, Never>] = []
     /// ``start()`` launched a host that ``launched(_:)`` has not connected yet.
     private var launching = false
@@ -113,29 +121,49 @@ public final class ChromiumHostSession {
     ///   - idleExit: No live page this long quits the host (feature `chromiumHostIdleExit`,
     ///     param `idleExitAfter`), on the app's deadline scheduler; nil keeps it running.
     ///   - standInPicture: The page's last picture, shown while no host shows the page.
+    ///   - inputPresented: Takes the host's presentation report of each input (the input latency tracker).
+    ///   - reportsInputPresented: Takes whether the current host sends those reports.
     public convenience init(configuration: ChromiumHostConfiguration, idleExit: ChromiumHostIdleExit? = nil,
-                            standInPicture: @escaping @MainActor () -> CGImage? = { nil }) {
-        self.init(configuration: configuration, launcher: ChromiumHostLauncher(), now: { ContinuousClock.now },
-                  idleExit: idleExit, standInPicture: standInPicture)
+                            standInPicture: @escaping @MainActor () -> CGImage? = { nil },
+                            inputPresented: @escaping InputPresented = { _, _ in },
+                            reportsInputPresented: @escaping ReportsInputPresented = { _ in }) {
+        self.init(configuration: configuration, launcher: ChromiumHostLauncher(),
+                  idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
+                  reportsInputPresented: reportsInputPresented)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
-         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
+         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
+         signatureChecker: any ChromiumHostSignatureChecking = SecCodeChromiumHostSignatureChecker(),
          quitLimit: Duration = ChromiumHostFrame.quitLimit, idleExit: ChromiumHostIdleExit? = nil,
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
+         inputPresented: @escaping InputPresented = { _, _ in },
+         reportsInputPresented: @escaping ReportsInputPresented = { _ in },
          connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
-        self.now = now
+        self.signatureChecker = signatureChecker
         self.quitLimit = quitLimit
         self.idleExit = idleExit?.after
         self.standInPicture = standInPicture
         self.connected = connected
+        self.inputPresented = inputPresented
+        self.reportsInputPresented = reportsInputPresented
         idleDeadline = idleExit.map {
             MainDeadline(owner: "ChromiumHostSession.idleExit", workClass: .background, scheduler: $0.deadlines)
         }
-        view.sink = { [weak self] frame in self?.send(frame) }
+        wireView()
+    }
+
+    private func wireView() {
+        // This wire stamps no input seq: no key comes back as KEY_UNHANDLED.
+        view.sink = { [weak self] frame in
+            _ = self?.send(frame)
+            return nil
+        }
+        // The same stream as the key frames: an op follows the frames sent before it.
+        view.textInputSink = { [weak self] op in _ = self?.send(ChromiumHostFrame(textInput: op)) }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)
@@ -193,7 +221,7 @@ public final class ChromiumHostSession {
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
         let launcher = launcher, pid = pid
         // A deadline, not a wait: hostEnded cancels it.
-        quitDeadline.schedule(after: quitLimit) { @MainActor [weak self] in
+        quitDeadline.scheduleOnMain(after: quitLimit) { [weak self] in
             guard let self, self.connection === connection else { return }
             launcher.kill(pid)
         }
@@ -231,7 +259,6 @@ public final class ChromiumHostSession {
     /// host ended after its idle deadline.
     private func startNew() {
         if phase == .exitedIdle, view.standIn == nil, let picture = standInPicture() { view.showStandIn(picture) }
-        isFirstStart = true
         start()
     }
 
@@ -242,29 +269,6 @@ public final class ChromiumHostSession {
         guard pid > 0, connection != nil else { return 0 }
         launcher.kill(pid)
         return pid
-    }
-
-    /// State for `debug.chromium_host`.
-    public var report: [String: Any] {
-        let phaseText: String
-        switch phase {
-        case .idle: phaseText = "idle"
-        case .starting: phaseText = "starting"
-        case .running: phaseText = "running"
-        case .ended(let reason): phaseText = "ended: \(reason)"
-        case .exitedIdle: phaseText = "exited idle"
-        }
-        let backlog = connection?.backlog
-        return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
-                "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "idle_exits": idleExits, "idle_exit_s": idleExit.map(Self.seconds) ?? 0,
-                "live": isLive, "idle_exit_armed": isIdleExitArmed, "stand_in": view.standIn != nil,
-                "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? "",
-                "wire_waiting": backlog?.waiting ?? 0, "wire_coalesced": Int(clamping: backlog?.coalesced ?? 0)]
-    }
-
-    private static func seconds(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     // MARK: Lifecycle
@@ -322,20 +326,25 @@ public final class ChromiumHostSession {
         connected(connection)
         pid = handle.pid
         phase = .starting
-        startedAt = now()
+        saidHello = false
         // The host reads these once Chromium is up; the wire holds them until then.
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
-        let launcher = launcher
+        // The page view's NSTextInputClient answers from the state the host pushes (task 044).
+        connection.send(ChromiumHostFrame(.textInputWatch, v: [1]))
+        let launcher = launcher, executable = configuration.executable, checker = signatureChecker
         tasks.append(
             Task { [weak self] in
                 let exit = await launcher.exit(of: handle.pid)
-                if let self {
-                    self.hostEnded(exit, pid: handle.pid, connection: connection)
-                } else {
-                    launcher.reap(handle.pid)
+                guard let self else { return launcher.reap(handle.pid) }
+                // A host that could not start: macOS kills one whose signature is broken before its first
+                // line runs, so the ended reason says what the check of the signature on disk found.
+                var signature = ChromiumHostSignatureCheck.notChecked
+                if ChromiumHostRestartPolicy.cannotStart(exit, saidHello: self.saidHello, cause: self.endCause) {
+                    signature = await Self.checkSignature(of: executable, with: checker)
                 }
+                self.hostEnded(exit, signature: signature, pid: handle.pid, connection: connection)
             })
         if closeWhenLaunched {
             closeWhenLaunched = false
@@ -353,7 +362,9 @@ public final class ChromiumHostSession {
         switch frame.kind {
         case .ready:
             forkAPI = frame.v[0]
+            saidHello = true
             phase = .running
+            reportsInputPresented(frame.reportsInputPresented)
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)
@@ -373,12 +384,28 @@ public final class ChromiumHostSession {
             lastError = frame.text
         case .rendererGone:
             lastError = "renderer ended (status \(frame.v[0]))"
+        case .textInputState:
+            if let state = ChromiumHostTextInputState(frame: frame) { view.applyTextInputState(state) }
+        case .inputPresented:
+            takeInputPresented(frame)
         default:
             break
         }
     }
 
-    private func hostEnded(_ exit: ChromiumHostExit, pid ended: Int32, connection current: ChromiumHostConnection) {
+    /// Why the current host ends, as this session knows it: a quit (close or the idle exit) is cmux's own end
+    /// and spends nothing of the budget.
+    private var endCause: ChromiumHostEndCause { closing ? .quit : .crash }
+
+    /// Reads and hashes the host's code on disk, off the main thread.
+    @concurrent nonisolated private static func checkSignature(
+        of executable: URL, with checker: any ChromiumHostSignatureChecking
+    ) async -> ChromiumHostSignatureCheck {
+        checker.check(executable)
+    }
+
+    private func hostEnded(_ exit: ChromiumHostExit, signature: ChromiumHostSignatureCheck, pid ended: Int32,
+                           connection current: ChromiumHostConnection) {
         launcher.reap(ended)
         guard current === connection else { return }
         current.close()
@@ -387,6 +414,9 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        reportsInputPresented(false)
+        // The focused field ended with the host, and any composition in it.
+        view.applyTextInputState(ChromiumHostTextInputState())
         fillPageBackground()
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
@@ -395,44 +425,39 @@ public final class ChromiumHostSession {
         statsWaiters = [:]
         quitDeadline.cancel()
         idleDeadline?.cancel()
-        let ranFor = startedAt.map { now() - $0 } ?? .zero
         let endedIdle = idleQuitting
         idleQuitting = false
-        if let failure = exit.startFailure {
-            // The host could not start (no wire, no framework, an old fork, CefInitialize):
-            // a new host would fail the same way, so none starts until ``open(_:)``.
+        switch policy.hostEnded(exit, saidHello: saidHello, cause: endCause, signature: signature) {
+        case .notCounted:
             closing = false
-            reopenWhenEnded = false
-            view.removeStandIn()
-            phase = .ended(failure)
-        } else if closing, endedIdle {
-            closing = false
-            idleExits += 1
-            phase = .exitedIdle
-            // Shown again while it quit (and still shown), or opened: the new host starts under the stand-in.
-            if reopenWhenEnded || isLive {
+            if endedIdle {
+                idleExits += 1
+                phase = .exitedIdle
+                // Shown again while it quit (and still shown), or opened: the new host starts under the stand-in.
+                if reopenWhenEnded || isLive {
+                    reopenWhenEnded = false
+                    startNew()
+                }
+            } else if reopenWhenEnded {
                 reopenWhenEnded = false
-                startNew()
-            }
-        } else if closing {
-            closing = false
-            if reopenWhenEnded {
-                reopenWhenEnded = false
-                isFirstStart = true
                 start()
             } else {
                 phase = .idle
             }
-        } else if idleExit != nil, !isLive {
+        case .restart where idleExit != nil && !isLive:
             // A hidden page's host crashed: nothing shows it, so the next show starts its host.
             phase = .exitedIdle
-        } else if policy.restarts(ranFor: ranFor, isFirstStart: isFirstStart) {
+        case .restart:
             restarts += 1
-            isFirstStart = false
             start()
-        } else {
+        case .ended(let crashes):
             view.removeStandIn()
-            phase = .ended("ended twice within \(policy.quickEnd): \(exit)")
+            phase = .ended("ended \(crashes) times within \(policy.forgiveAfter): \(exit)")
+        case .cannotStart(let failure):
+            // No wire, no framework, an old fork, CefInitialize, or a death before `ready`:
+            // a new host would fail the same way, so none starts until ``open(_:)``.
+            view.removeStandIn()
+            phase = .ended(failure.description)
         }
     }
 

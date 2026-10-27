@@ -39,19 +39,22 @@
         "method": "closed.delete",
         "params": {
           "all": true,
-          "closed": ""
+          "closed": "oracle-closed"
         },
         "idempotencyKey": "closed-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "name exactly one of closed or all"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "closed breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "closed_history_delete.rs DeleteRequest::validate refuses closed together with all and deletes nothing"
     }
   ],
   "invariants": [

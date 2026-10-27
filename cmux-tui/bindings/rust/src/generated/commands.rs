@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169.
+// cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -182,6 +182,36 @@ pub struct AgentCliUpdateJobResolveRequest {
 
 #[rustfmt::skip]
 pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentInventoryRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_machine_id: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryRefreshRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchRequest {
+    /// Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub admission_receipt: Option<bool>,
+    /// true opens (or acknowledges again) this connection's lease; false retires it without an ended event.
+    pub enabled: bool,
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+    /// Only with enabled:false: retire the lease only while it has this id.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_watch_id: Option<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -782,6 +812,8 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub viewer_backlog_bytes: Optional<u64>,
@@ -1031,6 +1063,12 @@ pub struct CancelRequestRequest {
 
 #[rustfmt::skip]
 pub type CancelRequestResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelStreamRequest {
+    pub stream: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2308,6 +2346,14 @@ pub struct CreateWorkspaceGroupRequest {
 pub type CreateWorkspaceGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DebugDaemonLocksRequest {
+}
+
+#[rustfmt::skip]
+pub type DebugDaemonLocksResult = serde_json::Value;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteBookmarkRequest {
     pub bookmark: String,
@@ -2408,6 +2454,8 @@ pub type DeleteWorkspaceGroupResult = T::JsonValue;
 pub struct DetachAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3766,6 +3814,8 @@ pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 pub struct ReleaseAttachedViewSizeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3958,6 +4008,8 @@ pub struct ResizeAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
     pub rows: u16,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -4187,10 +4239,26 @@ pub type SendKeyResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerBlockingRequest {
+}
+
+#[rustfmt::skip]
+pub type ServerBlockingResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerThreadsRequest {
+}
+
+#[rustfmt::skip]
+pub type ServerThreadsResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4573,6 +4641,8 @@ pub struct SnapshotRequestRequest {
     pub reason: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub request_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
 }
 
@@ -5137,6 +5207,27 @@ impl CmuxClient {
         self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
     }
 
+    pub fn agent_inventory(&mut self, request: AgentInventoryRequest) -> Result<T::AgentInventoryResult> {
+        if request.expected_machine_id.is_some() {
+            self.require_capability_field("agent-inventory", "agent-inventory-owner-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_METADATA, &request)
+    }
+
+    pub fn agent_inventory_refresh(&mut self, request: AgentInventoryRefreshRequest) -> Result<T::AgentInventoryRefreshResult> {
+        self.execute(&AGENT_INVENTORY_REFRESH_METADATA, &request)
+    }
+
+    pub fn agent_inventory_watch(&mut self, request: AgentInventoryWatchRequest) -> Result<T::AgentInventoryWatchResult> {
+        if request.admission_receipt.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-admission-v1")?;
+        }
+        if request.expected_watch_id.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-fence-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_WATCH_METADATA, &request)
+    }
+
     pub fn agent_session_attach(&mut self, request: AgentSessionAttachRequest) -> Result<AgentSessionAttachResult> {
         self.execute(&AGENT_SESSION_ATTACH_METADATA, &request)
     }
@@ -5318,6 +5409,10 @@ impl CmuxClient {
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("attach-surface", 12)?;
+            self.require_capability_field("attach-surface", "attach-streams-v1")?;
+        }
         if !request.viewer_backlog_bytes.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -5398,6 +5493,10 @@ impl CmuxClient {
 
     pub fn cancel_request(&mut self, request: CancelRequestRequest) -> Result<CancelRequestResult> {
         self.execute(&CANCEL_REQUEST_METADATA, &request)
+    }
+
+    pub fn cancel_stream(&mut self, request: CancelStreamRequest) -> Result<T::CancelStreamResult> {
+        self.execute(&CANCEL_STREAM_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
@@ -5771,6 +5870,10 @@ impl CmuxClient {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
     }
 
+    pub fn debug_daemon_locks(&mut self, request: DebugDaemonLocksRequest) -> Result<DebugDaemonLocksResult> {
+        self.execute(&DEBUG_DAEMON_LOCKS_METADATA, &request)
+    }
+
     pub fn delete_bookmark(&mut self, request: DeleteBookmarkRequest) -> Result<DeleteBookmarkResult> {
         self.execute(&DELETE_BOOKMARK_METADATA, &request)
     }
@@ -5804,6 +5907,10 @@ impl CmuxClient {
     }
 
     pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("detach-attached-view", 12)?;
+            self.require_capability_field("detach-attached-view", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("detach-attached-view", 12)?;
             self.require_capability_field("detach-attached-view", "shared-sizing-v1")?;
@@ -6402,6 +6509,10 @@ impl CmuxClient {
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("release-attached-view-size", 12)?;
+            self.require_capability_field("release-attached-view-size", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("release-attached-view-size", 12)?;
             self.require_capability_field("release-attached-view-size", "shared-sizing-v1")?;
@@ -6498,6 +6609,10 @@ impl CmuxClient {
             self.require_protocol_field("resize-attached-view", 12)?;
             self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
         }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("resize-attached-view", 12)?;
+            self.require_capability_field("resize-attached-view", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("resize-attached-view", 12)?;
             self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
@@ -6587,8 +6702,16 @@ impl CmuxClient {
         self.execute(&SEND_KEY_METADATA, &request)
     }
 
+    pub fn server_blocking(&mut self, request: ServerBlockingRequest) -> Result<ServerBlockingResult> {
+        self.execute(&SERVER_BLOCKING_METADATA, &request)
+    }
+
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn server_threads(&mut self, request: ServerThreadsRequest) -> Result<ServerThreadsResult> {
+        self.execute(&SERVER_THREADS_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {
@@ -6794,6 +6917,10 @@ impl CmuxClient {
     }
 
     pub fn snapshot_request(&mut self, request: SnapshotRequestRequest) -> Result<T::SnapshotRequestResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("snapshot-request", 12)?;
+            self.require_capability_field("snapshot-request", "attach-streams-v1")?;
+        }
         self.execute(&SNAPSHOT_REQUEST_METADATA, &request)
     }
 

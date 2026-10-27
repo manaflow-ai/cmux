@@ -9,7 +9,7 @@ struct CmxIrohBrokerBackpressureGateTests {
     @Test func oversizedPersistedCooldownDoesNotOverflow() async throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         let gate = CmxIrohBrokerBackpressureGate(store: store, now: { start })
         await recordRateLimit(gate: gate, accountID: "account-a", operation: .discovery, seconds: Int.max)
         let restored = CmxIrohBrokerBackpressureGate(store: store, now: { start })
@@ -20,7 +20,7 @@ struct CmxIrohBrokerBackpressureGateTests {
     func persistedDeadlineSurvivesGateRecreation() async throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         let original = CmxIrohBrokerBackpressureGate(
             store: store,
             now: { start }
@@ -55,7 +55,7 @@ struct CmxIrohBrokerBackpressureGateTests {
     func malformedExpiredAndFutureRecordsArePurged() async throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
 
         store.set("not-base64", forKey: CmxIrohBrokerBackpressureGate.persistenceKey)
         _ = CmxIrohBrokerBackpressureGate(store: store, now: { start })
@@ -102,7 +102,7 @@ struct CmxIrohBrokerBackpressureGateTests {
     func inMemoryFloorIsPurgedWhenClockMovesBehindRecordedAt() async throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         let clock = BackpressureGateClock(start)
         let gate = CmxIrohBrokerBackpressureGate(
             store: store,
@@ -198,7 +198,7 @@ struct CmxIrohBrokerBackpressureGateTests {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let accountID = "user_private_account_identifier"
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         let gate = CmxIrohBrokerBackpressureGate(store: store, now: { start })
         await recordRateLimit(
             gate: gate,
@@ -218,7 +218,7 @@ struct CmxIrohBrokerBackpressureGateTests {
     func persistenceOverflowConservativelyProtectsEveryActiveFloor() async throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         let original = CmxIrohBrokerBackpressureGate(
             store: store,
             now: { start }

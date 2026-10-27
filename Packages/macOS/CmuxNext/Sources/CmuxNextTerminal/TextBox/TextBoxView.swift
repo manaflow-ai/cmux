@@ -23,6 +23,8 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     package var perform: @MainActor (TextBoxCommand) -> Void = { _ in }
     /// Follows the model: one apply per frame however many of its values changed.
     private(set) var watch: FrameObservation<Shown>?
+    /// The submit action the button shows.
+    private var shownAction: TextBoxSubmitAction?
 
     /// What the strip shows of its model.
     struct Shown: Equatable {
@@ -45,6 +47,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         self.model = model
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 36))
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         separator.boxType = .separator
         addSubview(separator)
 
@@ -108,10 +111,16 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     private func show(_ shown: Shown) {
         let (text, action, visible) = (shown.text, shown.action, shown.visible)
         if textView.string != text { textView.replaceText(text) }
-        actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
-        actionButton.setAccessibilityLabel(action.title)
-        actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
-        if isHidden == visible { isHidden = !visible }
+        if action != shownAction {
+            shownAction = action
+            actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
+            actionButton.setAccessibilityLabel(action.title)
+            actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
+        }
+        if isHidden == visible {
+            isHidden = !visible
+            superview?.needsLayout = true // invalidate: shown or hidden (the check above), it takes or frees room
+        }
         refreshHeight()
     }
 
@@ -125,10 +134,17 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         refreshHeight()
     }
 
+    /// A typed character lays nothing out unless the strip's height must change: the host frames the
+    /// strip at its fitting height (`TerminalHostView.bottomAccessory`), so a fitting height that
+    /// differs from the height the host gave asks the host to frame it again, and its new frame lays
+    /// the strip out. A hidden strip takes no room; showing it lays the host out (``show(_:)``).
     private func refreshHeight() {
-        placeholder.isHidden = !textView.string.isEmpty
-        superview?.needsLayout = true
-        needsLayout = true
+        let empty = textView.string.isEmpty
+        if placeholder.isHidden != !empty { placeholder.isHidden = !empty }
+        guard let superview, !isHidden else { return } // the host frames a strip it installs (`bottomAccessory`)
+        let height = min(superview.bounds.height, ceil(fittingSize.height)) // the host's accessoryHeight
+        guard height != bounds.height else { return }
+        superview.needsLayout = true // invalidate: the strip's height differs from its frame (the guard above)
     }
 
     private var lineHeight: CGFloat {
@@ -161,8 +177,11 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         if scroll.frame != editor { scroll.frame = editor }
         textView.minSize = NSSize(width: 0, height: editor.height)
         textView.maxSize = NSSize(width: editor.width, height: .greatestFiniteMagnitude)
-        if textView.frame.width != editor.width { textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height))) }
         placeholder.frame = CGRect(x: editor.minX, y: editor.maxY - lineHeight, width: editor.width, height: lineHeight)
+        if textView.frame.width != editor.width {
+            textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height)))
+            refreshHeight() // a new width wraps the text into another line count
+        }
     }
 
     package override func updateLayer() {

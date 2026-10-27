@@ -36,16 +36,17 @@ struct BookmarkFiles {
 
     /// Reads an HTML file into one "Imported" folder at the end of the bar.
     func importFile(_ url: URL, profile: String) {
-        let service = services.bookmarks
-        let registry = services.registry
-        registry.track(Task { @MainActor in
-            do {
-                let html = try await Task.detached { try Self.read(url) }.value
-                return Self.importHTML(html, into: service, profile: profile)
-            } catch {
-                return ActionWorkFailure(BookmarkAppStrings.failure(error))
+        let service = services.bookmarks, work = services.work
+        // The person waits for the import they asked for: the read on the files lane at userBlocking, the apply as
+        // the run's userBlocking end.
+        services.registry.trackWork(owner: "BookmarkFiles.import", on: services.mainWork) {
+            try await work.run(.userBlocking, mayBlock: .files) { try Self.read(url) }
+        } then: { result in
+            switch result {
+            case .success(let html): return Self.importHTML(html, into: service, profile: profile)
+            case .failure(let error): return ActionWorkFailure(BookmarkAppStrings.failure(error))
             }
-        })
+        }
     }
 
     /// Netscape HTML already in memory (an export archive's Bookmarks.html) into one
@@ -69,20 +70,18 @@ struct BookmarkFiles {
     func exportFile(_ url: URL, profile: String) {
         let html = NetscapeBookmarkWriter.write(services.bookmarks.tree(profile), barTitle: BookmarkStrings.barTitle)
         let work = services.work
-        services.registry.track(Task { @MainActor in
-            do {
-                // The person waits for the export they asked for: the files lane at userBlocking.
-                try await work.run(.userBlocking, mayBlock: .files) { try Data(html.utf8).blockingWrite(to: url, options: .atomic) }
-                return nil
-            } catch {
-                return ActionWorkFailure(BookmarkAppStrings.failure(error))
-            }
-        })
+        // The person waits for the export they asked for: the files lane at userBlocking.
+        services.registry.trackWork(owner: "BookmarkFiles.export", on: services.mainWork) {
+            try await work.run(.userBlocking, mayBlock: .files) { try Data(html.utf8).blockingWrite(to: url, options: .atomic) }
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure(BookmarkAppStrings.failure(error))
+        }
     }
 
     /// UTF-8, else Latin-1 (old Netscape files).
     nonisolated static func read(_ url: URL) throws -> String {
-        let data = try Data(contentsOf: url) // concurrency-allow: nonisolated, called only from Task.detached in importFile
+        let data = try Data(contentsOf: url) // concurrency-allow: nonisolated, called only on the files lane (importFile)
         return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
     }
 }

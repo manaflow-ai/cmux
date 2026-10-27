@@ -149,7 +149,9 @@ public struct ControlSocketPath: Sendable {
         // A compatibility symlink names a socket the state folder already lists.
         return paths.filter { path in
             var info = stat()
-            return lstat(path, &info) != 0 || info.st_mode & S_IFMT != S_IFLNK
+            // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+            // `info`, a local.
+            return unsafe lstat(path, &info) != 0 || info.st_mode & S_IFMT != S_IFLNK
         }.sorted()
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -26,6 +27,8 @@ final class PasswordsPageService: InternalPageProvider {
     private weak var services: AppServices?
     /// The store every Passwords tab and the browser profile delete sheet read.
     let store: any PasswordStore
+    /// Each tab's page, by key, so a discard or a close ends its renderer.
+    private var pages: [String: PageWebView] = [:]
 
     init(services: AppServices, store: (any PasswordStore)? = nil) {
         self.services = services
@@ -52,10 +55,12 @@ final class PasswordsPageService: InternalPageProvider {
     var icon: IconName? { .securityLock }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        // No app (a released service): no page, as the open below would answer.
+        guard let deadlines = services?.mainDeadlines else { return NSView() }
         let provider = PasswordsPageProvider(
             store: store, profiles: { [weak services] in Self.profiles(services) },
             confirmations: DialogPageConfirmationPresenter(), authenticator: LocalDeviceOwnerAuthenticator(),
-            secrets: NativePasswordSecretSurface())
+            secrets: NativePasswordSecretSurface(pasteboard: ConcealedPasteboard(deadlines: deadlines)), mainWork: deadlines.work)
         // `cmux.app.action.run` serves the Import buttons (the page's two person-only actions).
         let native = services.map { AppPageNativeProvider(services: $0, page: .passwords) }
         var routes = [PageRoute(prefix: "cmux.passwords.", provider: provider)]
@@ -66,7 +71,35 @@ final class PasswordsPageService: InternalPageProvider {
             services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false
         }
         native?.anchor = { [weak page] in page }
+        pages[key] = page
         return page
+    }
+
+    func tabClosed(_ key: String) { close(key) }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// One minute hidden. The page's renderer holds the listed sites and usernames, so it does not
+    /// outlive a short look away, as Chrome's password manager asks for the device owner again after
+    /// its 60 s auth validity (`PasswordAccessAuthenticator::kAuthValidityPeriod`,
+    /// password_access_authenticator.h). A revealed password is never in the renderer: it shows in
+    /// the native reveal sheet (``NativePasswordSecretSurface``).
+    static let hiddenPagePolicy = ContentDiscardPolicy.afterHidden(.seconds(60))
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPagePolicy }
+
+    /// Nothing: no search, row or scroll of a secrets page is kept while it is gone.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState { ContentViewState() }
+
+    /// No picture either: the listing does not stay as a bitmap in the previews.
+    func keepsDiscardPicture(for key: String) -> Bool { false }
+
+    /// The tab's page went: its renderer, with the listing, ends now; the next show makes its own.
+    func viewDiscarded(_ key: String) { close(key) }
+
+    private func close(_ key: String) {
+        guard let page = pages.removeValue(forKey: key) else { return }
+        if let services { services.webUI.close(page) } else { page.close() }
     }
 
     /// The browser profiles in sidebar order (the default profile first when it leads).

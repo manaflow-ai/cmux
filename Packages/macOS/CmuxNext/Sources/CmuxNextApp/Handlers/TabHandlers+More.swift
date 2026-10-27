@@ -69,16 +69,21 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
         if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
-        let work: ActionWork = Task {
-            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
-                return "move-tab-to-new-workspace failed (see the app log)"
-            }
-            await TabMoves.join(tabs.dropFirst(), workspace: key, services: ctx.services)
+        let services = ctx.services, first = tabs.first ?? tab, rest = tabs.dropFirst()
+        // The moves are awaited off main, in order; placing the new workspace is one task on main. A new window's
+        // move is not awaited by the CLI.
+        ctx.registry.trackWork(owner: "TabHandlers.moveToNewWorkspace", on: services.mainWork,
+                               tracked: !newWindow) { () -> WorkspaceKey? in
+            guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return nil }
+            await TabMoves.join(rest, workspace: key, services: services)
+            return key
+        } then: { result in
+            guard case .success(let key?) = result else { return "move-tab-to-new-workspace failed (see the app log)" }
             windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: newWindow, select: allowed)
             return nil
         }
-        if !newWindow { ctx.registry.track(work) }
     }
 
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -90,9 +95,16 @@ extension TabHandlers {
                 let daemon = ctx.services.daemon(for: pane)
                 let mark = AgentChatMarkUnread(acpmux: { await AgentPaneMarkUnread(view.model).run() },
                                                daemon: { try TabUnreadMark.set(true, tab: tab, daemon: daemon) })
-                // task-owner: one mark; ends when acpmux or the daemon answers
-                Task {
-                    do { try await mark.run() } catch { ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error)) }
+                // One mark, awaited off main until acpmux or the daemon answers; a refusal shows as the run's completion.
+                let end = ctx.registry.completion(on: ctx.services.mainWork)
+                end.start {
+                    do {
+                        try await mark.run()
+                    } catch {
+                        end.post(owner: "TabHandlers.markUnread", answering: true) {
+                            ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error))
+                        }
+                    }
                 }
                 return
             }
@@ -168,6 +180,7 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = services.landingWindow(tab: tab.id, workspaceID: nil)
         let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
         if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in

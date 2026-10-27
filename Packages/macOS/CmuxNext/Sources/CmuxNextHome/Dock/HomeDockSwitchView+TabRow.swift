@@ -9,8 +9,8 @@ extension HomeDockSwitchView: PaneTabRowSharing {
 
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) {
         guard height != tabRow.height || trailingInset != tabRow.trailingInset else { return }
-        tabRow = (height, trailingInset)
         needsLayout = true
+        tabRow = (height, trailingInset)
     }
 
     /// The shown view's tools' width now, a gap before them included; 0 with none or with

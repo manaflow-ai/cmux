@@ -1,3 +1,4 @@
+public import CmuxNextInput
 public import CmuxNextWakeups
 
 extension LayoutRootView {
@@ -8,6 +9,27 @@ extension LayoutRootView {
     public var dragFrameInput: FrameInputCoalescers? {
         get { context.dragFrameInput }
         set { context.dragFrameInput = newValue }
+    }
+
+    /// Makes a divider drag's resampler, asked once per drag on mouse-down (feature `resampledDrags`,
+    /// `input.resampleDrags`): the divider, column edge or row edge is drawn at the pointer resampled at
+    /// each frame's time, while the snap, the release velocity and the release read real points. Nil
+    /// (the default), under Reduce Motion, or without ``dragFrameInput``: drawn at the real pointer.
+    public var dragResampler: () -> DragResampler? {
+        get { context.dragResampler }
+        set { context.dragResampler = newValue }
+    }
+
+    /// A new drag's resampler for a drag the layout shows (a pane-swap preview): ``dragResampler``'s,
+    /// or nil under Reduce Motion.
+    public func newDragResampler() -> DragResampler? {
+        context.newDragResampler()
+    }
+
+    /// Sets ``dragFrameInput`` and ``dragResampler`` together (the app's composition root).
+    public func setDragInput(frames: FrameInputCoalescers?, resampler: @escaping () -> DragResampler?) {
+        dragFrameInput = frames
+        dragResampler = resampler
     }
 
     /// Feature `stripPanResampling` (p04-input-041): a trackpad pan of the column strip on its motion

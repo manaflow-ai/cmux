@@ -172,7 +172,7 @@ public final class VisiblePaneRefs {
         // The pane refs are taken first, so this release never ends startup while a pane loads.
         end([restore], pending.isEmpty ? .noVisiblePane : .restoreFinished)
         guard update(first) else { return }
-        bound.schedule(after: Self.paneBound) { @MainActor [weak self] in self?.releasePanes(.visiblePaneTimedOut) }
+        bound.scheduleOnMain(after: Self.paneBound) { [weak self] in self?.releasePanes(.visiblePaneTimedOut) }
         // task-owner: self; ends when no pane ref is held (finishIfDone cancels it)
         paneWatch = Task { [weak self] in
             for await windows in later {

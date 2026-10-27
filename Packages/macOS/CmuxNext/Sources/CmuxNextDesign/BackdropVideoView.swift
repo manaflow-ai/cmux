@@ -22,6 +22,10 @@ public import CmuxNextDesignTokens
 /// frames out of memory, and the layer stays clear until its first frame is ready, so a new
 /// window never flashes black. The first frame fades in over the poster, and a video no one has
 /// been able to see for a minute gives its decoder back (``BackdropVideoPlayers/releaseAfter``).
+///
+/// Its window's key, main and close notices come through the window's one ``WindowEvents``; the
+/// session's through its players (``BackdropVideoPlayers/follow(deadlines:session:)``); its coverage
+/// samples are a `background` ``MainDeadline`` on the players' scheduler.
 public final class BackdropVideoView: NSView {
     /// The file shown, nil when the wallpaper is no video.
     public private(set) var url: URL?
@@ -35,16 +39,17 @@ public final class BackdropVideoView: NSView {
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     let players: BackdropVideoPlayers
-    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    /// Its window's key, main and close notices.
+    private var windowWatch: [EventSubscription] = []
     private var motionWatch: AppearanceSignals.Subscription? // Reduce Motion, the speed or a motion switch
     private var readyObservation: NSKeyValueObservation?
     /// Its window's node (``WindowVisibilitySource``); nil out of a window.
     private var windowNode: VisibilityNode?
     /// The node's flips and capture votes.
     private var nodeWatch: [VisibilitySubscription] = []
-    private var sessionInactive = false
     var coverage = BackdropCoverage()
-    let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    /// The next coverage sample, on the players' scheduler (nil until the first, or with none).
+    private var coverageDeadline: MainDeadline?
     /// The window list a coverage sample waits for: at most one at a time, cancelled when sampling stops.
     var coverageSample: Task<Void, Never>?
 
@@ -87,9 +92,11 @@ public final class BackdropVideoView: NSView {
         guard let url, window != nil, playerLayer.player == nil else { return update() }
         playerLayer.opacity = 0
         playerLayer.player = players.attach(url, viewer: ObjectIdentifier(self))
+        // raw-observer-allow: the layer's readiness has no notice; KVO is AVFoundation's only report of it
         readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
             let ready = layer.isReadyForDisplay
-            // AVFoundation may report readiness from its own threads: inline on main, a hop otherwise.
+            // main-hop-allow: AVFoundation reports readiness from its own queue: inline on main (the .initial report,
+            // this turn), else one hop per readiness change (the first frame, a released decoder)
             MainDelivery().run { self?.showFrames(ready) }
         }
         update()
@@ -127,13 +134,12 @@ public final class BackdropVideoView: NSView {
     private var onScreen: Bool {
         guard url != nil, !isHidden, window != nil else { return false }
         let visible = visibleOverride ?? (windowNode?.wantsFrames ?? false)
-        return visible && !sessionInactive
+        return visible && !players.sessionInactive
     }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for (center, observer) in observers { center.removeObserver(observer) }
-        observers = []
+        windowWatch = []
         motionWatch = nil
         for subscription in nodeWatch { subscription.cancel() }
         nodeWatch = []
@@ -173,8 +179,9 @@ public final class BackdropVideoView: NSView {
         CATransaction.commit()
     }
 
-    /// Low Power Mode or the thermal state changed (``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``).
-    func energyDidChange() {
+    /// Low Power Mode, the thermal state or the session changed (``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``,
+    /// ``BackdropVideoPlayers/follow(deadlines:session:)``).
+    func inputsDidChange() {
         update()
     }
 
@@ -189,12 +196,17 @@ public final class BackdropVideoView: NSView {
     }
 
     private func startCoverage() {
-        guard !coverageTimer.isScheduled else { return }
+        guard coverageDeadline?.isScheduled != true else { return }
         scheduleCoverage()
     }
 
+    /// The next sample, a `background` deadline: nobody sees the window list it reads.
     private func scheduleCoverage() {
-        coverageTimer.schedule(after: .seconds(BackdropCoverage.interval)) { @MainActor [weak self] in
+        guard let deadlines = players.deadlines else { return }
+        let deadline = coverageDeadline
+            ?? MainDeadline(owner: "BackdropVideoView.coverage", workClass: .background, scheduler: deadlines)
+        coverageDeadline = deadline
+        deadline.schedule(after: .seconds(BackdropCoverage.interval)) { [weak self] in
             self?.coverageFired()
         }
     }
@@ -207,40 +219,29 @@ public final class BackdropVideoView: NSView {
 
     /// Stops sampling; coverage seen before the window was hidden or closed is stale.
     private func stopCoverage() {
-        coverageTimer.cancel()
+        coverageDeadline?.cancel()
         coverageSample?.cancel()
         coverageSample = nil
         coverage.reset()
     }
 
+    /// Follows the window's notices (occlusion, minimize, app hide and screen sleep reach it through its window's
+    /// node, follow(_:); the session through its players).
     private func observe() {
-        let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
-        // Occlusion, minimize, app hide and screen sleep reach it through its window's node (follow(_:)).
-        var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
-            (app, NSWindow.didBecomeMainNotification, window), (app, NSWindow.didBecomeKeyNotification, window),
-        ]
+        guard let window else { return }
         motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "BackdropVideoView") { [weak self] in self?.update() }
-        names.append((app, NSWindow.willCloseNotification, window))
-        names += [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
-        observers = names.map { center, name, object in
-            (center, center.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
-                let name = note.name
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.note(name) }
-            })
-        }
+        let events = WindowEvents.of(window)
+        windowWatch = [
+            // A window brought to the front shows: play now; the next samples rest it again if needed.
+            events.subscribe(NSWindow.didBecomeMainNotification, owner: "BackdropVideoView") { [weak self] in self?.broughtToFront() },
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "BackdropVideoView") { [weak self] in self?.broughtToFront() },
+            // A closed window keeps its views: hand the shared player back now, not when the view goes.
+            events.subscribe(NSWindow.willCloseNotification, owner: "BackdropVideoView") { [weak self] in self?.detach() },
+        ]
     }
 
-    private func note(_ name: Notification.Name) {
-        switch name {
-        // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case NSWindow.willCloseNotification: return detach()
-        // A window brought to the front shows: play now; the next samples rest it again if needed.
-        case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
-        case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
-        case NSWorkspace.sessionDidBecomeActiveNotification: sessionInactive = false
-        default: break
-        }
+    private func broughtToFront() {
+        coverage.reset()
         update()
     }
 }

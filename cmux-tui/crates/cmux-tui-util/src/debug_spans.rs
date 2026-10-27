@@ -512,16 +512,17 @@ mod tests {
 
     #[test]
     fn names_intern_once_from_many_threads() {
-        let names: Vec<usize> = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..8)
-                .map(|_| {
-                    scope.spawn(|| {
-                        ring_name("debug_spans.test.race") as *const InternedName as usize
-                    })
-                })
-                .collect();
-            handles.into_iter().map(|handle| handle.join().unwrap()).collect()
-        });
+        let handles: Vec<_> = (0..8)
+            .map(|index| {
+                cmux_threads::spawn(
+                    format!("debug-spans-test-{index}"),
+                    cmux_threads::ThreadQos::Utility,
+                    || ring_name("debug_spans.test.race") as *const InternedName as usize,
+                )
+                .unwrap()
+            })
+            .collect();
+        let names: Vec<usize> = handles.into_iter().map(|handle| handle.join().unwrap()).collect();
         assert!(names.windows(2).all(|pair| pair[0] == pair[1]), "{names:?}");
     }
 

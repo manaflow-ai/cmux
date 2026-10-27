@@ -146,7 +146,9 @@
               "crashes",
               "liveObjects",
               "invariants",
-              "switches"
+              "switches",
+              "cli",
+              "mcp"
             ]
           }
         }
@@ -1889,7 +1891,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/focus",
             "v0": "debug.focus",
-            "provider": "OracleFocusFacet",
+            "provider": "InputObservationBuilder.oracleFocusFacet",
             "task": "p15-oracle-034",
             "from": "InputObservationBuilder.observe"
           },
@@ -1910,6 +1912,7 @@
                       "id",
                       "isKey",
                       "responder",
+                      "responderPane",
                       "layoutFocus",
                       "ghosttyFocused",
                       "childPage",
@@ -1933,12 +1936,24 @@
                         "type": "boolean"
                       },
                       "responder": {
+                        "description": "the classified first responder's kind; its pane is responderPane",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/responder",
-                          "from": "FocusResponderClassifier.classify(firstResponder)"
+                          "from": "FocusResponderClassifier.classify(firstResponder), the case name"
                         },
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["content", "addressBar", "findBar", "devTools", "sidebar", "sidebarField", "textField", "windowOrNone"]
+                      },
+                      "responderPane": {
+                        "description": "the pane the first responder is in; null for a responder outside every pane",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/responderPane",
+                          "from": "FocusResponderClassifier.classify(firstResponder), its pane"
+                        },
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "pane"
                       },
                       "layoutFocus": {
                         "x-oracle-source": {
@@ -1956,7 +1971,12 @@
                         "items": {"type": "string", "x-oracle-id-kind": "tab"}
                       },
                       "childPage": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/childPage"},
+                        "description": "the tab whose Chromium page window has focus; a cmux page's Chromium tab id is mapped to its tab key, so it differs from debug.focus child_window_page (raw page id) for a cmux page",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/childPage",
+                          "from": "FocusApplier.focusedChildWindowPageID mapped to the tab key"
+                        },
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
                       },
@@ -1995,12 +2015,32 @@
                             "x-oracle-id-kind": "pane"
                           },
                           "target": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/target"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/target",
+                              "from": "String(describing: FocusState.Target)"
+                            },
+                            "type": "string",
+                            "enum": [
+                              "content",
+                              "addressBar",
+                              "findBar",
+                              "devTools",
+                              "sidebar(keyboard: true)",
+                              "sidebar(keyboard: false)",
+                              "sidebarField",
+                              "textField",
+                              "none"
+                            ]
                           },
                           "resolved": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolved"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/resolved",
+                              "from": "FocusState.Resolved.kind"
+                            },
+                            "type": "string",
+                            "pattern": "^(terminal|browserPage|addressBar|findBar|devTools|agentPage|page|conversation|emptyPane|sidebar|sidebarField|textField|none|overlay:(palette|sheet|rename|groupEditor))$"
                           },
                           "resolvedPane": {
                             "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolvedPane"},
@@ -2045,10 +2085,11 @@
                         }
                       },
                       "consistent": {
+                        "description": "no InputInvariants.world violation names this window. Not debug.focus's consistent (layout, W1 and Ghostty only): F, W4, W5, W6 (sheet), W7 and W8 violations count here too. An unsettled window is not inconsistent (settle is debug.oracle.settle and I5), and a violation that names no window (W6 palette, W5 app-wide panel) marks none",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/consistent",
-                          "from": "InputInvariants over this window"
+                          "from": "InputInvariants.world violations naming this window"
                         },
                         "type": "boolean"
                       }
@@ -3331,7 +3372,7 @@
                               "type": "string"
                             },
                             "labelKey": {
-                              "description": "localization key, never the shown text",
+                              "description": "localization key, never the shown text; \"<ambiguous>\" when the shown text is that of several keys and the element names none; null when it is no app string",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/ax/windows/*/nodes/*/labelKey"},
                               "type": ["string", "null"]
                             },
@@ -3623,6 +3664,52 @@
             },
             {"$ref": "#/definitions/notComparable"}
           ]
+        },
+        "cli": {
+          "description": "The receipt of a cli step (invariant I1), in that step's settled checkpoint: the exit code of its `cmux` call, its stdout and the typed code of a failed call. stdout is open: one JSON value, JSON lines as an array, or the text, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "cli",
+            "path": "/cli",
+            "task": "p15-oracle-048",
+            "from": "the shipped cmux binary run by driver_cli.py (VM: the run SHA's cmux-tui; fleet: CMUX_TAG=<tag> scripts/cmux-debug-cli.sh)"
+          },
+          "type": "object",
+          "required": ["exit", "stdout"],
+          "properties": {
+            "exit": {
+              "x-oracle-source": {"method": "cli", "path": "/cli/exit"},
+              "type": "integer"
+            },
+            "error": {
+              "description": "the code of the JSON error a failed call writes to stderr (`--json`), else cli.failed; present only when exit is not 0",
+              "x-oracle-source": {"method": "cli", "path": "/cli/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "mcp": {
+          "description": "The receipt of an mcp step (invariant I1), in that step's settled checkpoint: whether the tools/call result is a tool error, the result's structuredContent (its content when it has none), and the typed code of a failed call. result is open, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "mcp",
+            "path": "/mcp",
+            "task": "p15-oracle-209",
+            "from": "`cmux mcp serve --all-tools` over stdio, run by driver_mcp.py (VM: the run SHA's cmux-tui; fleet: the tagged bundle's cmux on the app's socket)"
+          },
+          "type": "object",
+          "required": ["isError", "result"],
+          "properties": {
+            "isError": {
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/isError"},
+              "type": "boolean"
+            },
+            "error": {
+              "description": "the code of the tool error's envelope (structuredContent.error.code), or mcp.rpc_error for a JSON-RPC error; present only when isError is true",
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
         }
       }
     }

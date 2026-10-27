@@ -482,6 +482,8 @@ impl Mux {
 /// stray setting cannot wedge a create. Release builds have no seam.
 #[cfg(debug_assertions)]
 fn created_terminal_bind_test_gate(workspace_key: &str) {
+    use cmux_threads::checked::fs as checked_files;
+
     let (Ok(key), Some(folder)) = (
         std::env::var("CMUX_TUI_TEST_CREATE_BIND_GATE_KEY"),
         std::env::var_os("CMUX_TUI_TEST_CREATE_BIND_GATE"),
@@ -492,11 +494,13 @@ fn created_terminal_bind_test_gate(workspace_key: &str) {
         return;
     }
     let folder = std::path::PathBuf::from(folder);
-    if std::fs::write(folder.join("entered"), b"").is_err() {
+    if checked_files::write(folder.join("entered"), b"").is_err() {
         return;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !folder.join("release").exists() && Instant::now() < deadline {
+    while !checked_files::exists(folder.join("release")).unwrap_or(false)
+        && Instant::now() < deadline
+    {
         crate::request_path::sleep(Duration::from_millis(10));
     }
 }

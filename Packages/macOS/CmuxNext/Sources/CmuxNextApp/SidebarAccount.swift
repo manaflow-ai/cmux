@@ -60,6 +60,8 @@ final class AccountAvatarImages {
     /// The URL ``load(_:)`` was last asked for: the one picture kept.
     @ObservationIgnored private var current: String?
     @ObservationIgnored private var requested: Set<String> = []
+    /// The last load started: its decode or fetch runs off main and stores on main (tests await it).
+    @ObservationIgnored private(set) var loading: Task<Void, Never>?
     private nonisolated static let maxBytes = 2 << 20
     /// Fetches of one picture before it gives up, the first included.
     private static let attempts = 4
@@ -76,8 +78,9 @@ final class AccountAvatarImages {
         if let inline = Self.inlineURL(url) {
             requested.insert(url)
             // task-owner: one decode per picture URL while it is the current one; the write lands after the caller's observation read
-            Task { [weak self] in
-                guard let bytes = Self.decodeInline(inline) else { return }
+            // main-hop-allow: the decode is @concurrent (off main); this task resumes on main once to keep the picture
+            loading = Task { [weak self] in
+                guard let bytes = await Self.decodedInline(inline) else { return }
                 self?.store(bytes, for: url)
             }
             return
@@ -85,7 +88,8 @@ final class AccountAvatarImages {
         guard let remote = URL(string: url), remote.scheme == "https" else { return }
         requested.insert(url)
         // task-owner: one bounded fetch per picture URL while it is the current one, with a few spaced retries
-        Task { [weak self] in
+        // main-hop-allow: each fetch and its decode are @concurrent (off main); this task resumes on main once per attempt to keep the picture
+        loading = Task { [weak self] in
             var backoff = Backoff(initial: .seconds(5), maximum: .seconds(120), multiplier: 5)
             for attempt in 1...Self.attempts {
                 if let bytes = await Self.fetch(remote) {
@@ -105,7 +109,8 @@ final class AccountAvatarImages {
         data = [url: bytes]
     }
 
-    private static func fetch(_ remote: URL) async -> Data? {
+    /// The picture at `remote`, off the main actor (the image check decodes it).
+    @concurrent private nonisolated static func fetch(_ remote: URL) async -> Data? {
         guard let (bytes, response) = try? await URLSession.shared.data(from: remote),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return isPicture(bytes) ? bytes : nil
@@ -124,6 +129,11 @@ final class AccountAvatarImages {
         guard payload.count <= maxBytes * 4 / 3 + 4,
               let bytes = Data(base64Encoded: String(payload), options: .ignoreUnknownCharacters) else { return nil }
         return isPicture(bytes) ? bytes : nil
+    }
+
+    /// ``decodeInline(_:)`` off the main actor.
+    @concurrent private nonisolated static func decodedInline(_ payload: Substring) async -> Data? {
+        decodeInline(payload)
     }
 
     private nonisolated static func isPicture(_ bytes: Data) -> Bool {

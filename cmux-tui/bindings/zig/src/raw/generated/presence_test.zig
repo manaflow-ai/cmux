@@ -19,6 +19,9 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AgentInventoryRequest, "expected_machine_id");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "admission_receipt");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "expected_watch_id");
     try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "home_confirmed");
     try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "require_person_key");
     try expectExplicitNullRejected(protocol.AgentSessionTrustRequest, "home_confirmed");
@@ -363,6 +366,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_waits");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "dispatch_queue_us");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc_methods");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "lock_classes");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_latency_us");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_path_io");

@@ -316,7 +316,7 @@ import Testing
 }
 
 /// The wall clock a test sets while the clock reader reads it.
-private final class WallClock: Sendable {
+private nonisolated final class WallClock: Sendable {
     private let value: Mutex<UInt64>
 
     init(_ nanos: UInt64) {

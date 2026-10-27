@@ -89,6 +89,30 @@
         "settled"
       ],
       "note": "removes the custom device the step before added (removed true)"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.devices.remove_custom",
+        "params": {
+          "title": "oracle"
+        },
+        "idempotencyKey": "browser-devices-remove-custom-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

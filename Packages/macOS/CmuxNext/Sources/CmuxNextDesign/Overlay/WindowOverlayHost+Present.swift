@@ -1,7 +1,7 @@
 public import AppKit
 
 public extension WindowOverlayHost {
-    /// Shows `content` above every page of the window. `content` keeps its
+    /// Shows `content` above the window's content and every page of the window. `content` keeps its
     /// frame size (its fitting size when it has none); the kind and anchor
     /// decide where it goes. A content that later changes size by Auto Layout is read in its holder's
     /// `layout()`; one that sets its own frame tells its handle (``OverlayHandle/contentDidResize()``).
@@ -9,7 +9,7 @@ public extension WindowOverlayHost {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
-        let container = panel.container(for: options.effectiveLayer)
+        let container = topLayer.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
         if options.dimsContent, !isAppHost {
             let view = OverlayScrimView(frame: container.bounds)
@@ -93,7 +93,8 @@ public extension WindowOverlayHost {
         return pieces
     }
 
-    /// Whether the panel takes the mouse at `point` (window coordinates):
+    /// Whether the overlays take the mouse at `point` (window coordinates; the top layer's hit test in the
+    /// window, the panel's routing in the panel):
     /// over a modal or dimming overlay's window, a modal region, or an
     /// overlay that does not pass clicks through.
     func acceptsMouse(at point: NSPoint) -> Bool {
@@ -107,14 +108,14 @@ public extension WindowOverlayHost {
         if let cachedRegions, regionsFramesAreCurrent() { return cachedRegions }
         let regions = buildInteractiveRegions()
         cachedRegions = regions
-        cachedRegionsFrames = [panel.overlayContainer.bounds] + handles.map { frameInWindow($0) }
+        cachedRegionsFrames = [topLayer.overlayContainer.bounds] + handles.map { frameInWindow($0) }
         return regions
     }
 
     /// The container bounds and every overlay frame still equal those the cached regions were built from.
     private func regionsFramesAreCurrent() -> Bool {
         guard cachedRegionsFrames.count == handles.count + 1,
-              cachedRegionsFrames[0] == panel.overlayContainer.bounds else { return false }
+              cachedRegionsFrames[0] == topLayer.overlayContainer.bounds else { return false }
         for (index, handle) in handles.enumerated() where cachedRegionsFrames[index + 1] != frameInWindow(handle) {
             return false
         }
@@ -129,7 +130,7 @@ public extension WindowOverlayHost {
     }
 
     private func buildInteractiveRegions() -> [NSRect] {
-        let bounds = panel.overlayContainer.bounds
+        let bounds = topLayer.overlayContainer.bounds
         return handles.flatMap { handle -> [NSRect] in
             let options = handle.options
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
@@ -145,15 +146,15 @@ extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
         cachedRegions = nil
-        let scrims = [panel.paneContainer, panel.windowContainer, panel.modalContainer].flatMap { container in
+        let scrims = [topLayer.paneContainer, topLayer.windowContainer, topLayer.modalContainer].flatMap { container in
             container.subviews.filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
         }
         let shown = (handle.clipView.map { [$0] } ?? [handle.content]) + scrims
         handle.clipView = nil
         if handle.options.kind == .dialog, !isTearingDown {
             // The fading dialog keeps no keyboard focus: a Return in the fade would press it again.
-            if let responder = panel.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
-                panel.makeFirstResponder(nil)
+            if let overlayWindow, let responder = overlayWindow.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
+                overlayWindow.makeFirstResponder(nil)
             }
             fadeOut(shown, content: handle.content)
         } else {
@@ -189,11 +190,11 @@ extension WindowOverlayHost {
         })
     }
 
-    /// Places `handle` in panel coordinates, which are the window's own.
+    /// Places `handle` in top layer coordinates, which are the window's own.
     func layout(_ handle: OverlayHandle) {
         cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
-        let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+        let bounds = topLayer.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : topLayer.overlayContainer.bounds
         guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
             handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
             return updateMouseRouting()

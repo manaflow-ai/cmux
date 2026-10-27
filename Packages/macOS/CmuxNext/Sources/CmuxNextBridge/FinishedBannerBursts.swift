@@ -44,7 +44,7 @@ public final class FinishedBannerBursts {
         let banner = "cmux-notification-\(notification.notification.rawValue)"
         var burst = bursts[workspace] ?? {
             let timer = DemandTimer(owner: "notifications.finishedBurst", clock: clock)
-            timer.schedule(after: Self.window) { @MainActor [weak self] in self?.bursts[workspace] = nil }
+            timer.scheduleOnMain(after: Self.window) { [weak self] in self?.bursts[workspace] = nil }
             return Burst(timer: timer)
         }()
         burst.tabs.insert(tab)

@@ -69,6 +69,7 @@ class AssignError(Exception):
 FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
+        "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
@@ -79,7 +80,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -130,8 +131,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals, the local feed and agent CLI updates.", (
+    "agents": (0x0E, "Agents in terminals, the local feed, agent CLI updates and the agent CLI inventory.", (
         "list-agents", "report-agent", "feed-local-*", "agent-cli-intents-*", "agent-cli-update-job*",
+        "agent-inventory", "agent-inventory-*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
@@ -157,7 +159,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
-        "colors-changed", "detached", "overflow", "scroll-changed", "size-state",
+        "colors-changed", "detached", "overflow", "scroll-changed", "size-state", "stream-end",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
@@ -191,9 +193,10 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
 # it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
-# stats; else control. An agent chat's prompt, cancel and permission answer
-# are the person's input to the attached session (p05-ipc-018: input for
-# attach data, control otherwise).
+# stats and the agent inventory registry refresh, which waits on the network
+# for seconds; else control. An agent chat's prompt, cancel and permission
+# answer are the person's input to the attached session (p05-ipc-018: input
+# for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -217,7 +220,10 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         # that control command pass the bytes it names.
         "fs.read", "agent-transfer-read",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources"),
+    "background": (
+        "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+        "terminal-resources", "agent-inventory-refresh",
+    ),
 }
 
 # Bulk writes: the bytes of a data stream and its half close, like a Mojo
@@ -267,7 +273,10 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # fs.read and fs.stat are not here: they observe the files this connection's
 # own fs.write, fs.mkdir, fs.rename and fs.delete change (sync_cli's push
 # stats a folder its failed mkdir found, and reads back what it wrote).
-INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
+INDEPENDENT = (
+    "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+    "machine-listening-tcp",
+)
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -277,7 +286,8 @@ INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
-    "terminal-history", "terminal-read-range", "terminal-events", "server-stats", "machine-*",
+    "terminal-history", "terminal-read-range", "terminal-events", "server-stats",
+    "debug-daemon-locks", "server-threads", "server-blocking", "machine-*",
     "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",
@@ -295,6 +305,8 @@ READ_ONLY = (
     "agent-transfer-read",
     # Asks this machine's acpmux; a plan never starts it.
     "agent-update-plan",
+    # Ask this machine's acpmux owner; nothing in the daemon changes.
+    "agent-inventory", "agent-inventory-refresh",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -307,7 +319,7 @@ MEMORY = (
     "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "set-cell-pixels",
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
-    "subscribe-activity",
+    "subscribe-activity", "agent-inventory-watch",
     # Start or stop a trace recording: process memory and ring files, never the journal.
     "trace-start", "trace-stop",
     # The app supervisor's connection state: every apps-* request registers
@@ -328,6 +340,8 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Ends one attach stream of this connection and removes its view.
+    "cancel-stream",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.
