@@ -160,6 +160,12 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.scrollToBottomOnSend" : {
+      "default" : true,
+      "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
+      "title" : "Scroll to Bottom When I Send",
+      "type" : "boolean"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -246,6 +252,14 @@
       "maximum" : 100,
       "minimum" : 1,
       "title" : "Deepest Nesting",
+      "type" : "number"
+    },
+    "agents.subsessions.maxRunning" : {
+      "default" : 16,
+      "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
+      "maximum" : 1000,
+      "minimum" : 1,
+      "title" : "Running Sub-sessions per Session",
       "type" : "number"
     },
     "agents.trust.autoTrust" : {
@@ -3028,6 +3042,91 @@
       "title" : "Sound",
       "type" : "string"
     },
+    "notifications.sounds.agents" : {
+      "default" : {
+
+      },
+      "description" : "Sounds per agent kind, such as claude or codex.",
+      "properties" : {
+
+      },
+      "title" : "Agent Sounds",
+      "type" : "object"
+    },
+    "notifications.sounds.cooldownSeconds" : {
+      "default" : 1.5,
+      "description" : "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off.",
+      "maximum" : 60,
+      "minimum" : 0,
+      "title" : "Burst Cooldown",
+      "type" : "number"
+    },
+    "notifications.sounds.events.bell" : {
+      "description" : "notifications.sounds.events.bell",
+      "title" : "Terminal Notification",
+      "type" : "string"
+    },
+    "notifications.sounds.events.error" : {
+      "description" : "notifications.sounds.events.error",
+      "title" : "Error",
+      "type" : "string"
+    },
+    "notifications.sounds.events.finished" : {
+      "description" : "notifications.sounds.events.finished",
+      "title" : "Agent Finished",
+      "type" : "string"
+    },
+    "notifications.sounds.events.message" : {
+      "description" : "notifications.sounds.events.message",
+      "title" : "cmux notify Message",
+      "type" : "string"
+    },
+    "notifications.sounds.events.needsInput" : {
+      "description" : "notifications.sounds.events.needsInput",
+      "title" : "Agent Needs Input",
+      "type" : "string"
+    },
+    "notifications.sounds.groups" : {
+      "default" : {
+
+      },
+      "description" : "Sounds per group id or name. Set one from the group's sidebar menu.",
+      "properties" : {
+
+      },
+      "title" : "Group Sounds",
+      "type" : "object"
+    },
+    "notifications.sounds.volume" : {
+      "default" : 1,
+      "description" : "Sounds cmux plays itself. A banner's default sound follows the system alert volume.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Volume",
+      "type" : "number"
+    },
+    "notifications.sounds.when" : {
+      "default" : "unlessViewed",
+      "description" : "notifications.sounds.when",
+      "enum" : [
+        "unlessViewed",
+        "whenInactive",
+        "always"
+      ],
+      "title" : "Play Sounds",
+      "type" : "string"
+    },
+    "notifications.sounds.workspaces" : {
+      "default" : {
+
+      },
+      "description" : "Sounds per workspace id. Set one from the workspace's sidebar menu.",
+      "properties" : {
+
+      },
+      "title" : "Workspace Sounds",
+      "type" : "object"
+    },
     "notifications.sources.agent.dismissal" : {
       "description" : "notifications.sources.agent.dismissal",
       "enum" : [
@@ -3570,6 +3669,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.noFade" : {
+      "default" : false,
+      "description" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+      "title" : "Show Whole Sidebar Without Fade",
+      "type" : "boolean"
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,

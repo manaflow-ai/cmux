@@ -381,6 +381,8 @@ export type AgentHarnessRow = {
   default: boolean;
   family?: string;
   icon?: string;
+  /** The icon acpmux resolved (`_acpmux/harnesses` `iconSpec`; shared/harnessIcons.ts). */
+  iconSpec?: unknown;
   unavailable?: string;
   probeError?: string;
   sourcePath?: string;
@@ -424,6 +426,7 @@ export type AgentsState = {
 
 /** One Settings > Agents gesture (`cmux.settings.agents.run`). */
 export type AgentsRun =
+  | AgentsSymbolRun
   | { action: "refresh" }
   | { action: "registry"; refresh?: boolean }
   | {
@@ -438,7 +441,11 @@ export type AgentsRun =
     }
   | { action: "remove"; id: string }
   | { action: "restore"; backup?: string }
-  | { action: "doctor"; id: string; noPrompt?: boolean };
+  | { action: "doctor"; id: string; noPrompt?: boolean }
+  /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */
+  | { action: "icon"; id: string; icon?: string; data?: string; ext?: "png" | "svg"; clear?: true };
+/** The template PNG of an SF Symbol a harness icon names, as a `data:` URL (`{src}`). */
+export type AgentsSymbolRun = { action: "symbol"; name: string };
 /** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
 export type HarnessRow = {
   id: string;

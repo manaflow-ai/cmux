@@ -18,6 +18,7 @@ import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
+import { setHarnessSymbolHost } from "../shared/harnessIcons";
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.
@@ -39,6 +40,12 @@ installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change
 // that lands before the first frame back starts no entrance (shared/pageReveal.ts).
 installRevealSettle(document);
+// A custom harness's SF Symbol icon: the host draws it (`harness.symbol`, AgentPaneModel).
+setHarnessSymbolHost((name) =>
+  postNative<{ src?: unknown }>("harness.symbol", { name }).then((reply) =>
+    typeof reply?.src === "string" ? reply.src : null,
+  ),
+);
 const root = document.getElementById("root")!;
 // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
 // the shared page host's popup ops, else the legacy bridge's.

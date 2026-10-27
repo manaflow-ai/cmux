@@ -23,6 +23,7 @@ nonisolated extension ActionSurfaceCatalog {
         "moveWorkspaceToWindow": [p(.workspaceRow, .move, 204, folder: .move)],
         "moveWorkspaceToNewWindow": [p(.workspaceRow, .move, 205, folder: .move)],
         "renameWorkspace": [p(.workspaceRow, .identity, 100)],
+        "workspace.nameFromActivity": [p(.workspaceRow, .identity, 100, folder: .options)],
         "palette.clearWorkspaceName": [p(.workspaceRow, .identity, 100, folder: .options)],
         "editWorkspaceDescription": [p(.workspaceRow, .identity, 101, folder: .options)],
         "palette.clearWorkspaceDescription": [p(.workspaceRow, .identity, 101, folder: .options)],
