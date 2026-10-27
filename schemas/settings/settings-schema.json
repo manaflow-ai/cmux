@@ -819,6 +819,7 @@
               "agentPane.showDictation",
               "agentPane.spellChecking",
               "agentPane.attachmentView",
+              "agentPane.scrollToBottomOnSend",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -37378,6 +37379,56 @@
       "title" : {
         "key" : "settings.agentPane.attachmentView",
         "text" : "Attachment View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend.help",
+        "text" : "When off, sending while you are reading up keeps your place and shows new messages below."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.scrollToBottomOnSend",
+      "keywords" : [
+        "scroll",
+        "bottom",
+        "send",
+        "message",
+        "chat",
+        "latest",
+        "follow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "scrollToBottomOnSend"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend",
+        "text" : "Scroll to Bottom When I Send"
       },
       "validation" : "portable"
     },

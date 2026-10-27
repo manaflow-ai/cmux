@@ -160,6 +160,12 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.scrollToBottomOnSend" : {
+      "default" : true,
+      "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
+      "title" : "Scroll to Bottom When I Send",
+      "type" : "boolean"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",

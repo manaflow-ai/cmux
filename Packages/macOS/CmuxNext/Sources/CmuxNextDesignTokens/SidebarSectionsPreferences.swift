@@ -76,6 +76,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
+    /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
+    public var noFade = false
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
