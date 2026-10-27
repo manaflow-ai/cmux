@@ -181,8 +181,8 @@ export function useFolderTrustAsk(
   const { sessionId, family, prompts } = chat;
   const cwd = chat.cwd ?? (refusal && refusal.sessionId === sessionId ? refusal.cwd : undefined);
   // The chat a reply belongs to; a late reply for another one is dropped.
-  const current = useRef({ sessionId, cwd });
-  current.current = { sessionId, cwd };
+  const current = useRef({ sessionId, cwd, canAnswer, local });
+  current.current = { sessionId, cwd, canAnswer, local };
   const decidedAt = useRef<number | undefined>(undefined);
   // One answer at a time: a second click while the first saves is ignored.
   const saving = useRef(false);
@@ -361,7 +361,34 @@ export function useFolderTrustAsk(
           rememberTrust(asked.cwd, answer);
         }
         lastRead.current = answer && { cwd: asked.cwd, trust: answer };
-        if (!stillHere()) return;
+        if (!stillHere()) {
+          // The user may have switched to another chat in the same folder while saving. Its
+          // old refresh may already have drawn the pre-answer question; reconcile the folder
+          // answer there too, while preserving that chat's own later refusal. Never resend A in B.
+          const now = current.current;
+          if (!mounted.current || !chatCwd || now.cwd !== chatCwd || now.canAnswer !== canAnswer || now.local !== local)
+            return;
+          if (!answer) {
+            setReads((count) => count + 1);
+            return;
+          }
+          const read = shownTrust({ ...answer, cwd: chatCwd }, chatCwd, familyNow.current, canAnswer);
+          const forced = refusedShown(
+            refusedTrust.current.get(now.sessionId),
+            chatCwd,
+            read,
+            answer.repo,
+            familyNow.current,
+            canAnswer,
+          );
+          const shown = forced ?? read;
+          askFromRefusal.current = forced ? { sessionId: now.sessionId } : undefined;
+          setReading(false);
+          setAsk(shown.ask);
+          setTrusted(shown.trusted);
+          setScope(shown.scope);
+          return;
+        }
         decidedAt.current = level === "unknown" ? undefined : prompts;
         setTrusted(level === "trusted");
         setScope(level === "unknown" ? { cwd: asked.cwd, ...(repo ? { repo } : {}) } : { cwd: asked.cwd, ...where });
@@ -383,7 +410,7 @@ export function useFolderTrustAsk(
         saving.current = false;
       }
     },
-    [ask, cwd, scope, source, sessionId, prompts, remembers],
+    [ask, cwd, scope, source, sessionId, prompts, remembers, canAnswer, local],
   );
 
   const blocked: SendBlock | undefined = reading

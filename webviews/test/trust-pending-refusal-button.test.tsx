@@ -231,6 +231,42 @@ test("a stale Trust save cannot make a later chat inherit another chat's refusal
   expect(shown!.blocked).toBeUndefined();
 });
 
+test("a completed Trust save reconciles a stale read in another chat in the same folder", async () => {
+  const cwd = "/Users/you/src/save-shared";
+  let reads = 0;
+  let resolveRead: ((value: unknown) => void) | undefined;
+  let resolveSave: (() => void) | undefined;
+  let resent = 0;
+  const trust: ReturnType<typeof source>["source"] = {
+    get: () => {
+      if (++reads === 1) return Promise.resolve({ cwd, level: "trusted", decided: false, auto: "root" });
+      return new Promise((resolve) => {
+        resolveRead = resolve;
+      });
+    },
+    set: async (_cwd, _level) =>
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+  };
+  const show = (sessionId: string) =>
+    act(async () => root.render(<Pane trust={trust} sessionId={sessionId} cwd={cwd} />));
+  await show("chat-shared-a");
+  await act(async () => {
+    shown!.refused(pending(cwd), () => {
+      resent += 1;
+    });
+  });
+  await act(async () => shown!.trust());
+  await show("chat-shared-b");
+  await act(async () => resolveRead!({ cwd, level: "unknown" }));
+  expect(shown!.blocked?.reason).toBe("trust.answerFirst");
+  await act(async () => resolveSave!());
+  expect(shown!.blocked).toBeUndefined();
+  expect(trustButton()).toBeUndefined();
+  expect(resent).toBe(0);
+});
+
 test("Trust does not resend a refused prompt after the pane unmounts", async () => {
   const chatCwd = "/Users/you/src/disposed";
   let resolveSave: (() => void) | undefined;
