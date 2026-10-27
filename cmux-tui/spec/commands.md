@@ -944,7 +944,12 @@ object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
     requested_qos:string|null, nice:int32|null, priority:int32|null,
-    refused_changes:uint32, matches:bool|null
+    refused_changes:uint32, matches:bool|null,
+    connection:object{
+      client:uint64, transport:"unix"|"ws"|"remote"|null, remote_device:bool|null,
+      origin:"page"|"agent"|"app"|"user"|null, peer_pid:uint32|null,
+      class:"unclassified"|"person"|"automation"|null
+    }|null
   }>,
   lanes:array<object{
     lane:"files"|"system"|"cpu", pending:uint64, running:uint64, blocked:uint64,
@@ -963,7 +968,14 @@ change succeeded). The kernel's value is `requested_qos` on macOS (a qos name,
 says whether it is `desired` (null when it could not be read). `priority` is
 the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
 (the `priority` field of `/proc/<pid>/task/<tid>/stat`), or `-1 -
-rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
+rt_priority` for a real-time thread. `connection` names the connection a
+reader or request thread works for (its client id) with the facts its client
+class comes from (`transport`, `remote_device`, the derived request `origin`,
+the socket peer's `peer_pid` at accept) and the `class` the daemon gave it
+(server/connection_qos.rs); it is null for every other thread, and its facts
+are null once the connection is gone. The QoS audit
+(scripts/cmux-next/qos-audit.py) judges the person's connection threads by
+it. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
 the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
