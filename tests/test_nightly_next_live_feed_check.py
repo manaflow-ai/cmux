@@ -133,6 +133,17 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(any("HTTP 404" in error for error in errors), errors)
         errors, _ = self.check(appcast((2, "cmux-next")), 2, probe=lambda url: (200, 9))
         self.assertTrue(any("9 bytes" in error for error in errors), errors)
+        # A length the edge does not name is unverified, not a pass.
+        errors, _ = self.check(appcast((2, "cmux-next")), 2, probe=lambda url: (200, None))
+        self.assertTrue(any("names no length" in error for error in errors), errors)
+
+    def test_the_probe_retries_and_falls_back_to_a_ranged_get(self):
+        import unittest.mock
+        answers = iter([(502, None), (200, 10)])
+        with unittest.mock.patch.object(live, "probe_once", lambda url: next(answers)), \
+                unittest.mock.patch.object(live.time, "sleep") as sleep:
+            self.assertEqual(live.probe("u"), (200, 10))
+        sleep.assert_called_once()
 
     def test_a_write_that_never_reached_the_public_feed_fails(self):
         errors, _ = self.check(appcast((1, "cmux-next")), 2)
@@ -175,6 +186,26 @@ class MainTests(unittest.TestCase):
         self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 4.0)
 
 
+class BaselineTests(unittest.TestCase):
+    def run_main(self, before_text):
+        import contextlib, io, tempfile, unittest.mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "before.xml"
+            if before_text is not None:
+                path.write_text(before_text)
+            with unittest.mock.patch.object(live, "fetch", lambda url: appcast((2, "cmux-next"))), \
+                    unittest.mock.patch.object(live, "probe", ok), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                return live.main(["--feed-url", "u", "--build", "2", "--before", str(path)]), out.getvalue()
+
+    def test_a_missing_baseline_fails_and_a_404_baseline_has_no_floor(self):
+        code, out = self.run_main(None)
+        self.assertEqual(code, 1)
+        self.assertIn("a regression cannot be ruled out", out)
+        self.assertEqual(self.run_main("absent")[0], 0)
+        self.assertEqual(self.run_main(appcast((1, "cmux-next")))[0], 0)
+
+
 class WorkflowTests(unittest.TestCase):
     """Both nightly-next feed writers read their feed back right after the write."""
 
@@ -187,21 +218,29 @@ class WorkflowTests(unittest.TestCase):
         upload = job.index("- name: Upload nightly-next appcasts to R2")
         readback = job.index("- name: Read the live nightly-next feed back")
         self.assertLess(upload, readback)
-        step = job[readback:job.index("\n      - ", readback + 1)]
-        self.assertIn("nightly_next_live_feed_check.py", step)
-        self.assertIn('--build "$NIGHTLY_BUILD"', step)
-        self.assertIn("--dev-ring", step)
-        self.assertIn("--before", step)
+        # Last in the job, never failing it, and reported by report-nightly-failure.
+        self.assertNotIn("\n      - ", job[readback + 1:])
+        step = job[readback:]
+        self.assertIn("if: always() && steps.upload_next_appcasts.outcome == 'success'", step)
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn("nightly_next_live_feed_check.py", step)  # the step runs publish-next-feed-readback.sh
+        self.assertIn("feed_check: ${{ steps.feedcheck.outcome }}", job)
+        self.assertIn("needs.publish-nightly.outputs.feed_check == 'failure'", nightly_text())
+        script = (ROOT / "scripts/ci/nightly-steps/publish-next-feed-readback.sh").read_text()
+        self.assertIn("nightly_next_live_feed_check.py", script)
+        self.assertIn('--build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" --before', script)
 
     def test_the_old_feed_is_read_back_after_its_publish(self):
         job = self.job("publish-nightly-identity-legacy", "nightly-identity-legacy-published")
         publish = job.index("- name: Publish the cmux NIGHTLY DMG, release notes and the old feed")
         readback = job.index("- name: Read the old feed back")
         self.assertLess(publish, readback)
-        step = job[readback:job.index("\n      - ", readback + 1)]
-        self.assertIn("nightly_next_live_feed_check.py", step)
-        self.assertIn('${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}', step)
-        self.assertIn("--before", step)
+        # After the attempt accounting, which reads steps.publish only.
+        self.assertLess(job.index("- name: Fail a failed attempt"), readback)
+        self.assertIn("if: always() && steps.publish.outcome == 'success'", job[readback:])
+        script = (ROOT / "scripts/ci/nightly-steps/legacy-identity-readback.sh").read_text()
+        self.assertIn('${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}', script)
+        self.assertIn("--before", script)
 
 
 if __name__ == "__main__":

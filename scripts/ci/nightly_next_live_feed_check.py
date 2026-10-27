@@ -76,28 +76,52 @@ def fetch(url: str) -> str:
         return response.read().decode("utf-8")
 
 
-def probe(url: str) -> tuple[int, int | None]:
-    """(status, length) of the enclosure: HEAD, then a one-byte GET where HEAD is refused."""
+def probe_once(url: str) -> tuple[int, int | None]:
+    """(status, length) of one try: HEAD, then a one-byte ranged GET when HEAD fails or names no length."""
+    head_status = None
     try:
         request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=30) as response:
             length = response.headers.get("Content-Length")
-            return response.status, int(length) if (length or "").isdigit() else None
+            if response.status == 200 and (length or "").isdigit():
+                return 200, int(length)
+            head_status = response.status
     except urllib.error.HTTPError as error:
-        if error.code not in (403, 405):
-            return error.code, None
+        head_status = error.code
+    except OSError:
+        head_status = 0
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             total = (response.headers.get("Content-Range") or "").rpartition("/")[2]
-            return response.status, int(total) if total.isdigit() else None
+            if response.status == 206 and total.isdigit():
+                return 206, int(total)
+            length = response.headers.get("Content-Length")
+            if response.status == 200 and (length or "").isdigit():
+                return 200, int(length)
+            return response.status, None
     except urllib.error.HTTPError as error:
         return error.code, None
+    except OSError:
+        return head_status or 0, None
+
+
+def probe(url: str, attempts: int = 3, delay: float = 2.0) -> tuple[int, int | None]:
+    """(status, length) of the enclosure, retried briefly through a transient edge error."""
+    status, length = 0, None
+    for attempt in range(attempts):
+        status, length = probe_once(url)
+        if status in (200, 206) and length is not None:
+            break
+        if attempt < attempts - 1:
+            time.sleep(delay)
+    return status, length
 
 
 def check(live: list[Item], build: int, before: list[Item] | None, dev_ring: str,
-          probe=probe) -> tuple[list[str], list[str]]:
+          probe=None) -> tuple[list[str], list[str]]:
     """(errors, warnings) for the live feed after `build` was written."""
+    probe = probe or globals()["probe"]  # looked up per call, so a test's patch applies
     errors, warnings = [], []
     if not live:
         return [f"the live feed lists no item; build {build} is not offered"], warnings
@@ -118,7 +142,11 @@ def check(live: list[Item], build: int, before: list[Item] | None, dev_ring: str
         status, length = probe(newest.url)
         if status not in (200, 206):
             errors.append(f"build {newest.build}'s enclosure {newest.url} answers HTTP {status}")
-        elif newest.length is not None and length is not None and length != newest.length:
+        elif length is None:
+            errors.append(f"build {newest.build}'s enclosure {newest.url} names no length (HTTP {status}), so it is unverified")
+        elif newest.length is None:
+            errors.append(f"build {newest.build}'s item declares no enclosure length")
+        elif length != newest.length:
             errors.append(f"build {newest.build}'s enclosure {newest.url} is {length} bytes; the item says {newest.length}")
     after, prior = newest_offered(live), newest_offered(before or [])
     if prior is not None:
@@ -141,13 +169,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--attempts", type=int, default=3, help="reads while the edge still serves an older feed")
     parser.add_argument("--delay", type=float, default=2.0)
     args = parser.parse_args(argv)
-    before = None
+    before, before_error = None, ""
     if args.before:
         try:
             with open(args.before, encoding="utf-8") as handle:
-                before = items(handle.read())
+                text = handle.read()
+            # 404 marker from the before step: no feed existed, so there is no floor.
+            before = items(text) if text.strip() != "absent" else []
         except (OSError, ET.ParseError) as error:
-            print(f"::warning::could not read the feed from before the write ({args.before}): {error}")
+            before_error = f"the feed from before the write ({args.before}) is unreadable ({error}), so a regression cannot be ruled out"
     live: list[Item] = []
     for attempt in range(1, max(1, args.attempts) + 1):
         try:
@@ -160,6 +190,8 @@ def main(argv: list[str]) -> int:
         if attempt < args.attempts:
             time.sleep(args.delay)
     errors, warnings = check(live, args.build, before, args.dev_ring)
+    if before_error:
+        errors.append(before_error)
     for warning in warnings:
         print(f"::warning title=nightly-next feed {args.feed_url}::{warning}")
     for error in errors:
