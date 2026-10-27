@@ -492,6 +492,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
     /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
     case energyRule = "energy-v2"
+    /// `trace-fetch` and `identify {trace_clock}`: a remote daemon's recording comes over its connection, and the
+    /// heartbeat reads its trace clock (``ConnectionHeartbeat/clockOffset()``; cmux-tui-core server/trace_control.rs,
+    /// p09-observability-116).
+    case traceFetch = "trace-fetch-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -541,7 +545,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule:
+             .energyRule, .traceFetch:
             return .optional
         }
     }

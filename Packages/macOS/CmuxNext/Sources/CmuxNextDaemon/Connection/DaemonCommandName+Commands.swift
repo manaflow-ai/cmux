@@ -299,6 +299,7 @@ extension DaemonCommandName {
         case 0x48F958DB14D17514: return (289, "terminal-history")
         case 0x6834682484AAC514: return (290, "terminal-read-range")
         case 0x3DB044A820B4367E: return (291, "scroll-surface")
+        case 0x34CA003F9849B8D7: return (292, "trace-fetch")
         default: return nil
         }
     }

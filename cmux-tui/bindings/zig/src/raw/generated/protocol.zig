@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777";
+pub const ir_sha256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f";
 
 pub const AccessRequestKind = enum {
     file,
@@ -1946,6 +1946,27 @@ pub const IdMapping = struct {
     short_id: []const u8,
 };
 
+pub const IdentifyResultTraceClockDomain = enum {
+    uptime_raw,
+    monotonic,
+    qpc,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "uptime_raw")) return .uptime_raw;
+        if (std.mem.eql(u8, value, "monotonic")) return .monotonic;
+        if (std.mem.eql(u8, value, "qpc")) return .qpc;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .uptime_raw => "uptime_raw",
+            .monotonic => "monotonic",
+            .qpc => "qpc",
+        };
+    }
+};
+
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
     app: []const u8,
@@ -1972,6 +1993,8 @@ pub const IdentifyResult = struct {
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,
+    trace_clock_domain: ?IdentifyResultTraceClockDomain = null,
+    trace_clock_ns: ?u64 = null,
     update_command: wire.Field([]const u8) = .absent,
     version: []const u8,
     workspace_revision: u64,
@@ -1984,6 +2007,8 @@ pub const IdentifyResult = struct {
         "machine_name",
         "machine_platform",
         "session_id",
+        "trace_clock_domain",
+        "trace_clock_ns",
     };
 };
 
@@ -4196,6 +4221,30 @@ pub const TerminalResourcesResult = struct {
 pub const TerminalResumeCommandResult = struct {
     command: wire.Nullable([]const u8),
     terminal_id: []const u8,
+};
+
+pub const TraceFetchResultRole = enum {
+    daemon,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .daemon => "daemon",
+        };
+    }
+};
+
+pub const TraceFetchResult = struct {
+    data: []const u8,
+    done: bool,
+    offset: u64,
+    pid: u32,
+    role: TraceFetchResultRole,
+    total_bytes: u64,
 };
 
 pub const Tree = struct {
@@ -8807,10 +8856,12 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
     revisions: ?bool = null,
+    trace_clock: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
         "revisions",
+        "trace_clock",
     };
 };
 
@@ -8825,6 +8876,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
                 .{ .name = "revisions", .since = 12, .capability = null },
+                .{ .name = "trace_clock", .since = 12, .capability = "trace-fetch-v1" },
             },
         },
         request,
@@ -12332,6 +12384,27 @@ pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequ
     );
 }
 
+pub const TraceFetchRequest = struct {
+    offset: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "offset",
+    };
+};
+
+pub fn traceFetch(client: anytype, request: TraceFetchRequest) !wire.Decoded(TraceFetchResult) {
+    return client.callTyped(
+        TraceFetchResult,
+        .{
+            .name = "trace-fetch",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "trace-fetch-v1",
+        },
+        request,
+    );
+}
+
 pub const TraceStartRequest = struct {
     categories: wire.Field([]const []const u8) = .absent,
     keys: ?bool = null,
@@ -14895,7 +14968,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 363;
+pub const command_count: usize = 364;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15233,6 +15306,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
+    .{ .name = "trace-fetch", .authority = "local-admin", .since = 12, .capability = "trace-fetch-v1", .stream = null },
     .{ .name = "trace-start", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "trace-status", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "trace-stop", .authority = "local-admin", .since = 12, .capability = null, .stream = null },

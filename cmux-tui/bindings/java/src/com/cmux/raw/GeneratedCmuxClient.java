@@ -1694,6 +1694,11 @@ public abstract class GeneratedCmuxClient {
         return TerminalResumeCommandResult.fromWire(result);
     }
 
+    public final TraceFetchResult traceFetch(TraceFetchRequest request) throws CmuxException {
+        Object result = execute(Commands.TRACE_FETCH, request.toWire());
+        return TraceFetchResult.fromWire(result);
+    }
+
     public final Object traceStart(TraceStartRequest request) throws CmuxException {
         Object result = execute(Commands.TRACE_START, request.toWire());
         return Wire.immutableJson(result);

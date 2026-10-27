@@ -31,7 +31,8 @@ struct ConnectionHeartbeatSleepTests {
             ConnectionHeartbeat.Probe(ask: { [self] _ in
                 counts.withLock { $0.asks += 1 }
                 asking.yield()
-                return await answer?.value() ?? true
+                let answered = await answer?.value() ?? true
+                return answered ? .answered(nil) : .missed
             }, close: { [self] in counts.withLock { $0.closes += 1 } }, interval: interval, misses: misses)
         }
     }

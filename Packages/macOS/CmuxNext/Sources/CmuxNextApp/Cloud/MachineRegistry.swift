@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextMetrics
 import CmuxNextRemote
 import CmuxNextWorkspaceRepair
 import Foundation
@@ -187,6 +188,7 @@ final class MachineRegistry {
     func add(_ session: CloudMachineSession) {
         guard self.session(session.machineID) == nil else { return }
         cloud.append(session)
+        session.daemon.echoRoute = .cloud
         tabIndex.track(session.daemon, as: .cloud)
     }
 
@@ -202,6 +204,7 @@ final class MachineRegistry {
     func add(_ session: SSHMachineSession) {
         guard sshSession(session.machineID) == nil else { return }
         ssh.append(session)
+        session.daemon.echoRoute = .bridge
         tabIndex.track(session.daemon, as: .ssh)
     }
 
@@ -217,6 +220,7 @@ final class MachineRegistry {
     func add(_ session: ServerMachineSession) {
         guard server(session.machineID) == nil else { return }
         servers.append(session)
+        session.daemon.echoRoute = .bridge
         tabIndex.track(session.daemon, as: .server)
     }
 

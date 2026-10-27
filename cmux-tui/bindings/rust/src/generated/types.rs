@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
+// cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1628,6 +1628,17 @@ pub struct IdMapping {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IdentifyResultTraceClockDomain {
+    #[serde(rename = "uptime_raw")]
+    UptimeRaw,
+    #[serde(rename = "monotonic")]
+    Monotonic,
+    #[serde(rename = "qpc")]
+    Qpc,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1672,6 +1683,10 @@ pub struct IdentifyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub terminal_revision: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub trace_clock_domain: Option<IdentifyResultTraceClockDomain>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub trace_clock_ns: Option<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub update_command: Optional<String>,
     pub version: String,
@@ -3715,6 +3730,24 @@ pub struct TerminalResourcesResult {
 pub struct TerminalResumeCommandResult {
     pub command: Nullable<String>,
     pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TraceFetchResultRole {
+    #[serde(rename = "daemon")]
+    Daemon,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceFetchResult {
+    pub data: String,
+    pub done: bool,
+    pub offset: u64,
+    pub pid: u32,
+    pub role: TraceFetchResultRole,
+    pub total_bytes: u64,
 }
 
 #[rustfmt::skip]

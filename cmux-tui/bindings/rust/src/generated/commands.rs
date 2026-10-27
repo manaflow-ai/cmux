@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
+// cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2745,6 +2745,8 @@ pub struct IdentifyRequest {
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub trace_clock: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -4798,6 +4800,15 @@ pub struct TerminalResumeCommandRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceFetchRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TraceStartRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub categories: Optional<Vec<String>>,
@@ -6040,6 +6051,10 @@ impl CmuxClient {
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
         }
+        if request.trace_clock.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "trace-fetch-v1")?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 
@@ -7019,6 +7034,10 @@ impl CmuxClient {
 
     pub fn terminal_resume_command(&mut self, request: TerminalResumeCommandRequest) -> Result<T::TerminalResumeCommandResult> {
         self.execute(&TERMINAL_RESUME_COMMAND_METADATA, &request)
+    }
+
+    pub fn trace_fetch(&mut self, request: TraceFetchRequest) -> Result<T::TraceFetchResult> {
+        self.execute(&TRACE_FETCH_METADATA, &request)
     }
 
     pub fn trace_start(&mut self, request: TraceStartRequest) -> Result<TraceStartResult> {

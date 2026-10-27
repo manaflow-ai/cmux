@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777";
+inline constexpr std::string_view kProtocolIrSha256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -315,6 +315,7 @@ struct TerminalResourceProcess;
 struct TerminalResources;
 struct TerminalResourcesResult;
 struct TerminalResumeCommandResult;
+struct TraceFetchResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
@@ -734,6 +735,7 @@ struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
+struct TraceFetchRequest;
 struct TraceStartRequest;
 struct TraceStartResult;
 struct TraceStatusRequest;
@@ -879,6 +881,7 @@ struct FrontendJournalEventViewport;
 struct FsReadResultBase64;
 struct FsReadResultUtf8;
 enum class IdMappingKind;
+enum class IdentifyResultTraceClockDomain;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
@@ -889,6 +892,7 @@ enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
+enum class TraceFetchResultRole;
 enum class AgentSessionTrustRequestLevel;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
@@ -4540,7 +4544,14 @@ struct IdMapping {
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
     std::optional<bool> revisions{};
+    std::optional<bool> trace_clock{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+enum class IdentifyResultTraceClockDomain {
+    uptime_raw,
+    monotonic,
+    qpc,
 };
 
 struct MachinePlatform {
@@ -4573,6 +4584,8 @@ struct IdentifyResult {
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
+    std::optional<IdentifyResultTraceClockDomain> trace_clock_domain{};
+    std::optional<std::uint64_t> trace_clock_ns{};
     Field<std::string> update_command{};
     std::string version{};
     std::uint64_t workspace_revision{};
@@ -7416,6 +7429,26 @@ struct TitleChangedEvent {
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
 
+struct TraceFetchRequest {
+    std::optional<std::uint64_t> offset{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TraceFetchRequest&, const TraceFetchRequest&) = default;
+};
+
+enum class TraceFetchResultRole {
+    daemon,
+};
+
+struct TraceFetchResult {
+    std::string data{};
+    bool done{};
+    std::uint64_t offset{};
+    std::uint32_t pid{};
+    TraceFetchResultRole role{};
+    std::uint64_t total_bytes{};
+    friend bool operator==(const TraceFetchResult&, const TraceFetchResult&) = default;
+};
+
 struct TraceStartRequest {
     Field<std::vector<std::string>> categories{};
     std::optional<bool> keys{};
@@ -9577,6 +9610,12 @@ template <>
 struct Codec<TerminalResumeCommandResult> {
     static Result<Json> encode(const TerminalResumeCommandResult& value);
     static Result<TerminalResumeCommandResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceFetchResult> {
+    static Result<Json> encode(const TraceFetchResult& value);
+    static Result<TraceFetchResult> decode(const Json& value);
 };
 
 template <>
@@ -12094,6 +12133,12 @@ struct Codec<TerminalResumeCommandRequest> {
 };
 
 template <>
+struct Codec<TraceFetchRequest> {
+    static Result<Json> encode(const TraceFetchRequest& value);
+    static Result<TraceFetchRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TraceStartRequest> {
     static Result<Json> encode(const TraceStartRequest& value);
     static Result<TraceStartRequest> decode(const Json& value);
@@ -12964,6 +13009,12 @@ struct Codec<IdMappingKind> {
 };
 
 template <>
+struct Codec<IdentifyResultTraceClockDomain> {
+    static Result<Json> encode(const IdentifyResultTraceClockDomain& value);
+    static Result<IdentifyResultTraceClockDomain> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutLeaf> {
     static Result<Json> encode(const LayoutLeaf& value);
     static Result<LayoutLeaf> decode(const Json& value);
@@ -13021,6 +13072,12 @@ template <>
 struct Codec<TerminalExitOutcomeUnknown> {
     static Result<Json> encode(const TerminalExitOutcomeUnknown& value);
     static Result<TerminalExitOutcomeUnknown> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceFetchResultRole> {
+    static Result<Json> encode(const TraceFetchResultRole& value);
+    static Result<TraceFetchResultRole> decode(const Json& value);
 };
 
 template <>

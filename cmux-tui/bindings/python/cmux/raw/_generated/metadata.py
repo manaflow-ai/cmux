@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777'
+IR_SHA256 = 'b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f'
 
 
 @dataclass(frozen=True)
@@ -2471,6 +2471,7 @@ COMMANDS = {
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
             'revisions': CommandFieldMetadata(12, None),
+            'trace_clock': CommandFieldMetadata(12, 'trace-fetch-v1'),
         },
     ),
     'ids': CommandMetadata(
@@ -4496,6 +4497,17 @@ COMMANDS = {
             'command': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'trace-fetch': CommandMetadata(
+        'trace-fetch',
+        'local-admin',
+        12,
+        'trace-fetch-v1',
+        ('local-admin',),
+        None,
+        {
+            'offset': CommandFieldMetadata(None, None),
         },
     ),
     'trace-start': CommandMetadata(

@@ -40,6 +40,15 @@ impl ClockDomain {
             _ => None,
         }
     }
+
+    /// The domain's wire name (`identify`'s `trace_clock_domain`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ClockDomain::UptimeRaw => "uptime_raw",
+            ClockDomain::Monotonic => "monotonic",
+            ClockDomain::Qpc => "qpc",
+        }
+    }
 }
 
 /// Now on the trace clock, in ns. No allocation, lock or kernel entry on macOS and Linux.

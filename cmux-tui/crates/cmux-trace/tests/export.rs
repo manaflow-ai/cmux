@@ -1166,3 +1166,113 @@ fn trace_processor_imports_a_wrapped_black_box_cleanly() {
         trace_processor("wrapped", &trace, &["select count(*) as n from slice where dur < -1"]);
     assert_eq!(number(&answers[0]), 0, "no slice with a negative duration");
 }
+
+// ---- A bridge recording (task 116) ------------------------------------------------------------
+
+/// How far the remote machine's trace clock is ahead of the local one.
+const BRIDGE_OFFSET_NS: u64 = 37_000_000;
+/// The heartbeat's shortest exchange: a 4 ms round trip, 3 ms out and 1 ms back. Its midpoint is
+/// 1 ms off the true instant of the remote read, inside the 2 ms bound (half the round trip).
+const HEARTBEAT_SENT_NS: u64 = 50_000_000;
+const OUT_NS: u64 = 3_000_000;
+const BACK_NS: u64 = 1_000_000;
+/// A key sent at this local time to the bridged daemon, which answers 100 µs after it arrives.
+const KEY_SENT_NS: u64 = 10_000_000;
+const REMOTE_WORK_NS: u64 = 100_000;
+const BRIDGE_FLOW: u64 = 0x0000_5678_0000_0001;
+
+/// The min-RTT estimate of the heartbeat's exchange: the remote read minus the midpoint of the
+/// send and the receive, bound by half the round trip (what the app's heartbeat records).
+fn bridge_lane() -> RemoteMachine {
+    let remote_read = HEARTBEAT_SENT_NS + OUT_NS + BRIDGE_OFFSET_NS;
+    let received = HEARTBEAT_SENT_NS + OUT_NS + BACK_NS;
+    let midpoint = (HEARTBEAT_SENT_NS + received) / 2;
+    RemoteMachine {
+        name: "linux-lane".into(),
+        offset_ns: remote_read as i64 - midpoint as i64,
+        error_bound_ns: (received - HEARTBEAT_SENT_NS) / 2,
+    }
+}
+
+/// The app sends the key on main and takes the answer on its IO thread; the bridged daemon takes
+/// the key on its dispatch thread and answers. Each side stamps its own clock.
+fn bridge_rings() -> (Decoded, Decoded) {
+    let app = tracer(Role::App, 1234);
+    let mut main = Writer::new(&app, ThreadIdentity::new(101, 0x21, "main"));
+    let mut io = Writer::new(&app, ThreadIdentity::new(202, 0x19, "cmux-io"));
+    main.write(record(KEY_SENT_NS, "key.flow", Phase::FlowOut, 0, 0, BRIDGE_FLOW));
+    let answered = KEY_SENT_NS + OUT_NS + REMOTE_WORK_NS + BACK_NS;
+    io.write(record(answered, "key.flow", Phase::FlowIn, 0, 3, BRIDGE_FLOW + 1));
+    drop(main);
+    drop(io);
+    let daemon = tracer(Role::Daemon, 4321);
+    let mut dispatch = Writer::new(&daemon, ThreadIdentity::new(303, 0, "mux-control-dispatch"));
+    let arrived = KEY_SENT_NS + OUT_NS + BRIDGE_OFFSET_NS;
+    dispatch.write(record(arrived, "key.flow", Phase::FlowIn, 0, 1, BRIDGE_FLOW));
+    let answer = arrived + REMOTE_WORK_NS;
+    dispatch.write(record(answer, "key.flow", Phase::FlowOut, 0, 2, BRIDGE_FLOW + 1));
+    drop(dispatch);
+    (
+        decode(&app.snapshot_active()).expect("the app ring decodes"),
+        decode(&daemon.snapshot_active()).expect("the daemon ring decodes"),
+    )
+}
+
+/// Each event's time on the local clock, as trace_processor puts it there: a remote event through
+/// its machine's clock snapshot.
+fn local_times(parsed: &Parsed) -> Vec<(u64, &Event)> {
+    let remote: Vec<(u64, u64, u64)> = parsed.snapshots[1..]
+        .iter()
+        .map(|snapshot| {
+            let clocks = snapshot.msgs(1);
+            let (id, remote_t) = (clocks[0].uint(1).unwrap(), clocks[0].uint(2).unwrap());
+            (id, remote_t, clocks[1].uint(2).unwrap())
+        })
+        .collect();
+    parsed
+        .events
+        .iter()
+        .map(|event| match remote.iter().find(|(id, _, _)| *id == event.clock) {
+            Some((_, remote_t, local_t)) => (event.t + local_t - remote_t, event),
+            None => (event.t, event),
+        })
+        .collect()
+}
+
+#[test]
+fn export_a_bridge_recording_aligns_remote_hops_within_the_offset_bound() {
+    let lane = bridge_lane();
+    assert_eq!(lane.offset_ns, (BRIDGE_OFFSET_NS + 1_000_000) as i64, "the midpoint guess");
+    assert_eq!(lane.error_bound_ns, 2_000_000);
+    let (app, daemon) = bridge_rings();
+    let rings = [
+        RingInput { ring: &app, machine: Machine::Local },
+        RingInput { ring: &daemon, machine: Machine::Remote(0) },
+    ];
+    let (trace, _) = export_rings(&rings, std::slice::from_ref(&lane));
+    let parsed = parse(&trace);
+    assert_eq!(parsed.snapshots.len(), 2, "one clock snapshot per machine");
+    let times = local_times(&parsed);
+    let hop = |flows: &[u64], terminating: &[u64]| {
+        times
+            .iter()
+            .find(|(_, event)| event.flows == flows && event.terminating == terminating)
+            .map(|(t, _)| *t)
+            .expect("the hop is exported")
+    };
+    let sent = hop(&[BRIDGE_FLOW], &[]);
+    let arrived = hop(&[], &[BRIDGE_FLOW]);
+    let answered = hop(&[BRIDGE_FLOW + 1], &[]);
+    let back = hop(&[], &[BRIDGE_FLOW + 1]);
+    // The remote hops land within the bound of the instants they really happened at.
+    let true_arrival = KEY_SENT_NS + OUT_NS;
+    assert!(arrived.abs_diff(true_arrival) <= lane.error_bound_ns, "{arrived} vs {true_arrival}");
+    let true_answer = true_arrival + REMOTE_WORK_NS;
+    assert!(answered.abs_diff(true_answer) <= lane.error_bound_ns, "{answered} vs {true_answer}");
+    // The clock-order check: each hop of the key's flow is at or after the one before it.
+    assert!(
+        sent <= arrived && arrived <= answered && answered <= back,
+        "{sent} {arrived} {answered} {back}"
+    );
+    assert_eq!(back, KEY_SENT_NS + OUT_NS + REMOTE_WORK_NS + BACK_NS, "local hops stay put");
+}

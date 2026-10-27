@@ -378,7 +378,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, trace_clock: false },
         &test_writer(),
     )
     .unwrap();

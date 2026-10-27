@@ -5,6 +5,7 @@ import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
 public import CmuxNextDaemon
+public import CmuxNextMetrics
 public import CmuxNextTrace
 public import CmuxNextWakeups
 import Foundation
@@ -29,6 +30,9 @@ public typealias DaemonCommandBody = @Sendable (isolated DaemonConnection) async
 public final class DaemonService {
     /// `local`, or the Cloud machine id (`vm-…`).
     public let machineID: String
+    /// Where its terminals' echo comes from: the `key.echo_frame` histogram their sampled keys record into
+    /// (p09-observability-116). The machine registry sets it when it adds the machine; this Mac's daemon stays `local`.
+    @ObservationIgnored public var echoRoute: HistogramID.EchoRoute = .local
     /// Its connections echo `placement-shift-v1` (this build orders sidebar rows from the
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool

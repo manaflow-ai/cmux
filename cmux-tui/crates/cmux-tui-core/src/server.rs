@@ -735,6 +735,11 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Adds `trace_clock_ns` and `trace_clock_domain`: the app's heartbeat
+        /// estimates a remote daemon's clock offset from them
+        /// (p09-observability-116).
+        #[serde(default)]
+        trace_clock: bool,
     },
     BrowserHostProvider,
     SubscribeActivity,
@@ -769,6 +774,10 @@ enum Command {
     TraceStop,
     /// Every process's trace state, ring paths and bytes.
     TraceStatus,
+    /// One piece of this daemon's own recording ring (p09-observability-116):
+    /// the app collects a remote daemon's recording through it. Owner only;
+    /// no path parameter.
+    TraceFetch(trace_control::FetchParams),
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),

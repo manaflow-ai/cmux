@@ -110,7 +110,7 @@ fn server_threads_is_in_the_capabilities() {
     let identity = handle_command(
         &mux,
         client,
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, trace_clock: false },
         &writer(),
     )
     .unwrap();

@@ -131,8 +131,14 @@ public struct IdentifyRequest: DaemonRequest {
     public static let commandName: DaemonCommandName = "identify"
     /// Explicit owner metadata; omission keeps the original raw response shape.
     public var machineMetadata: Bool?
-    public init(machineMetadata: Bool? = nil) { self.machineMetadata = machineMetadata }
-    private enum CodingKeys: String, CodingKey { case machineMetadata = "machine_metadata" }
+    /// Adds the daemon's trace clock to the reply (`trace-fetch-v1`, p09-observability-116); a daemon without it
+    /// ignores the field.
+    public var traceClock: Bool?
+    public init(machineMetadata: Bool? = nil, traceClock: Bool? = nil) {
+        self.machineMetadata = machineMetadata
+        self.traceClock = traceClock
+    }
+    private enum CodingKeys: String, CodingKey { case machineMetadata = "machine_metadata", traceClock = "trace_clock" }
 }
 
 public struct SetClientInfoRequest: DaemonRequest {

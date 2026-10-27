@@ -34,6 +34,8 @@ public final class IdentifyResult implements WireValue {
     private final String session;
     private final Field<String> sessionId;
     private final UInt64 terminalRevision;
+    private final Field<IdentifyResultTraceClockDomain> traceClockDomain;
+    private final Field<UInt64> traceClockNs;
     private final Field<String> updateCommand;
     private final String version;
     private final UInt64 workspaceRevision;
@@ -68,6 +70,8 @@ public final class IdentifyResult implements WireValue {
         this.sessionId = builder.sessionId;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
+        this.traceClockDomain = builder.traceClockDomain;
+        this.traceClockNs = builder.traceClockNs;
         this.updateCommand = builder.updateCommand;
         if (!builder.versionSet) throw new IllegalArgumentException("version is required");
         this.version = Wire.nonNull(builder.version, "version");
@@ -102,6 +106,8 @@ public final class IdentifyResult implements WireValue {
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
     public UInt64 terminalRevision() { return terminalRevision; }
+    public Field<IdentifyResultTraceClockDomain> traceClockDomain() { return traceClockDomain; }
+    public Field<UInt64> traceClockNs() { return traceClockNs; }
     public Field<String> updateCommand() { return updateCommand; }
     public String version() { return version; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
@@ -193,6 +199,14 @@ public final class IdentifyResult implements WireValue {
         }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
+        Object rawTraceClockDomain = Wire.optional(object, "trace_clock_domain");
+        if (!Wire.isMissing(rawTraceClockDomain)) {
+            builder.traceClockDomain(IdentifyResultTraceClockDomain.fromWire(rawTraceClockDomain));
+        }
+        Object rawTraceClockNs = Wire.optional(object, "trace_clock_ns");
+        if (!Wire.isMissing(rawTraceClockNs)) {
+            builder.traceClockNs(Wire.uint64(rawTraceClockNs, "IdentifyResult.trace_clock_ns"));
+        }
         Object rawUpdateCommand = Wire.optional(object, "update_command");
         if (!Wire.isMissing(rawUpdateCommand)) {
             builder.updateCommand(rawUpdateCommand == null ? null : Wire.string(rawUpdateCommand, "IdentifyResult.update_command"));
@@ -232,6 +246,8 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
         Wire.put(object, "terminal_revision", terminalRevision);
+        Wire.put(object, "trace_clock_domain", traceClockDomain);
+        Wire.put(object, "trace_clock_ns", traceClockNs);
         Wire.put(object, "update_command", updateCommand);
         Wire.put(object, "version", version);
         Wire.put(object, "workspace_revision", workspaceRevision);
@@ -241,11 +257,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(traceClockDomain, that.traceClockDomain) && Objects.equals(traceClockNs, that.traceClockNs) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, terminalRevision, traceClockDomain, traceClockNs, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -280,6 +296,8 @@ public final class IdentifyResult implements WireValue {
         private Field<String> sessionId = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
+        private Field<IdentifyResultTraceClockDomain> traceClockDomain = Field.omitted();
+        private Field<UInt64> traceClockNs = Field.omitted();
         private Field<String> updateCommand = Field.omitted();
         private String version;
         private boolean versionSet;
@@ -382,6 +400,14 @@ public final class IdentifyResult implements WireValue {
         public Builder terminalRevision(UInt64 value) {
             this.terminalRevision = value;
             this.terminalRevisionSet = true;
+            return this;
+        }
+        public Builder traceClockDomain(IdentifyResultTraceClockDomain value) {
+            this.traceClockDomain = Field.of(value);
+            return this;
+        }
+        public Builder traceClockNs(UInt64 value) {
+            this.traceClockNs = Field.of(value);
             return this;
         }
         public Builder updateCommand(String value) {

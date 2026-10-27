@@ -377,6 +377,7 @@ public:
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResumeCommandResult> terminal_resume_command(const TerminalResumeCommandRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TraceFetchResult> trace_fetch(const TraceFetchRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TraceStartResult> trace_start(const TraceStartRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TraceStatusResult> trace_status(const TraceStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TraceStopResult> trace_stop(const TraceStopRequest& request = {}, RequestOptions options = {});

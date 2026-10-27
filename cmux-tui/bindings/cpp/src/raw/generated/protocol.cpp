@@ -7332,6 +7332,16 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
+    if (value.trace_clock_domain) {
+        auto encoded = encode_value(*value.trace_clock_domain);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("trace_clock_domain", std::move(encoded).value());
+    }
+    if (value.trace_clock_ns) {
+        auto encoded = encode_value(*value.trace_clock_ns);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("trace_clock_ns", std::move(encoded).value());
+    }
     if (!value.update_command.is_absent()) {
         auto encoded = encode_value(value.update_command);
         if (!encoded) return std::move(encoded).error();
@@ -7563,6 +7573,18 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
         if (!decoded) return std::move(decoded).error();
         result.terminal_revision = std::move(decoded).value();
+    }
+    const Json* field_trace_clock_domain = value.find("trace_clock_domain");
+    if (field_trace_clock_domain) {
+        auto decoded = decode_value<IdentifyResultTraceClockDomain>(*field_trace_clock_domain);
+        if (!decoded) return std::move(decoded).error();
+        result.trace_clock_domain = std::move(decoded).value();
+    }
+    const Json* field_trace_clock_ns = value.find("trace_clock_ns");
+    if (field_trace_clock_ns) {
+        auto decoded = decode_value<std::uint64_t>(*field_trace_clock_ns);
+        if (!decoded) return std::move(decoded).error();
+        result.trace_clock_ns = std::move(decoded).value();
     }
     const Json* field_update_command = value.find("update_command");
     if (field_update_command) {
@@ -18680,6 +18702,91 @@ Result<TerminalResumeCommandResult> Codec<TerminalResumeCommandResult>::decode(c
         auto decoded = decode_value<std::string>(*field_terminal_id);
         if (!decoded) return std::move(decoded).error();
         result.terminal_id = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TraceFetchResult>::encode(const TraceFetchResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_data = encode_value(value.data);
+    if (!encoded_data) return std::move(encoded_data).error();
+    object.emplace("data", std::move(encoded_data).value());
+    auto encoded_done = encode_value(value.done);
+    if (!encoded_done) return std::move(encoded_done).error();
+    object.emplace("done", std::move(encoded_done).value());
+    auto encoded_offset = encode_value(value.offset);
+    if (!encoded_offset) return std::move(encoded_offset).error();
+    object.emplace("offset", std::move(encoded_offset).value());
+    auto encoded_pid = encode_value(value.pid);
+    if (!encoded_pid) return std::move(encoded_pid).error();
+    object.emplace("pid", std::move(encoded_pid).value());
+    auto encoded_role = encode_value(value.role);
+    if (!encoded_role) return std::move(encoded_role).error();
+    object.emplace("role", std::move(encoded_role).value());
+    auto encoded_total_bytes = encode_value(value.total_bytes);
+    if (!encoded_total_bytes) return std::move(encoded_total_bytes).error();
+    object.emplace("total_bytes", std::move(encoded_total_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<TraceFetchResult> Codec<TraceFetchResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TraceFetchResult result{};
+    const Json* field_data = value.find("data");
+    if (!field_data) {
+        return make_error(ErrorCode::decode, "missing required field 'data'");
+    }
+    if (field_data) {
+        auto decoded = decode_value<std::string>(*field_data);
+        if (!decoded) return std::move(decoded).error();
+        result.data = std::move(decoded).value();
+    }
+    const Json* field_done = value.find("done");
+    if (!field_done) {
+        return make_error(ErrorCode::decode, "missing required field 'done'");
+    }
+    if (field_done) {
+        auto decoded = decode_value<bool>(*field_done);
+        if (!decoded) return std::move(decoded).error();
+        result.done = std::move(decoded).value();
+    }
+    const Json* field_offset = value.find("offset");
+    if (!field_offset) {
+        return make_error(ErrorCode::decode, "missing required field 'offset'");
+    }
+    if (field_offset) {
+        auto decoded = decode_value<std::uint64_t>(*field_offset);
+        if (!decoded) return std::move(decoded).error();
+        result.offset = std::move(decoded).value();
+    }
+    const Json* field_pid = value.find("pid");
+    if (!field_pid) {
+        return make_error(ErrorCode::decode, "missing required field 'pid'");
+    }
+    if (field_pid) {
+        auto decoded = decode_value<std::uint32_t>(*field_pid);
+        if (!decoded) return std::move(decoded).error();
+        result.pid = std::move(decoded).value();
+    }
+    const Json* field_role = value.find("role");
+    if (!field_role) {
+        return make_error(ErrorCode::decode, "missing required field 'role'");
+    }
+    if (field_role) {
+        auto decoded = decode_value<TraceFetchResultRole>(*field_role);
+        if (!decoded) return std::move(decoded).error();
+        result.role = std::move(decoded).value();
+    }
+    const Json* field_total_bytes = value.find("total_bytes");
+    if (!field_total_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'total_bytes'");
+    }
+    if (field_total_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_total_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.total_bytes = std::move(decoded).value();
     }
     return result;
 }
@@ -31685,6 +31792,11 @@ Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("revisions", std::move(encoded).value());
     }
+    if (value.trace_clock) {
+        auto encoded = encode_value(*value.trace_clock);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("trace_clock", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -31703,6 +31815,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_revisions);
         if (!decoded) return std::move(decoded).error();
         result.revisions = std::move(decoded).value();
+    }
+    const Json* field_trace_clock = value.find("trace_clock");
+    if (field_trace_clock) {
+        auto decoded = decode_value<bool>(*field_trace_clock);
+        if (!decoded) return std::move(decoded).error();
+        result.trace_clock = std::move(decoded).value();
     }
     return result;
 }
@@ -41533,6 +41651,36 @@ Result<TerminalResumeCommandRequest> Codec<TerminalResumeCommandRequest>::decode
     return result;
 }
 
+Result<Json> Codec<TraceFetchRequest>::encode(const TraceFetchRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (value.offset) {
+        auto encoded = encode_value(*value.offset);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("offset", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TraceFetchRequest> Codec<TraceFetchRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TraceFetchRequest result{};
+    const Json* field_offset = value.find("offset");
+    if (field_offset) {
+        auto decoded = decode_value<std::uint64_t>(*field_offset);
+        if (!decoded) return std::move(decoded).error();
+        result.offset = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "offset") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<TraceStartRequest>::encode(const TraceStartRequest& value) {
     (void)value;
     Json::Object object;
@@ -51330,6 +51478,22 @@ Result<IdMappingKind> Codec<IdMappingKind>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown IdMappingKind value");
 }
 
+Result<Json> Codec<IdentifyResultTraceClockDomain>::encode(const IdentifyResultTraceClockDomain& value) {
+    switch (value) {
+        case IdentifyResultTraceClockDomain::uptime_raw: return Json(std::string("uptime_raw"));
+        case IdentifyResultTraceClockDomain::monotonic: return Json(std::string("monotonic"));
+        case IdentifyResultTraceClockDomain::qpc: return Json(std::string("qpc"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<IdentifyResultTraceClockDomain> Codec<IdentifyResultTraceClockDomain>::decode(const Json& value) {
+    if (value == Json(std::string("uptime_raw"))) return IdentifyResultTraceClockDomain::uptime_raw;
+    if (value == Json(std::string("monotonic"))) return IdentifyResultTraceClockDomain::monotonic;
+    if (value == Json(std::string("qpc"))) return IdentifyResultTraceClockDomain::qpc;
+    return make_error(ErrorCode::decode, "unknown IdentifyResultTraceClockDomain value");
+}
+
 Result<Json> Codec<LayoutLeaf>::encode(const LayoutLeaf& value) {
     (void)value;
     Json::Object object;
@@ -51682,6 +51846,18 @@ Result<TerminalExitOutcomeUnknown> Codec<TerminalExitOutcomeUnknown>::decode(con
         }
     }
     return result;
+}
+
+Result<Json> Codec<TraceFetchResultRole>::encode(const TraceFetchResultRole& value) {
+    switch (value) {
+        case TraceFetchResultRole::daemon: return Json(std::string("daemon"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TraceFetchResultRole> Codec<TraceFetchResultRole>::decode(const Json& value) {
+    if (value == Json(std::string("daemon"))) return TraceFetchResultRole::daemon;
+    return make_error(ErrorCode::decode, "unknown TraceFetchResultRole value");
 }
 
 Result<Json> Codec<AgentSessionTrustRequestLevel>::encode(const AgentSessionTrustRequestLevel& value) {
@@ -52874,9 +53050,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand159FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand185FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand185FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
+    {"trace_clock", 12U, "trace-fetch-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand221FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
@@ -53041,16 +53218,16 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand325FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand346FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand347FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand352FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand353FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand353FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand354FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 363> kCommands{{
+constexpr std::array<CommandMetadata, 364> kCommands{{
     {"access-request", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"access-request-answer", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"access-request-list", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -53387,6 +53564,7 @@ constexpr std::array<CommandMetadata, 363> kCommands{{
     {"terminal-read-range", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resources", "control", 12U, "terminal-resources-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resume-command", "control", 12U, "resume-command", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"trace-fetch", "local-admin", 12U, "trace-fetch-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"trace-start", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"trace-status", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"trace-stop", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -53397,14 +53575,14 @@ constexpr std::array<CommandMetadata, 363> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand346FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand347FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand352FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand353FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand353FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand354FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -57217,6 +57395,17 @@ Result<TerminalResumeCommandResult> Client::terminal_resume_command(
     auto response = core_.request("terminal-resume-command", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<TerminalResumeCommandResult>(response.value());
+}
+
+Result<TraceFetchResult> Client::trace_fetch(
+    const TraceFetchRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("trace-fetch", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TraceFetchResult>(response.value());
 }
 
 Result<TraceStartResult> Client::trace_start(

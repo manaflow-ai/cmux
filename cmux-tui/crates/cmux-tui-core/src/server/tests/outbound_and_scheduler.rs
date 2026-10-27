@@ -284,7 +284,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, trace_clock: false },
         &test_writer(),
     )
     .unwrap();
@@ -322,6 +322,7 @@ fn trace_control_refuses_a_remote_client_before_anything_runs() {
         Command::TraceStart(serde_json::from_value(json!({"keys": true})).unwrap()),
         Command::TraceStop,
         Command::TraceStatus,
+        Command::TraceFetch(serde_json::from_value(json!({"offset": 0})).unwrap()),
     ] {
         let error = handle_command(&mux, websocket_client, command, &test_writer())
             .expect_err("a remote client must not start, stop or read a trace");
@@ -329,6 +330,49 @@ fn trace_control_refuses_a_remote_client_before_anything_runs() {
     }
     // Refused before the daemon's tracer was asked anything.
     assert!(cmux_trace::status().is_none());
+}
+
+/// `trace-fetch` (p09-observability-116) sends the daemon's own recording to
+/// its owner only: a relay peer (the remote entry) and a WebSocket client are
+/// refused; the owner (a plain Unix client, as the link's owner_session
+/// splice is) reaches the handler, which says there is nothing recorded.
+#[test]
+fn trace_fetch_reaches_only_the_owner() {
+    let mux = test_mux();
+    let fetch = || Command::TraceFetch(serde_json::from_value(json!({})).unwrap());
+    let relay = mux.control_clients.register(ClientTransport::Remote, test_writer());
+    let error = handle_command(&mux, relay, fetch(), &test_writer())
+        .expect_err("a relay peer must not read the recording");
+    assert_eq!(error.to_string(), "remote_denied", "{error}");
+    let websocket = mux.control_clients.register(ClientTransport::WebSocket, test_writer());
+    let error = handle_command(&mux, websocket, fetch(), &test_writer())
+        .expect_err("a WebSocket client must not read the recording");
+    assert!(error.to_string().contains("trusted local connection"), "{error}");
+    let owner = mux.control_clients.register(ClientTransport::Unix, test_writer());
+    let error = handle_command(&mux, owner, fetch(), &test_writer())
+        .expect_err("this test process never recorded");
+    assert!(error.to_string().contains("no trace recording to fetch"), "{error}");
+    assert!(cmux_trace::status().is_none());
+}
+
+/// The heartbeat's clock read is opt-in: the default reply keeps its shape.
+#[test]
+fn identify_reports_the_trace_clock_only_when_asked() {
+    let mux = test_mux();
+    let client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+    let identify = |trace_clock| {
+        let command = Command::Identify { machine_metadata: false, revisions: false, trace_clock };
+        handle_command(&mux, client, command, &test_writer()).unwrap()
+    };
+    let plain = identify(false);
+    assert!(plain.get("trace_clock_ns").is_none() && plain.get("trace_clock_domain").is_none());
+    assert!(plain["capabilities"].as_array().unwrap().contains(&json!("trace-fetch-v1")));
+    let before = cmux_trace::clock::now_ns();
+    let clocked = identify(true);
+    let after = cmux_trace::clock::now_ns();
+    let read = clocked["trace_clock_ns"].as_u64().expect("a clock read");
+    assert!((before..=after).contains(&read), "{before} <= {read} <= {after}");
+    assert_eq!(clocked["trace_clock_domain"], cmux_trace::clock::ClockDomain::CURRENT.as_str());
 }
 
 #[test]

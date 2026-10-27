@@ -1523,6 +1523,8 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
+    trace_clock_domain: Union[Literal['uptime_raw', 'monotonic', 'qpc'], MissingType] = field(default=MISSING)
+    trace_clock_ns: Union[int, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2883,6 +2885,17 @@ class TerminalResumeCommandResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalResumeCommandResult'
     terminal_id: str
     command: Union[str, None]
+
+
+@dataclass(frozen=True)
+class TraceFetchResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TraceFetchResult'
+    data: str
+    done: bool
+    offset: int
+    pid: int
+    role: Literal['daemon']
+    total_bytes: int
 
 
 @dataclass(frozen=True)
@@ -4948,6 +4961,7 @@ class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
+    trace_clock: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6349,6 +6363,13 @@ class TerminalResumeCommandRequest:
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     command: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TraceFetchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-fetch/request'
+    offset: Union[int, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -7978,6 +7999,7 @@ __all__ = [
     'TerminalResources',
     'TerminalResourcesResult',
     'TerminalResumeCommandResult',
+    'TraceFetchResult',
     'Tree',
     'ViewportPaneWidthResult',
     'VtStateResult',
@@ -8398,6 +8420,7 @@ __all__ = [
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
+    'TraceFetchRequest',
     'TraceStartRequest',
     'TraceStatusRequest',
     'TraceStopRequest',

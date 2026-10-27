@@ -365,6 +365,14 @@ clients retain unknown platform and an empty capability list.
 The conversations-only remote `identify` remains restricted to `app`, `protocol`
 and `capabilities`.
 
+With `trace_clock: true` (capability `trace-fetch-v1`), the reply adds
+`trace_clock_ns` (uint64, this daemon's trace clock read last, just before the
+reply) and `trace_clock_domain` (`uptime_raw`, `monotonic` or `qpc`). The app's
+heartbeat over a bridge sends it on every ask and keeps the round trip with the
+shortest time of its last 8 as the clock offset of that machine, with half that
+round trip as its error bound (p09-observability-116). Off by default, so strict
+older SDK decoders keep reading the reply.
+
 With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
@@ -1222,6 +1230,53 @@ Errors: `trace control requires a trusted local connection`, `another trace
 control call is running`, `this session has no state root to record into (it is
 ephemeral)`, `unknown trace category ...`, `the key category records per-key
 records: ask for it with keys: true`.
+
+### trace-fetch
+
+| Field | Value |
+| --- | --- |
+| name | `trace-fetch` |
+| status | implemented |
+| since | protocol 12, capability `trace-fetch-v1` |
+
+One piece of this daemon's own recording ring (plans/cmux-next/trace.md,
+"Release trace ring v1"), as its file reads, over the connection that asks:
+the app collects the recording of a daemon on another machine (a bridge or a
+Cloud machine) whose files it cannot read (p09-observability-116). Only the
+daemon's own ring: never a child's, never a file the caller names. Owner only,
+like `trace-start`: a WebSocket client, a relay peer and a local client with a
+peer record get `trace control requires a trusted local connection` before the
+offset is read. The link's `owner_session` splice is the owner of the remote
+session, so a bridge collects through it. It shares the one-call-at-a-time
+rule of the other trace calls (`another trace control call is running`).
+
+Params: `{offset?: uint64}` (default 0). Offset 0 takes a consistent copy of
+the recording ring (it may still be recording) and answers its first piece; a
+later offset reads that copy. The reader asks again at `offset + piece length`
+until `done`. Reading the last piece drops the copy, and so does a
+`trace-start` (a new recording): a later offset is then refused. A piece is at
+most 1 MiB, so a 32 MiB ring never holds the connection's other replies behind
+one line.
+
+Result:
+
+```text
+object{
+  role:"daemon",
+  pid:uint32,
+  offset:uint64,
+  total_bytes:uint64,
+  done:bool,
+  data:string
+}
+```
+
+`data` is the piece in standard base64; `total_bytes` is the copy's length.
+
+Errors: `trace control requires a trusted local connection`, `another trace
+control call is running`, `this daemon has no trace recording to fetch`, `no
+trace fetch is in progress: start it again at offset 0`, `the trace fetch
+offset is past the recording's end`.
 
 ### browser-host-provider
 

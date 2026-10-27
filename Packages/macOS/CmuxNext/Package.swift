@@ -748,6 +748,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextTrace", "CmuxNextWakeups",
+                // The machine's `key.echo_frame` route (HistogramID.EchoRoute, p09-observability-116).
+                "CmuxNextMetrics",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // OnceContinuation (p10-stability-089).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),

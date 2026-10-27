@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 21
+   "next_ordinal": 22
   },
   "clients": {
    "id": 2,
@@ -2337,6 +2337,34 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "trace_clock_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "constraints": [
+      "The daemon's trace clock in ns, read just before the reply. Only with identify {trace_clock: true}."
+     ]
+    },
+    "trace_clock_domain": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "uptime_raw",
+       "monotonic",
+       "qpc"
+      ]
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "constraints": [
+      "The clock trace_clock_ns is on: macOS CLOCK_UPTIME_RAW, Linux CLOCK_MONOTONIC or the Windows performance counter. Only with identify {trace_clock: true}."
+     ]
     }
    },
    "additional_properties": false
@@ -13222,6 +13250,71 @@
     }
    },
    "additional_properties": false
+  },
+  "TraceFetchResult": {
+   "kind": "object",
+   "fields": {
+    "role": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "daemon"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "offset": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The length of the recording copy the offset-0 call took."
+     ]
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "This piece ends the copy; the copy is dropped."
+     ]
+    },
+    "data": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The piece, at most 1 MiB, in standard base64."
+     ]
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -13296,6 +13389,19 @@
       "since": 12,
       "constraints": [
        "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
+     },
+     "trace_clock": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "trace-fetch-v1",
+      "constraints": [
+       "Adds trace_clock_ns and trace_clock_domain to the reply: the app's heartbeat estimates a remote daemon's clock offset from them. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },
@@ -21628,6 +21734,46 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "sdk"
+   ]
+  },
+  "trace-fetch": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "trace-fetch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 0,
+      "constraints": [
+       "0 takes a new copy of the daemon's recording ring; a later offset reads that copy."
+      ]
+     }
+    },
+    "additional_properties": true
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TraceFetchResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a process: only the daemon's own recording ring is read.",
+    "Shares the one-call-at-a-time rule of trace-start, trace-stop and trace-status."
+   ],
+   "method_id": 277,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
     "sdk"
    ]
   },

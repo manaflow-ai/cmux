@@ -79,11 +79,28 @@ pub(super) fn trace_control(
     Ok(run_live(mux, call()?)?)
 }
 
+/// `trace-fetch` (server/trace_control.rs): owner only, as the other trace
+/// control calls. A relay peer never reaches it (`remote_relay::intercept`
+/// refuses first); a WebSocket client or a Unix client with a peer record is
+/// refused here, before the offset is read.
+pub(super) fn trace_fetch(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: &super::trace_control::FetchParams,
+) -> anyhow::Result<Value> {
+    use super::trace_control::{TraceControlRefused, fetch_live};
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return Err(TraceControlRefused::NotLocal.into());
+    }
+    Ok(fetch_live(mux, params)?)
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     client: u64,
     machine_metadata: bool,
     revisions: bool,
+    trace_clock: bool,
 ) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
@@ -128,6 +145,13 @@ pub(super) fn identify(
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+    }
+    // Read last, nearest the reply: the app takes the midpoint of its send and
+    // receive as the instant of this read (p09-observability-116).
+    if trace_clock {
+        identity
+            .insert("trace_clock_domain", json!(cmux_trace::clock::ClockDomain::CURRENT.as_str()));
+        identity.insert("trace_clock_ns", json!(cmux_trace::clock::now_ns()));
     }
     Ok(identity)
 }

@@ -310,7 +310,8 @@ fn bounded_outbound_frame_cut_comes_from_the_environment_value() {
 fn bounded_outbound_identify_reports_the_frame_cut_with_revisions() {
     let mux = crate::Mux::new_for_test("bulk-frame-max-identify", crate::SurfaceOptions::default());
     let client = mux.local_test_client(0);
-    let identify = |revisions| super::super::cmd_server::identify(&mux, client, false, revisions);
+    let identify =
+        |revisions| super::super::cmd_server::identify(&mux, client, false, revisions, false);
     assert!(identify(false).unwrap().get("bulk_frame_max").is_none());
     assert_eq!(identify(true).unwrap()["bulk_frame_max"], json!(mux.bulk_frame_max()));
     mux.shutdown();
@@ -326,7 +327,7 @@ fn bounded_outbound_identify_revisions_reply_keys_are_in_the_schema() {
     assert_eq!(declared["bulk_frame_max"]["type"]["name"], "uint32");
     let mux = crate::Mux::new_for_test("bulk-frame-max-schema", crate::SurfaceOptions::default());
     let client = mux.local_test_client(0);
-    let reply = super::super::cmd_server::identify(&mux, client, false, true).unwrap();
+    let reply = super::super::cmd_server::identify(&mux, client, false, true, false).unwrap();
     let undeclared: Vec<&String> =
         reply.as_object().unwrap().keys().filter(|key| !declared.contains_key(*key)).collect();
     assert!(undeclared.is_empty(), "identify keys missing from IdentifyResult: {undeclared:?}");

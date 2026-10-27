@@ -77,9 +77,10 @@ pub(super) fn handle_command_with_cancellation(
         Command::TraceStatus => {
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
+        Command::TraceFetch(params) => cmd_server::trace_fetch(mux, client, &params),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, client, machine_metadata, revisions)
+        Command::Identify { machine_metadata, revisions, trace_clock } => {
+            cmd_server::identify(mux, client, machine_metadata, revisions, trace_clock)
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(

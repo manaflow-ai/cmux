@@ -1,4 +1,5 @@
 public import CmuxNextWakeups
+import CmuxNextTrace
 import Foundation
 import CmuxNextCompat
 
@@ -19,11 +20,24 @@ import CmuxNextCompat
 /// ``KeepaliveGate/reconnectDelay()``, so a bridge that died in the sleep closes within its misses.
 /// Chrome's GCM heartbeat stops on `OnSuspend` and checks the connection on `OnResume` the same way
 /// (google_apis/gcm/engine/heartbeat_manager.cc).
+///
+/// Each ask also reads the daemon's trace clock (`identify {trace_clock: true}`, p09-observability-116), so a
+/// daemon on another machine has a clock offset for its trace recording with no extra request: the shortest
+/// round trip of the last eight answers gives ``clockOffset()`` (``DaemonClockFilter``). A sleep forgets them,
+/// since this Mac's trace clock stops while the remote one keeps counting.
 public final class ConnectionHeartbeat: Sendable {
+    /// What one ask got back.
+    enum Answer: Sendable, Equatable {
+        /// No answer within the timeout.
+        case missed
+        /// An answer, with its clock exchange when the daemon read its clock.
+        case answered(DaemonClockSample?)
+    }
+
     /// One run's daemon: how to ask it and how to close it.
     struct Probe: Sendable {
-        /// Asks `identify` with this timeout; true when it answered.
-        let ask: @Sendable (_ timeout: Duration) async -> Bool
+        /// Asks `identify` with this timeout.
+        let ask: @Sendable (_ timeout: Duration) async -> Answer
         /// Closes the transport (`.disconnected`, then a reconnect).
         let close: @Sendable () -> Void
         let interval: Duration
@@ -37,14 +51,40 @@ public final class ConnectionHeartbeat: Sendable {
         /// The current run's daemon; nil when stopped.
         var probe: Probe?
         var gate: KeepaliveGate?
+        /// The current run's clock exchanges.
+        var clock = DaemonClockFilter()
+    }
+
+    /// The two `identify` fields an ask reads; a daemon without `trace-fetch-v1` sends neither.
+    struct TraceClockReading: Decodable, Sendable {
+        let nanos: UInt64?
+        let domain: String?
+
+        enum CodingKeys: String, CodingKey {
+            case nanos = "trace_clock_ns", domain = "trace_clock_domain"
+        }
+
+        /// The exchange that carried this reading, or nil when the daemon read no clock.
+        func sample(sentNanos: UInt64, receivedNanos: UInt64) -> DaemonClockSample? {
+            guard let nanos, let domain else { return nil }
+            return DaemonClockSample(sentNanos: sentNanos, remoteNanos: nanos, receivedNanos: receivedNanos, remoteDomain: domain)
+        }
     }
 
     private let timer: DemandTimer
-    // concurrency-allow: the run's counters, its probe and gate, read and written synchronously by the timer's ask and the policy's edges (lock carve-out: a few fields, no I/O; the timer is scheduled with no wait under it).
+    private let traceClock: TraceClock
+    // concurrency-allow: the run's counters, its probe, gate and clock exchanges (eight samples), read and written synchronously by the timer's ask and the policy's edges (lock carve-out: a few fields, no I/O; the timer is scheduled with no wait under it).
     private let state = Mutex(State())
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    init(clock: any Clock<Duration> = ContinuousClock(), traceClock: TraceClock = TraceClock()) {
         timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
+        self.traceClock = traceClock
+    }
+
+    /// The current daemon's trace clock against this Mac's, from the shortest exchange of the last eight asks;
+    /// nil before the first answer that read a clock (an older daemon never sends one), after a sleep and while stopped.
+    public func clockOffset() -> DaemonClockOffset? {
+        state.withLock { $0.clock.estimate }
     }
 
     /// Follows `gate`'s sleep and wake from now on, for this connection and its reconnects, in place
@@ -63,10 +103,15 @@ public final class ConnectionHeartbeat: Sendable {
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
     /// ends the earlier run, and a closed transport ends it after its misses.
     func start(_ transport: LineTransport, every interval: Duration, misses limit: Int) {
+        let traceClock = traceClock
         start(Probe(ask: { timeout in
-            (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout) { id in
-                try WireCoding.encodeRequest(IdentifyRequest(), id: id)
-            }) != nil
+            let sent = traceClock.nowNanos()
+            guard let response = try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout, { id in
+                try WireCoding.encodeRequest(IdentifyRequest(traceClock: true), id: id)
+            }) else { return .missed }
+            let received = traceClock.nowNanos()
+            let reading = try? WireCoding.decodeResponse(TraceClockReading.self, from: response)
+            return .answered(reading?.sample(sentNanos: sent, receivedNanos: received))
         }, close: { transport.close() }, interval: interval, misses: limit))
     }
 
@@ -76,6 +121,7 @@ public final class ConnectionHeartbeat: Sendable {
             state.misses = 0
             state.run &+= 1
             state.probe = probe
+            state.clock.reset()
             return state.run
         }
         schedule(after: probe.interval, run: run)
@@ -85,6 +131,7 @@ public final class ConnectionHeartbeat: Sendable {
         state.withLock { state in
             state.run &+= 1
             state.probe = nil
+            state.clock.reset()
         }
         timer.cancel()
     }
@@ -102,10 +149,16 @@ public final class ConnectionHeartbeat: Sendable {
 
     private func tick(run: UInt64) async {
         guard let probe = state.withLock({ $0.run == run ? $0.probe : nil }) else { return }
-        let answered = await probe.ask(probe.interval)
+        let answer = await probe.ask(probe.interval)
         let close = state.withLock { state -> Bool? in
             guard state.run == run else { return nil }
-            state.misses = answered ? 0 : state.misses + 1
+            switch answer {
+            case .missed:
+                state.misses += 1
+            case .answered(let sample):
+                state.misses = 0
+                if let sample { state.clock.add(sample) }
+            }
             return state.misses >= probe.misses
         }
         guard let close else { return }
@@ -128,9 +181,13 @@ public final class ConnectionHeartbeat: Sendable {
         }
     }
 
-    /// Drops the armed ask and the one in flight, so nothing asks and no miss counts while asleep.
+    /// Drops the armed ask and the one in flight, so nothing asks and no miss counts while asleep. The clock
+    /// exchanges go too: this Mac's trace clock stops in the sleep, a remote machine's does not.
     private func pause() {
-        state.withLock { $0.run &+= 1 }
+        state.withLock { state in
+            state.run &+= 1
+            state.clock.reset()
+        }
         timer.cancel()
     }
 

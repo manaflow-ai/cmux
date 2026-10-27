@@ -411,3 +411,9 @@ pub fn process_uptime_ns() -> Option<u64> {
 pub fn snapshot_active() -> Option<Vec<u8>> {
     PROCESS.get().map(Tracer::snapshot_active)
 }
+
+/// A consistent copy of this process's recording ring ([`Tracer::snapshot_recording`]): the bytes
+/// the daemon's `trace-fetch` sends. None before [`init_blackbox`] or the first recording.
+pub fn snapshot_recording() -> Option<Vec<u8>> {
+    PROCESS.get().and_then(Tracer::snapshot_recording)
+}

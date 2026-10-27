@@ -93,6 +93,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
+    try expectExplicitNullRejected(protocol.IdentifyRequest, "trace_clock");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
@@ -124,6 +125,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
+    try expectExplicitNullRejected(protocol.TraceFetchRequest, "offset");
     try expectExplicitNullRejected(protocol.TraceStartRequest, "keys");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "cause");
@@ -341,6 +343,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "trace_clock_domain");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "trace_clock_ns");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");

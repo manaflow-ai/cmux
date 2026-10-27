@@ -10554,6 +10554,9 @@
       },
       "/revisions": {
         "ty": "boolean"
+      },
+      "/trace_clock": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
@@ -13464,6 +13467,11 @@
       "/terminal_id": {
         "ty": "string",
         "nullable": true
+      }
+    },
+    "request:trace-fetch": {
+      "/offset": {
+        "ty": "uint64"
       }
     },
     "request:trace-start": {
@@ -20152,6 +20160,17 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/trace_clock_domain": {
+        "ty": "enum",
+        "values": [
+          "monotonic",
+          "qpc",
+          "uptime_raw"
+        ]
+      },
+      "/data/trace_clock_ns": {
+        "ty": "uint64"
+      },
       "/data/update_command": {
         "ty": "string",
         "nullable": true
@@ -25379,6 +25398,35 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-fetch": {
+      "/data/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/done": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/pid": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/role": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "daemon"
+        ]
+      },
+      "/data/total_bytes": {
+        "ty": "uint64",
         "required": true
       }
     },

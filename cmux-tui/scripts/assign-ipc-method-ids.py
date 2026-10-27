@@ -320,8 +320,9 @@ MEMORY = (
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
     "subscribe-activity", "agent-inventory-watch",
-    # Start or stop a trace recording: process memory and ring files, never the journal.
-    "trace-start", "trace-stop",
+    # Start or stop a trace recording: process memory and ring files, never the journal. A
+    # fetch holds a copy of the recording in memory until its last piece.
+    "trace-start", "trace-stop", "trace-fetch",
     # The app supervisor's connection state: every apps-* request registers
     # the connection for apps events; mounts, runs, follows and providers live
     # until the connection closes. Nothing here is journaled.

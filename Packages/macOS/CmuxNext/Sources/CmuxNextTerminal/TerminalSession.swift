@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextMetrics
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
 public import CmuxNextWakeups
@@ -174,13 +175,15 @@ public final class TerminalSession {
     ///     its `MainDeadline` placer (nil makes one): the find bar, scrollbar, TextBox and window watches apply only while it shows.
     ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
+    ///   - echoRoute: Where its echo comes from (this Mac's daemon, a bridge or a Cloud machine): the
+    ///     `key.echo_frame` histogram its sampled keys record into (p09-observability-116).
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil, deadlines: MainDeadlineScheduler? = nil,
-                gpuResidency: (any TerminalGPUResidency)? = nil) {
+                gpuResidency: (any TerminalGPUResidency)? = nil, echoRoute: HistogramID.EchoRoute = .local) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -192,7 +195,8 @@ public final class TerminalSession {
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
-        input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()), typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+        input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                  typingSurface: TypingLatencyProbe.shared.makeSurfaceKey(route: echoRoute))
 
         frameHold = TerminalFrameHold(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
         // node-free: the model's connection, grid and content are read while the tab is hidden

@@ -346,6 +346,52 @@ fn cli_trace_record_over_a_fake_socket_calls_in_order_and_writes_the_bundle() {
     );
 }
 
+/// A recording that reached a bridged daemon (task 116): its ring is copied as that machine's,
+/// with the heartbeat's offset and bound in the manifest's `remotes`; a machine with no offset
+/// has nothing to place on the local clock and is listed in `not_copied`.
+#[test]
+fn cli_trace_record_collects_remote_rings_with_their_clock_offset() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut stop = stop_reply(temp.path());
+    let fetched = temp.path().join("linux-lane").join("daemon-20.recording.cmxtrace");
+    std::fs::create_dir(fetched.parent().unwrap()).unwrap();
+    std::fs::write(&fetched, b"remote ring").unwrap();
+    stop["remotes"] = json!([
+        {"name": "linux-lane", "offset_ns": 38_000_000, "error_bound_ns": 2_000_000,
+         "rings": [{"role": "daemon", "pid": 20, "path": fetched.display().to_string()}]},
+        {"name": "asleep", "state": "error", "error": "not_connected"},
+    ]);
+    let out = temp.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+    let collected = collect(&stop, &out, true).unwrap();
+    let bundle = collected.bundle;
+    assert_eq!(
+        bundle.remotes,
+        [RemoteMachine {
+            name: "linux-lane".into(),
+            offset_ns: 38_000_000,
+            error_bound_ns: 2_000_000
+        }]
+    );
+    let remote = bundle.rings.iter().find(|ring| ring.machine == RingMachine::Remote(0)).unwrap();
+    assert_eq!(remote.pid, Some(20));
+    assert_ne!(
+        remote.path,
+        out.join(RINGS_DIR).join("daemon-20.recording.cmxtrace"),
+        "the local daemon's ring of the same name keeps its file"
+    );
+    assert_eq!(std::fs::read(&remote.path).unwrap(), b"remote ring");
+    assert!(collected.not_copied.contains(
+        &json!({"machine": "asleep", "role": "daemon", "pid": null, "reason": "not_connected"})
+    ));
+    let [(_, remotes), (_, rings), _] = bundle.manifest_fields();
+    assert_eq!(
+        remotes,
+        json!([{"name": "linux-lane", "offset_ns": 38_000_000, "error_bound_ns": 2_000_000}])
+    );
+    assert!(rings.as_array().unwrap().iter().any(|ring| ring["machine"] == json!({"remote": 0})));
+}
+
 /// A ring or Chromium file the stop reply names but that is gone, and parts that did not
 /// answer, are listed in `not_copied`; nothing is silently dropped.
 #[test]

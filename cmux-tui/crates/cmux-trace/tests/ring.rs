@@ -455,6 +455,30 @@ fn start_record_stop_and_restart_move_writes_between_the_rings() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `trace-fetch` (task 116) reads the recording ring after its stop: the same records its file
+/// holds, on the heap when no file was mapped.
+#[test]
+fn the_recording_snapshot_holds_the_recording_after_its_stop() {
+    let dir = scratch_dir("recording-snapshot");
+    let tracer = Tracer::with_catalog(config(16, &dir), &CATALOG);
+    assert_eq!(tracer.snapshot_recording(), None, "no recording before the first start");
+    let mut writer = Writer::new(&tracer, identity(1));
+    writer.write(checked(1, 1));
+    tracer.start_recording(category::MOTION).expect("starts");
+    writer.write(checked(1, 2));
+    writer.write(checked(1, 3));
+    tracer.stop().expect("stops");
+    writer.write(checked(1, 4));
+    let bytes = tracer.snapshot_recording().expect("a recording");
+    let recording = decode(&bytes).expect("decodes");
+    assert_eq!(recording.header.ring_kind, 2, "the recording ring, not the black box");
+    let args: Vec<u64> = recording.records.iter().map(|r| r.arg0 & 0xFFFF_FFFF).collect();
+    assert_eq!(args, [2, 3]);
+    assert_eq!(bytes.len() as u64, tracer.status().recording_bytes);
+    drop(writer);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_ring_write_allocates_nothing_even_on_the_first_write() {
     let tracer = tracer(8);

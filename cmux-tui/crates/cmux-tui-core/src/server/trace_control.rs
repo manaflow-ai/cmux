@@ -14,6 +14,17 @@
 //! client is refused before anything runs. As the tracing service changes one
 //! session at a time, one call runs at a time ([`TraceControlGate`]), and a
 //! terminal host answers its calls in the order they arrive.
+//!
+//! `trace-fetch` (p09-observability-116) sends this daemon's own recording
+//! ring over the connection that asks, in [`FETCH_CHUNK_BYTES`] pieces, so the
+//! app collects the recording of a daemon on another machine (a bridge or a
+//! Cloud machine) whose files it cannot read. As Chrome's tracing service
+//! returns the trace to its consumer over the consumer's own pipe
+//! (`services/tracing/perfetto/consumer_host.cc` `ReadBuffers`, in chunks), the
+//! caller names no file: only an offset into the one ring the daemon owns.
+//! The same owner rule applies: the link's owner_session splice is a trusted
+//! local client of the remote daemon, and a relay peer that does not own the
+//! session is refused.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,6 +33,7 @@ use std::sync::PoisonError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Mutex;
 use cmux_trace::{ControlOp, Role, category};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -47,6 +59,23 @@ pub(crate) struct StartParams {
     /// Record per-key records (`key`).
     #[serde(default)]
     keys: bool,
+}
+
+/// `identify` advertises `trace-fetch` and its `trace_clock` option with it.
+pub(super) const FETCH_CAPABILITY: &str = "trace-fetch-v1";
+
+/// The most recording bytes one `trace-fetch` reply carries. A 1 MiB piece
+/// (1.4 MB of base64) keeps the connection's other replies (the heartbeat, a
+/// key's echo) from waiting behind one 32 MiB line.
+pub(super) const FETCH_CHUNK_BYTES: usize = 1024 * 1024;
+
+/// `trace-fetch`'s parameters. Nothing else is read: no path, no process.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct FetchParams {
+    /// Where to read in the recording. 0 takes a new copy of the ring; a
+    /// later offset reads the copy the offset-0 call took.
+    #[serde(default)]
+    offset: u64,
 }
 
 /// One forwarded call to a terminal host.
@@ -118,6 +147,13 @@ pub(crate) enum TraceControlRefused {
     /// A start in a session without a state root (`--ephemeral`): its only
     /// directory would be a shared temporary one.
     NoStateRoot,
+    /// A fetch from a daemon that never recorded.
+    NoRecording,
+    /// A fetch past offset 0 with no copy to read: none was taken, it was
+    /// read to its end, or a start replaced it.
+    NoFetch,
+    /// A fetch offset past the copy's end.
+    BadOffset,
 }
 
 impl std::fmt::Display for TraceControlRefused {
@@ -128,6 +164,11 @@ impl std::fmt::Display for TraceControlRefused {
             TraceControlRefused::NoStateRoot => {
                 "this session has no state root to record into (it is ephemeral)"
             }
+            TraceControlRefused::NoRecording => "this daemon has no trace recording to fetch",
+            TraceControlRefused::NoFetch => {
+                "no trace fetch is in progress: start it again at offset 0"
+            }
+            TraceControlRefused::BadOffset => "the trace fetch offset is past the recording's end",
         })
     }
 }
@@ -140,6 +181,10 @@ impl std::error::Error for TraceControlRefused {}
 #[derive(Debug, Default)]
 pub(crate) struct TraceControlGate {
     running: AtomicBool,
+    /// The recording copy a `trace-fetch` reads piece by piece, from its
+    /// offset-0 call until its last piece or the next start; at most one ring
+    /// (32 MiB). Only the call holding the turn locks it, so it never waits.
+    fetched: Mutex<Option<Vec<u8>>>,
 }
 
 /// The running call's turn; it ends on drop.
@@ -154,6 +199,34 @@ impl TraceControlGate {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map(|_| TraceControlTurn { gate: self })
             .map_err(|_| TraceControlRefused::Busy)
+    }
+}
+
+impl TraceControlTurn<'_> {
+    /// Runs `read` on the fetch copy: a new one from `snapshot` at offset 0,
+    /// else the one the offset-0 call took. `read` returns whether the copy
+    /// was read to its end, which drops it.
+    fn read_fetched<T>(
+        &self,
+        offset: u64,
+        snapshot: impl FnOnce() -> Option<Vec<u8>>,
+        read: impl FnOnce(&[u8]) -> Result<(T, bool), TraceControlRefused>,
+    ) -> Result<T, TraceControlRefused> {
+        let mut fetched = self.gate.fetched.lock().unwrap_or_else(PoisonError::into_inner);
+        if offset == 0 {
+            *fetched = Some(snapshot().ok_or(TraceControlRefused::NoRecording)?);
+        }
+        let copy = fetched.as_deref().ok_or(TraceControlRefused::NoFetch)?;
+        let (value, finished) = read(copy)?;
+        if finished {
+            *fetched = None;
+        }
+        Ok(value)
+    }
+
+    /// Drops a fetch copy: a start begins a new recording.
+    fn drop_fetched(&self) {
+        *self.gate.fetched.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 }
 
@@ -249,9 +322,51 @@ pub(super) fn start_call(params: &StartParams) -> anyhow::Result<Call> {
 /// Runs `call` in this daemon and its live children, one call at a time.
 /// The caller checked the client is the owner (`cmd_server::trace_control`).
 pub(super) fn run_live(mux: &Arc<Mux>, call: Call) -> Result<Value, TraceControlRefused> {
-    let _turn = mux.trace_control.begin()?;
+    let turn = mux.trace_control.begin()?;
     let daemon_dir = daemon_dir(mux.session_state_directory(), call)?;
+    if matches!(call, Call::Start { .. }) {
+        turn.drop_fetched();
+    }
     Ok(run(call, &LiveTargets { mux, daemon_dir }))
+}
+
+/// `trace-fetch` in this daemon: one piece of its own recording ring. The
+/// caller checked the client is the owner (`cmd_server::trace_fetch`).
+pub(super) fn fetch_live(
+    mux: &Arc<Mux>,
+    params: &FetchParams,
+) -> Result<Value, TraceControlRefused> {
+    let turn = mux.trace_control.begin()?;
+    fetch(&turn, params.offset, cmux_trace::snapshot_recording)
+}
+
+/// One piece of the recording from `offset`, `snapshot` taking the copy at
+/// offset 0: `{role, pid, offset, total_bytes, done, data}` with `data` the
+/// piece in base64. A reader asks again at `offset + piece length` until
+/// `done`; a start in between drops the copy, and the next piece is refused.
+pub(super) fn fetch(
+    turn: &TraceControlTurn<'_>,
+    offset: u64,
+    snapshot: impl FnOnce() -> Option<Vec<u8>>,
+) -> Result<Value, TraceControlRefused> {
+    use base64::Engine;
+    turn.read_fetched(offset, snapshot, |copy| {
+        let start = usize::try_from(offset)
+            .ok()
+            .filter(|start| *start <= copy.len())
+            .ok_or(TraceControlRefused::BadOffset)?;
+        let end = copy.len().min(start + FETCH_CHUNK_BYTES);
+        let done = end == copy.len();
+        let reply = json!({
+            "role": Role::Daemon.as_str(),
+            "pid": std::process::id(),
+            "offset": offset,
+            "total_bytes": copy.len() as u64,
+            "done": done,
+            "data": base64::engine::general_purpose::STANDARD.encode(&copy[start..end]),
+        });
+        Ok((reply, done))
+    })
 }
 
 /// `<state root>/trace`. Only a start opens a ring, so only a start needs it.

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
+/* cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f. */
 
 
 import type * as T from "./types.js";
@@ -1965,6 +1965,7 @@ export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
   "revisions"?: boolean;
+  "trace_clock"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -3415,6 +3416,13 @@ export interface TerminalResumeCommandRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface TraceFetchRequest extends CmuxRequestBase {
+  cmd: "trace-fetch";
+  "offset"?: bigint;
+  [key: string]: unknown;
+}
+
+/** Protocol v12; authority: local-admin. */
 export interface TraceStartRequest extends CmuxRequestBase {
   cmd: "trace-start";
   "categories"?: (Array<string>) | null;
@@ -3998,6 +4006,7 @@ export type CmuxRequest =
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
+  | TraceFetchRequest
   | TraceStartRequest
   | TraceStatusRequest
   | TraceStopRequest
@@ -6714,6 +6723,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "resume-command";
+    stream: null;
+  };
+  "trace-fetch": {
+    request: TraceFetchRequest;
+    result: T.TraceFetchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "trace-fetch-v1";
     stream: null;
   };
   "trace-start": {

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
+/* cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777" as const;
+export const SDK_IR_SHA256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2272,6 +2272,10 @@ export const COMMAND_METADATA = {
       "revisions": {
         "since": 12,
         "capability": null
+      },
+      "trace_clock": {
+        "since": 12,
+        "capability": "trace-fetch-v1"
       }
     },
     "stream": null,
@@ -4311,6 +4315,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "The resume command is stored durably with the terminal and survives owner restarts.",
       "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
+    ]
+  },
+  "trace-fetch": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "trace-fetch-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+      "No parameter is a path or a process: only the daemon's own recording ring is read.",
+      "Shares the one-call-at-a-time rule of trace-start, trace-stop and trace-status."
     ]
   },
   "trace-start": {
@@ -10857,6 +10873,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 9,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "trace_clock_domain": {
+        "constraints": [
+          "The clock trace_clock_ns is on: macOS CLOCK_UPTIME_RAW, Linux CLOCK_MONOTONIC or the Windows performance counter. Only with identify {trace_clock: true}."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "enum",
+          "values": [
+            "uptime_raw",
+            "monotonic",
+            "qpc"
+          ]
+        }
+      },
+      "trace_clock_ns": {
+        "constraints": [
+          "The daemon's trace clock in ns, read just before the reply. Only with identify {trace_clock: true}."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -18016,6 +18060,71 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TraceFetchResult": {
+    "additional_properties": false,
+    "fields": {
+      "data": {
+        "constraints": [
+          "The piece, at most 1 MiB, in standard base64."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "done": {
+        "constraints": [
+          "This piece ends the copy; the copy is dropped."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "role": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "daemon"
+          ]
+        }
+      },
+      "total_bytes": {
+        "constraints": [
+          "The length of the recording copy the offset-0 call took."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -27421,6 +27530,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "boolean"
           }
+        },
+        "trace_clock": {
+          "capability": "trace-fetch-v1",
+          "constraints": [
+            "Adds trace_clock_ns and trace_clock_domain to the reply: the app's heartbeat estimates a remote daemon's clock offset from them. Off by default so strict older SDK decoders keep reading the reply."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -34794,6 +34916,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalResumeCommandResult"
+    }
+  },
+  "trace-fetch": {
+    "request": {
+      "additional_properties": true,
+      "fields": {
+        "offset": {
+          "constraints": [
+            "0 takes a new copy of the daemon's recording ring; a later offset reads that copy."
+          ],
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TraceFetchResult"
     }
   },
   "trace-start": {

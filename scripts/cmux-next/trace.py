@@ -183,6 +183,8 @@ STALL_DURING_SPANS = ("action.perform", "action.commit", "stall.create_surface",
 # `record --release`: `cmux trace record` (p09-observability 021, over the app's trace.start/stop of 020) copies every
 # process's ring and Chromium's JSON into OUT/rings; the recording window is its own, from trace.start to trace.stop.
 RELEASE_DIR = "rings"
+# The bundle `cmux trace record` writes beside the rings: which machine each ring came from and its clock offset.
+MANIFEST_FILE = "manifest.json"
 RELEASE_CHROMIUM_FILE = "chromium-trace.json"
 RELEASE_LOG = "cmux-trace.log"
 # `cmux trace record` says it records once trace.start replied: the CLI waits up to 15 s for that reply
@@ -2699,10 +2701,46 @@ def ring_identity(ring):
     return header["pid"], header["ring_kind"], header["start_unix_ns"], header["start_uptime_ns"]
 
 
+def remote_ring_clocks(out):
+    """{absolute ring path: the remote machine it was recorded on} from OUT/manifest.json (`cmux trace record`'s
+    bundle): its `remotes` ({name, offset_ns, error_bound_ns}, the heartbeat's min-RTT estimate, p09-observability
+    116) and each ring's `machine` ({"remote": index}). Empty for a recording with no manifest or no remote ring."""
+    manifest = read_json(os.path.join(out, MANIFEST_FILE)) if os.path.isfile(os.path.join(out, MANIFEST_FILE)) else None
+    if not isinstance(manifest, dict):
+        return {}
+    remotes = [r for r in manifest.get("remotes") or [] if isinstance(r, dict)]
+    clocks = {}
+    for ring in manifest.get("rings") or []:
+        machine = ring.get("machine") if isinstance(ring, dict) else None
+        index = machine.get("remote") if isinstance(machine, dict) else None
+        if isinstance(index, int) and 0 <= index < len(remotes) and isinstance(ring.get("file"), str):
+            remote = remotes[index]
+            if isinstance(remote.get("offset_ns"), int) and isinstance(remote.get("error_bound_ns"), int):
+                clocks[os.path.abspath(os.path.join(out, ring["file"]))] = remote
+    return clocks
+
+
+def place_remote_ring(ring, remote):
+    """Puts a remote machine's ring on this Mac's trace clock: every record less the machine's measured offset (its
+    clock minus the local one), as the exporter's ClockSnapshot does. The ring keeps the offset's error bound, which
+    the clock-order check allows each of its hops."""
+    for record in ring["records"]:
+        record["t_ns"] = max(0, record["t_ns"] - remote["offset_ns"])
+    ring["info"].update({"machine": remote.get("name") or "remote", "offset_ns": remote["offset_ns"],
+                         "error_bound_ns": remote["error_bound_ns"]})
+
+
+def ring_bound_us(ring):
+    """The clock error bound of a ring's times, in us: 0 for this Mac's rings, the offset's bound for a remote one."""
+    return ring["info"].get("error_bound_ns", 0) / 1000.0
+
+
 def read_rings(out):
     """Every ring of the recording decoded, each once (a copy of a ring already read is skipped), and {file name:
-    why} for each file that is not a ring v1 this reader knows."""
+    why} for each file that is not a ring v1 this reader knows. A ring the manifest names as another machine's is
+    put on this Mac's clock (place_remote_ring)."""
     rings, unreadable, seen = [], {}, set()
+    remote_clocks = remote_ring_clocks(out)
     for path in ring_paths(out):
         try:
             with open(path, "rb") as f:
@@ -2712,6 +2750,9 @@ def read_rings(out):
             continue
         if ring_identity(ring) not in seen:
             seen.add(ring_identity(ring))
+            remote = remote_clocks.get(os.path.abspath(path))
+            if remote:
+                place_remote_ring(ring, remote)
             rings.append(ring)
     return rings, unreadable
 
@@ -2829,6 +2870,7 @@ def ring_flow_inputs(rings):
     app_events, records, renders, gpu_done = [], [], [], []
     for ring in rings:
         pid = ring["info"]["pid"]
+        bound = {"bound_us": ring_bound_us(ring)} if ring_bound_us(ring) else {}
         open_renders = collections.defaultdict(list)
         for record in ring["records"]:
             phase, name, at_us = record["phase"], record["name"], record["t_ns"] / 1000.0
@@ -2842,11 +2884,11 @@ def ring_flow_inputs(rings):
             elif name in ECHO_HANDOFFS and phase in ("s", "f") and record["arg1"]:
                 records.append({"hop": f"{name}{'.queued' if phase == 's' else '.taken'}", "flow": record["arg1"],
                                 "terminal": ring_terminal_key(record["arg0"]), "pid": pid, "tid": thread,
-                                "at_us": at_us, "ring": True})
+                                "at_us": at_us, "ring": True, **bound})
             elif name in LEGACY_FLOW_HOPS and phase in ("f", "I"):
                 # cmux-flow-trace's step: `f` (the hop's time) then `s` with the flow id; `I` with flow 0.
                 records.append({"hop": name, "flow": record["arg1"], "terminal": ring_terminal_key(record["arg0"]),
-                                "pid": pid, "tid": thread, "at_us": at_us, "ring": True})
+                                "pid": pid, "tid": thread, "at_us": at_us, "ring": True, **bound})
             elif name == "frame.present_estimate" and phase == "I" and record["arg0"]:
                 records.append({"hop": name, "flow": record["arg0"], "terminal": "", "pid": pid, "tid": thread,
                                 "at_us": at_us, "ring": True})
@@ -3294,6 +3336,12 @@ REQUEST_FLOW_NAME = "daemon.request"
 CLOCK_ORDER_SLACK_US = 1.0
 
 
+def clock_order_slack_us(effect, cause):
+    """How much earlier than `cause` `effect` may be stamped before it is a clock error: the rounding slack, plus the
+    clock offset's error bound of each side recorded on another machine (`bound_us`, place_remote_ring)."""
+    return CLOCK_ORDER_SLACK_US + effect.get("bound_us", 0.0) + cause.get("bound_us", 0.0)
+
+
 def request_flows(records):
     """The daemon requests' flow records (REQUEST_FLOW_NAME with phase `s` or `f` and a flow id) by flow id, each
     list in time order."""
@@ -3323,18 +3371,19 @@ def clock_order_violations(flows, request_records):
     for entry in flows:
         at = {h["hop"]: h for h in entry["hops"]}
         for hop in entry["hops"]:
-            late = [at[c] for c in present_causes(hop["hop"], at) if hop["at_us"] < at[c]["at_us"] - CLOCK_ORDER_SLACK_US]
+            late = [at[c] for c in present_causes(hop["hop"], at)
+                    if hop["at_us"] < at[c]["at_us"] - clock_order_slack_us(hop, at[c])]
             if late:
                 key_violation(entry, hop, late)
         for record in entry.get("early") or []:
-            if record["at_us"] < record["cause"]["at_us"] - CLOCK_ORDER_SLACK_US:
+            if record["at_us"] < record["cause"]["at_us"] - clock_order_slack_us(record, record["cause"]):
                 key_violation(entry, record, [record["cause"]])
     for flow, rows in request_flows(request_records).items():
         for row in rows:
             if row["ph"] != "f":
                 continue
             outs = [r for r in rows if r["ph"] == "s" and r.get("pid") != row.get("pid")]
-            if outs and all(row["at_us"] < r["at_us"] - CLOCK_ORDER_SLACK_US for r in outs):
+            if outs and all(row["at_us"] < r["at_us"] - clock_order_slack_us(row, r) for r in outs):
                 cause = outs[0]
                 violations.append({"kind": "request", "flow": f"0x{flow:x}", "hop": "flow-in", "pid": row.get("pid"),
                                    "at_us": round(row["at_us"], 3),
@@ -3398,7 +3447,8 @@ def ring_request_records(rings):
     """The daemon requests' flow records in v1 trace rings (read_rings), as read_flow_records gives them: a
     REQUEST_FLOW_NAME flow out (`s`) or in (`f`) carries its flow id in arg1, as every ring flow record does."""
     return [{"hop": REQUEST_FLOW_NAME, "ph": record["phase"], "flow": record["arg1"], "terminal": "",
-             "pid": ring["info"]["pid"], "tid": ring_record_tid(ring, record), "at_us": record["t_ns"] / 1000.0}
+             "pid": ring["info"]["pid"], "tid": ring_record_tid(ring, record), "at_us": record["t_ns"] / 1000.0,
+             **({"bound_us": ring_bound_us(ring)} if ring_bound_us(ring) else {})}
             for ring in rings for record in ring["records"]
             if record["name"] == REQUEST_FLOW_NAME and record["phase"] in ("s", "f") and record["arg1"]]
 
@@ -6037,6 +6087,46 @@ def check_clock_command():
         code, report = check_clock(out, rings)
         assert code == 1 and report["clock_order"]["checked_requests"] == 1, report
         assert [(v["kind"], v["pid"]) for v in report["clock_order"]["violations"]] == [("request", 20)], report
+    check_clock_bridge_recording()
+
+
+def check_clock_bridge_recording():
+    """p09-observability-116: a bridge recording's remote daemon ring is on its own clock, 37 ms ahead. With the
+    manifest's measured offset (the heartbeat's 4 ms exchange: 38 ms, bound 2 ms) check-clock puts it on this Mac's
+    clock and finds the request in order; with no offset the same rings are 37 ms out of order."""
+    names = (REQUEST_FLOW_NAME,)
+    threads = ((1, 0, "main", 0),)
+    ahead_ns, flow = 37_000_000, 9
+
+    def write(out, remotes, machine):
+        app, _ = ring_fixture(pid=10, role=1, names=names, threads=threads, start_ns=1,
+                              records=[(0, 10_000_000, 1, "s", 0, 0, flow), (0, 14_100_000, 1, "f", 0, 0, flow)])
+        # The remote daemon takes the request 3 ms after it left and answers 100 us later, on its own clock.
+        daemon, _ = ring_fixture(pid=20, role=2, names=names, threads=threads, start_ns=1 + ahead_ns,
+                                 records=[(0, 13_000_000 + ahead_ns, 1, "f", 0, 0, flow),
+                                          (0, 13_100_000 + ahead_ns, 1, "s", 0, 0, flow)])
+        os.makedirs(os.path.join(out, RELEASE_DIR), exist_ok=True)
+        for name, data in (("app-10.recording.cmxtrace", app), ("1-daemon-20.recording.cmxtrace", daemon)):
+            with open(os.path.join(out, RELEASE_DIR, name), "wb") as f:
+                f.write(data)
+        write_json(os.path.join(out, MANIFEST_FILE), {
+            "remotes": remotes,
+            "rings": [{"role": "app", "pid": 10, "machine": "local", "file": f"{RELEASE_DIR}/app-10.recording.cmxtrace"},
+                      {"role": "daemon", "pid": 20, "machine": machine,
+                       "file": f"{RELEASE_DIR}/1-daemon-20.recording.cmxtrace"}]})
+
+    with tempfile.TemporaryDirectory() as out:
+        write(out, [{"name": "linux-lane", "offset_ns": 38_000_000, "error_bound_ns": 2_000_000}], {"remote": 0})
+        rings = read_rings(out)[0]
+        daemon = next(ring for ring in rings if ring["info"]["pid"] == 20)
+        assert daemon["info"]["machine"] == "linux-lane" and daemon["info"]["error_bound_ns"] == 2_000_000, daemon["info"]
+        assert [r["t_ns"] for r in daemon["records"]] == [12_000_000, 12_100_000], "within the bound of 13 ms"
+        code, report = check_clock(out)
+        assert code == 0 and report["clock_order"]["checked_requests"] == 1, report
+    with tempfile.TemporaryDirectory() as out:
+        write(out, [], "local")
+        code, report = check_clock(out)
+        assert code == 1 and [v["pid"] for v in report["clock_order"]["violations"]] == [10], report
         rings[1]["records"][0]["t_ns"] = 110_000
         assert check_clock(out, rings)[0] == 0
         assert request_flow_summary(load_flow_inputs(out, read_signposts(""), rings)[2])["request_flow_linked"] == 100.0

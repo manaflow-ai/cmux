@@ -195,7 +195,7 @@ public final class Commands {
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HOME_INBOX = new CommandMetadata("home-inbox", Authority.LOCAL_ADMIN, 12, "home-inbox-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
+    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L), Map.entry("trace_clock", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1"), Map.entry("trace_clock", "trace-fetch-v1")));
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -346,6 +346,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESUME_COMMAND = new CommandMetadata("terminal-resume-command", Authority.CONTROL, 12, "resume-command", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TRACE_FETCH = new CommandMetadata("trace-fetch", Authority.LOCAL_ADMIN, 12, "trace-fetch-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TRACE_START = new CommandMetadata("trace-start", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TRACE_STATUS = new CommandMetadata("trace-status", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TRACE_STOP = new CommandMetadata("trace-stop", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
@@ -713,6 +714,7 @@ public final class Commands {
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
         values.put("terminal-resume-command", TERMINAL_RESUME_COMMAND);
+        values.put("trace-fetch", TRACE_FETCH);
         values.put("trace-start", TRACE_START);
         values.put("trace-status", TRACE_STATUS);
         values.put("trace-stop", TRACE_STOP);

@@ -567,8 +567,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
-    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions))
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING, trace_clock: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions, trace_clock=trace_clock))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -1020,6 +1020,9 @@ class GeneratedClientMixin:
     def terminal_resume_command(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING) -> TerminalResumeCommandResult:
         return self._invoke_command('terminal-resume-command', TerminalResumeCommandRequest(surface=surface, terminal_id=terminal_id, command=command))
 
+    def trace_fetch(self, *, offset: Union[int, MissingType] = MISSING) -> TraceFetchResult:
+        return self._invoke_command('trace-fetch', TraceFetchRequest(offset=offset))
+
     def trace_start(self, *, categories: Union[List[str], None, MissingType] = MISSING, keys: Union[bool, MissingType] = MISSING) -> Any:
         return self._invoke_command('trace-start', TraceStartRequest(categories=categories, keys=keys))
 
@@ -1438,6 +1441,7 @@ GeneratedClientMixin.terminal_ports.__cmux_command__ = COMMANDS['terminal-ports'
 GeneratedClientMixin.terminal_read_range.__cmux_command__ = COMMANDS['terminal-read-range']
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
 GeneratedClientMixin.terminal_resume_command.__cmux_command__ = COMMANDS['terminal-resume-command']
+GeneratedClientMixin.trace_fetch.__cmux_command__ = COMMANDS['trace-fetch']
 GeneratedClientMixin.trace_start.__cmux_command__ = COMMANDS['trace-start']
 GeneratedClientMixin.trace_status.__cmux_command__ = COMMANDS['trace-status']
 GeneratedClientMixin.trace_stop.__cmux_command__ = COMMANDS['trace-stop']

@@ -424,3 +424,82 @@ fn trace_control_holder_reasons_are_the_holder_services_words() {
         assert_eq!(holder_json(Call::Status, sent)["reason"], trace.as_str(), "{trace:?}");
     }
 }
+
+/// The pieces of one fetch, read until `done`: their bytes in order.
+fn fetch_all(gate: &TraceControlGate, ring: &[u8]) -> Vec<u8> {
+    use base64::Engine;
+    let mut bytes = Vec::new();
+    loop {
+        let turn = gate.begin().expect("one call at a time");
+        let piece = fetch(&turn, bytes.len() as u64, || Some(ring.to_vec())).expect("a piece");
+        assert_eq!(piece["role"], "daemon");
+        assert_eq!(piece["total_bytes"], ring.len() as u64);
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(piece["data"].as_str().unwrap())
+            .unwrap();
+        assert!(data.len() <= FETCH_CHUNK_BYTES);
+        bytes.extend(data);
+        if piece["done"] == true {
+            return bytes;
+        }
+    }
+}
+
+#[test]
+fn trace_fetch_reads_the_recording_in_pieces_and_drops_the_copy_after_the_last() {
+    let gate = TraceControlGate::default();
+    let ring: Vec<u8> = (0..(2 * FETCH_CHUNK_BYTES + 77)).map(|at| (at % 251) as u8).collect();
+    assert_eq!(fetch_all(&gate, &ring), ring);
+    let turn = gate.begin().unwrap();
+    assert_eq!(
+        fetch(&turn, FETCH_CHUNK_BYTES as u64, || panic!("only offset 0 copies")).err(),
+        Some(TraceControlRefused::NoFetch),
+        "the last piece dropped the copy"
+    );
+}
+
+#[test]
+fn trace_fetch_reads_one_copy_even_when_the_ring_changes_between_pieces() {
+    let gate = TraceControlGate::default();
+    let first: Vec<u8> = vec![1; FETCH_CHUNK_BYTES + 5];
+    let turn = gate.begin().unwrap();
+    let piece = fetch(&turn, 0, || Some(first.clone())).unwrap();
+    assert_eq!(piece["done"], false);
+    let piece = fetch(&turn, FETCH_CHUNK_BYTES as u64, || Some(vec![2; 9])).unwrap();
+    assert_eq!(piece["done"], true);
+    assert_eq!(piece["total_bytes"], first.len() as u64, "the offset-0 copy, not a new one");
+}
+
+#[test]
+fn trace_fetch_refuses_a_daemon_that_never_recorded_and_a_bad_offset() {
+    let gate = TraceControlGate::default();
+    let turn = gate.begin().unwrap();
+    assert_eq!(fetch(&turn, 0, || None).err(), Some(TraceControlRefused::NoRecording));
+    assert_eq!(fetch(&turn, 4, || None).err(), Some(TraceControlRefused::NoFetch));
+    fetch(&turn, 0, || Some(vec![0; FETCH_CHUNK_BYTES + 1])).unwrap();
+    assert_eq!(
+        fetch(&turn, FETCH_CHUNK_BYTES as u64 + 2, || None).err(),
+        Some(TraceControlRefused::BadOffset)
+    );
+}
+
+#[test]
+fn trace_fetch_copy_is_dropped_by_a_start() {
+    let gate = TraceControlGate::default();
+    let turn = gate.begin().unwrap();
+    fetch(&turn, 0, || Some(vec![0; FETCH_CHUNK_BYTES + 1])).unwrap();
+    turn.drop_fetched();
+    assert_eq!(
+        fetch(&turn, FETCH_CHUNK_BYTES as u64, || None).err(),
+        Some(TraceControlRefused::NoFetch),
+        "a new recording's start leaves no stale copy to read"
+    );
+}
+
+#[test]
+fn trace_fetch_params_carry_no_path() {
+    // Only the offset is read: a `path` or a `pid` names nothing.
+    let params: FetchParams =
+        serde_json::from_value(json!({"path": "/etc/passwd", "pid": 1, "offset": 9})).unwrap();
+    assert_eq!(params.offset, 9);
+}

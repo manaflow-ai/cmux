@@ -13,6 +13,12 @@
 //! `role`, `pid`, `state`, `recording_path` or `reason`/`error`) or the part's error
 //! (`{state, error}`), and `chromium` the Chromium part's reply (task 051: the JSON file's `path`
 //! and the measured `offset_ns`), or its `{state, reason|error}`.
+//!
+//! A recording that reached daemons on other machines (task 116) adds `remotes`: one entry per
+//! machine, `{name, offset_ns, error_bound_ns, rings: [{role, pid, path}]}`. The app's heartbeat
+//! measured the offset and its bound (`identify` with `trace_clock`), and `path` is the local file
+//! the app wrote from that daemon's `trace-fetch`. An entry without an offset, or with `state` and
+//! `error` instead, has nothing to place on the local clock: its rings go to `not_copied`.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -183,6 +189,9 @@ pub(super) fn collect(
             Err(error) => not_copied.push(skipped(entry.role, entry.pid, &error.to_string())),
         }
     }
+    for remote in stop.get("remotes").and_then(Value::as_array).into_iter().flatten() {
+        collect_remote(remote, &rings_dir, &mut bundle, &mut not_copied);
+    }
     match chromium_entry(stop) {
         Some(ProcessEntry { ring: Some(source), .. }) => {
             let target = out.join(CHROMIUM_FILE);
@@ -199,6 +208,55 @@ pub(super) fn collect(
         None => {}
     }
     Ok(Collected { bundle, not_copied })
+}
+
+/// Copies one remote machine's rings into `rings_dir` as [`RingMachine::Remote`], with the
+/// machine and its clock offset in [`Bundle::remotes`].
+fn collect_remote(
+    remote: &Value,
+    rings_dir: &Path,
+    bundle: &mut Bundle,
+    not_copied: &mut Vec<Value>,
+) {
+    let name = remote.get("name").and_then(Value::as_str).unwrap_or("unknown");
+    let rings = remote.get("rings").and_then(Value::as_array).cloned().unwrap_or_default();
+    let skipped = |role: &str, pid: Option<u64>, reason: &str| json!({ "machine": name, "role": role, "pid": pid, "reason": reason });
+    let clock = remote
+        .get("offset_ns")
+        .and_then(Value::as_i64)
+        .zip(remote.get("error_bound_ns").and_then(Value::as_u64));
+    let Some((offset_ns, error_bound_ns)) = clock else {
+        let reason = remote
+            .get("error")
+            .and_then(Value::as_str)
+            .or_else(|| remote.get("state").and_then(Value::as_str))
+            .unwrap_or("no_clock_offset");
+        not_copied.push(skipped("daemon", None, reason));
+        return;
+    };
+    let index = bundle.remotes.len();
+    bundle.remotes.push(RemoteMachine { name: name.to_owned(), offset_ns, error_bound_ns });
+    for ring in &rings {
+        let entry = ProcessEntry::of(ring, "daemon");
+        let Some(source) = entry.ring.map(Path::new) else {
+            not_copied.push(skipped(entry.role, entry.pid, entry.missing()));
+            continue;
+        };
+        let Some(file) = source.file_name() else {
+            not_copied.push(skipped(entry.role, entry.pid, "bad_ring_path"));
+            continue;
+        };
+        let target = unused(rings_dir, file);
+        match std::fs::copy(source, &target) {
+            Ok(_) => bundle.rings.push(RingFile {
+                role: entry.role.to_owned(),
+                pid: entry.pid,
+                machine: RingMachine::Remote(index),
+                path: target,
+            }),
+            Err(error) => not_copied.push(skipped(entry.role, entry.pid, &error.to_string())),
+        }
+    }
 }
 
 /// `dir/name`, or `dir/<n>-name` when two processes' rings share a name.

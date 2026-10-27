@@ -497,6 +497,12 @@ impl Tracer {
     pub fn snapshot_active(&self) -> Vec<u8> {
         copy::snapshot(self.active_ring())
     }
+
+    /// A consistent copy of the recording ring, as its file would read: what `trace-fetch` sends
+    /// (task 116). None before the first [`Tracer::start_recording`]. Allocates the ring's size.
+    pub fn snapshot_recording(&self) -> Option<Vec<u8>> {
+        self.recording.get().map(copy::snapshot)
+    }
 }
 
 /// One thread writing to a [`Tracer`] it was handed (tests, benches and single-tracer tools; the
