@@ -138,6 +138,17 @@ def test_the_shared_group_check_tells_keyed_groups_from_fixed_ones() -> None:
     # An optional input may be empty; a required one is set.
     assert can_be_shared("r-${{ inputs.source_run_id }}")
     assert not can_be_shared("r-${{ inputs.source_run_id }}", frozenset({"source_run_id"}))
+    # Per trigger: an input is empty on a schedule; workflow_run's id only exists for workflow_run.
+    both = frozenset({"schedule", "workflow_dispatch"})
+    assert can_be_shared("release-${{ inputs.build }}", frozenset({"build"}), both)
+    assert not can_be_shared("release-${{ inputs.build }}", frozenset({"build"}), frozenset({"workflow_dispatch"}))
+    assert not can_be_shared("s-${{ github.event.workflow_run.id || inputs.source_run_id }}",
+                             frozenset({"source_run_id"}), frozenset({"workflow_run", "workflow_dispatch"}))
+    assert not can_be_shared("x-${{ github.event_name == 'push' && github.sha || github.run_id }}",
+                             frozenset(), frozenset({"push", "schedule"}))
+    # An empty format() result falls through; a boolean control is not an identity.
+    assert can_be_shared("${{ format('{0}', inputs.build) && github.run_id || 'feed' }}")
+    assert can_be_shared("release-${{ inputs.dry_run }}", frozenset({"dry_run"}), frozenset({"workflow_dispatch"}))
     assert can_be_shared("c-${{ github.event.pull_request.number }}")
     assert not can_be_shared("x-${{ github.run_id }}")
     assert not can_be_shared("x-${{ github.sha }}")
