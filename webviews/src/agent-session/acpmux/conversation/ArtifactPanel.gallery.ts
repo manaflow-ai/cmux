@@ -35,6 +35,7 @@ const reply = (prompt: string, text: string) =>
   chat([user(prompt, 6), assistant(text, 5), summary(5, { status: "completed", durationMs: 21_000 })]);
 
 const open = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Open preview"]'));
   await ctx.click({ role: "button", name: "Open preview" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact"));
 };
@@ -42,6 +43,40 @@ const open = async (ctx: PlayContext) => {
 const notesV1 = `# Uploader retry
 
 Uploads now retry, doubling from 200 ms.`;
+
+const notesV2 = `# Uploader retry
+
+Uploads now retry **three times**, doubling from 200 ms.
+
+- Backoff caps at 1.6 s.`;
+
+const liveReply = (text: string, version: number, streaming = true) =>
+  chat([
+    user("Update the release notes while I read the preview", 1),
+    assistant(`${fence("markdown", text)}\n`, 0, { id: "artifact-live", version, streaming }),
+  ]);
+const liveChecks = {
+  layoutShiftMax: {
+    value: 0.3,
+    reason:
+      "Opening the shared side preview intentionally narrows and moves the transcript/composer; this fixture compares the subsequent document rewrite.",
+  },
+};
+const live = (finish = false) => ({
+  checks: liveChecks,
+  note: finish
+    ? "The preview follows the same source through turn completion."
+    : "A live rewrite updates the already-open preview; no close/reopen.",
+  snapshot: liveReply(notesV1, 1),
+  play: async (ctx: PlayContext) => {
+    await open(ctx);
+    const page = ctx.document.defaultView as Window;
+    page.cmuxAcpmuxBridge?.receive(liveReply(notesV2, 2, !finish));
+    await ctx.waitFor(() =>
+      [...ctx.document.querySelectorAll(".cv-codeblock")].some((node) => node.textContent?.includes("Backoff caps")),
+    );
+  },
+});
 
 const counters = [1, 2, 3].map(
   (version) => `<title>Counter</title>
@@ -77,6 +112,19 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/writtenArtifacts.tsx",
   ],
   variants: {
+    "live-stream": live(),
+    "live-finished": live(true),
+    "live-history": {
+      ...live(),
+      note: "Three saved versions remain available while the chosen live source updates.",
+      snapshot: chat([
+        assistant(fence("markdown", notes), 4),
+        assistant(fence("markdown", notesV1), 3),
+        assistant(fence("markdown", notesV2), 0, { id: "artifact-live", version: 2, streaming: true }),
+      ]),
+      play: open,
+    },
+
     ...Object.fromEntries(
       [
         ["claude", "Write"],

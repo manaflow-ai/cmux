@@ -173,15 +173,26 @@ export function RevealedMarkdown({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} messageAt={messageAt} />
+      <Revealed
+        text={text}
+        streaming={streaming}
+        githubRepository={githubRepository}
+        messageAt={messageAt}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
     </MessageBoundary>
   );
 }
@@ -191,11 +202,15 @@ function Revealed({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
@@ -207,6 +222,8 @@ function Revealed({
       now={now}
       githubRepository={githubRepository}
       messageAt={messageAt}
+      artifactIdentity={artifactIdentity}
+      artifactRevision={artifactRevision}
     >
       {visible}
     </Markdown>

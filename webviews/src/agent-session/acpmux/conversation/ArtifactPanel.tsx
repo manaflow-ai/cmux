@@ -4,7 +4,7 @@
 // reach the pane, its bridge, acpmux or the network; passive markup draws in a scriptless srcdoc and
 // waits for Run before the native frame grants scripts. Markdown draws as the transcript draws it.
 // The gallery runs public fixtures in srcdoc; other dev pages show their source only.
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { ARTIFACT_FRAME_URL, artifactGallery, artifactNeedsRun, galleryArtifactDocument } from "./artifactSandbox";
@@ -56,11 +56,25 @@ export function ArtifactPanel({
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
+  const heldChoice = useRef<Artifact | undefined>(undefined);
+  // Only the live choice follows revisions; choosing an older version stays put.
+  const previousOpened = useRef(opened);
+  const previous = previousOpened.current;
+  if (
+    opened.identity &&
+    previous.identity === opened.identity &&
+    (opened.revision ?? -Infinity) > (previous.revision ?? -Infinity)
+  ) {
+    if (shown === previous.code) setShown(opened.code);
+    previousOpened.current = opened;
+  }
+
   // A shown version that left the list falls back to the opened one's place, then to it alone.
   const at = (code: string) => versions.findIndex((version) => version.code === code);
   const found = at(shown) >= 0 ? at(shown) : at(opened.code);
-  const list = found >= 0 ? versions : [opened];
-  const index = Math.max(0, found);
+  const held = opened.identity && at(shown) < 0 && heldChoice.current?.code === shown ? heldChoice.current : undefined;
+  const list = held ? [held, ...versions] : found >= 0 ? versions : [opened];
+  const index = held ? 0 : Math.max(0, found);
   const artifact = list[index]!;
   const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
   const previews = artifact.kind === "markdown" || canRender() || artifactGallery();
@@ -68,6 +82,7 @@ export function ArtifactPanel({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const step = (to: number) => {
+    heldChoice.current = list[to]!;
     setShown(list[to]!.code);
     setCopied(false);
     setSaved(false);
@@ -208,7 +223,12 @@ export function ArtifactPanel({
         ) : (
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
-          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} jsx={jsx} />
+          <ArtifactFrame
+            key={artifact.identity ?? artifact.code}
+            html={previewHtml(artifact)}
+            title={title}
+            jsx={jsx}
+          />
         )}
       </div>
     </aside>

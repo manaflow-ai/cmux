@@ -765,6 +765,8 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  artifactIdentity,
+  artifactRevision,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -776,6 +778,8 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
@@ -822,7 +826,14 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
+          <Blocks
+            blocks={block.children}
+            opts={opts}
+            depth={depth}
+            plain={code === "plain"}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.q` : undefined}
+            artifactRevision={artifactRevision}
+          />
         </blockquote>
       );
     case "list": {
@@ -844,7 +855,14 @@ function Block({
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  artifactIdentity={artifactIdentity ? `${artifactIdentity}.i${i}` : undefined}
+                  artifactRevision={artifactRevision}
+                />
               )}
             </li>
           ))}
@@ -854,16 +872,48 @@ function Block({
     case "table":
       return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
+      if (code === "open")
+        return (
+          <PlainCode
+            code={block.code}
+            lang={block.lang}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+            open
+          />
+        );
+      if (code === "plain")
+        return (
+          <PlainCode
+            code={block.code}
+            lang={block.lang}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
         return <DiagramBlock lang={block.lang} code={block.code} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      if (code === "handoff")
+        return (
+          <CodeHandoff
+            code={block.code}
+            lang={block.lang}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
+      return (
+        <CodeBlock
+          code={block.code}
+          lang={block.lang}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      );
     }
     case "math":
       return <MathDisplay tex={block.tex} />;
@@ -895,17 +945,28 @@ function Blocks({
   opts,
   depth,
   plain = false,
+  artifactIdentity,
+  artifactRevision,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.${i}` : undefined}
+            artifactRevision={artifactRevision}
+          />
         </Fragment>
       ))}
     </>
@@ -953,6 +1014,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  artifactIdentity?: string;
+  artifactRevision?: number;
   /** Epoch timestamp of the message, used to date bare UTC clock times. */
   messageAt?: number;
 };
@@ -971,6 +1034,8 @@ export function Markdown({
   now = 0,
   githubRepository,
   plainCode = false,
+  artifactIdentity,
+  artifactRevision,
   commits,
   thumbnails,
   messageAt,
@@ -1009,6 +1074,8 @@ export function Markdown({
   }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
+  // A later token must not invalidate every completed code block's memoized props.
+  const artifactRevisions = useRef(new WeakMap<MdBlock, number | undefined>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
   // Only a revealed reply (RevealedMarkdown passes `fresh`) fades its newest text in.
   const freshTail: FreshTail | undefined =
@@ -1020,6 +1087,7 @@ export function Markdown({
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
   const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock, index: number) => {
+    if (!artifactRevisions.current.has(entry.block)) artifactRevisions.current.set(entry.block, artifactRevision);
     const live = !atMount.current!.has(entry.key);
     if (live && away) awayBlocks.current.add(entry.key);
     // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
@@ -1037,6 +1105,8 @@ export function Markdown({
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
+        artifactRevision={artifactRevisions.current.get(entry.block)}
       />
     );
   };
