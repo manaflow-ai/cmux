@@ -35,3 +35,8 @@ rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+# The relay link's peer check (src/provider_link/relay_peer.rs): audit token
+# and code signature, as the link sockets check them.
+[target.'cfg(target_os = "macos")'.dependencies]
+cmux-link.workspace = true

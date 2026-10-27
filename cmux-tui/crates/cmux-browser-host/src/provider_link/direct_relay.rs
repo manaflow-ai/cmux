@@ -17,9 +17,12 @@
 //!    app's host) the relay goes through the app as before (`cdp.attach`).
 //! 3. Capture commands also reach the app as `cdp.capture`, so a hidden tab
 //!    keeps its capture vote; the app holds the agent-ready UI.
-//! 4. The link outlives the app's provider connection: a Chromium Host that
-//!    survives an app crash keeps it, and the relaunched app's provider takes
-//!    it over, so an agent drives the same pages again with no reload.
+//! 4. The link lives as long as the app's provider connection: when that
+//!    ends, the link ends too. A Chromium Host that outlives its app
+//!    (`browserHost.survivesAppCrash`) dials again with the link id the next
+//!    app gives it after that app's `hello.ack`, so an agent drives the same
+//!    pages again with no reload. A new link replaces the old one and ends
+//!    the old one's relays; their next call prepares the tab again.
 //!
 //! This is Chrome's remote debugging pipe (content/browser/devtools/
 //! devtools_pipe_handler.cc): the pipe is read and written on threads of its
@@ -42,17 +45,16 @@ const DIRECT_LAST_RAW_ID: u64 = i32::MAX as u64;
 /// `RelaySession.queueLimit`).
 pub(crate) const PREPARE_QUEUE_LIMIT: usize = 256;
 
-/// The Chromium Host's relay link (`relay.hello` accepted). It outlives the
-/// app's provider connection: a Chromium Host that survives the app
-/// (`browserHost.survivesAppCrash`) keeps its link, and the next app's
-/// provider takes it over ([`ProviderDriver::take_relay_link_of`]).
+/// The Chromium Host's relay link (`relay.hello` accepted). It ends with the
+/// app's provider connection ([`DirectRelays::provider_closed`]) or when a
+/// newer link replaces it.
 pub(crate) struct RelayLink {
     writer: SharedWriter,
     /// The id the app gave this Chromium Host (`relay.hello`).
     id: String,
     shutdown: Box<dyn Fn() + Send + Sync>,
-    /// The provider whose tabs it relays; empty between an app's end and the
-    /// next app's provider.
+    /// The provider whose tabs it relays; empty once the link was replaced or
+    /// its provider ended, so its reader hands nothing on.
     target: Mutex<Weak<DirectRelays>>,
     /// The link's reader saw its end.
     ended: std::sync::atomic::AtomicBool,
@@ -411,7 +413,11 @@ impl DirectRelays {
             ended: std::sync::atomic::AtomicBool::new(false),
         });
         link.write(&Frame::RelayHelloAck {})?;
-        self.adopt(link.clone());
+        let previous =
+            self.link.lock().unwrap_or_else(PoisonError::into_inner).replace(link.clone());
+        if let Some(previous) = previous {
+            self.end_link(&previous, "the relay link was replaced");
+        }
         let reading = link.clone();
         let spawned = std::thread::Builder::new()
             .name("cmux-browser-host-relay-link".into())
@@ -419,8 +425,8 @@ impl DirectRelays {
                 let link = reading;
                 let reason = loop {
                     let frame = read_frame(&mut reader);
-                    // Between two apps no provider takes the link's frames:
-                    // its relays ended with the first app.
+                    // A replaced link, or one whose provider ended: its relays
+                    // ended then, and nothing takes its frames.
                     let direct = link.target();
                     match frame {
                         Ok(Some(Frame::Cdp { target_id, message })) => {
@@ -459,22 +465,13 @@ impl DirectRelays {
         Ok(())
     }
 
-    /// Takes `link` as this provider's: it replaces any earlier link, whose
-    /// socket ends.
-    pub(super) fn adopt(self: &Arc<Self>, link: Arc<RelayLink>) {
-        link.retarget(Arc::downgrade(self));
-        let previous = self.link.lock().unwrap_or_else(PoisonError::into_inner).replace(link);
-        if let Some(previous) = previous {
-            previous.retarget(Weak::new());
-            (previous.shutdown)();
-        }
-    }
-
-    /// The link, for the next app's provider, once this provider's
-    /// connection ended; nothing when the link ended too.
-    pub(super) fn take_link(&self) -> Option<Arc<RelayLink>> {
-        let link = self.link.lock().unwrap_or_else(PoisonError::into_inner).take()?;
-        (!link.is_ended()).then_some(link)
+    /// Ends `link`: its relays end (the app hears `cdp.detach` for each, so
+    /// the next call prepares the tab again), its reader hands nothing on,
+    /// and its socket closes.
+    fn end_link(&self, link: &Arc<RelayLink>, reason: &str) {
+        self.link_closed(link, reason);
+        link.retarget(Weak::new());
+        (link.shutdown)();
     }
 
     fn host_message(&self, link: &Arc<RelayLink>, target_id: &str, message: &str) {
@@ -511,15 +508,17 @@ impl DirectRelays {
         }
     }
 
-    /// The app's provider connection ended: its relays closed with it, and
-    /// the link stays up for the next app ([`DirectRelays::take_link`]): the
-    /// Chromium Host may outlive the app. It relays nothing until then.
+    /// The app's provider connection ended: its relays closed with it, and so
+    /// does the link. A Chromium Host that outlives the app dials again for
+    /// the next app, with the link id that app gives it.
     pub(super) fn provider_closed(&self, reason: &str) {
         for (_, route) in self.routes.lock().unwrap_or_else(PoisonError::into_inner).drain() {
             route.close(reason);
         }
-        if let Some(link) = self.link.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        let link = self.link.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(link) = link {
             link.retarget(Weak::new());
+            (link.shutdown)();
         }
     }
 }

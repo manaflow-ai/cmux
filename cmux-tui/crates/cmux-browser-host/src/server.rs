@@ -187,6 +187,9 @@ pub fn serve_providers_notifying(
     Ok(())
 }
 
+/// How long `hello.ack` may take to write; the provider slot stays locked meanwhile.
+const HELLO_ACK_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn accept_provider(
     stream: UnixStream,
     secret: &crate::provider::ProviderSecret,
@@ -194,7 +197,7 @@ fn accept_provider(
     agent_bundle: &str,
     on_change: Arc<dyn Fn() + Send + Sync>,
 ) -> io::Result<()> {
-    use crate::provider_link::{Opening, ProviderDriver, read_opening, send_hello_ack};
+    use crate::provider_link::{Opening, ProviderDriver, read_opening};
     let connected = || {
         slot.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -217,6 +220,12 @@ fn accept_provider(
         // relay and goes.
         Opening::RelayLink { link } => {
             let Some(provider) = connected() else { return Ok(()) };
+            // The credential alone opens nothing: the peer must also be code
+            // signed as this cmux, named by its audit token (p01-process.md,
+            // risk 6). A refused peer gets no relay.hello.ack.
+            if crate::provider_link::verify_relay_peer(&stream).is_err() {
+                return Ok(());
+            }
             let shutdown_stream = stream.try_clone()?;
             let shutdown = Box::new(move || {
                 let _ = shutdown_stream.shutdown(std::net::Shutdown::Both);
@@ -228,7 +237,6 @@ fn accept_provider(
     if connected().is_some() {
         return Ok(());
     }
-    let mut ack_writer = stream.try_clone()?;
     let driver = ProviderDriver::start_notifying(
         reader,
         writer,
@@ -242,18 +250,21 @@ fn accept_provider(
         let _ = stream.shutdown(std::net::Shutdown::Both);
         return Ok(());
     }
-    // A Chromium Host that outlived the last app keeps relaying for this one.
-    if let Some(previous) = current.as_ref() {
-        driver.take_relay_link_of(previous);
-    }
-    *current = Some(driver);
-    drop(current);
-    // Acked once the slot serves it: the app's Chromium Host, which dials its
-    // relay link after this ack, then finds the provider it relays for.
-    if send_hello_ack(&mut ack_writer, agent_bundle).is_err() {
+    // Acked on the driver's own writer while the slot is still locked, then
+    // published: no agent call reaches the driver before the ack, and none of
+    // its frames can go into the ack's bytes. The app's Chromium Host dials
+    // its relay link after this ack and finds the provider it relays for.
+    // The write timeout bounds how long an app that does not read holds the slot.
+    stream.set_write_timeout(Some(HELLO_ACK_WRITE_TIMEOUT))?;
+    let acked = driver.send_hello_ack(agent_bundle);
+    let _ = stream.set_write_timeout(None);
+    if acked.is_err() {
+        drop(current);
         let _ = stream.shutdown(std::net::Shutdown::Both);
         return Ok(());
     }
+    *current = Some(driver);
+    drop(current);
     on_change();
     Ok(())
 }
@@ -471,7 +482,73 @@ mod provider_listener_tests {
         // hello.ack comes once the slot serves the provider: the relay finds it at once.
         assert!(slot.lock().unwrap().is_some());
         assert!(!dial_relay(&path, secret.clone()), "the secret is not the relay credential");
-        assert!(dial_relay(&path, secret.relay_credential()));
+        // macOS also checks the peer's code signature (provider_link/relay_peer.rs):
+        // this test binary is not signed as cmux, so its own relay link is refused.
+        assert_eq!(dial_relay(&path, secret.relay_credential()), !cfg!(target_os = "macos"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An agent call that reaches the provider while its `hello.ack` is being
+    /// written goes after the ack: the app reads `hello.ack` first, whole.
+    #[test]
+    fn an_agent_call_racing_the_accept_reaches_the_app_after_hello_ack() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-ack-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("browser-host-provider.sock");
+        let listener = bind(&path, true).unwrap();
+        let slot: crate::engines::ProviderSlot = Arc::default();
+        let secret = "s".repeat(40);
+        // A large bundle: the ack takes many socket buffers, so the race window is wide.
+        let bundle: Arc<str> = Arc::from("a".repeat(8 << 20));
+        let (thread_slot, thread_secret) = (slot.clone(), ProviderSecret::new(secret.clone()));
+        std::thread::spawn(move || serve_providers(listener, thread_secret, thread_slot, bundle));
+        // The agent: opens the CEF tab's relay the moment the slot serves a provider.
+        let racer_slot = slot;
+        let racer = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let provider = racer_slot.lock().unwrap().clone();
+                if let Some(provider) = provider {
+                    return provider.open_relay("C", "page").is_ok();
+                }
+                assert!(std::time::Instant::now() < deadline, "no provider was served");
+                std::thread::yield_now();
+            }
+        });
+        let mut stream = UnixStream::connect(&path).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let opening = Frame::Hello {
+            version: PROVIDER_VERSION,
+            provider_id: "app".into(),
+            install_id: "install".into(),
+            secret: ProviderSecret::new(secret),
+            engines: vec!["cef".into()],
+            tabs: vec![crate::provider::TabAnnounce {
+                target_id: "C".into(),
+                engine: "cef".into(),
+                workspace: "w".into(),
+                profile: "p".into(),
+                url: "https://a.test/".into(),
+                title: String::new(),
+                visible: false,
+                input_scale: 1.0,
+                touch: false,
+            }],
+        };
+        write_frame(&mut stream, &opening).unwrap();
+        // The app reads late, so the ack's write is still running when the
+        // racer could first see the provider.
+        std::thread::sleep(std::time::Duration::from_millis(200)); // test: widens the race window
+        assert!(
+            matches!(read_frame(&mut stream), Ok(Some(Frame::HelloAck { .. }))),
+            "the app's first frame is hello.ack"
+        );
+        assert!(racer.join().unwrap(), "the racing call opened its relay");
+        assert!(
+            matches!(read_frame(&mut stream), Ok(Some(Frame::CdpAttach { target_id })) if target_id == "C"),
+            "the racing call's frame comes after the ack, whole"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

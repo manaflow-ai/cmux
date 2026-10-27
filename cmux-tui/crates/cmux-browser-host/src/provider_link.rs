@@ -19,11 +19,13 @@ mod direct_relay;
 mod handshake;
 mod input_wire;
 mod lease_wire;
+mod relay_peer;
 mod tab_table;
 use direct_relay::{DirectRelays, DirectRoute};
 pub use handshake::{Opening, ProviderInfo, accept, read_opening, send_hello_ack};
 pub use input_wire::{AUTOMATION_INPUT, tee_inputs};
 use lease_wire::{Leases, apply_lease, user_lease_op};
+pub use relay_peer::{RelayPeerRefused, verify_relay_peer};
 pub use tab_table::BROWSER_PAGE;
 use tab_table::TabTable;
 
@@ -373,13 +375,14 @@ impl ProviderDriver {
         self.direct.attach_link(reader, writer, link, shutdown)
     }
 
-    /// Takes over the relay link of `previous`, a provider whose app is gone
-    /// (a Chromium Host that outlived its app keeps its link): this
-    /// provider's CEF relays go over it from now on.
-    pub fn take_relay_link_of(&self, previous: &ProviderDriver) {
-        if let Some(link) = previous.direct.take_link() {
-            self.direct.adopt(link);
-        }
+    /// Answers the app's `hello` on this driver's own writer, so no frame of
+    /// the driver can go before the ack or into its bytes. The caller sends
+    /// it before any agent can reach the driver (`server::accept_provider`).
+    pub fn send_hello_ack(&self, agent_bundle: &str) -> Result<(), DriverError> {
+        send_hello_ack(
+            &mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner),
+            agent_bundle,
+        )
     }
 
     /// Closes a CEF tab's relay and tells the app (`cdp.detach`).

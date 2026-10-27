@@ -267,24 +267,33 @@ fn a_link_that_ends_ends_its_relays_and_later_relays_go_through_the_app() {
 }
 
 #[test]
-fn a_chromium_host_that_outlives_its_app_relays_for_the_next_app() {
+fn a_chromium_host_that_outlives_its_app_dials_again_for_the_next_app() {
     let (first_app, first) = FakeApp::start(Prepare::Direct { link: "L1" });
     let host = FakeHost::link(&first, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = first.open_relay("C", "page").unwrap();
     evaluate(&conn).unwrap();
-    // The app is killed: its relays end, the Chromium Host's link stays.
+    // The app is killed: its relays and its link end with it.
     first_app.stream.shutdown(std::net::Shutdown::Both).unwrap();
     let deadline = std::time::Instant::now() + WAIT;
-    // The provider's reader marks itself closed, then closes its relays.
-    while first.closed_reason().is_none() || conn.closed_reason().is_none() {
-        assert!(std::time::Instant::now() < deadline, "the old relay ends with its app");
+    while first.closed_reason().is_none() || conn.closed_reason().is_none() || first.direct.linked()
+    {
+        assert!(std::time::Instant::now() < deadline, "the relay and the link end with the app");
         std::thread::yield_now();
     }
-    // The relaunched app's provider takes the link over.
-    let (second_app, second) = FakeApp::start(Prepare::Direct { link: "L1" });
-    second.take_relay_link_of(&first);
-    assert!(second.direct.linked() && !first.direct.linked(), "the link moved to the new provider");
+    // The Chromium Host reads its link's end (its reader thread stops).
+    loop {
+        match host.frames.recv_timeout(WAIT) {
+            Ok(_) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("the Chromium Host's link stays open"),
+        }
+    }
+    // A relaunched app mints a new link id (BrowserHostProvider.relayLinkID)
+    // and gives it to the host it adopts, which dials with it.
+    let (second_app, second) = FakeApp::start(Prepare::Direct { link: "L2" });
+    let redialed = FakeHost::link(&second, "L2");
+    assert!(matches!(redialed.next(), Frame::RelayHelloAck {}));
     let again = second.open_relay("C", "page").unwrap();
     assert_eq!(
         evaluate(&again).unwrap(),
@@ -292,12 +301,41 @@ fn a_chromium_host_that_outlives_its_app_relays_for_the_next_app() {
         "the agent drives the page again"
     );
     assert_eq!(second_app.cdp_count(), 0, "still never through the app");
-    // The Chromium Host was attached to the page again for the new relay.
-    let mut attaches = 0;
-    while let Ok(frame) = host.frames.recv_timeout(Duration::from_millis(200)) {
-        attaches += usize::from(matches!(frame, Frame::RelayAttach { .. }));
+    assert!(
+        matches!(redialed.next(), Frame::RelayAttach { target_id, browser: 7 } if target_id == "C")
+    );
+}
+
+#[test]
+fn a_new_link_ends_the_relays_of_the_link_it_replaces() {
+    let (app, provider) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let first = FakeHost::link(&provider, "L1");
+    assert!(matches!(first.next(), Frame::RelayHelloAck {}));
+    let conn = provider.open_relay("C", "page").unwrap();
+    assert_eq!(evaluate(&conn).unwrap(), json!({"via": "host"}));
+    // The Chromium Host dials again (a re-dial, or the same app's new link).
+    let second = FakeHost::link(&provider, "L1");
+    assert!(matches!(second.next(), Frame::RelayHelloAck {}));
+    let deadline = std::time::Instant::now() + WAIT;
+    while conn.closed_reason().is_none() {
+        assert!(std::time::Instant::now() < deadline, "the relay on the replaced link ends");
+        std::thread::yield_now();
     }
-    assert_eq!(attaches, 2);
+    assert!(evaluate(&conn).is_err(), "a call on the replaced link's relay fails at once");
+    // The app heard the end, so the next call prepares the tab again, on the new link.
+    let deadline = std::time::Instant::now() + WAIT;
+    while !app.frames().iter().any(|frame| matches!(frame, Frame::CdpDetach { .. })) {
+        assert!(std::time::Instant::now() < deadline, "cdp.detach reaches the app");
+        std::thread::yield_now();
+    }
+    let again = provider.open_relay("C", "page").unwrap();
+    assert_eq!(evaluate(&again).unwrap(), json!({"via": "host"}));
+    assert!(
+        matches!(second.next(), Frame::RelayAttach { target_id, browser: 7 } if target_id == "C")
+    );
+    let prepares =
+        app.frames().iter().filter(|frame| matches!(frame, Frame::CdpPrepare { .. })).count();
+    assert_eq!(prepares, 2, "the tab was prepared again");
 }
 
 #[test]
