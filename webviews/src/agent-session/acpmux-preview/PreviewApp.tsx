@@ -48,6 +48,7 @@ class MockBridge {
       this.snapshot = { ...this.snapshot, rows: [...rows.values()], isWorking: index < events.length - 1 };
       this.emit();
       index += 1;
+      // wakeup-allow: debug the acpmux preview page's fixture replay, ends at its last event
       this.replayTimer = window.setTimeout(tick, Math.min(500, index < 3 ? 140 : 70));
     };
     tick();
@@ -151,6 +152,7 @@ function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture:
         const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
         setFps(`${(1000 / average).toFixed(0)} FPS · ${average.toFixed(2)} ms`);
       }
+      // wakeup-allow: debug the acpmux preview page's FPS meter
       id = requestAnimationFrame(tick);
     };
     let id = requestAnimationFrame(tick);

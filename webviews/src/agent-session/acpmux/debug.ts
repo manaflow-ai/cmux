@@ -92,6 +92,7 @@ function openMenuRows(
 }
 
 function nextFrame(): Promise<number> {
+  // wakeup-allow: debug the `debug.agent_pane` benches await frames only while a run lasts
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
@@ -178,6 +179,7 @@ export function createAcpmuxDebug(
               now,
               isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
             );
+            // wakeup-allow: debug the scroll bench ends at progress 1 (`duration`) or a newer run
             if (progress < 1) requestAnimationFrame(tick);
             else resolve();
           };

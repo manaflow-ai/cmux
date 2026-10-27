@@ -778,6 +778,7 @@ class GlassLens {
       this.prune();
       return;
     }
+    // wakeup-allow: bounded STABLE_FRAMES frames with no change end the loop
     this.frame = this.view.requestAnimationFrame(this.tick);
   };
 

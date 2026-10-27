@@ -182,6 +182,7 @@ export function installGutterSelect(
     }
     // The pointer still past an edge keeps the view moving, one step a frame, until it comes back,
     // the view reaches its end, the button lifts or the window lets go.
+    // wakeup-allow: bounded the drag: only while the pointer holds past an edge and the view still moves
     if (step !== 0 && scroller.scrollTop !== before) frame = win.requestAnimationFrame(tick);
   };
   /// The view scrolled under a still pointer (the wheel, or the edge scroll): the caret under it moved.

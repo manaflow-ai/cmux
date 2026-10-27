@@ -204,6 +204,7 @@ export function DaemonGate({
     const step = live.current.attempt++;
     const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
     clearTimeout(live.current.timer);
+    // wakeup-allow: backoff BACKOFF_MIN_MS doubling to BACKOFF_MAX_MS with jitter, one attempt in flight
     live.current.timer = setTimeout(resume, delay);
   };
 

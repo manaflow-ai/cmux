@@ -22,6 +22,7 @@ export type LoadRunOptions = {
   scroll_depth?: number;
 };
 
+// wakeup-allow: debug `debug.agent_pane load_run` awaits frames only while a run lasts
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const BUDGET_120 = 1000 / 120;
 

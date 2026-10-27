@@ -3305,6 +3305,7 @@ export function VirtualTranscript({
         const elapsed = performance.now() - start;
         const settled = frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS && still >= FIND_REVEAL_STILL_FRAMES;
         if (settled || ++frames >= FIND_REVEAL_MAX_FRAMES) revealing.current = undefined;
+        // wakeup-allow: bounded FIND_REVEAL_MAX_FRAMES, the match holding still, or the reader's own input
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -6720,6 +6721,7 @@ function AcpmuxPane() {
             setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
+            // wakeup-allow: backoff retryDelay doubles to RECONNECT_MAX_DELAY_MS; the effect's cleanup cancels it
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
@@ -7383,6 +7385,7 @@ function AcpmuxPane() {
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
           // Back off so a host without a daemon is not asked four times a second.
+          // wakeup-allow: backoff retryDelay doubles to RECONNECT_MAX_DELAY_MS; the effect's cleanup cancels it
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }

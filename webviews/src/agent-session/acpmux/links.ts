@@ -100,6 +100,7 @@ function markWhenDrawn(
   const tick = () => {
     timer = undefined;
     if (stale?.() || scrollToRow(rowId, root) || Date.now() >= deadline) return;
+    // wakeup-allow: bounded the `waitMs` deadline (REVEAL_WAIT_MS), the row drawn, or `stale`
     timer = setTimeout(tick, pollMs);
   };
   tick();
@@ -136,6 +137,7 @@ function revealWhenShown(
       timer = undefined;
       if (attempt()) finish(true);
       else if (Date.now() >= deadline) finish(false);
+      // wakeup-allow: bounded the `waitMs` deadline (REVEAL_WAIT_MS), the row revealed, or a newer reveal
       else timer = setTimeout(poll, pollMs);
     };
     pendingReveal = cancel;

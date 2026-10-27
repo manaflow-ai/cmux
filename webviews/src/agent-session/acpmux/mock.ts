@@ -237,6 +237,7 @@ export class MockAcpmuxSocket {
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(
     private readonly delay: (ms: number) => Promise<void> = (ms) =>
+      // wakeup-allow: fixture the mock daemon paces its scripted turn
       new Promise((resolve) => window.setTimeout(resolve, ms)),
     private readonly script?: MockScript,
   ) {

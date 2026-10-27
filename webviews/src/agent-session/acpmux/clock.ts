@@ -19,6 +19,7 @@ const notify = () => {
 
 function schedule() {
   // Just past the next minute, so the read lands in it.
+  // wakeup-allow: bounded the minute clock, armed only while the page is active and subscribed
   timer = setTimeout(
     () => {
       timer = undefined;

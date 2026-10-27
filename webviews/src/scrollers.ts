@@ -98,6 +98,7 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
       // Ease out, as the pane's other fades (--agent-ease-out).
       ink = from + (to - from) * (1 - (1 - t) * (1 - t));
       element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      // wakeup-allow: bounded the fade's `ms` (from --cmux-scroller-fade-in/out); `t >= 1` settles it
       frame = view.requestAnimationFrame(step);
     };
     step(start);

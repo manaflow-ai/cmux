@@ -97,6 +97,7 @@ function keepHeader(header: HTMLElement): () => () => void {
       if (!header.isConnected) return;
       const moved = header.getBoundingClientRect().top - top;
       if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+      // wakeup-allow: bounded `until`, the fold's duration plus FOLD_SETTLE_MS
       if (performance.now() < until) frame = view?.requestAnimationFrame(correct);
     };
     correct();

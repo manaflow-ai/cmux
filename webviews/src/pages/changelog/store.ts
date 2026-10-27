@@ -140,6 +140,7 @@ export class ChangelogStore {
     await this.started;
     // Each load renders the page again, and a section that moved into view asks for its builds then.
     for (;;) {
+      // wakeup-allow: bounded ends when no load is pending; each turn awaits the pending loads
       await new Promise((resolve) => setTimeout(resolve, 0));
       if (this.pending.size === 0) return;
       await Promise.allSettled(this.pending.values());

@@ -76,6 +76,7 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
             ? "done"
             : "fading",
         );
+      // wakeup-allow: bounded HANDOFF_LIMIT_MS, or the highlighted lines drawn
       else frame = requestAnimationFrame(check);
     };
     check();

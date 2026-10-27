@@ -74,6 +74,7 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   const frames: Frame[] = [];
   while (performance.now() - start < ms) {
     frames.push(read(start));
+    // wakeup-allow: debug `debug.agent_pane layout_watch` reads frames for at most `ms` (10 s)
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   const first = frames.findIndex(shown);

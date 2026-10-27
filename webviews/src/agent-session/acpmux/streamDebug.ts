@@ -27,6 +27,7 @@ const SAMPLE = [
   "which is where a burst of text makes the transcript jump instead of flow.\n\n",
 ].join("");
 
+// wakeup-allow: debug `debug.agent_pane action=stream` awaits frames only while a run lasts
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 export async function runStream(

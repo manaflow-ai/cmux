@@ -654,6 +654,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
           return;
         }
+        // wakeup-allow: bounded ends two frames after the item in view holds still (the scroll settled)
         followFrame.current = requestAnimationFrame(step);
       };
       followFrame.current = requestAnimationFrame(step);

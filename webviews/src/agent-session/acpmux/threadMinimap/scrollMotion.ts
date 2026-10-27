@@ -51,6 +51,7 @@ export function animateScroll(
   const step = (now: number) => {
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
+    // wakeup-allow: bounded the scroll's `duration`, or the reader's input
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
       end();
@@ -92,6 +93,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
     }
     left -= 1;
     if (steady >= 3 || left <= 0) end();
+    // wakeup-allow: bounded `left` frames, 3 still frames, or the reader's input
     else frame = requestAnimationFrame(step);
   };
   // Captured on the window: added during the input that started the jump, it does not see that one.

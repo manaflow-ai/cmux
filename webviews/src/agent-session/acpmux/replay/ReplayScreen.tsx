@@ -98,6 +98,7 @@ export function ReplayScreen({
       last = now;
       showAt(ready, time, scrub, setSecond, setForkSeq);
       if (time.current >= ready.timeline.duration) setPlaying(false);
+      // wakeup-allow: bounded the replay's timeline duration, or Pause
       else frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);

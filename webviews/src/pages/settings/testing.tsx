@@ -34,6 +34,7 @@ export async function settle(): Promise<void> {
   await act(async () => {
     // The mock transport delivers each message in its own microtask; a macrotask boundary
     // drains every chained call, reply and event.
+    // wakeup-allow: fixture the settings tests' helper yields three macrotask turns
     for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }

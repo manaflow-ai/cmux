@@ -1741,6 +1741,7 @@ export class AcpmuxDirectClient {
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(delay * 2, 30_000);
     this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
+    // wakeup-allow: backoff reconnectDelay doubles to 30 s, one reconnect in flight
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.open().catch(() => this.scheduleReconnect());

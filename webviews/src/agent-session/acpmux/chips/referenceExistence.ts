@@ -36,6 +36,7 @@ function changed() {
 
 const wait = (ms: number) =>
   new Promise<void>((resolve) => {
+    // wakeup-allow: backoff WAIT_MS doubling to MAX_WAIT_MS, at most ROUNDS rounds
     const timer = setTimeout(() => {
       timers.delete(timer);
       resolve();
