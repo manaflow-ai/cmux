@@ -95,7 +95,7 @@ extension CMUXCLI {
                 ))
             }
             setParams["manual"] = argument == "on"
-            manualDisplay = Self.sessionPriorityOnOff(argument == "on")
+            manualDisplay = argument
         default:
             break
         }
@@ -132,12 +132,6 @@ extension CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: text)
     }
 
-    private static func sessionPriorityOnOff(_ on: Bool) -> String {
-        on
-            ? String(localized: "cli.sessionPriority.on", defaultValue: "on")
-            : String(localized: "cli.sessionPriority.off", defaultValue: "off")
-    }
-
     /// `session priority: on, urgent: 2`, then one line per workspace in rank order:
     /// `1. <workspace>  urgent  hard(override)  → high / opus  [applying]`.
     private func printSessionPriorityStatus(_ payload: [String: Any], jsonOutput: Bool, idFormat: CLIIDFormat) {
@@ -152,7 +146,7 @@ extension CMUXCLI {
                 localized: "cli.sessionPriority.status.header",
                 defaultValue: "session priority: %1$@, urgent: %2$@"
             ),
-            Self.sessionPriorityOnOff(enabled),
+            enabled ? "on" : "off",
             String(urgent)
         )]
         let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
