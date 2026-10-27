@@ -104,6 +104,23 @@ struct TerminalAttachmentFrameTests {
         ])
     }
 
+    /// A GRID cut before the READY arrives after it: the READY's screen already has the resize, so replaying
+    /// the grid would put the mirror back at 900 and lose the bytes 900 ..< 1000.
+    @Test func aGridBeforeTheReadyCutIsDropped() async throws {
+        var builder = FrameBuilder()
+        builder.ready(offset: 1000, generation: 1, data: "SNAPSHOT-READY-ONE")
+        builder.grid(offset: 900, replay: "a-grid-of-the-old-screen", pending: "")
+        builder.add(.output, offset: 1000, payload: Self.bytes(0x79, count: 40))
+        let hooks = Hooks()
+        let events = await run(try builder.frames().frames, hooks: hooks)
+
+        #expect(hooks.requests.withLock { $0 }.isEmpty)
+        #expect(events == [
+            .snapshot(Self.ready(offset: 1000, generation: 1, data: "SNAPSHOT-READY-ONE")),
+            .output(Data(Self.bytes(0x79, count: 40)), colors: nil),
+        ])
+    }
+
     @Test func aByteReplayStreamReattachesOnAGap() async throws {
         var builder = FrameBuilder()
         builder.replay(offset: 0, data: "replayed-screen-bytes")
@@ -169,6 +186,49 @@ struct TerminalAttachmentFrameTests {
             .colorsChanged(colors),
             .inputEcho(flow: 8),
             .closed(.surfaceGone),
+        ])
+    }
+
+    /// The writer cuts an output past BULK_FRAME_MAX (32 KiB) into OUTPUT frames, each with its own offset;
+    /// the sidecar comes after the last one with the offset of the first.
+    @Test func aChunkedOutputKeepsItsSidecar() async throws {
+        let chunk = 32 * 1024
+        var builder = FrameBuilder()
+        builder.replay(offset: 1000, data: "replayed-screen-bytes")
+        let first = Self.bytes(0x61, count: chunk)
+        let second = Self.bytes(0x62, count: 40 * 1024 - chunk)
+        builder.add(.output, offset: 1000, payload: first)
+        builder.add(.output, offset: 1000 + UInt64(chunk), payload: second)
+        builder.add(.event, offset: 1000,
+                    payload: Self.text(#"{"event":"output","surface":3,"colors":{"fg":"#ffffff"},"flow":9}"#))
+        let events = await run(try builder.frames().frames)
+        let colors = try JSONDecoder().decode(TerminalColors.self, from: Data(#"{"fg":"#ffffff"}"#.utf8))
+
+        #expect(events == [
+            .replay(TerminalReplay(cols: 80, rows: 24, data: Data("replayed-screen-bytes".utf8))),
+            // A frame header lies between the chunks in the buffer, so the queue keeps them apart.
+            .output(Data(first), colors: nil),
+            .output(Data(second), colors: nil),
+            .colorsChanged(colors),
+            .inputEcho(flow: 9),
+        ])
+    }
+
+    /// The READY's cut falls in the second chunk: the first is on the screen already and dropped, the rest of
+    /// the second is new, so the output reached the view and its sidecar applies.
+    @Test func aChunkedOutputTrimmedByTheReadyKeepsItsSidecar() async throws {
+        let chunk = 32 * 1024
+        var builder = FrameBuilder()
+        builder.ready(offset: 40000, generation: 1, data: "SNAPSHOT-READY-ONE")
+        builder.add(.output, offset: 0, payload: Self.bytes(0x61, count: chunk))
+        builder.add(.output, offset: UInt64(chunk), payload: Self.bytes(0x62, count: chunk))
+        builder.add(.event, offset: 0, payload: Self.text(#"{"event":"output","surface":3,"flow":5}"#))
+        let events = await run(try builder.frames().frames)
+
+        #expect(events == [
+            .snapshot(Self.ready(offset: 40000, generation: 1, data: "SNAPSHOT-READY-ONE")),
+            .output(Data(Self.bytes(0x62, count: 2 * chunk - 40000)), colors: nil),
+            .inputEcho(flow: 5),
         ])
     }
 

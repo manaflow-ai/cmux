@@ -32,8 +32,8 @@ struct TerminalAttachFrameDecoder: Sendable {
     private(set) var resyncing = false
     /// The stream restores from READY snapshots (a snapshot attach), so a gap is repaired in place.
     private var snapshots = false
-    /// The aux of the OUTPUT just delivered: the only offset its sidecar EVENT (colors, flow) may carry.
-    private var deliveredOutput: UInt64?
+    /// The contiguous OUTPUT frames just before this frame; the only output an `output` sidecar may follow.
+    private var outputRun: OutputRun?
     private var sequencer = TerminalSnapshotSequencer()
     private var bulk: PendingBulk?
 
@@ -43,9 +43,9 @@ struct TerminalAttachFrameDecoder: Sendable {
 
     /// What `frame` gives the view. `decoder` is the connection's (it counts each meta decode).
     mutating func admit(_ frame: TerminalAttachFrame, decoder: WireDecoder) -> TerminalFrameAdmission {
-        // A sidecar follows its OUTPUT at once; any other frame in between ends that chance.
-        let sidecarOffset = deliveredOutput
-        deliveredOutput = nil
+        // A sidecar follows the last chunk of its OUTPUT at once; any other frame in between ends that chance.
+        let precedingRun = outputRun
+        outputRun = nil
         if let pending = bulk {
             // A stream's frames never interleave (one FIFO per stream), so another frame here is a broken stream.
             guard pending.continues(with: frame) else { return lost() }
@@ -53,11 +53,11 @@ struct TerminalAttachFrameDecoder: Sendable {
         }
         switch frame.kind {
         case .output:
-            return output(TerminalOutputSpan(offset: frame.offset, bytes: frame.payload))
+            return output(TerminalOutputSpan(offset: frame.offset, bytes: frame.payload), after: precedingRun)
         case .grid:
             return grid(frame, decoder: decoder)
         case .event:
-            return event(frame, sidecarOffset: sidecarOffset, decoder: decoder)
+            return event(frame, after: precedingRun, decoder: decoder)
         case .snapshot, .replay:
             bulk = PendingBulk(kind: frame.kind, offset: frame.offset)
             return appendBulk(frame.payload, decoder: decoder)
@@ -74,25 +74,39 @@ struct TerminalAttachFrameDecoder: Sendable {
         return event
     }
 
-    private mutating func output(_ span: TerminalOutputSpan) -> TerminalFrameAdmission {
+    /// The writer cuts one output into OUTPUT frames of at most BULK_FRAME_MAX, each with the offset of its
+    /// first byte (cmux-ipc `lane_writer.rs` `chunk_frame`), so `run` is the output this chunk may continue.
+    private mutating func output(_ span: TerminalOutputSpan, after run: OutputRun?) -> TerminalFrameAdmission {
         guard !resyncing else { return .nothing }
+        var current = run.flatMap { $0.end == span.offset ? $0 : nil }
+            ?? OutputRun(start: span.offset, end: span.offset)
+        current.end = span.end
         guard let next = nextOffset else {
             nextOffset = span.end
-            deliveredOutput = span.offset
+            current.deliveredEnd = span.end
+            outputRun = current
             return .output(span)
         }
         guard span.offset <= next else { return lost() }
         // Bytes before `next` are on the screen already; only the rest is new.
-        guard span.end > next, let rest = span.dropping(before: next) else { return .nothing }
+        guard span.end > next, let rest = span.dropping(before: next) else {
+            outputRun = current
+            return .nothing
+        }
         nextOffset = rest.end
-        deliveredOutput = span.offset
+        current.deliveredEnd = rest.end
+        outputRun = current
         return .output(rest)
     }
 
     /// `meta_len | meta | replay | pending`: the `resized` event without `replay` and `pending`.
     private mutating func grid(_ frame: TerminalAttachFrame, decoder: WireDecoder) -> TerminalFrameAdmission {
         guard !resyncing else { return .nothing }
-        if let next = nextOffset, frame.offset > next { return lost() }
+        if let next = nextOffset {
+            guard frame.offset <= next else { return lost() }
+            // The screen that set `next` (a READY or REPLAY cut after this resize) already has it.
+            guard frame.offset == next else { return .nothing }
+        }
         let payload = frame.payload
         guard let metaLength = payload.littleEndianUInt32(at: 0).map({ Int(clamping: $0) }),
               let meta = payload.slice(from: Self.metaLengthBytes, length: metaLength),
@@ -127,7 +141,7 @@ struct TerminalAttachFrameDecoder: Sendable {
     }
 
     /// An attach event's JSON line, or the sidecar of the OUTPUT before it.
-    private mutating func event(_ frame: TerminalAttachFrame, sidecarOffset: UInt64?,
+    private mutating func event(_ frame: TerminalAttachFrame, after run: OutputRun?,
                                 decoder: WireDecoder) -> TerminalFrameAdmission {
         let line = frame.payload.data
         guard let name = try? decoder.decode(EventName.self, from: line).event else {
@@ -136,7 +150,7 @@ struct TerminalAttachFrameDecoder: Sendable {
         }
         if name == "output" {
             // The sidecar of output that was dropped (already on the screen, or lost) is dropped with it.
-            guard sidecarOffset == frame.offset else { return .nothing }
+            guard run?.carries(sidecarAt: frame.offset) == true else { return .nothing }
             guard let sidecar = try? decoder.decode(OutputSidecar.self, from: line) else {
                 TerminalAttachment.noteUndecodable("output sidecar")
                 return .nothing
@@ -194,6 +208,7 @@ struct TerminalAttachFrameDecoder: Sendable {
     /// The screen is the one at `offset`: output continues from there, and a resync is over.
     private mutating func restored(at offset: UInt64, snapshot: Bool) {
         nextOffset = offset
+        outputRun?.deliveredEnd = nil  // output before the cut is on the restored screen
         resyncing = false
         snapshots = snapshot
     }
@@ -219,6 +234,23 @@ struct TerminalAttachFrameDecoder: Sendable {
 }
 
 extension TerminalAttachFrameDecoder {
+    /// Contiguous OUTPUT frames back to back: the chunks of one output, or outputs with no sidecar between.
+    /// An output's sidecar comes after its last chunk with the aux of its first (cmux-tui `attach_frames.rs`).
+    struct OutputRun: Sendable {
+        /// The aux of the run's first OUTPUT.
+        var start: UInt64
+        /// The offset after the run's last byte.
+        var end: UInt64
+        /// The offset after the last byte of the run that reached the view; nil while none has.
+        var deliveredEnd: UInt64?
+
+        /// Whether the sidecar with aux `offset` is of output in this run that reached the view.
+        func carries(sidecarAt offset: UInt64) -> Bool {
+            guard let deliveredEnd else { return false }
+            return start <= offset && offset < deliveredEnd
+        }
+    }
+
     /// What the view's attachment does with the admissions the queue does not take itself.
     struct Delivery: Sendable {
         /// A `size-state` and this view's participant in it (the attachment orders them by generation).
