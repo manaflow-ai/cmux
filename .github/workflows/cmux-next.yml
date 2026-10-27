@@ -1945,7 +1945,13 @@ jobs:
           # From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).
           sidebar_from=342462ca6ee97db1d23f013ad0d58dc942673c82
           sweep=0
-          git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
+          # Deepen only until the sweep's base is here (64, 128, 256 ... commits; at most 2032 in all,
+          # the old fixed --deepen=2000 bound). That one 2000-commit fetch took 2-7 min of the job's
+          # 10, for a range of ~300 commits.
+          for step in 64 128 256 512 1072; do
+            git cat-file -e "$sidebar_from^{commit}" 2>/dev/null && break
+            git fetch --no-tags --quiet --deepen="$step" origin "$GITHUB_SHA" || break
+          done
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
             python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
               | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
@@ -1956,7 +1962,11 @@ jobs:
           fi
           range="HEAD^1..HEAD"
           if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true
+            # A push's before is usually here already (the parent, or inside the deepened sweep range):
+            # fetch it only when it is missing. Run unconditionally, this --depth=200 refetch rewrote the
+            # shallow boundary and took 2-3 min on every push.
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true
             if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
           fi
           python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
