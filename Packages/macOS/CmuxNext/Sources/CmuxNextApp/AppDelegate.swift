@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, terminalLaunchFrames: launchReads.frames, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
                                    launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
-                                   features: features)
+                                   watchdog: control.watchdog, features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
@@ -210,12 +210,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyKeybinds.start()
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        ghosttyConfigLiveReload.startAfterStartup(on: order.startup)
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
+        // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
+        GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
         GhosttyRuntime.shared.attach(to: services.mainWork, holdsHiddenActions: services.features.isEnabled(.terminalHiddenActionHold))
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
@@ -326,12 +328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
-        // Start the web OTA launch check before any restored or prewarmed page can
-        // request its entry document. Otherwise the entry can come from the app
-        // bundle while later chunks come from the kept update tree.
+        // The web OTA launch check (kept update read in `main`) before any page asks for its entry document, else the
+        // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
         WebUpdates.shared.prepare(
-            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
+            launch.snapshot.updates, launch: environment.webUpdates, files: services.work, energy: services.mainWork.energy,
             shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
@@ -504,11 +506,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a window closes when its
-    /// last workspace closes, and the daemon keeps every terminal regardless.
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
-    }
+    /// The app stays running with no windows (standard macOS behavior); the daemon keeps every terminal regardless.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Secure coding for any restorable state (as chrome/browser/app_controller_mac.mm); every cmux window is `isRestorable = false` (p08-startup-087).
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).

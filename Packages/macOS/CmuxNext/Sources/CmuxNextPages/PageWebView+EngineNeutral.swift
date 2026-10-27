@@ -122,6 +122,7 @@ extension PageWebView {
     public func afterNextFrame(_ body: @escaping () -> Void) {
         let wait = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
         // task-owner: one frame wait; ends with the page's answer (or at once when the page is gone)
+        // main-hop-allow: callPageFunction is the page's main-actor async script call (the frame wait runs in the page); the task only runs body after its answer
         Task { @MainActor [weak self] in
             guard let self, !self.awaitsFirstShow else { return body() }
             _ = await self.callPageFunction(wait)

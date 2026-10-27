@@ -6,7 +6,7 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};

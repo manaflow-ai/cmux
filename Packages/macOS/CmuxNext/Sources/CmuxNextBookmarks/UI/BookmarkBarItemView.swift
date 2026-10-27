@@ -89,6 +89,7 @@ final class BookmarkBarItemView: NSView {
         needsDisplay = true
     }
 
+    // local-monitor-allow: a 4 pt threshold test, then the drag start, which needs this press's event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
         let distance = hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y)
