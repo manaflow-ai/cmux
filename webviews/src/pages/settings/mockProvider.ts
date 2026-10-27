@@ -39,6 +39,7 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type ThemeOverride,
   type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
@@ -67,6 +68,8 @@ export type MockOptions = {
   museumArt?: MuseumArtResult[];
   /** Workspaces with a background of their own, or following the app's (`value` null). */
   workspaceBackgrounds?: WorkspaceBackground[];
+  /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
+  themeOverrides?: ThemeOverride[];
 };
 
 export const mockDomains: Domains = {
@@ -171,6 +174,7 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
+    if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -345,6 +349,12 @@ export class MockSettingsProvider {
         }
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
+      "cmux.settings.theme.overrides.release": () => {
+        const files = new Set((this.host.theme_overrides ?? []).map((override) => override.file)).size;
+        this.setHost({ ...this.host, theme_overrides: [] });
+        return { files };
+      },
+      "cmux.settings.theme.overrides.open": () => ({}),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
@@ -544,6 +554,7 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -651,6 +662,13 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  private readonly machinesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Channels card's row of other machines and tells the page, like the app's push. */
+  setMachines(machines: ChannelsState["machines"]): void {
+    if (this.channels) this.channels = { ...this.channels, machines };
+    for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
+  }
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */

@@ -61,7 +61,8 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
-`config.json`; `acpmux web` prints the full link and opens it. Only the local socket ever
+`config.json`; `acpmux web` opens the full link and prints it without the token
+(`--show-token` prints it whole, `--json` has it in `url`). Only the local socket ever
 reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
 Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
 this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
@@ -133,7 +134,8 @@ in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
 For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
-`peer_version_skew` with `acpmux host update NAME`.
+`peer_version_skew` with `acpmux host update NAME`; status adds the peer's
+target and `--binary-dir DIR` form when it differs from this build.
 
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
@@ -160,13 +162,13 @@ Five everyday commands, three groups for the rest:
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
-| `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
+| `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
+| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
-| `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `daemon run\|status\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
-| `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
+| `daemon shutdown [--end-agents]` (also `daemon stop`) | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -239,7 +241,9 @@ The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the scrip
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
-session and siblings. The event log carries `turn_started` and `turn_result`
+session and siblings. A session an agent starts (`acpmux new` in its shell, or its
+`start_session` tool) records that session as its lineage `parent`, with the tree's `root` and
+its `depth`; `ACPMUX_TOOL_CALL_ID`, when the harness sets it, names the tool call that started it. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
 connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or
@@ -873,7 +877,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
-acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux ls                              # HOST/session-name next to local sessions
@@ -908,6 +912,10 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+A machine that is not yours to update now (reserved for someone else, or someone else's) is held:
+`acpmux host hold NAME --reason TEXT [--until 2026-10-28T23:59:59Z]` (in `~/.acpmux/update-holds.json`,
+by peer name or ssh host). `host update`, `--all` and the app's update queue then answer `held` for it
+without reaching it, so its daemon is never restarted; `--release` (or the `--until` time) ends the hold.
 A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
 `host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
 daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
@@ -920,7 +928,7 @@ process; it needs `flock` or `perl` on the host), and one that finds it held cha
 (`host update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
 connection dropped stops (`lockLost`). The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
-`--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
+`--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `held`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
 work: `acpmux host add HOST ssh://HOST` (`ssh://user@host:port` is fine) reads the remote token
@@ -950,7 +958,8 @@ with 5 s each, and lists this machine first. Each row has:
 
 An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
 A peer on an older build that lacks the method shows as reachable, and names
-`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+`acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
+its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
 (`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
 `session export HOST/name` and `session import DIR` bring a session here.
 
@@ -1129,6 +1138,15 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
+- `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
+  log whole). After them its log is compacted: the harness's raw lines (`claude.*`, `codex.*`) and
+  tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
+  and everything else stays with its sequence number: the prompts, the agent's messages, the turn
+  and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
+  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
+  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
+  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

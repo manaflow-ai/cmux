@@ -272,16 +272,28 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
       await disclosure.click();
       await page.mouse.click(20, 200);
-      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
-      await disclosure.click();
-      const link = page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").first();
+      // An inline disclosure stays open while the user reads the chat.
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
+      const link = page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").first();
       await link.focus();
       await page.locator(".acpmux-pr-card").waitFor();
       expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
-      await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__dismiss").first().click();
-      expect(await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").count()).toBe(3);
+      await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__dismiss").first().click();
+      expect(await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").count()).toBe(3);
       expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
+        "Dismiss pull request #43",
+      );
+      for (let remaining = 3; remaining > 0; remaining--)
+        await dock.locator(".acpmux-pr-dock__dismiss").first().click();
+      expect(await dock.locator(".acpmux-pr-dock__disclosure").count()).toBe(0);
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      expect(
+        await dock
+          .locator(".acpmux-pr-dock__count")
+          .first()
+          .evaluate((element) => element === document.activeElement),
+      ).toBe(true);
     } finally {
       await page.close();
     }

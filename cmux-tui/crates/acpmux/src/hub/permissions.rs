@@ -7,6 +7,10 @@ use super::*;
 #[path = "permission_settled.rs"]
 pub(super) mod settled;
 
+/// The person-readable line on a request (`toolCall._meta.acpmux.display`).
+mod display;
+pub(crate) use display::{ChildTags, drop_display_lines};
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -30,11 +34,16 @@ impl Hub {
                                 .as_ref()
                                 .is_some_and(|c| c.generation == agent && !c.is_retired())
                             {
-                                self.on_update(&session, params.as_ref());
+                                self.on_update(&session, params.as_ref(), false);
                             }
                             continue;
                         }
-                        self.on_update(&session, params.as_ref());
+                        let replayed = session
+                            .replaying
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .contains(&agent);
+                        self.on_update(&session, params.as_ref(), replayed);
                     }
                 }
                 Inbound::Request { id, method: m, params } => {
@@ -71,6 +80,7 @@ impl Hub {
                 Inbound::Barrier(done) => {
                     let _ = done.send(());
                 }
+                Inbound::ReplayDone { agent } => session.end_replay(agent),
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -89,6 +99,8 @@ impl Hub {
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
+                    // So did its background subagents (`work_below.rs`).
+                    self.end_background_subagents(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -108,7 +120,8 @@ impl Hub {
         }
     }
 
-    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>) {
+    /// `replayed`: the update is history an agent's load replays (`Session::replaying`).
+    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>, replayed: bool) {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
@@ -131,8 +144,14 @@ impl Hub {
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
-                if let Some(text) =
-                    update.get("content").and_then(|c| c.get("text")).and_then(Value::as_str)
+                // History a load replays is logged (`.replay`) but is not the chat's newest
+                // reply: a session resumed from stopped had every earlier reply, then the new
+                // one, as its `lastMessage` (remote-ergo walk 4, 2026-10-26).
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(Value::as_str)
+                    .filter(|_| !replayed)
                 {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);
@@ -148,7 +167,8 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m)
+                super::pull_requests::absorb(session, update, &mut m);
+                super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
@@ -429,8 +449,26 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
+    /// The policy that answers `session`'s permission requests: its own, else the daemon's
+    /// (`config_policy`). While MDM or the team policy forces `sessions.allowFullAccess` off,
+    /// approve-all (the policy form of full access, from config.json `permissionPolicy`, a
+    /// preset, a profile default or a session set before the push) answers nothing itself: it
+    /// runs as `ask` (`approve_all_allowed`).
     pub(super) fn policy_for(
         &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
+        let policy = Self::stored_policy_for(session, config_policy);
+        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// `policy_for` as stored, before MDM's off caps it: for the person rule, which must not
+    /// treat an approve-all session as asking while MDM forces full access off.
+    pub(super) fn stored_policy_for(
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
@@ -468,6 +506,9 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
+        // A person-readable line for a tool whose name and JSON mean nothing
+        // to a person (permissions/display.rs), before anything shows the request.
+        self.stamp_permission_display(session, &mut request);
         let needs_person = super::questions::needs_person(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
@@ -508,7 +549,7 @@ impl Hub {
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -595,10 +636,12 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
-            // Full access answers what the harness still asks, unless a rule decided it.
-            let full_access = (full_access_on && rule.is_none() && !denied)
-                .then(|| full_access_allow(session, &request))
-                .flatten();
+            // Full access answers what the harness still asks, unless a rule decided it. MDM's
+            // off is read again here (memory only): a push since the read above answers nothing.
+            let full_access =
+                (full_access_on && !self.full_access_managed_off() && rule.is_none() && !denied)
+                    .then(|| full_access_allow(session, &request))
+                    .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
