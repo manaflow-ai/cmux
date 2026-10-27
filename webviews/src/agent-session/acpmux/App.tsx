@@ -9070,12 +9070,13 @@ function AcpmuxPane() {
         </Notice>
         {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
             offered here. */}
-        {/* No read of the host's sandbox state answered after a reload: say so, with Check again
-            (Labs only: without it there is no Sandboxed send to lose). */}
+        {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
+            run the tab last knew stays in view. With nothing known, Labs only (without it there is no
+            Sandboxed send to lose); a failure card has its own Check again. */}
         <Notice
           id="sandbox-unchecked"
           tier="status"
-          when={preview && sandbox.host.kind === "unknown" && !sandboxHoldsChat}
+          when={sandbox.unread && (preview || sandboxView !== undefined) && sandboxView?.state !== "failed"}
         >
           <output className="acpmux-switch-notice acpmux-folder-choice">
             <span>{t("sandbox.unchecked")}</span>{" "}
