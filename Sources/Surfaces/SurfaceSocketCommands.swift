@@ -125,12 +125,11 @@ extension TerminalController {
             }
             let destination = options.open ? surfaceNewDisplayDestination(params) : nil
             if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
+            // The legacy path's work closure returns a result dictionary, so the
+            // busy envelope (a response string) can only come from the async
+            // adapter above, which handles it for socket clients.
             return v2VmCall(id: id, timeoutSeconds: 240) {
-                do {
-                    return try await Self.surfaceNewDisplay(options, destination: destination)
-                } catch is SurfaceDisplayCreationBusy {
-                    return Self.surfaceNewDisplayBusyError(id: id)
-                }
+                try await Self.surfaceNewDisplay(options, destination: destination)
             }
 
         default:
