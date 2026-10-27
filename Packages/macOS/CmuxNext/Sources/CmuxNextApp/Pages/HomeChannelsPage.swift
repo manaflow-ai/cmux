@@ -6,6 +6,7 @@ import CmuxNextDaemonService
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension InternalPageID {
@@ -16,13 +17,18 @@ extension PageDescriptor {
     /// The channels Home (webviews/src/pages/home-channels): a client of this instance's daemon over
     /// its loopback WebSocket, the same protocol a plain browser uses (cmux-tui spec/transports.md
     /// "App listener and page files"). No Swift serves Home data; the host only hands the page the
-    /// endpoint and the daemon's credential (`cmux.host.credential.load`, a host verb). The daemon
-    /// admits this page's origin (`DaemonService.pageOrigins`). A video attachment plays from the
-    /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
+    /// endpoint and the daemon's credential (`cmux.host.credential.load`, a host verb), and records a
+    /// gesture-backed op's `transaction` as the person's (`cmux.host.cause.person`,
+    /// ``PagePersonCauseRoute``). The daemon admits this page's origin (`DaemonService.pageOrigins`).
+    /// A video attachment plays from the daemon's own listener (`GET /attachments/<token>`,
+    /// ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
-        id: "cmux.home-channels", resource: "home-channels", processGroup: .solo, namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
+        id: "cmux.home-channels", resource: "home-channels", processGroup: .solo,
+        namespaces: ["cmux.host.credential.", PagePersonCauseRoute.prefix, ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix,
+                     HomeSwitchPageRoute.prefix],
         nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
-        csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
+        csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true, // Archive and message delete confirm in the page
+        opTables: [PagePersonCauseRoute.table])
 }
 
 extension PageFactory {
@@ -34,7 +40,14 @@ extension PageFactory {
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
         let edits = PageEditProvider()
+        // The echo comes on the connection of the conversations' owner: the build daemon or this build's Chief owner.
+        let causes = PagePersonCauseRoute { [weak daemon = services.daemon, weak chief = services.home.chief] transaction in
+            for connection in [daemon?.connection, chief?.connection].compactMap({ $0 }) {
+                connection.mutationCauses.record(transaction: ClientTransactionID(rawValue: transaction), cause: .person)
+            }
+        }
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
+                      PageRoute(prefix: PagePersonCauseRoute.prefix, provider: causes),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(
                           owner: services.home.chief, channels: services.webUI.relayChannels, deadlines: services.mainDeadlines)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),

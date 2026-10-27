@@ -6,7 +6,8 @@
 // - `?daemon=ws://host:port`: any other server of the page bundle (the gallery live server);
 // - in the app (cmux-page://cmux.home-channels/): the host verb `cmux.host.credential.load` hands
 //   the endpoint and the daemon's credential, and `owner` for this build's Chief conversations
-//   (DaemonGate). No Swift serves Home data.
+//   (DaemonGate). No Swift serves Home data; `cmux.host.cause.person` marks a gesture-backed op
+//   as the person's for the app's scheduling (daemonHome.ts).
 // In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
 import { useState } from "react";
@@ -101,7 +102,7 @@ function DaemonHome({
   strings: Strings;
   carry: PendingCarry;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner, host), carry, host));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

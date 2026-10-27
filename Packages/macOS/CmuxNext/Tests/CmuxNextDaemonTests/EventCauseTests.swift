@@ -256,18 +256,6 @@ private final class StillClock: Clock, Sendable {
         #expect(inbox.take().first?.cause == .automation)
     }
 
-    /// A page relay call (p06-scheduler-231): its key names the person only when a real event in the
-    /// page backs it; a call without a key has no echo to match.
-    @Test func aPageCallIsThePersonsOnlyWithAGestureAndAKey() {
-        let ledger = MutationCauseLedger()
-        ledger.recordPageCall("scripted", gestureBacked: false)
-        ledger.recordPageCall(nil, gestureBacked: true)
-        ledger.recordPageCall("typed", gestureBacked: true)
-        #expect(ledger.count == 1)
-        #expect(renamed("scripted").cause(wire: "automation", recorded: ledger) == .automation)
-        #expect(renamed("typed").cause(wire: "automation", recorded: ledger) == .person)
-    }
-
     @Test func aCollapsedInboxMergesPerSurfaceEventsWithTheirHighestCause() {
         let inbox = EventInbox(limit: 1)
         let surface = SurfaceID(rawValue: 4)
