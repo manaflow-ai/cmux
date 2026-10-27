@@ -127,9 +127,9 @@
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-dock__compact{display:flex;align-items:center}
-.acpmux-pr-dock__list{display:contents}
+.acpmux-pr-dock__list{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
 /* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
-.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{display:flex;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
+.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{flex-direction:row;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
 /* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
 html[data-pr-dock-layout="below"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0}
 html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
