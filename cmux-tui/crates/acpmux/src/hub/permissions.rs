@@ -332,11 +332,13 @@ impl Hub {
     }
 
     /// Answers the agent's request `id` with `result`, under the fence of the ancestor's answer
-    /// it carries (`ANSWER_FENCE`), and returns once it is handed on. An answer an off push cut
-    /// while it was queued never reaches the agent, which still waits: the request is handled
-    /// again (`again`: its method, params, permission epoch, turn and host incarnation), so it is
-    /// asked under the bound now, or cancelled when a stop or a new turn came since (reviews 84
-    /// and 88 of #23322).
+    /// it carries (`ANSWER_FENCE`), and returns once its writer took it or an off push cut it.
+    /// An answer cut while it was queued never reaches the agent, which still waits: the request
+    /// is handled again (`again`: its method, params, permission epoch, turn and host
+    /// incarnation), so it is asked under the bound now, or cancelled when a stop, a new turn or
+    /// the agent's withdrawal came since (reviews 84 and 88 of #23322). The request stays open
+    /// (`register_agent_request`) the whole time, in this task, so a withdrawal while the answer
+    /// waits is kept for the ask again (review 88, round 7).
     async fn respond_answer(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -348,27 +350,16 @@ impl Hub {
         let fence = ANSWER_FENCE.try_with(|f| f.borrow_mut().0.take()).ok().flatten();
         let _ = child.respond_fenced(id.clone(), result, fence.as_ref()).await;
         let Some(fence) = fence else { return };
-        let (hub, s, c) = (self.clone(), session.clone(), child.clone());
-        // task-owner: ends once its writer takes the answer or it is cut: only a queued one can be.
-        tokio::spawn(async move {
-            fence.taken().await;
-            // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
-            if fence.is_cut() && c.is_alive().await {
-                let (m, params, epoch, turn_id, incarnation) = again;
-                // Open again while it is asked, so the agent's withdrawal of it is heard.
-                let ask = m == method::SESSION_REQUEST_PERMISSION;
-                if ask {
-                    hub.register_agent_request(&s, &id, incarnation.as_deref());
-                }
-                let request_id = id.clone();
-                let (h, i) = (hub.clone(), incarnation.clone());
-                h.on_agent_request(s.clone(), id, m, params, epoch, turn_id, None, i, Some(c))
-                    .await;
-                if ask {
-                    hub.finish_agent_request(&s, &request_id, incarnation.as_deref());
-                }
-            }
-        });
+        fence.taken().await;
+        // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+        if fence.is_cut() && child.is_alive().await {
+            let (m, params, epoch, turn_id, incarnation) = again;
+            let s = session.clone();
+            let c = Some(child.clone());
+            self.clone()
+                .on_agent_request(s, id, m, params, epoch, turn_id, None, incarnation, c)
+                .await;
+        }
     }
 
     /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write

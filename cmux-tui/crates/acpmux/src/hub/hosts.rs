@@ -988,7 +988,7 @@ impl Hub {
                         let fence = self.hold_until_written(session, hold);
                         let answer = Ok(permission_answer(outcome));
                         let _ = child.respond_fenced(id.clone(), answer, Some(&fence)).await;
-                        self.finish_agent_request(session, &id, Some(incarnation));
+                        // Finished once the fence settles (`ask_again_once_cut`).
                         let asked = Some((epoch, turn_id.clone()));
                         let again = (id, permission_id, request, incarnation.to_owned(), asked);
                         self.ask_again_once_cut(session, child, fence, again);
@@ -1160,17 +1160,22 @@ impl Hub {
             let asked = Some(asked);
             let answer = Ok(permission_answer(outcome));
             let _ = c.respond_fenced(agent_request_id.clone(), answer, fence.as_ref()).await;
-            hub.finish_agent_request(&s, &agent_request_id, Some(&incarnation));
             if let Some(fence) = fence {
+                // Finished once the fence settles (`ask_again_once_cut`).
                 let again = (agent_request_id, permission_id, request, incarnation, asked);
                 hub.ask_again_once_cut(&s, &c, fence, again);
+            } else {
+                hub.finish_agent_request(&s, &agent_request_id, Some(&incarnation));
             }
         });
     }
 
     /// An ancestor's answer to the prompt `permission_id`, sent under `fence`: once an off push
     /// cut it while queued it never reaches the agent, which still waits, so the prompt is asked
-    /// again (review 84 of #23322), unless a stop or a new turn since `again.4` cancelled it.
+    /// again (review 84 of #23322), unless a stop or a new turn since `again.4`, or the agent's
+    /// withdrawal, cancelled it. The agent's request stays open until the fence settles, so a
+    /// withdrawal while the answer waits is kept for the ask again (review 88, round 7); it is
+    /// finished here, or by the ask again.
     fn ask_again_once_cut(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -1184,12 +1189,12 @@ impl Hub {
         tokio::spawn(async move {
             fence.taken().await;
             // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+            let (id, permission_id, request, incarnation, asked) = again;
             if fence.is_cut() && c.is_alive().await {
-                let (id, permission_id, request, incarnation, asked) = again;
-                // Open again while it is asked, so the agent's withdrawal of it is heard.
-                hub.register_agent_request(&s, &id, Some(&incarnation));
                 hub.reregister_permission(&s, &c, id, permission_id, request, &incarnation, asked)
                     .await;
+            } else {
+                hub.finish_agent_request(&s, &id, Some(&incarnation));
             }
         });
     }
