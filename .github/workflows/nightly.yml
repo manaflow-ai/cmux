@@ -3882,6 +3882,8 @@ jobs:
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.
+      signed_verified: ${{ steps.verify-signed.outcome }}
+      dmg_verified: ${{ steps.verify-final-dmg.outcome }}
       notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
       # The 6 h stapled-app fallback (notarize-nightly-dmg.sh) shipped the first DMG.
       stapled_app_fallback_id: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
@@ -4194,7 +4196,7 @@ jobs:
             bundle_args+=(--bundle-assets)
           fi
           # No --verify-cli here: this job holds signing secrets and runs no
-          # bundle code. verify-signed-nightly runs the bundled-CLI query on the
+          # bundle code. The final verification runs the bundled-CLI query on the
           # signed app.
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
@@ -4361,12 +4363,10 @@ jobs:
       # copy of it while Apple notarizes (signed-app-checks.sh): about 2.5 min
       # that used to stand between Codesign apps and the first submission. The
       # notarize step changes the app in place, so the copy is taken here.
-      # This job holds signing secrets, so it runs no code from the bundle.
-      # verify-signed-nightly runs every check that executes the app, the CLI,
-      # the helpers or the sidecar, in a job without secrets, on this exact
-      # signed app and on the final DMG (#21024). Notary tests and builds held
+      # Verification runs after keychain deletion, without step secrets, on
+      # this exact archive and the final DMG. Notary tests and builds held
       # by NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload a signed app and publish nothing, so they skip that job. The
+      # upload a signed app and publish nothing, so they skip verification. The
       # unnotarized zip is the Developer ID-signed app for teammates when
       # Apple's queue is slow; the public repository never gets one from notary
       # tests or paused builds, and a failed zip never blocks notarization.
@@ -4440,8 +4440,7 @@ jobs:
           # later run; a notary test waits here and is never continued.
           CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
-          # Runtime checks for the stapled app and final DMG run in
-          # verify-signed-nightly, a job without secrets.
+          # Final artifact checks run after keychain deletion below.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
@@ -4684,6 +4683,143 @@ jobs:
           fi
 
 
+      # Reuse the signer after keychain deletion. Verify sequentially so the
+      # archive and mounted DMG cannot compete over the same bundle identity.
+      - name: Restore signed app
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        env:
+          CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
+        run: |
+          set -euo pipefail
+          (cd signed-app-handoff && shasum -a 256 -c cmux-signed-app.tar.gz.sha256)
+          mkdir -p signed
+          tar -C signed -xzf signed-app-handoff/cmux-signed-app.tar.gz
+          test -d "$CHANNEL_APP_PATH"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$CHANNEL_APP_PATH"
+
+      # cmux-next: the app's CFBundleShortVersionString and every bundled
+      # CLI's `--version` say the cmux-next version (cmux-tui/Cargo.toml
+      # [workspace.package]); a 0.1.0 `cmux` inside a 1.0.0 app fails here.
+      - name: Verify version surfaces
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' && env.TRACK == 'nightly-next'
+        env:
+          CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
+        run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
+
+
+
+      # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
+      # existed. Recheck the signed sidecar's deterministic transport contract
+      # after the keychain is gone; this does not launch the app.
+      - name: Verify signed diff sidecar protocol contract
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        env:
+          CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
+        run: |
+          set -euo pipefail
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
+            --require-signed
+
+
+      - name: Verify signed app SSH daemon contract
+        id: verify-signed
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        env:
+          CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
+        run: |
+          bundle_args=()
+          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
+            bundle_args+=(--require-bundled-assets)
+          fi
+          # cmux-next bundles the Rust CLI (#16174), which has no classic
+          # `remote-daemon-status` command, so nightly-next checks the manifest
+          # and daemon bytes but skips the bundled-CLI query.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
+          else
+            bundle_args+=(--verify-cli)
+          fi
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
+
+
+
+
+      - name: Verify final DMG artifact
+        id: verify-final-dmg
+        env:
+          SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
+          STAPLED_APP_FALLBACK_ID: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p tested
+          : > "tested/tested-${NIGHTLY_VARIANT}.sha256"
+          release="./${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
+          [ -f "$release" ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
+          # The DMG was signed and checked for the signing channel (cmux NEXT signs as next).
+          stapled_flag=(--require-stapled-app)
+          if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
+            stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
+          fi
+          ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
+          tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"
+          [ -n "$tested" ] || { echo "verify-dmg-artifact.sh reported no verified digest" >&2; exit 1; }
+          # The immutable DMG is a copy of the release DMG: require the same bytes.
+          for dmg in ./"${CHANNEL_DMG_PREFIX}"-*.dmg; do
+            [ -f "$dmg" ] || continue
+            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+            [ "$actual" = "$tested" ] || { echo "$(basename "$dmg") differs from the DMG that was verified" >&2; exit 1; }
+            printf '%s  %s\n' "$actual" "$(basename "$dmg")" >> "tested/tested-${NIGHTLY_VARIANT}.sha256"
+          done
+          cat "tested/tested-${NIGHTLY_VARIANT}.sha256"
+
+
+      # Size of the app in the final DMG, by component, against
+      # scripts/cmux-next/bundle-size-budget.json (plans/cmux-next/bundle-size-DESIGN.md).
+      # Writes the job summary. It does not block the publish yet: a red step
+      # means a cap was crossed; cut the size or raise the cap with a reason.
+      - name: Bundle size budget
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
+        continue-on-error: true
+        # It does not block the publish; a slow runner must not hold the job
+        # (run 39481846284: 13 min, then the job hit its limit).
+        timeout-minutes: 5
+        env:
+          # Chromium on demand ships no engine in the app (bundle-size-DESIGN.md 6).
+          BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
+        run: |
+          set -euo pipefail
+          /bin/bash tests/test_strip_release_bundle_atom_info.sh
+          release="./${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
+          mnt="$RUNNER_TEMP/bundle-size-mnt"
+          mkdir -p "$mnt"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$release" >/dev/null
+          trap 'hdiutil detach "$mnt" -force >/dev/null 2>&1 || true' EXIT
+          app="$(find "$mnt" -maxdepth 1 -name '*.app' -print -quit)"
+          {
+            echo '### Bundle size'
+            echo '```'
+            python3 -I scripts/cmux-next/bundle-size.py report "$app" --dmg "$release"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/cmux-next/bundle-size.py check "$app" --dmg "$release" \
+            --budget scripts/cmux-next/bundle-size-budget.json --variant "$BUDGET_VARIANT"
+
+      - name: Upload tested DMG digests
+        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-tested-${{ matrix.variant }}
+          path: tested/tested-${{ matrix.variant }}.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+
       - name: Upload nightly variant artifacts
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4774,238 +4910,6 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
-
-  verify-signed-nightly:
-    name: Verify signed nightly app (${{ matrix.variant }})
-    # No environment and no secrets: this job verifies the signed app's static
-    # artifacts and sidecar (#21024). Runtime behavior is covered by the
-    # path-routed daemon/app integration lane. publish-nightly publishes this
-    # run's build only when both verification jobs passed.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
-    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
-    permissions:
-      contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: ${{ fromJSON(needs.decide.outputs.variants) }}
-    env:
-      # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
-      # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      NIGHTLY_VARIANT: ${{ matrix.variant }}
-      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-      BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.fast_build == 'true' || needs.decide.outputs.should_publish != 'true' }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
-      SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
-      TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-      CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
-    steps:
-      - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
-
-      # nightly-next's license check reads ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      - name: Download signed app
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff
-
-      - *download-ssh-daemon-assets-2
-
-      - name: Restore signed app
-        run: |
-          set -euo pipefail
-          (cd signed-app-handoff && shasum -a 256 -c cmux-signed-app.tar.gz.sha256)
-          mkdir -p signed
-          tar -C signed -xzf signed-app-handoff/cmux-signed-app.tar.gz
-          test -d "$CHANNEL_APP_PATH"
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "$CHANNEL_APP_PATH"
-
-      # cmux-next: the app's CFBundleShortVersionString and every bundled
-      # CLI's `--version` say the cmux-next version (cmux-tui/Cargo.toml
-      # [workspace.package]); a 0.1.0 `cmux` inside a 1.0.0 app fails here.
-      - name: Verify version surfaces
-        if: env.TRACK == 'nightly-next'
-        run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
-
-
-
-      # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
-      # existed. Recheck the signed sidecar's deterministic transport contract
-      # after the keychain is gone; this does not launch the app.
-      - name: Verify signed diff sidecar protocol contract
-        run: |
-          set -euo pipefail
-          ./scripts/verify-diff-sidecar-artifact.sh \
-            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
-            --require-signed
-
-
-      - name: Verify signed app SSH daemon contract
-        run: |
-          bundle_args=()
-          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
-            bundle_args+=(--require-bundled-assets)
-          fi
-          # cmux-next bundles the Rust CLI (#16174), which has no classic
-          # `remote-daemon-status` command, so nightly-next checks the manifest
-          # and daemon bytes but skips the bundled-CLI query.
-          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
-          else
-            bundle_args+=(--verify-cli)
-          fi
-          python3 scripts/verify_remote_daemon_release.py \
-            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
-
-
-
-
-  verify-final-dmg-nightly:
-    name: Verify final nightly DMG (${{ matrix.variant }})
-    # The final-DMG half of verify-signed-nightly, on its own runner so the two
-    # halves run at the same time (each statically verifies an artifact with the same bundle
-    # id, so they cannot share one runner). No environment and no secrets:
-    # this job statically verifies the final DMG (#21024). publish-nightly
-    # publishes this run's build only when both jobs passed, and only the DMG
-    # bytes this job verified.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
-    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
-    permissions:
-      contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: ${{ fromJSON(needs.decide.outputs.variants) }}
-    env:
-      # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
-      # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      NIGHTLY_VARIANT: ${{ matrix.variant }}
-      SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
-      TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-    steps:
-      - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
-
-      # The static DMG verifier runs the license check, which reads
-      # ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The notarize step stapled the final DMG. Verify that exact DMG and
-      # record its digest without launching bundle code. A build still in Apple's
-      # queue has no final DMG yet: verify-recovered-nightly-next verifies it
-      # when a later run continues it.
-      - name: Download final DMG
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-nightly-variant-${{ matrix.variant }}
-          path: final-dmg
-
-      - name: Verify final DMG artifact
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p tested
-          : > "tested/tested-${NIGHTLY_VARIANT}.sha256"
-          release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
-          [ -f "$release" ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
-          # The DMG was signed and checked for the signing channel (cmux NEXT signs as next).
-          stapled_flag=(--require-stapled-app)
-          if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
-            stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
-          fi
-          ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
-          tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"
-          [ -n "$tested" ] || { echo "verify-dmg-artifact.sh reported no verified digest" >&2; exit 1; }
-          # The immutable DMG is a copy of the release DMG: require the same bytes.
-          for dmg in final-dmg/"${CHANNEL_DMG_PREFIX}"-*.dmg; do
-            [ -f "$dmg" ] || continue
-            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
-            [ "$actual" = "$tested" ] || { echo "$(basename "$dmg") differs from the DMG that was verified" >&2; exit 1; }
-            printf '%s  %s\n' "$actual" "$(basename "$dmg")" >> "tested/tested-${NIGHTLY_VARIANT}.sha256"
-          done
-          cat "tested/tested-${NIGHTLY_VARIANT}.sha256"
-
-
-      # Size of the app in the final DMG, by component, against
-      # scripts/cmux-next/bundle-size-budget.json (plans/cmux-next/bundle-size-DESIGN.md).
-      # Writes the job summary. It does not block the publish yet: a red step
-      # means a cap was crossed; cut the size or raise the cap with a reason.
-      - name: Bundle size budget
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
-        continue-on-error: true
-        # It does not block the publish; a slow runner must not hold the job
-        # (run 39481846284: 13 min, then the job hit its limit).
-        timeout-minutes: 5
-        env:
-          # Chromium on demand ships no engine in the app (bundle-size-DESIGN.md 6).
-          BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
-        run: |
-          set -euo pipefail
-          # The Linux checks job skips this macOS-only test of the release strip.
-          /bin/bash tests/test_strip_release_bundle_atom_info.sh
-          release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
-          mnt="$RUNNER_TEMP/bundle-size-mnt"
-          mkdir -p "$mnt"
-          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$release" >/dev/null
-          trap 'hdiutil detach "$mnt" -force >/dev/null 2>&1 || true' EXIT
-          app="$(find "$mnt" -maxdepth 1 -name '*.app' -print -quit)"
-          {
-            echo '### Bundle size'
-            echo '```'
-            python3 -I scripts/cmux-next/bundle-size.py report "$app" --dmg "$release"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          python3 -I scripts/cmux-next/bundle-size.py check "$app" --dmg "$release" \
-            --budget scripts/cmux-next/bundle-size-budget.json --variant "$BUDGET_VARIANT"
-
-      - name: Upload tested DMG digests
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-tested-${{ matrix.variant }}
-          path: tested/tested-${{ matrix.variant }}.sha256
-          if-no-files-found: error
-          retention-days: 3
 
   # nightly-next continuation. A build whose notarization wait ran out left a
   # recovery artifact (build-sign-notarize-nightly). Each later published
@@ -5301,7 +5205,7 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
@@ -5326,7 +5230,7 @@ jobs:
       behind_hours: ${{ steps.source.outputs.behind_hours }}
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.build-sign-notarize-nightly.outputs.signed_verified == 'success' && needs.build-sign-notarize-nightly.outputs.dmg_verified == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 120
@@ -5351,10 +5255,9 @@ jobs:
         env:
           OWN_RESULT: ${{ needs.build-sign-notarize-nightly.result }}
           OWN_PENDING: ${{ needs.build-sign-notarize-nightly.outputs.notary_pending }}
-          # verify-signed-nightly verified this run's signed artifact and
-          # verify-final-dmg-nightly its final DMG.
-          OWN_VERIFIED: ${{ needs.verify-signed-nightly.result }}
-          OWN_DMG_VERIFIED: ${{ needs.verify-final-dmg-nightly.result }}
+          # Both checks ran in the signer after keychain deletion.
+          OWN_VERIFIED: ${{ needs.build-sign-notarize-nightly.outputs.signed_verified }}
+          OWN_DMG_VERIFIED: ${{ needs.build-sign-notarize-nightly.outputs.dmg_verified }}
           RECOVERED_VERIFIED: ${{ needs.verify-recovered-nightly-next.result }}
           OWN_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
           OWN_BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -5435,7 +5338,7 @@ jobs:
           merge-multiple: true
 
       # Publish only the bytes that a job without secrets verified:
-      # verify-final-dmg-nightly for this run's build, verify-recovered-nightly-next
+      # The signer for this run's build, verify-recovered-nightly-next
       # for a continued one.
       - name: Download verified DMG digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -7907,7 +7810,7 @@ jobs:
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:

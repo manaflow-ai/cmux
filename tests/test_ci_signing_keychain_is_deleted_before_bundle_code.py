@@ -33,7 +33,9 @@ statically, so a reordered step fails in review and not on a release day:
    steps of the same job. Bundle code runs in jobs without secrets on literal
    ephemeral runner labels. The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
-   STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
+   The nightly signer may verify after its last secret-bearing step and
+   keychain deletion; no later step may receive a secret. STEP_LEVEL_ONLY
+   lists the jobs that still rely on rule 1 alone.
 7. A job that holds a signing secret runs on an ephemeral runner (Blacksmith or
    GitHub's hosted Linux; "blacksmith runners we can simply trust", Leo,
    2026-10-24), never a reused machine. Its runs-on names either a literal
@@ -218,13 +220,20 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     holds_secrets = bool(RELEASE_SECRET_REFERENCE.search(json.dumps(job))) or bool(
         RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
     if holds_secrets and name not in STEP_LEVEL_ONLY:
-        for step in steps:
+        # Nightly verification reuses the signer after all signing/notary/Sparkle
+        # credentials have left scope. This is a final phase, never an exception
+        # permitting bundle code before a later secret-bearing step.
+        final_verification = name == "nightly.yml build-sign-notarize-nightly"
+        last_secret = max((i for i, s in enumerate(steps) if SECRET_OR_TOKEN.search(json.dumps(s))), default=-1)
+        for index, step in enumerate(steps):
             if not isinstance(step, dict):
                 continue
             label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
             deferred = deferred_step(step)
             for command in commands(str(step.get("run", ""))):
                 if any(pattern.search(command) for pattern in BUNDLE_CODE):
+                    if final_verification and index > last_secret:
+                        continue
                     failures.append(
                         f"{name}: step {label!r} runs bundle code in a job that holds secrets; "
                         f"move it to a job without secrets: {command[:120]}"

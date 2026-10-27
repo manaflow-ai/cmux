@@ -488,24 +488,20 @@ if ! awk '
   exit 1
 fi
 
-# Nightly distribution verification launches no app or CLI. The signed-app and
-# final-DMG jobs retain deterministic artifact and sidecar protocol checks and
-# gate publication, while app behavior stays in the path-routed integration lane.
+# Verification reuses the signer after its keys are deleted; publication still
+# requires both results and the digest of the exact final DMG.
 if ! awk '
-  /^  verify-signed-nightly:/ { job="verify"; next }
-  /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
   /^  publish-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "verify" && /^    environment:/ { verify_env=1 }
-  job == "verify" && /secrets\./ { verify_secret=1 }
-  job == "verify" && /verify-diff-sidecar-artifact\.sh/ { sidecar=1 }
-  job == "verify-dmg" && /^      - name: Verify final DMG artifact$/ { dmg=1 }
-  job == "verify-dmg" && /verify-dmg-artifact\.sh/ { static_dmg=1 }
-  job == "publish" && /needs: .*verify-final-dmg-nightly/ { dmg_gated=1 }
-  job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
-  END { exit !(sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
+  job == "sign" && /name: Delete signing keychain after the DMG signature/ { deleted=NR }
+  job == "sign" && /verify-diff-sidecar-artifact\.sh/ { sidecar=NR }
+  job == "sign" && /verify-dmg-artifact\.sh/ { dmg=NR }
+  job == "publish" && /outputs.signed_verified == .success./ { gated=1 }
+  job == "publish" && /outputs.dmg_verified == .success./ { dmg_gated=1 }
+  END { exit !(deleted && sidecar > deleted && dmg > sidecar && gated && dmg_gated) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
+  echo "FAIL: nightly verification must follow key deletion and gate publication"
   exit 1
 fi
 
@@ -898,7 +894,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if prepare-nightly-variant-primary)" != "$(job_if build-sign-notarize-nightly)" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.build-sign-notarize-nightly.outputs.signed_verified == 'success' && needs.build-sign-notarize-nightly.outputs.dmg_verified == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi

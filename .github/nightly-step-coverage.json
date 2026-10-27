@@ -170,18 +170,14 @@
         "Prepare pending notarization recovery artifact": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next notarization handoff"},
         "Gate distribution with syspolicy_check": {"nightly_only": "needs signed notarized app bundle"},
         "Generate Sparkle appcasts (nightly)": {"nightly_only": "signs appcast with Sparkle key"},
-        "Write notary test receipt": {"plumbing": true},
-        "Cleanup keychain": {"nightly_only": "deletes the signing keychain"}},
-      "verify-signed-nightly": {
-        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Restore signed app": {"plumbing": true},
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Verify signed diff sidecar protocol contract": {"nightly_only": "verify-diff-sidecar-artifact.sh --require-signed checks the signed Release sidecar's deterministic transport contract without launching app code; ci-macos.yml release-build runs the unsigned static check for pull requests into main"},
-        "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"}},
-      "verify-final-dmg-nightly": {
-        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
-        "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
+        "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
+        "Write notary test receipt": {"plumbing": true},
+        "Cleanup keychain": {"nightly_only": "deletes the signing keychain"}},
       "find-nightly-next-recovery": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 

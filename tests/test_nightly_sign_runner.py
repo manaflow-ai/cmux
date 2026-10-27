@@ -32,8 +32,6 @@ WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(enc
 # output names their label. Each reads it first, then the variable, then 6 vCPU.
 SIGNING_JOBS = {
     "build-sign-notarize-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-signed-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
@@ -142,18 +140,16 @@ class OwnedVerify(unittest.TestCase):
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly")
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
-    def test_verify_jobs_read_the_owned_pick_on_attempt_one_only(self) -> None:
+    def test_verification_reuses_the_signer(self) -> None:
         jobs = WORKFLOW["jobs"]
         for name in self.OWNED_JOBS:
-            with self.subTest(job=name):
-                job = jobs[name]
-                self.assertNotIn("environment", job)
-                self.assertNotIn("secrets.", yaml.safe_dump(job))
-                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || needs.pick-nightly-sign-runner.outputs.runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
-                xcode = job["env"]["CMUX_CI_XCODE_APP"]
-                self.assertIn(f"github.run_attempt == 1 && {self.OWNED} != '' && vars.CMUX_CI_XCODE_APP_PR", xcode)
-                self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+            self.assertNotIn(name, jobs)
+        steps = jobs["build-sign-notarize-nightly"]["steps"]
+        deleted = next(i for i, s in enumerate(steps) if s.get("name") == "Delete signing keychain after the DMG signature")
+        for identity in ("verify-signed", "verify-final-dmg"):
+            index = next(i for i, s in enumerate(steps) if s.get("id") == identity)
+            self.assertGreater(index, deleted)
+            self.assertNotIn("secrets.", yaml.safe_dump(steps[index]))
 
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
         for name, job in WORKFLOW["jobs"].items():

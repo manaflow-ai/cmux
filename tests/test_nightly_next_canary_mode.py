@@ -120,8 +120,8 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("nightly-next-rollback.yml", self.canary)
 
     def test_pre_publication_runtime_canary_is_removed(self):
-        block = self.nightly[self.nightly.index("  verify-signed-nightly:"):]
-        block = block[:block.index("\n  verify-final-dmg-nightly:")] if "\n  verify-final-dmg-nightly:" in block else block
+        block = self.nightly[self.nightly.index("  build-sign-notarize-nightly:"):]
+        block = block[:block.index("\n  find-nightly-next-recovery:")]
         self.assertNotIn("nightly_next_canary_mode.py resolve", block)
         self.assertNotIn("smoke-signed-app-cli.sh", block)
         self.assertNotIn("smoke-launch-macos-app.sh", block)
