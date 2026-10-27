@@ -54,6 +54,7 @@ final class ComposeAttachmentStrip {
     private(set) var height: CGFloat = 0
     private var width: CGFloat = 0
     private var scale: CGFloat = 2
+    // cmux: memory: fixed one layer pair per attachment in the field (removed with it) and at most 16 thumbnails
     private var imageLayers: [ID: (image: CALayer, remove: CALayer)] = [:]
     private let pills = CALayer()
     private var thumbs: [String: CGImage] = [:]       // key: asset + pixel size

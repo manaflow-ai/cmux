@@ -13,13 +13,19 @@ import CmuxNextDesign
 ///
 /// A panel, not a cmux window: it never joins cmux's window list, layout or
 /// session, and it closes with its page.
-final class CEFDevToolsWindow: NSPanel {
+final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting {
     /// The title bar's close button: the tab closes DevTools.
     var onClose: (() -> Void)?
+    /// Where the DevTools page draws (``CEFTab/pageSurface``): in process the fork's page window is a
+    /// child of this panel; in host mode the hosted page is a view in it, and its overlay host runs no
+    /// page-window order check.
+    let pageSurface: PageSurface
 
     /// `owner` is the cmux window the page shows in: DevTools takes its
     /// theme scope (room) for the title bar's light or dark appearance.
-    init(frame: CGRect, owner: NSWindow? = nil) {
+    /// `pageSurface` is the inspected tab's (``CEFTab/pageSurface``).
+    init(frame: CGRect, owner: NSWindow? = nil, pageSurface: PageSurface = .childWindows) {
+        self.pageSurface = pageSurface
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable],
                    backing: .buffered, defer: false)
         isReleasedWhenClosed = false

@@ -9,6 +9,10 @@ import os
 /// watches the app's windows as they appear (key, main and occlusion
 /// changes) and applies `ChromiumWindowRule`. Each block is logged and
 /// counted (`debug.cef` `chromium_windows`).
+///
+/// In process only (``BrowserBackend/inProcess``): the runtime starts it after an in-process boot.
+/// With the Chromium Host no Chromium window is in this process (the host's fork kill switch
+/// reports any Views widget that would order a window in), so the guard never watches and finds none.
 final class ChromiumWindowGuard {
     struct Blocked: Equatable, Sendable {
         var className: String
@@ -31,6 +35,9 @@ final class ChromiumWindowGuard {
         self.logger = logger
         self.isPlacedDevTools = isPlacedDevTools
     }
+
+    /// Whether it watches: after an in-process start (``start()``), until ``stop()``.
+    var isWatching: Bool { !observers.isEmpty }
 
     /// Starts watching (after CefInitialize, when Chromium's classes exist).
     func start() {
@@ -65,9 +72,11 @@ final class ChromiumWindowGuard {
     }
 
     /// Top-level Chromium windows with a title bar that are on screen now
-    /// and would be blocked (a live check expects none).
+    /// and would be blocked (a live check expects none). None while it does not watch: in host mode
+    /// Chromium's windows are the host's.
     func offendingWindows() -> [NSWindow] {
-        NSApp.windows.filter { ChromiumWindowRule.verdict(facts(for: $0)) != .allow }
+        guard isWatching else { return [] }
+        return NSApp.windows.filter { ChromiumWindowRule.verdict(facts(for: $0)) != .allow }
     }
 
     private func check(_ window: NSWindow) {

@@ -78,7 +78,7 @@ impl TerminalHostReconnectBackoff {
             }
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                 host.disconnect();
             }
             // Input waiting out the reconnect (surface/input.rs) fails now.
