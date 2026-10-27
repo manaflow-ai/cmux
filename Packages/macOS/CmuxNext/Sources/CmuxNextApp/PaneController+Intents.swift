@@ -185,7 +185,7 @@ extension PaneController {
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: reply.created.surface) }
                 self.workspace?.expectFocus(on: reply.created.surface, generation: intent)
                 landed = true // the work ends at the reply: a start answered before it is followed apart
-                then?(reply.created.surface); services.registry.followStart(of: reply, after: "newSurface")
+                then?(reply.created.surface); reply.followStart(after: "newSurface", in: services.registry)
                 return nil
             } catch is NewTerminalTabCancelled {
                 return nil // the person closed the stand-in first

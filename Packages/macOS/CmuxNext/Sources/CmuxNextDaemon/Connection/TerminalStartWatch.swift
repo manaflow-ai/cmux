@@ -57,20 +57,18 @@ public final class TerminalStartWatch: Sendable {
     /// - Returns: The outcome; ``TerminalStartOutcome/unknown`` when the connection dropped or no
     ///   outcome came within the start deadline (the next snapshot shows whether the terminal is there).
     public func outcome() async -> TerminalStartOutcome {
-        let subscription = subscription, terminal = terminal, bound = bound, clock = clock
-        defer { subscription.cancel() }
-        return await withTaskGroup(of: TerminalStartOutcome.self) { group in
-            group.addTask { await TerminalStartWatch.firstOutcome(in: subscription, terminal: terminal) }
-            group.addTask {
-                // wakeup-allow: the start's one deadline (spawnTimeout, a flexible never-early wait); cancelled when the start ends first
-                try? await clock.sleep(for: bound, tolerance: WakeLeeway.window(delay: bound).tolerance)
-                return .unknown
-            }
-            let first = await group.next() ?? .unknown
-            group.cancelAll()
-            subscription.cancel() // ends the reading child too
-            return first
+        let subscription = subscription, bound = bound, clock = clock
+        // task-owner: this call; the deadline ends the subscription (the wait below then ends as unknown), cancelled when an outcome comes first
+        let deadline = Task {
+            // wakeup-allow: the start's one deadline (spawnTimeout, a flexible never-early wait); cancelled when the start ends first
+            guard (try? await clock.sleep(for: bound, tolerance: WakeLeeway.window(delay: bound).tolerance)) != nil else { return }
+            subscription.cancel()
         }
+        defer {
+            deadline.cancel()
+            subscription.cancel()
+        }
+        return await Self.firstOutcome(in: subscription, terminal: terminal)
     }
 
     /// Ends the watch without an outcome (the command failed, or its reply needs none).

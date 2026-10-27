@@ -164,7 +164,7 @@ struct NewTerminalTabCommandTests {
             try await Self.until("the reply settled the stand-in") {
                 Self.surfaces(daemon) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)] && daemon.store.pendingIntents.isEmpty
             }
-            services.registry.followStart(of: reply, after: "newSurface")
+            reply.followStart(after: "newSurface", in: services.registry)
 
             _ = try await connection.request(Release())
             try await Self.until("the rollback") { Self.surfaces(daemon) == [SurfaceID(rawValue: 4)] }

@@ -1,3 +1,4 @@
+public import CmuxNextActions
 public import CmuxNextDaemon
 
 /// The reply of a command that makes a terminal tab, and the watch of its terminal's start when the
@@ -36,6 +37,23 @@ public struct StartingTerminal: Sendable {
     /// ``TerminalStartOutcome/started`` for a reply that came after the start.
     public func outcome() async -> TerminalStartOutcome {
         await watch?.outcome() ?? .started
+    }
+
+    /// Follows the start once action `id` answered at this reply: the action's keys, focus and
+    /// sizing resolved at the reply, so only a start that failed is left to say. The daemon rolls
+    /// back the tab or pane it made, and `registry`'s failure notice (the refusal HUD) says why,
+    /// with the daemon's reason (``ActionFollowUp``). A reply that came after the start has
+    /// nothing to follow.
+    ///
+    /// - Parameters:
+    ///   - id: The action that made the terminal.
+    ///   - registry: The registry whose failure notice shows a failed start.
+    public func followStart(after id: ActionID, in registry: ActionRegistry) {
+        guard isStarting else { return }
+        let reply = self
+        ActionFollowUp(registry).run(id) {
+            await reply.outcome().failure.map { ActionWorkFailure(RefusalStrings.terminalDidNotStart($0.reason)) }
+        }
     }
 
     /// Stops following the start (the tab closed before the reply came).

@@ -153,7 +153,7 @@ enum PaneHandlers {
                 landed = true
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 // The work ends at the reply; a start the daemon answered before is followed apart.
-                ctx.registry.followStart(of: reply, after: splitAction(direction))
+                reply.followStart(after: splitAction(direction), in: ctx.registry)
                 return nil
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
