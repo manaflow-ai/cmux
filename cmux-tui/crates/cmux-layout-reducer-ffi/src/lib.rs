@@ -150,6 +150,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
     output_len: *mut usize,
 ) -> i32 {
     ffi_boundary("cmux_layout_reducer_json", ERR_PANIC, || {
+        // SAFETY: this function's contract gives `request_len` readable bytes at `request` (or null
+        // with length 0), which is what `input` requires; the slice is used only during this call.
         let Some(request) = (unsafe { input(request, request_len) }) else { return ERR_NULL };
         if operation.is_null() {
             return ERR_NULL;
@@ -157,7 +159,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
         // SAFETY: operation is a NUL-terminated C string owned by the caller.
         let operation = unsafe { std::ffi::CStr::from_ptr(operation) }.to_bytes();
         match respond(operation, request) {
-            // SAFETY: `output` and `output_len` follow this function's contract.
+            // SAFETY: this function's contract gives `output_capacity` writable bytes at `output`
+            // (or null with capacity 0) and a writable `output_len`, which is what `write_output`
+            // requires.
             Ok(response) => unsafe { write_output(&response, output, output_capacity, output_len) },
             Err(code) => code,
         }
@@ -213,6 +217,8 @@ unsafe fn mirror_call(
     if mirror.is_null() {
         return std::ptr::null_mut();
     }
+    // SAFETY: the caller passes `json_len` readable bytes at `json` (or null with length 0), the
+    // contract of every entry that calls this; the slice is used only during this call.
     let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null_mut() };
     // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
     let mirror = unsafe { &mut *mirror };
@@ -245,6 +251,9 @@ macro_rules! mirror_entry {
             json_len: usize,
         ) -> *mut c_char {
             ffi_boundary(stringify!($name), None, || {
+                // SAFETY: this entry's contract gives a live `mirror` used by one thread and
+                // `json_len` readable bytes at `json` (or null with length 0), which is what
+                // `mirror_call` requires.
                 Some(unsafe { mirror_call(mirror, json, json_len, Mirror::$method) })
             })
             .unwrap_or_else(panic_reply)
@@ -285,6 +294,8 @@ unsafe fn typed_call<T>(
     if mirror.is_null() {
         return std::ptr::null();
     }
+    // SAFETY: the caller passes `json_len` readable bytes at `json` (or null with length 0), the
+    // contract of every entry that calls this; the slice is used only during this call.
     let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null() };
     // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
     let mirror = unsafe { &mut *mirror };
@@ -306,8 +317,11 @@ macro_rules! typed_entry {
             json: *const u8,
             json_len: usize,
         ) -> *const $reply {
-            ffi_boundary(stringify!($name), std::ptr::null(), || unsafe {
-                typed_call(mirror, json, json_len, Mirror::$method)
+            ffi_boundary(stringify!($name), std::ptr::null(), || {
+                // SAFETY: this entry's contract gives a live `mirror` used by one thread and
+                // `json_len` readable bytes at `json` (or null with length 0), which is what
+                // `typed_call` requires.
+                unsafe { typed_call(mirror, json, json_len, Mirror::$method) }
             })
         }
     };

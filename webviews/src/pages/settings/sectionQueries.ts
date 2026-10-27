@@ -3,9 +3,9 @@
 // link reads them ahead of the click, and the card that draws them (useQuery with the same
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
-import { categoryById, homes, categoryOf } from "./categories";
+import { categoryById, homes, categoryOf, shownSection } from "./categories";
 import type { AgentsState, ChannelsState } from "./ops";
-import { settingsKeys } from "./queries";
+import { settingsKeys, type HostData } from "./queries";
 import type { SettingsStore } from "./store";
 
 /** How long a section's host read counts as fresh: long enough that the read a hover started is
@@ -52,6 +52,18 @@ export function agentsQuery(store: SettingsStore) {
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
   const home = focus ? homes.get(focus) : undefined;
   return home?.category ?? categoryOf(section);
+}
+
+/**
+ * The section a route shows in this build (shownSection, as SectionRoute draws it): a DEV-only
+ * section waits for the host lists, which say whether the app is a DEV build, and outside one is
+ * the default section. The route's loader and the opening paint hold load this section's code and
+ * reads, never those of a section the page does not show.
+ */
+export async function shownRouteSection(queryClient: QueryClient, routed: string): Promise<string> {
+  if (!categoryById(routed).devOnly) return routed;
+  const host = await queryClient.ensureQueryData<HostData | null>({ queryKey: settingsKeys.host }).catch(() => null);
+  return shownSection(routed, host?.dev_build === true);
 }
 
 /** One read a section draws from: its query options, and whether a stale copy refreshes. */

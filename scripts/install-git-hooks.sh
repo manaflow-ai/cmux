@@ -131,9 +131,10 @@ mkdir -p "$TRUSTED_CHECKS_STAGE"
 while IFS= read -r -d '' checker; do
     relative="${checker#scripts/cmux-next/}"
     # lint/ holds the linters' configs; arch_rules/ holds the rule modules arch-ratchet.py loads from its
-    # own directory (without it the installed ratchet runs no layer gate).
+    # own directory (without it the installed ratchet runs no layer gate); ast-grep/ holds the Rust rules
+    # guardrails.py judges a push with (never the pushed copy).
     case "$relative" in
-        */*) [[ "$relative" == lint/* || "$relative" == arch_rules/* ]] || continue ;;
+        */*) [[ "$relative" == lint/* || "$relative" == arch_rules/* || "$relative" == ast-grep/* ]] || continue ;;
     esac
     # Folders only below the stage: a stage that is gone fails this install (cp, the mv below) instead of coming
     # back without its .in-use.

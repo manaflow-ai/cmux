@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pagePreload",
+  "owner": "PL-webui",
+  "description": "After Settings, History or Cloud opens, the next page of that kind loads ahead through the app's one preload slot, in the page's own engine, hidden and frozen until an open claims it with its routes. Off: those pages load cold, and no spare page host is made.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

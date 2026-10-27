@@ -40,6 +40,7 @@ mod fold_agent;
 mod fold_command;
 mod hidden;
 mod journal;
+pub mod page_cache;
 mod query;
 mod search_index;
 mod visit_stores;

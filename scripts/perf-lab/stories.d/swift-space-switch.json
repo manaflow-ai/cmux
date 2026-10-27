@@ -1,0 +1,18 @@
+{
+  "id": "swift-space-switch",
+  "tier": "builder",
+  "description": "SpaceSwitchCostTests over SpaceSwitchBench: main-thread CPU, wall and draw time per space switch (WindowManager.switchProfile) at 10 to 500 workspaces, plain and with parked terminal and browser tabs.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-space-switch", "--filter", "SpaceSwitchCostTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.space_switch\\.(plain|parked)\\.[0-9]+\\.(cpu|wall|draw)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1500,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SpaceSwitchBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-switch",
+  "component": "Switch>Space",
+  "hot_paths": ["workspace-switch"]
+}

@@ -46,7 +46,11 @@ const TERMINAL_HOLDER: &str = "terminal-holder";
 /// which `holder_runtime` fixes once from the `terminalHolder` feature;
 /// task 020's `Switches` value from `CMUX_TUI_SWITCHES` replaces this source.
 pub(crate) fn launch_switch_arms() -> SwitchArms {
+    // The terminal holder is unix-only: elsewhere the daemon runs the old arm.
+    #[cfg(unix)]
     let holder = if crate::holder_runtime::enabled() { "new" } else { "old" };
+    #[cfg(not(unix))]
+    let holder = "old";
     BTreeMap::from([(TERMINAL_HOLDER, holder)])
 }
 

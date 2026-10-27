@@ -510,6 +510,25 @@ LAB_SESSION, LAB_CONFIG, LAB_HOST_FILE, LAB_VDISPLAY_OUT = (
 # The full host validation of a launched app (``lab_host_check``) goes to `<out>/host-env-full-<app pid>.json`. The
 # runner rejects a run's results unless at least one such file is under its out folder and every one is ok.
 LAB_CHECK_PREFIX = "host-env-full-"
+# The story's build needs (comma-separated `debug:`, `signpost:` and `env:` entries) and the file the first launch
+# writes the build's own answer to (``lab_needs_check``): the runner reads it, so a build that lacks a need is a
+# not-measurable run, never a failed one (perf-lab capabilities.py, task 211).
+LAB_NEEDS, LAB_PROBE_OUT = "PERF_LAB_NEEDS", "PERF_LAB_PROBE_OUT"
+
+
+def lab_needs_check(ask, needs, out_path):
+    """The needs the launched build lacks, from its `debug.capabilities` answer (capabilities.probe_missing over
+    `ask(method)`), written to `out_path` as {"missing": [...]}. A build whose answers cannot be read lacks nothing
+    here ({"missing": [], "error": ...}): the run goes on and its result stands on its own."""
+    capabilities = load_by_path("perf_lab_capabilities", os.path.join(PERF_LAB, "capabilities.py"))
+    try:
+        report = {"missing": list(capabilities.probe_missing(tuple(needs), ask))}
+    except capabilities.CapabilityError as error:
+        report = {"missing": [], "error": str(error)}
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump({"needs": list(needs), **report}, f, sort_keys=True)
+    return report["missing"]
 
 
 def lab_host_check(vdisplay_out, pids, timeout=300):
@@ -1109,6 +1128,9 @@ class BenchApp:
                 return lab_host_check(vdisplay_out, pids)
         self.lab_check = lab_check
         self.lab_report = None  # the full host validation of this BenchApp's first launch (``lab_check``)
+        self.lab_needs = tuple(n for n in os.environ.get(LAB_NEEDS, "").split(",") if n)
+        self.lab_probe_out = os.environ.get(LAB_PROBE_OUT) or None
+        self.lab_missing = None  # what the first launched build lacks of lab_needs (``check_lab_needs``)
         self.run = run
         self._build = self._host = None
         self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
@@ -1396,12 +1418,26 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
+                    self.check_lab_needs()
                     if validate_host:
                         self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def check_lab_needs(self):
+        """Once per BenchApp under the perf-lab runner (its LAB_NEEDS and LAB_PROBE_OUT): asks the launched build what
+        it has (``lab_needs_check``). A build that lacks a need cannot measure the story: the app stops and the launch
+        fails as `not-measurable`, and the runner reads the file, not the exit status."""
+        if not self.lab_probe_out or not self.lab_needs or self.lab_missing is not None:
+            return
+        self.lab_missing = lab_needs_check(self.rpc, self.lab_needs, self.lab_probe_out)
+        if self.lab_missing:
+            self.stop()
+            self._fail("not-measurable", {"tag": self.tag, "missing": self.lab_missing, "log_tail": "",
+                                          "detail": f"this build lacks {', '.join(self.lab_missing)}, which the story "
+                                                    "needs: its Change is not-measurable, never a regression"})
 
     def validate_lab_host(self, pids=None):
         """Once per BenchApp, while its app runs: ``lab_check`` over the app's and daemons' pids (default the launched
