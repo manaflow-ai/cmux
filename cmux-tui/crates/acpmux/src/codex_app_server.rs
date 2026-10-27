@@ -200,6 +200,13 @@ impl Translator {
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
             if auth.enabled() && auth.failed.is_some() {
+                // A failed/revoked broker must still let the hub settle work
+                // already running in Codex.  Dropping the cancellation
+                // notification leaves the app-server turn alive after the
+                // client has been told that the broker is unavailable.
+                if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
+                    return self.inner.from_client(msg);
+                }
                 let id = msg.get("id").cloned();
                 if let Some(id) = id {
                     return vec![Out::Client(serde_json::json!({
@@ -209,10 +216,6 @@ impl Translator {
                 }
                 return Vec::new();
             }
-            if auth.enabled() && auth.pending() {
-                auth.held_client.push(msg.clone());
-                return Vec::new();
-            }
             if auth.enabled() {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
@@ -220,6 +223,10 @@ impl Translator {
                             old.access_token != file.access_token
                                 || old.expires_at != file.expires_at
                         });
+                        if auth.pending() {
+                            auth.held_client.push(msg.clone());
+                            return Vec::new();
+                        }
                         if changed {
                             auth.held.extend(self.inner.from_client(msg));
                             return vec![auth.login_request(file)];
