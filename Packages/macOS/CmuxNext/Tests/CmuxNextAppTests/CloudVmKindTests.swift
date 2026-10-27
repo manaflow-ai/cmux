@@ -53,13 +53,4 @@ struct CloudVmKindTests {
         #expect(params(false, false)["vm_kind"] == nil)
         #expect(DaemonCapability.agentSessionStartVMKind.rawValue == "agent-session-start-vm-kind-v1")
     }
-
-    /// A Cloud machine whose daemon cannot take `vm_kind` would allow on the VM's own `owner`
-    /// record alone, so the app refuses that start unless the link said the caller owns it.
-    @Test func aCloudStartThroughAnOlderDaemonNeedsTheOwnerAnswer() {
-        #expect(!AgentTabRemoteStart.mayStart(cloud: true, callerOwnsVM: false, servesVMKind: false))
-        #expect(AgentTabRemoteStart.mayStart(cloud: true, callerOwnsVM: true, servesVMKind: false))
-        #expect(AgentTabRemoteStart.mayStart(cloud: true, callerOwnsVM: false, servesVMKind: true))
-        #expect(AgentTabRemoteStart.mayStart(cloud: false, callerOwnsVM: false, servesVMKind: false))
-    }
 }

@@ -26,7 +26,7 @@ extension AgentTabStore {
     /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
-                         personKey: AgentSessionAttachClient.PersonKey? = nil, callerOwnsVM: Bool = false,
+                         personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -35,7 +35,7 @@ extension AgentTabStore {
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
             return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
-                                            callerOwnsVM: callerOwnsVM, endpoint: endpoint)
+                                            ownerLink: ownerLink, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -43,7 +43,7 @@ extension AgentTabStore {
     }
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
-                                personKey: AgentSessionAttachClient.PersonKey?, callerOwnsVM: Bool,
+                                personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
@@ -62,7 +62,7 @@ extension AgentTabStore {
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey, callerOwnsVM: callerOwnsVM)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -91,15 +91,6 @@ nonisolated enum AgentTabRemoteStart {
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
-    }
-
-    /// Whether the app may ask a machine's daemon to start a chat. A Cloud VM's own `owner`
-    /// record says whatever its agents (who keep sudo) write, so on a Cloud machine whose daemon
-    /// cannot take `vm_kind` (`agent-session-start-vm-kind-v1`) the app starts only when the link's
-    /// attach answer said the signed-in caller owns it. A daemon that takes `vm_kind` decides
-    /// itself (team evidence there refuses even an owner).
-    static func mayStart(cloud: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> Bool {
-        !cloud || servesVMKind || callerOwnsVM
     }
 }
 

@@ -47,7 +47,7 @@ import CmuxNextCompat
 
 /// A unix socket that answers `identify` with `capabilities` and every other command `ok`, and
 /// records each request.
-private nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     let path: String
     private let descriptor: Int32
     private let recorded = Mutex<[Data]>([])

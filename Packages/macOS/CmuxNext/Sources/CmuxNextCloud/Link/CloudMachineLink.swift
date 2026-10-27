@@ -32,6 +32,8 @@ public actor CloudMachineLink {
     /// The running link's attach answer said the signed-in caller owns the machine; false once
     /// that link ends (``callerOwnsVM``).
     private var linkOwnsVM = false
+    /// Counts links: each link start and end takes a new one (``ownerLink``).
+    private var linkID = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
     public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String) {
@@ -77,12 +79,14 @@ public actor CloudMachineLink {
         clearRedial()
     }
 
-    /// The running link's ``callerOwnsVM``, here and on ``ownership``.
+    /// A link started or ended: its ``callerOwnsVM`` under a new ``ownerLink`` id, here and on
+    /// ``ownership`` (which drops a hop that arrives after a newer one).
     private func setOwnsVM(_ owns: Bool) {
+        linkID += 1
         linkOwnsVM = owns
-        let ownership = ownership
+        let (ownership, link) = (ownership, linkID)
         // task-owner: one main-actor hop
-        Task { @MainActor in ownership.callerOwnsVM = owns }
+        Task { @MainActor in ownership.publish(owns, link: link) }
     }
 
     /// Parks the link while its machine is paused. Unlike `stop`, parking is
@@ -120,6 +124,11 @@ public actor CloudMachineLink {
         guard socket != nil, child?.isRunning == true else { return false }
         return linkOwnsVM
     }
+
+    /// The running link's id while ``callerOwnsVM``, else nil. A start reads it before it
+    /// connects and again as it sends: a different answer means the link ended or came up again
+    /// (with the Cloud API asked again), so an owner answer never carries over to another link.
+    public var ownerLink: Int? { callerOwnsVM ? linkID : nil }
 
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
@@ -190,12 +199,9 @@ public actor CloudMachineLink {
             let path = try await socketTask.value
             try checkGeneration(generation)
             self.socket = path
-            let (redial, ownership, owns) = (redial, ownership, endpoint.callerOwnsVM)
-            linkOwnsVM = owns
-            await MainActor.run {
-                redial.isRedialing = false
-                ownership.callerOwnsVM = owns
-            }
+            setOwnsVM(endpoint.callerOwnsVM)
+            let redial = redial
+            await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
@@ -215,6 +221,7 @@ public actor CloudMachineLink {
     /// The running link client redials on its own after sleep, a network
     /// drop or change, and its local socket stays up meanwhile; only its
     /// snapshots say so. The machine reads as reconnecting until it is back.
+    /// Its stdout closing means it ended: its owner answer ends with it.
     private func watchSnapshots(_ child: ChildProcess) {
         let lines = child.lines
         // task-owner: ends with the child's stdout
@@ -223,7 +230,13 @@ public actor CloudMachineLink {
                 guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
                 await self?.linkReported(child, connected: connected)
             }
+            await self?.linkEnded(child)
         }
+    }
+
+    private func linkEnded(_ ended: ChildProcess) {
+        guard child === ended else { return }
+        setOwnsVM(false)
     }
 
     private func linkReported(_ reporting: ChildProcess, connected: Bool) async {

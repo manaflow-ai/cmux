@@ -59,7 +59,9 @@ pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
 pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-start-keyed-reason-v1";
 /// `vm_kind` on `agent-session-start`: the caller's word that the Cloud API
 /// answered `vmKind: "owner"` for it on this link, which a start on a Cloud
-/// VM needs ([`AgentStartHost::OwnerCloud`]).
+/// VM needs ([`AgentStartHost::OwnerCloud`]). Any other value says the caller
+/// knows this machine is a Cloud VM it does not own: refused on any host, as
+/// a guest's root can remove every sign of a Cloud VM here.
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
@@ -228,6 +230,9 @@ pub(super) fn start(
     if let Err(refusal) = mux.control_clients.agent_sessions.starts.host_gate(Some(caller_owns_vm))
     {
         return refuse(writer, id, refusal);
+    }
+    if params.vm_kind.is_some() && !caller_owns_vm {
+        return refuse(writer, id, Refusal::HostUnverified);
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);

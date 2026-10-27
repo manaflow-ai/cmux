@@ -30,6 +30,10 @@
 //! - Any other Cloud VM (no record, an unreadable one, another value) is of
 //!   unknown kind: a start needs the caller's word, the rest is refused.
 //!   Anything that is not a Cloud VM (a Mac, a plain SSH host) is allowed.
+//!   The guest's root can remove every sign above, so this is only an extra
+//!   refusal: the caller knows a Cloud machine from its own records and
+//!   starts a chat there only on the Cloud API's `owner` answer, and a start
+//!   whose `vm_kind` is anything else is refused on any host.
 //!
 //! Not containment: a team member already has a shell on the VM and can run
 //! an agent there directly. The gate keeps the app from starting

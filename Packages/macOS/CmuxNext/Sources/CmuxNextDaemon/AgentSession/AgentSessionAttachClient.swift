@@ -50,6 +50,9 @@ public actor AgentSessionAttachClient {
     }
 
     public static let capability = DaemonCapability.agentSessionAttach.rawValue
+    /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
+    /// (`CloudMachineLink.ownerLink`).
+    public typealias OwnerLink = @Sendable () async -> Int?
 
     private let surface: UInt64
     private let mode: Mode
@@ -109,18 +112,28 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     ///
-    /// `callerOwnsVM`: the Cloud API answered `vmKind: "owner"` for this app on the link in use
-    /// (`CloudAttachEndpoint.callerOwnsVM`); sent as `vm_kind: "owner"` only to a daemon with
-    /// `agent-session-start-vm-kind-v1`.
+    /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
+    /// A chat starts there only while it gives the same link id before the connection and as the
+    /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
+    /// that link still runs), through any daemon; anything else is refused here
+    /// (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
+    /// connection's own `identify` lists `agent-session-start-vm-kind-v1`.
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      callerOwnsVM: Bool = false) async throws -> String {
+                      ownerLink: OwnerLink? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
+        let before = await ownerLink?()
         _ = try await liveTransport()
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
+        if let ownerLink {
+            guard let before, await ownerLink() == before else {
+                throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
+            }
+        }
+        let callerOwnsVM = ownerLink != nil
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: servesKeyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: servesVMKind)
         let data = try await call("agent-session-start", params)
@@ -131,7 +144,7 @@ public actor AgentSessionAttachClient {
         return session
     }
 
-    /// The params of ``start(cwd:harness:homeConfirmed:personKey:callerOwnsVM:)``: a param a daemon
+    /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> [String: any Sendable] {
