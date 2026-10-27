@@ -2235,9 +2235,42 @@ class Nightly(unittest.TestCase):
             "release candidate branch": nightly_event(head_branch="rc/1.2"),
             "fork head": nightly_event(head_repository={"full_name": "someone/cmux"}),
             "attempt 2": nightly_event(run_attempt=2),
+            "nightly-next schedule": nightly_event(event="schedule", head_branch="nightly-next"),
+            "nightly-next pull request": nightly_event(event="pull_request", head_branch="nightly-next"),
+            "nightly-next fork dispatch": nightly_event(event="workflow_dispatch", head_branch="nightly-next",
+                                                        head_repository={"full_name": "someone/cmux"}),
         }
         for why, payload in cases.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+
+    def test_a_next_dispatch_and_a_next_rerun_are_watched_through_the_picker_s_marker(self):
+        # nightly-next's pick-nightly-build-runner gives a dispatch, and a re-run that picks again, an idle
+        # owned Mac and uploads the owned-pool-watch marker; the sweeper adopts the run at its attempt.
+        dispatch = nightly_event(event="workflow_dispatch", head_branch="nightly-next")["workflow_run"]
+        target = rescue.target_from_event({"workflow_run": dispatch}, "manaflow-ai/cmux")
+        self.assertEqual((target.nightly, target.side, target.push_branch, target.attempt),
+                         (True, True, "nightly-next", 1))
+        for event_name, attempt in (("workflow_dispatch", 1), ("workflow_dispatch", 2), ("push", 2), ("push", 3)):
+            with self.subTest(event=event_name, attempt=attempt):
+                run = {**dispatch, "event": event_name, "run_attempt": attempt, "status": "in_progress"}
+                target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+                self.assertIsInstance(target, rescue.Target)
+                self.assertEqual((target.nightly, target.attempt, target.push_branch),
+                                 (True, attempt, "nightly-next"))
+        # Main's nightly keeps its scope: attempt 1 of a push or schedule only.
+        for run in ({**dispatch, "head_branch": "main", "run_attempt": 3, "status": "in_progress"},
+                    {**dispatch, "head_branch": "main", "status": "in_progress"}):
+            self.assertIsInstance(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), str)
+        self.assertFalse(rescue.owned_rerun({**dispatch, "head_branch": "main", "run_attempt": 3}))
+
+    def test_a_refused_next_dispatch_moves_its_failed_jobs_to_blacksmith(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200)
+        code, summary = run_main(api, clock, payload=nightly_event(event="workflow_dispatch", head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("Blacksmith", summary)
 
     def test_a_newer_next_push_never_cancels_this_one(self):
         # Each nightly-next run builds in its own groups, so a newer tip builds alongside this one.

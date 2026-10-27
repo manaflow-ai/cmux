@@ -236,6 +236,14 @@ this run's commit. A superseded run is never re-run; the newer run builds the
 newer head. A superseded run that has not finished (a refusal at the watch's
 end, or a stuck job with no reserved runner) is cancelled, not re-run, so the
 newer run starts; a build waiting on its reserved runner never gets that far.
+On nightly-next, nightly.yml's pick-nightly-build-runner also gives a
+workflow_dispatch run, and a re-run that picks again, an idle owned Mac
+(nightly_build_runner.py). Neither may start a workflow_run event (a dispatch
+or re-run made with GITHUB_TOKEN starts none, and the workflow_run watch takes
+attempt 1 only), so that job uploads the owned-pool-watch marker and the
+sweeper adopts the run at whatever attempt it is on (NIGHTLY_NEXT_EVENTS,
+owned_rerun()). A refusal there gets its failed jobs re-run, and that re-run
+keeps the earlier attempt's pick, so it takes Blacksmith.
 
 nightly-next's signing jobs, and the jobs that verify, recover or follow them
 (NIGHTLY_SIGN_ALTERNATES), stay on Blacksmith macOS. One queued there with no
@@ -383,6 +391,9 @@ QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLO
 # main, and Blacksmith on every later attempt.
 NIGHTLY_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 NIGHTLY_EVENTS = frozenset({"push", "schedule"})
+# nightly-next's pick-nightly-build-runner places a push or a dispatch (any attempt) on an idle owned Mac;
+# a dispatch and a re-run reach the sweeper through its owned-pool-watch marker.
+NIGHTLY_NEXT_EVENTS = frozenset({"push", "workflow_dispatch"})
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
@@ -566,6 +577,11 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return False
+    if run.get("path") == NIGHTLY_WORKFLOW_PATH:
+        # nightly-next's picker places any attempt that runs it again (a person's full re-run) on an idle owned
+        # Mac and marks it; a re-run of failed jobs keeps the earlier pick and takes Blacksmith, so its watch
+        # ends at its first look. The sweeper adopts it only by that marker.
+        return run.get("head_branch") == "nightly-next"
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
@@ -1842,10 +1858,14 @@ def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
-    """Attempt 1 of main push/schedule or nightly-next push, from this repository."""
-    if run.get("event") not in NIGHTLY_EVENTS:
-        return f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a push or schedule"
-    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next") or (run.get("head_branch") == "nightly-next" and run.get("event") != "push"):
+    """Attempt 1 of main push/schedule or nightly-next push/dispatch, from this repository.
+
+    The sweeper resumes a later attempt of a marked nightly-next run (sweep_target(), owned_rerun())."""
+    next_run = run.get("head_branch") == "nightly-next"
+    if run.get("event") not in (NIGHTLY_NEXT_EVENTS if next_run else NIGHTLY_EVENTS):
+        return (f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a "
+                + ("push or dispatch" if next_run else "push or schedule"))
+    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next"):
         return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not a trusted nightly event"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
