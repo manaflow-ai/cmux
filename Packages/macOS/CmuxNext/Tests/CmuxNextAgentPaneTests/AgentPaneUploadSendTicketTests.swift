@@ -78,12 +78,12 @@ struct AgentPaneUploadSendTicketTests {
         let params: [String: Any] = ["token": "t", "name": "x", "type": "text/plain", "size": 1,
                                      "sessionId": "s-1", "promptId": "p-1", "ticket": ticket]
         let chunks = AsyncThrowingStream<Data, any Error> { $0.yield(Data([1])); $0.finish() }
-        let upload = Task { await handler(FakeChromiumPage(), 9, params, chunks) }
+        let upload = Task { (await handler(FakeChromiumPage(), 9, params, chunks))?["ok"] as? Bool == false }
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         _ = await events.next()
         let stopped: Bool? = await PageTestWait.value("upload revocation") { done in
-            Task { done((await upload.value)?["ok"] as? Bool == false) }
+            Task { done(await upload.value) }
             transport.gestures.clearTickets()
         }
         #expect(stopped == true, "revocation waited for the chunk ACK")

@@ -98,7 +98,7 @@ struct AcpmuxUploadFrameTests {
             wire: wire, limits: transport.limits, options: transport.permissionOptions,
             sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
         try await socket.start(timeout: 1)
-        let request = Task { try await socket.callHost("_acpmux/file_put_chunk", params: ["sessionId": "s"]) }
+        let request = Task { _ = try await socket.callHost("_acpmux/file_put_chunk", params: ["sessionId": "s"]); return true }
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         request.cancel()

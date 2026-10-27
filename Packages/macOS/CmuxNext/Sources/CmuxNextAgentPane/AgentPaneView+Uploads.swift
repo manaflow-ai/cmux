@@ -1,6 +1,11 @@
 import CmuxNextPages
 import Foundation
 
+@MainActor private final class NativeUploadResult {
+    let value: [String: Any]
+    init(_ value: [String: Any]) { self.value = value }
+}
+
 extension AgentPaneView {
     static func nativeUploadTicket(_ params: [String: Any]) -> AgentPaneUploadSendTicket? {
         guard Set(params.keys) == ["token", "name", "type", "size", "sessionId", "promptId", "ticket"] else { return nil }
@@ -11,7 +16,7 @@ extension AgentPaneView {
     /// This callback sends only metadata and native socket upload chunks; no bytes enter the page binding.
     @MainActor static func chromiumUploadHandler(for model: AgentPaneModel?) -> ChromiumPageHostBridge.UploadHandler? {
         guard let model else { return nil }
-        var active: [String: Task<[String: Any], Never>] = [:]
+        var active: [String: Task<NativeUploadResult, Never>] = [:]
         model.transport.gestures.onUploadHoldsEnded = { ended in
             for upload in ended { active[upload]?.cancel() }
         }
@@ -35,7 +40,7 @@ extension AgentPaneView {
                 return AgentPaneReply.failure(code: "transport.gesture_required", message: "Send again to authorize this upload")
             }
             // task-owner: this upload; ticket revocation cancels it, completion removes it.
-            let task = Task { @MainActor () -> [String: Any] in
+            let task = Task { @MainActor () -> NativeUploadResult in
                 defer { _ = model.transport.gestures.releaseUpload(upload) }
                 var uploadId: String?
                 var offset = 0
@@ -73,18 +78,20 @@ extension AgentPaneView {
                     guard model.transport.gestures.releaseUpload(upload) else { throw CancellationError() }
                     var result: [String: Any] = ["token": token, "uploadId": id, "offset": offset, "size": size]
                     if let path = finished["path"] as? String { result["path"] = path }
-                    return AgentPaneReply.success(result)
+                    return NativeUploadResult(AgentPaneReply.success(result))
                 } catch {
                     if let id = uploadId {
                         model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
                     }
-                    return AgentPaneReply.failure(code: "upload_failed", message: "The upload could not be completed")
+                    return NativeUploadResult(AgentPaneReply.failure(
+                        code: error is CancellationError ? "transport.gesture_required" : "upload_failed",
+                        message: "The upload could not be completed"))
                 }
             }
             active[upload] = task
             let result = await task.value
             active[upload] = nil
-            return result
+            return result.value
         }
     }
 }
