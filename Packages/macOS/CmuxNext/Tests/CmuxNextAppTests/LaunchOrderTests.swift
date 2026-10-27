@@ -122,8 +122,9 @@ private final class LaunchOrderLaunch {
     }
 }
 
-/// Values sent from lane bodies (synchronous), awaited by the test in send order.
-private struct LaunchOrderSignal<Value: Sendable>: Sendable {
+/// Values sent from lane bodies (synchronous, off the main actor), awaited by the test in send order.
+/// Nonisolated: the module defaults to the main actor, and lane bodies call `send` from a lane thread.
+private nonisolated struct LaunchOrderSignal<Value: Sendable>: Sendable {
     private let stream: AsyncStream<Value>
     private let continuation: AsyncStream<Value>.Continuation
 
