@@ -1,8 +1,8 @@
 {
   "id": "pane-bench",
   "tier": "builder",
-  "description": "PaneMotionBench and PaneMotionWorkTests: split, close, New Column and zoom frame time at 2, 8 and 30 panes with no app window (split-spring --suite=pane-bench, Release).",
-  "command": ["scripts/cmux-next/split-spring-terminal.py", "--suite=pane-bench", "--config=release"],
+  "description": "PaneMotionBench: frame time of split, split down, close, New Column, close column, zoom and unzoom at 2, 8 and 30 panes through the real layout path with stub pane content and no app window (swift test -c release).",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "pane-bench", "--filter", "PaneMotionBench", "--env", "CMUX_PANE_BENCH=1"],
   "session": "light",
   "engine": "none",
   "config": "release",
@@ -11,8 +11,8 @@
   ],
   "repeats": 1,
   "seconds": 900,
-  "needs": [],
-  "hot_paths": ["motion-frame"],
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneMotionBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
   "owner": "PL-motion-core",
-  "component": "Layout>Motion"
+  "component": "Layout>Motion",
+  "hot_paths": ["motion-frame"]
 }
