@@ -220,6 +220,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private let launchWarm = AcpmuxLaunchWarm()
     public var hasWarmedSessions: Bool { get async { await launchWarm.hasRequests } }
 
+    /// Ends only sessions this host attempted to restore; shared daemon processes remain running.
     public func endLaunchSessions(waitForShutdown: Bool) async -> AcpmuxQuit.EndResult {
         guard startsDaemons, let environment, !environment.isAttached else { return .noDaemon }
         return await launchWarm.end(environment: environment)
