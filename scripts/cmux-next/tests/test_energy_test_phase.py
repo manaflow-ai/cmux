@@ -4,6 +4,9 @@ clears, and wants the Mac's own policy and inputs back, "Turn Off for Now" inclu
 problem, never a crash. The D1-D17 orchestrator: --dry-run prints each step's exact command; fixture outputs of
 wakeup-audit, idle-budget, cef-idle-probe, bench-typing, xbench, cargo nextest and the Swift suite lane parse into
 pass, fail or not judged; --collect-only judges a run folder; it waits for a quiet host; no workflow references it.
+Not measured is never a pass: a skipped or refused step's earlier outputs, an unknown value, a failed reader, a failed
+reference session, a Debug build's signed-in rows, an unreported CEF counter and a display not at 120 Hz are all
+not judged; the idle rows are the median of 3 windows.
 
   python3 -m pytest scripts/cmux-next/tests/test_energy_test_phase.py
 """
@@ -195,13 +198,18 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("skipped", text)
         self.assertIn("python3 -I scripts/cmux-next/wakeup-audit.py --strict\n", text)
-        self.assertIn("python3 scripts/cmux-next/idle-budget.py --app '/fleet/cmux DEV energy-p.app' --out "
-                      "/tmp/etp/idle-budget --json /tmp/etp/idle-budget/idle-budget.json --sessions light-webkit,light,"
-                      "light-hidden,minimized,occluded,tabs-static,chrome-static,stress-static,home,energy-saver,app-quit,"
-                      "external-churn,agent-idle,agent-working-visible,busy-hidden --gate --chrome-app /Apps/Chromium.app "
-                      "--chrome-ublock /cache/ublock\n", text)
-        self.assertIn("--sessions light-hidden,signed-in,signed-in-display-sleep --chrome-app", text)
-        self.assertIn("python3 scripts/cmux-next/cef-idle-probe.py --app '/fleet/cmux DEV energy-p.app' --out /tmp/etp/cef-idle", text)
+        for window in (1, 2, 3):
+            self.assertIn(f"python3 scripts/cmux-next/idle-budget.py --app '/fleet/cmux DEV energy-p.app' --out "
+                          f"/tmp/etp/idle-budget/w{window} --json /tmp/etp/idle-budget/w{window}/idle-budget.json --sessions "
+                          "light-webkit,light,light-hidden,minimized,occluded,tabs-static,chrome-static,stress-static,home,"
+                          "energy-saver,app-quit,external-churn,agent-idle,agent-working-visible,busy-hidden --settle 60 "
+                          "--measure 60 --gate --chrome-app /Apps/Chromium.app --chrome-ublock /cache/ublock\n", text)
+            self.assertIn(f"python3 scripts/cmux-next/cef-idle-probe.py --app '/fleet/cmux DEV energy-p.app' --out "
+                          f"/tmp/etp/cef-idle/w{window} --settle 60 --window 60\n", text)
+        self.assertNotIn("/w4", text)
+        self.assertIn("--sessions light-hidden,signed-in,signed-in-display-sleep --settle 60 --measure 60 --chrome-app", text)
+        self.assertIn("# display: VDisplay 120 28800 main 1920x1200 as the main display for the measuring steps "
+                      "(scripts/perf-lab/run_story.py VirtualDisplay", text)
         self.assertIn("--surface terminal,agent-composer-chromium,chromium-page-scroll --energy-saver off,on", text)
         self.assertIn("xbench.py run --out /tmp/etp/xbench/run --app 'cmux=/fleet/cmux DEV energy-p.app' --app "
                       "chrome=/Apps/Chromium.app --chrome-extension /cache/ublock --browsers cmux-chromium,cmux-terminal,"
@@ -217,12 +225,18 @@ class CommandLineTests(unittest.TestCase):
         _, text = dry_run("--app", APP, "--checks", "D9,D1")
         self.assertEqual([line for line in text.splitlines() if line.startswith("# ")], ["# audit (D1)", "# rust-idle (D9)"])
 
+    def test_the_real_display_is_named_and_static_checks_bring_up_none(self):
+        _, text = dry_run("--app", APP, "--checks", "D8", "--vdisplay", "0")
+        self.assertIn("# display: the real main display (--vdisplay 0)", text)
+        _, text = dry_run("--app", APP, "--checks", "D1,D9")
+        self.assertNotIn("# display:", text)
+
     def test_checks_select_the_idle_sessions_they_need(self):
         self.assertEqual(phase.idle_sessions(["D3"]), ("light", "light-hidden", "minimized", "occluded"))
         self.assertEqual(phase.idle_sessions(["D7", "D12"]), ("tabs-static", "energy-saver"))
         self.assertEqual(phase.idle_sessions(["D15"]), phase.BENCH_SESSIONS)
         _, text = dry_run("--app", APP, "--checks", "D5")
-        self.assertIn("--sessions stress-static --gate", text)
+        self.assertIn("--sessions stress-static --settle 60 --measure 60 --gate", text)
 
     def test_an_unknown_check_or_bundle_is_refused_before_anything_runs(self):
         with self.assertRaises(SystemExit):
@@ -239,21 +253,31 @@ class CommandLineTests(unittest.TestCase):
 
 
 BUDGET = {"assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"],
-          "allowed_periodic": [{"owner": "GitHubFeedSource.refresh", "period_s": 120}]}
+          "allowed_periodic": [{"owner": "GitHubFeedSource.refresh", "period_s": 120}],
+          "sessions": {"agent-idle": {"kinds": {"agent-harness": {
+              "hidden_wakeups_max": None, "_hidden_wakeups_max": "task 140 turns it on"}}}}}
 
 
 def renderer(pid, hidden=True, wakeups=0.0):
     return {"pid": pid, "kind": "cef-renderer", "hidden": hidden, "wakeups_per_s": wakeups}
 
 
-def idle_report(over=(), exits=None, refused=(), ledger=None, renderers=None, not_judged=None):
-    """An idle-budget.py --json report: every bench session ran, with these overs and session results."""
-    exits = {session: 0 for session in phase.BENCH_SESSIONS} if exits is None else exits
-    sessions = {session: {"exit": code, "not_judged": (not_judged or {}).get(session, []), "result": {
+def idle_report(over=(), exits=None, refused=(), ledger=None, renderers=None, not_judged=None, readers_failed=None,
+                cross_not_judged=(), sessions=phase.BENCH_SESSIONS):
+    """An idle-budget.py --json report: every one of `sessions` ran, with these overs and session results."""
+    exits = {session: 0 for session in sessions} if exits is None else exits
+    entries = {session: {"exit": code, "not_judged": (not_judged or {}).get(session, []),
+                         "readers_failed": (readers_failed or {}).get(session, []), "result": {
         "processes": (renderers or {}).get(session, [renderer(100)]),
         **({"ledger": ledger} if session == "tabs-static" and ledger is not None else {})}}
         for session, code in exits.items()}
-    return {"over": [list(o) for o in over], "refused": list(refused), "session_exits": exits, "sessions": sessions}
+    return {"over": [list(o) for o in over], "refused": list(refused), "session_exits": exits, "sessions": entries,
+            "not_judged": list(cross_not_judged)}
+
+
+def cef_window(early=0, reported=True):
+    """One cef-idle-probe.py window's cef-idle.json; `reported`: the app's debug.cef pump had the counter."""
+    return {"early_passes": early, "pump_per_s": {"requests": 0.4, **({"early_passes": 0.0} if reported else {})}}
 
 
 QUIET_LEDGER = {"owners": [{"owner": "CEFMessagePump", "reason": "delayed", "per_s": 1.2},
@@ -278,6 +302,13 @@ SUITES = ("Swift suite results (Packages/macOS/CmuxNext):\n"
           "suite                                            result                time\n"
           + "".join(f"{suite:<48} {'passed':<18} {12:6}s\n" for suite in phase.D10_SUITES))
 D8_PASS = {"d8": {surface: {"verdict": "pass", "on": 8.1, "off": 8.0} for surface in phase.D8_SURFACES}}
+VDISPLAY_120 = {"requested_hz": 120.0, "vdisplay": True, "refresh_ms": 8.33, "line": "ready 5 8.33 main=5"}
+REAL_60 = {"requested_hz": 120.0, "vdisplay": False, "refresh_ms": None, "line": "error: CGVirtualDisplay unavailable",
+           "probe": "main 1 16.67"}
+
+
+def three(report):
+    return [report] * phase.WINDOWS
 
 
 class IdleBudgetJudgeTests(unittest.TestCase):
@@ -299,10 +330,11 @@ class IdleBudgetJudgeTests(unittest.TestCase):
         self.assertEqual(checks["D4"]["problems"], ["IDLE-BUDGET-OVER tabs-static app main_wakes_per_s 0.8 0.5"])
         self.assertEqual(len(checks["D11"]["problems"]), 2)
 
-    def test_a_hidden_renderer_over_fails_d3_and_d17(self):
-        over = ("minimized", "cef-renderer", "hidden_wakeups_max", 3.0, 0.1)
-        self.assertEqual(phase.over_checks(over, set()), ["D3", "D17"])
+    def test_a_hidden_renderer_over_is_its_session_check_and_never_d17(self):
+        over = ("minimized", "cef-renderer", "threads_max", 31, 24)
+        self.assertEqual(phase.over_checks(over, set()), ["D3"])
         self.assertEqual(phase.judge_idle(idle_report(over=[over]), BUDGET)["D3"]["status"], "fail")
+        self.assertEqual(phase.judge_d17(three(idle_report(over=[over])))["status"], "pass")
 
     def test_a_session_not_run_failed_or_refused_is_not_judged(self):
         exits = {session: 0 for session in phase.BENCH_SESSIONS}
@@ -314,11 +346,71 @@ class IdleBudgetJudgeTests(unittest.TestCase):
         self.assertIn("energy-saver: refused (IDLE-BUDGET-REFUSED)", checks["D7"]["missing"])
         self.assertEqual(phase.judge_idle(None, BUDGET)["D2"]["missing"], ["idle-budget did not run (no report)"])
 
-    def test_idle_budget_notes_ride_along_without_changing_the_verdict(self):
-        note = "agent-idle agent-harness hidden_wakeups_max: not judged: no limit"
+    def test_a_deferred_row_rides_along_without_changing_the_verdict(self):
+        note = "agent-idle agent-harness hidden_wakeups_max: not judged: 0.4 measured; task 140 turns it on"
         checks = phase.judge_idle(idle_report(not_judged={"agent-idle": [note]}), BUDGET)
         self.assertEqual(checks["D14"]["status"], "pass")
         self.assertEqual(checks["D14"]["notes"], [note])
+
+    def test_an_unknown_value_is_not_judged(self):
+        note = "agent-idle agent-harness wakeups_per_s: not judged: unknown"
+        checks = phase.judge_idle(idle_report(not_judged={"agent-idle": [note]}), BUDGET)
+        self.assertEqual(checks["D14"], phase.verdict(missing=[note]))
+
+    def test_a_failed_reader_makes_d15_not_judged(self):
+        notes = {"light": ["light app network_bytes: not judged: unknown"]}
+        checks = phase.judge_idle(idle_report(readers_failed={"light": ["network"]}, not_judged=notes), BUDGET)
+        self.assertEqual(checks["D15"]["status"], "not judged")
+        self.assertEqual(checks["D15"]["missing"], ["light app network_bytes: not judged: unknown",
+                                                    "light: the network reader failed (not measured)"])
+        self.assertEqual(checks["D2"]["status"], "pass")  # the D15 field is D15's alone
+        alone = phase.judge_idle(idle_report(readers_failed={"tabs-static": ["log"]}), BUDGET)["D15"]
+        self.assertEqual(alone["missing"], ["tabs-static: the log reader failed (not measured)"])
+
+    def test_a_renderer_of_unknown_visibility_makes_d16_not_judged(self):
+        note = "minimized cef-renderer role: not judged: visibility unknown pids=41,42"
+        checks = phase.judge_idle(idle_report(not_judged={"minimized": [note]}), BUDGET)
+        self.assertEqual(checks["D16"], phase.verdict(missing=[note]))
+        self.assertEqual(checks["D3"]["status"], "pass")
+
+    def test_a_failed_reference_session_makes_its_relative_rows_not_judged(self):
+        exits = {session: 0 for session in phase.BENCH_SESSIONS}
+        exits["light"] = 1
+        cross = ["light-hidden app main_wakes_per_s/light: not judged: reference session light not measured",
+                 "energy-saver app+daemon wakeups_per_s/tabs-static: not judged: app wakeups_per_s unknown",
+                 "tabs-static cef-gpu wakeups_per_s/chrome:cef-gpu: not judged: unequal: no uBlock Origin"]
+        checks = phase.judge_idle(idle_report(exits=exits, cross_not_judged=cross), BUDGET)
+        self.assertEqual(checks["D3"]["status"], "not judged")
+        self.assertEqual(checks["D3"]["missing"], ["light: failed (exit 1): None", cross[0]])
+        self.assertEqual(checks["D7"]["missing"], [cross[1]])
+        self.assertEqual(checks["D4"]["missing"], [cross[2]])
+        only_light = {session: 0 for session in phase.BENCH_SESSIONS if session != "light"}
+        self.assertIn("light: not run", phase.judge_idle(idle_report(exits=only_light), BUDGET)["D3"]["missing"])
+
+
+class WindowTests(unittest.TestCase):
+    def test_an_over_in_most_windows_is_over_at_the_median(self):
+        over = lambda value: ("light", "app", "wakeups_per_s", value, 1.0)  # noqa: E731
+        once = phase.merge_windows([idle_report(over=[over(1.6)]), idle_report(), idle_report()])
+        self.assertEqual(once["over"], [])
+        twice = phase.merge_windows([idle_report(over=[over(1.6)]), idle_report(over=[over(1.2)]), idle_report()])
+        self.assertEqual(twice["over"], [["light", "app", "wakeups_per_s", 1.2, 1.0, "(over in 2 of 3 windows)"]])
+        always = phase.merge_windows([idle_report(over=[over(v)]) for v in (1.6, 1.2, 3.0)])
+        self.assertEqual(always["over"][0][3], 1.6)
+        self.assertEqual(phase.judge_idle(twice, BUDGET)["D2"]["status"], "fail")
+
+    def test_a_session_counts_only_when_it_ran_in_every_window(self):
+        exits = {session: 0 for session in phase.BENCH_SESSIONS if session != "home"}
+        merged = phase.merge_windows([idle_report(), idle_report(exits=exits), None])
+        self.assertEqual(merged["session_exits"]["home"], None)
+        self.assertEqual(phase.judge_idle(merged, BUDGET)["D6"]["missing"], ["home: not run (not run in window 2,3)"])
+        self.assertIsNone(phase.merge_windows([None, None, None]))
+        refused = phase.merge_windows([idle_report(), idle_report(refused=["energy-saver"]), idle_report()])
+        self.assertIn("energy-saver: refused (IDLE-BUDGET-REFUSED)", phase.judge_idle(refused, BUDGET)["D7"]["missing"])
+
+    def test_a_note_or_failed_reader_of_any_window_counts(self):
+        merged = phase.merge_windows([idle_report(), idle_report(readers_failed={"light": ["log"]}), idle_report()])
+        self.assertEqual(phase.judge_idle(merged, BUDGET)["D15"]["status"], "not judged")
 
 
 class OtherJudgeTests(unittest.TestCase):
@@ -329,34 +421,61 @@ class OtherJudgeTests(unittest.TestCase):
         self.assertEqual(red["problems"][:2], ["2 open hit(s)", "webviews/src/ui/wave.css:29: css-infinite (loop) hit"])
         self.assertEqual(phase.judge_audit(2, "Traceback")["status"], "not judged")
 
-    def test_d12_ledger_and_early_passes(self):
-        self.assertEqual(phase.judge_d12(idle_report(ledger=QUIET_LEDGER), {"early_passes": 0}, BUDGET)["status"], "pass")
+    def test_d12_ledger_and_early_passes_at_the_median(self):
+        self.assertEqual(phase.judge_d12(three(idle_report(ledger=QUIET_LEDGER)), three(cef_window()), BUDGET)["status"],
+                         "pass")
         busy = {"owners": [{"owner": "SidebarModel", "reason": "deadline", "per_s": 0.5},
                            {"owner": "BusyWatchdog", "reason": "window", "per_s": 0.02}]}
-        result = phase.judge_d12(idle_report(ledger=busy), {"early_passes": 3}, BUDGET)
+        result = phase.judge_d12(three(idle_report(ledger=busy)), three(cef_window(early=3)), BUDGET)
         self.assertEqual(result["problems"], ["ledger owner SidebarModel deadline at 0.5/s > 0.1",
                                               "BusyWatchdog.window at 0.02/s (want 0)",
-                                              "cef-idle: 3 early CEF pump passes (want 0)"])
-        self.assertEqual(phase.judge_d12(idle_report(), {"error": "launch"}, BUDGET)["missing"],
-                         ["tabs-static has no debug.wakeups ledger (a build without it)",
-                          "cef-idle: no early-pass count (launch)"])
+                                              "cef-idle: a median of 3 early CEF pump passes in 3 windows (want 0)"])
+        once = [idle_report(ledger=busy), idle_report(ledger=QUIET_LEDGER), idle_report(ledger=QUIET_LEDGER)]
+        self.assertEqual(phase.judge_d12(once, [cef_window(early=2), cef_window(), cef_window()], BUDGET)["status"], "pass")
+
+    def test_d12_is_not_judged_without_the_counter_or_a_ledger(self):
+        missing = phase.judge_d12(three(idle_report()), [{"error": "launch"}, cef_window(), cef_window()], BUDGET)["missing"]
+        self.assertEqual(missing, ["tabs-static has no debug.wakeups ledger in every window (a build without it)",
+                                   "cef-idle window 1: no early-pass count from the app (launch)"])
+
+    def test_d12_is_not_judged_when_the_app_did_not_report_early_passes(self):
+        # cef-idle-probe counts a counter the app did not report as 0: only pump_per_s says it was read.
+        result = phase.judge_d12(three(idle_report(ledger=QUIET_LEDGER)), three(cef_window(reported=False)), BUDGET)
+        self.assertEqual(result["status"], "not judged")
+        self.assertEqual(len(result["missing"]), 3)
+        self.assertEqual(phase.judge_d12(three(idle_report(ledger=QUIET_LEDGER)), None, BUDGET)["missing"],
+                         ["cef-idle: not run"])
 
     def test_d17_every_hidden_renderer_is_hidden_and_quiet(self):
-        self.assertEqual(phase.judge_d17(idle_report())["status"], "pass")
+        self.assertEqual(phase.judge_d17(three(idle_report()))["status"], "pass")
         bad = idle_report(renderers={"occluded": [renderer(7, hidden=False), renderer(8, wakeups=2.5)], "minimized": []})
-        result = phase.judge_d17(bad)
-        self.assertEqual(result["problems"], ["occluded: renderer pid 7 is not reported hidden",
-                                              "occluded: renderer pid 8 at 2.5/s > 1.0"])
-        self.assertEqual(result["missing"], ["minimized: no Chromium renderer measured"])
+        result = phase.judge_d17(three(bad))
+        self.assertEqual(result["problems"], ["occluded: renderers not reported hidden: window 1 pid 7; window 2 pid 7; "
+                                              "window 3 pid 7",
+                                              "occluded: the busiest renderer at a median 2.5/s > 1.0"])
+        self.assertEqual(result["missing"], ["minimized: no Chromium renderer measured (window 1,2,3)"])
+        once = [bad, idle_report(), idle_report()]
+        self.assertEqual(phase.judge_d17(once)["missing"], ["minimized: no Chromium renderer measured (window 1)"])
+        self.assertEqual(phase.judge_d17(None)["missing"], ["idle-budget did not run (no report)"])
 
-    def test_d8_from_bench_typing_verdicts(self):
-        self.assertEqual(phase.judge_d8(D8_PASS)["status"], "pass")
+    def test_d8_from_bench_typing_verdicts_and_split_spring_not_measured(self):
+        passed = phase.judge_d8(D8_PASS)
+        self.assertEqual(passed, phase.verdict(missing=[phase.D8_SPLIT_SPRING]))
         d8 = {"d8": {**D8_PASS["d8"], "terminal": {"verdict": "fail", "check": "key->frame p95", "on": 9.1, "off": 8.0},
                      "chromium-page-scroll": {"verdict": "unscored", "why": ["refresh 60 Hz"]}}}
         result = phase.judge_d8(d8)
         self.assertEqual(result["status"], "fail")
-        self.assertEqual(result["missing"], ["chromium-page-scroll: unscored: refresh 60 Hz"])
+        self.assertEqual(result["missing"], ["chromium-page-scroll: unscored: refresh 60 Hz", phase.D8_SPLIT_SPRING])
         self.assertEqual(phase.judge_d8(None)["status"], "not judged")
+
+    def test_the_display_rate_decides_the_frame_rows(self):
+        self.assertEqual(phase.display_hz(VDISPLAY_120), 120.0)
+        self.assertEqual(phase.display_missing(VDISPLAY_120), [])
+        self.assertEqual(phase.display_hz(REAL_60), 60.0)
+        self.assertEqual(phase.display_missing(REAL_60),
+                         ["display: measured at 60 Hz, not 120 Hz; rows defined at 120 Hz not judged"])
+        self.assertIn("refresh not measured", phase.display_missing(None)[0])
+        self.assertIn("refresh not measured", phase.display_missing({**REAL_60, "probe": "main 1 0.00"})[0])
 
     def test_d6_xbench_rows(self):
         self.assertEqual(phase.judge_xbench(0, XBENCH_OK)["status"], "pass")
@@ -381,17 +500,62 @@ class OtherJudgeTests(unittest.TestCase):
         self.assertEqual(phase.judge_d10(2, "")["status"], "not judged")
 
 
-def write_run(out, idle=None, d7_problems=(), steps=None):
+SIGNED_ALL = idle_report(sessions=phase.SIGNED_IN_SESSIONS)
+DEBUG_NOTES = {"signed-in": ["signed-in: own rows not judged on a Debug build (not the code users run)",
+                             "signed-in assertions held: 1 over 0 on a Debug build",
+                             "signed-in app disk_bytes_per_s: 120.0 over 0 on a Debug build"]}
+
+
+class SignedInTests(unittest.TestCase):
+    def judge(self, signed_in):
+        data = {"idle": three(idle_report(ledger=QUIET_LEDGER)), "signed_in": signed_in}
+        return phase.judge_all(data, BUDGET)
+
+    def test_signed_in_rows_of_a_debug_build_are_not_judged(self):
+        # idle-budget's unjudged_on_debug empties a Debug signed-in session's overs into not_judged.
+        checks = self.judge(three(idle_report(sessions=phase.SIGNED_IN_SESSIONS, not_judged=DEBUG_NOTES)))
+        for check in ("D11", "D13", "D15"):
+            self.assertEqual(checks[check]["status"], "not judged", check)
+            self.assertIn(DEBUG_NOTES["signed-in"][0], checks[check]["missing"])
+        self.assertIn(DEBUG_NOTES["signed-in"][1], checks["D11"]["missing"])
+        self.assertIn(DEBUG_NOTES["signed-in"][2], checks["D15"]["missing"])
+
+    def test_no_signed_in_run_leaves_d11_d13_and_d15_not_judged(self):
+        checks = self.judge(None)
+        for check in ("D11", "D13", "D15"):
+            self.assertIn("signed-in sessions: not run (--debug-app)", checks[check]["missing"], check)
+        self.assertEqual(self.judge(three(SIGNED_ALL))["D13"]["status"], "pass")
+
+
+class FakeDisplay:
+    def __init__(self, display=VDISPLAY_120, dies=False):
+        self.display, self.dies, self.started, self.stopped = display, dies, [], 0
+
+    def start(self, work, hz):
+        self.started.append(hz)
+        return dict(self.display), self
+
+    def alive(self):
+        return not self.dies
+
+    def stop(self):
+        self.stopped += 1
+
+
+def write_run(out, idle=None, d7_problems=(), steps=None, display=VDISPLAY_120):
     """A run folder as main() leaves it, every output passing unless overridden."""
     out = Path(out)
-    for name, data in (("idle-budget/idle-budget.json", idle or idle_report(ledger=QUIET_LEDGER)),
-                       ("cef-idle/cef-idle.json", {"early_passes": 0}), ("bench-typing/d8.json", D8_PASS),
-                       ("d7-auto.log", {"problems": list(d7_problems), "reports": {}})):
+    files = {"cef-idle/w{n}/cef-idle.json": cef_window(), "idle-budget/w{n}/idle-budget.json":
+             idle or idle_report(ledger=QUIET_LEDGER)}
+    for name, data in [(name.format(n=n), data) for name, data in files.items() for n in (1, 2, 3)] + [
+            ("bench-typing/d8.json", D8_PASS), ("d7-auto.log", {"problems": list(d7_problems), "reports": {}})]:
         (out / name).parent.mkdir(parents=True, exist_ok=True)
         (out / name).write_text(json.dumps(data))
     for name, text in (("audit", AUDIT_OK), ("xbench", XBENCH_OK), ("rust-idle", NEXTEST_OK), ("swift-suites", SUITES)):
         (out / f"{name}.log").write_text(text)
-    ran = {name: {"exits": [0], "load": 1.5} for name in ("audit", "xbench", "rust-idle", "swift-suites")}
+    ran = {name: {"exits": [0], "load": 1.5} for name in ("audit", "xbench", "rust-idle", "swift-suites", "d7-auto")}
+    ran.update({name: {"exits": [0, 0, 0], "load": 1.5, "display": display}
+                for name in ("idle-budget", "cef-idle", "bench-typing")})
     (out / "steps.json").write_text(json.dumps({**ran, **(steps or {})}))
 
 
@@ -402,16 +566,25 @@ class RunTests(unittest.TestCase):
             code = phase.main(["--ref", SHA, "--out", out, "--collect-only", *args])
         return code, json.loads((Path(out) / "report.json").read_text()), stdout.getvalue()
 
+    def run_main(self, out, *args, runner=None, display=None):
+        stdout = io.StringIO()
+        display = display or FakeDisplay()
+        with contextlib.redirect_stdout(stdout):
+            code = phase.main(["--ref", SHA, "--out", out, "--quiet-wait", "0", "--max-load", "1000", *args],
+                              runner=runner, start_display=display.start)
+        return code, json.loads((Path(out) / "report.json").read_text())
+
     def test_collect_only_judges_a_run_folder(self):
         with tempfile.TemporaryDirectory() as out:
             write_run(out)
-            code, report, text = self.collect_only(out, "--checks", "D1,D2,D6,D7,D8,D9,D10,D12,D17")
+            code, report, text = self.collect_only(out, "--checks", "D1,D2,D6,D7,D9,D10,D12,D17")
             self.assertEqual(code, 0, text)
             self.assertEqual({check: result["status"] for check, result in report["checks"].items()},
-                             dict.fromkeys(["D1", "D2", "D6", "D7", "D8", "D9", "D10", "D12", "D17"], "pass"))
+                             dict.fromkeys(["D1", "D2", "D6", "D7", "D9", "D10", "D12", "D17"], "pass"))
             self.assertIn("| D7 | energy saver: energy-saver session and auto at 15% on battery | pass |", text)
             self.assertIn("| p14-energy test phase (energy-test-phase.py, ", text)
             self.assertIn(f"| {SHA[:11]} | D9 Rust idle tests on fleet macOS | - | pass |", text)
+            self.assertIn("Display of each measuring step: idle-budget 120 Hz virtual display, cef-idle 120 Hz", text)
 
     def test_a_failing_or_unmeasured_check_exits_one(self):
         with tempfile.TemporaryDirectory() as out:
@@ -423,27 +596,84 @@ class RunTests(unittest.TestCase):
             self.assertEqual(report["checks"]["D13"]["status"], "not judged")  # no --debug-app: signed-in not run
             self.assertIn("signed-in sessions: not run (--debug-app)", report["checks"]["D13"]["missing"])
 
+    def test_frame_rows_on_a_display_not_at_120_hz_are_not_judged(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out, display=REAL_60)
+            _, report, _ = self.collect_only(out, "--checks", "D2,D7,D14")
+            self.assertEqual(report["checks"]["D2"]["status"], "pass")
+            for check in ("D7", "D14"):
+                self.assertEqual(report["checks"][check]["missing"],
+                                 ["idle-budget display: measured at 60 Hz, not 120 Hz; rows defined at 120 Hz not judged"])
+
+    def test_collect_only_never_reads_a_skipped_steps_files(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out, steps={"idle-budget": {"skipped": "needs --app"}})
+            _, report, _ = self.collect_only(out, "--checks", "D2")
+            self.assertEqual(report["checks"]["D2"]["missing"], ["idle-budget did not run (no report)"])
+
+    def test_a_skipped_step_deletes_an_earlier_runs_outputs(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out)  # an earlier run of this commit, every output passing
+            code, report = self.run_main(out, "--checks", "D2,D12")  # no --app: idle-budget and cef-idle skip
+            self.assertEqual(code, 1)
+            self.assertEqual(report["checks"]["D2"]["status"], "not judged")
+            self.assertEqual(report["checks"]["D12"]["status"], "not judged")
+            self.assertFalse((Path(out) / "idle-budget").exists())
+            self.assertEqual(report["steps"]["idle-budget"], {"skipped": "needs --app (a Release + CMUX_BENCH_HOOKS bundle)"})
+            self.assertEqual(report["steps"]["rust-idle"]["exits"], [0])  # a step of another check keeps its record
+
+    def test_a_refused_idle_budget_is_not_judged_from_an_earlier_report(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out)
+            calls = []
+
+            def refused(argv, cwd, stdout, stderr):  # IDLE-BUDGET-REFUSED, sys.exit(2), before any JSON
+                calls.append(argv)
+                stdout.write("IDLE-BUDGET-REFUSED build_config=debug: --gate needs a release build\n")
+                return subprocess.CompletedProcess(argv, 2)
+
+            display = FakeDisplay()
+            code, report = self.run_main(out, "--app", APP, "--checks", "D2", runner=refused, display=display)
+            self.assertEqual(code, 1)
+            self.assertEqual(report["checks"]["D2"]["missing"], ["idle-budget did not run (no report)"])
+            self.assertEqual(len(calls), 1)  # windows 2 and 3 do not run after a refused window
+            self.assertIn("command 1 exited 2", report["steps"]["idle-budget"]["stopped"])
+            self.assertEqual((display.started, display.stopped), ([120.0], 1))
+            self.assertEqual(report["steps"]["idle-budget"]["display"], VDISPLAY_120)
+
+    def test_a_display_lost_during_a_step_is_recorded(self):
+        with tempfile.TemporaryDirectory() as out:
+            ok = lambda argv, cwd, stdout, stderr: subprocess.CompletedProcess(argv, 0)  # noqa: E731
+            _, report = self.run_main(out, "--app", APP, "--checks", "D8", runner=ok, display=FakeDisplay(dies=True))
+            self.assertIn("refresh not measured (the virtual display helper exited during the step)",
+                          " ".join(report["checks"]["D8"]["missing"]))
+
     def test_a_step_that_started_on_a_busy_host_says_so(self):
         with tempfile.TemporaryDirectory() as out:
             write_run(out, steps={"xbench": {"exits": [0], "load": 7.25}})
             _, report, _ = self.collect_only(out, "--checks", "D6")
             self.assertIn("xbench started at load 7.25 (not under 4)", report["checks"]["D6"]["notes"])
 
-    def test_run_step_logs_each_command_and_its_exit(self):
+    def test_run_step_logs_each_command_and_stops_after_a_failed_one(self):
         with tempfile.TemporaryDirectory() as out:
             calls = []
 
             def runner(argv, cwd, stdout, stderr):
                 calls.append(argv)
                 stdout.write("IDLE-BUDGET over=0\n")
-                return subprocess.CompletedProcess(argv, 3 if "report" in argv else 0)
+                return subprocess.CompletedProcess(argv, 3 if "run" in argv else 0)
 
             opts = argparse.Namespace(out=out, max_load=4, quiet_wait=0)
-            step = phase.Step("xbench", ("D6",), (("python3", "a.py", "run"), ("python3", "a.py", "report")), quiet=False)
+            step = phase.Step("xbench", ("D6",), (("python3", "a.py", "run"), ("python3", "a.py", "report"),
+                                                  ("python3", "b.py", "--xbench")), quiet=False)
             evidence = phase.run_step(step, opts, runner)
-            self.assertEqual(evidence["exits"], [0, 3])
-            self.assertEqual(len(calls), 2)
-            self.assertIn("$ python3 a.py report\n", (Path(out) / "xbench.log").read_text())
+            self.assertEqual(evidence["exits"], [3])
+            self.assertEqual(len(calls), 1)
+            self.assertIn("$ python3 a.py run\nIDLE-BUDGET over=0\n# command 1 exited 3: the 2 after it did not run\n",
+                          (Path(out) / "xbench.log").read_text())
+            gated = phase.Step("idle-budget", ("D2",), (("i", "1"), ("i", "2")), quiet=False, ok_exits=(0, 1))
+            overs = lambda argv, cwd, stdout, stderr: subprocess.CompletedProcess(argv, 1)  # noqa: E731
+            self.assertEqual(phase.run_step(gated, opts, overs)["exits"], [1, 1])  # overs are a result: go on
 
     def test_it_waits_for_a_quiet_host_and_gives_up_at_the_deadline(self):
         loads, now, slept = iter([9.0, 6.0, 3.5, 3.5]), [0.0], []

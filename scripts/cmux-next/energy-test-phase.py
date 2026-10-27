@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """The energy program's test phase: one entry point for D1-D17 (plans/cmux-next/chrome-parity/p14-energy.md, sec. 5).
 
-Runs on the macOS measure host (a fleet Mac's console, a 120 Hz display) against a Release + CMUX_BENCH_HOOKS
-bundle of the measured commit (`--app`, for example `split-spring.sh --config=bench --build-only`'s), and judges:
+Runs on the macOS measure host (a fleet Mac's console) against a Release + CMUX_BENCH_HOOKS bundle of the measured
+commit (`--app`, for example `split-spring.sh --config=bench --build-only`'s), and judges:
 
   D1          python3 -I scripts/cmux-next/wakeup-audit.py --strict (static, any host)
-  D2-D5, D7, D11-D17  idle-budget.py --gate over every idle session in shipping mode (one run, its JSON report:
-              overs by session, `role` overs for D16, assertion overs for D11, disk/network/log overs for D15, the
-              tabs-static wakeup ledger for D12, the hidden sessions' renderer rows for D17)
-  D13 signed-in  idle-budget.py on a Debug bundle of the same commit (`--debug-app`: the app signs a test account in
-              only in Debug; those rows are reported, not judged)
-  D12         cef-idle-probe.py: CEFPumpStats earlyPasses in the window
-  D8          bench-typing.py: native terminal, Chromium agent composer and Chromium page scroll, saver off and on
+  D2-D5, D7, D11-D17  idle-budget.py --gate over every idle session in shipping mode, 3 runs (windows) of settle 60 s
+              and window 60 s, judged as the median of the 3: a row is over when it is over in 2 of them (overs by
+              session, `role` overs for D16, assertion overs for D11, disk/network/log overs for D15, the tabs-static
+              wakeup ledger for D12, the hidden sessions' renderer rows for D17)
+  D11, D13, D15 signed-in  idle-budget.py on a Debug bundle of the same commit (`--debug-app`: the app signs a test
+              account in only in Debug). idle-budget reports those rows, never judges them, so they are not judged here
+  D12         cef-idle-probe.py: CEFPumpStats earlyPasses in each of 3 x 60 s windows (the median)
+  D8          bench-typing.py: native terminal, Chromium agent composer and Chromium page scroll, saver off and on.
+              Its split-spring pane-motion part is not judged until split-spring-terminal.py can set energy.saver
   D6          xbench.py run with Chrome (cmux-chromium, cmux-terminal, chrome), then idle-budget.py --xbench
   D7 auto     launch the bundle with the energySaver feature on, `debug.energy.simulate {on_battery: true,
               percent: 15}`: reason `battery`; `{clear: true}` must restore the Mac's own policy and inputs,
@@ -20,15 +22,21 @@ bundle of the measured commit (`--app`, for example `split-spring.sh --config=be
   D9          the Rust idle tests (idle_wakeups, daemon_idle) on a macOS fleet step (cmux-ci run); Linux is task 131
   D10         the Swift suites of D10 on a fleet step (cmux-ci run, package-test-lane.sh suite)
 
-Before each measuring step it waits for the 1-minute load to drop under --max-load (4), at most --quiet-wait
-seconds; a step that starts above it says so on its checks. Each check is pass, FAIL or not judged (not measured,
-or its tool could not judge): not measured is never a pass, and the exit status is 0 only when every asked check
-passes. Writes Markdown (stdout and OUT/report.md, with the rows for plans/cmux-next/perf-lead.md sec. 5) and JSON
-(OUT/report.json, and --json). --dry-run prints each step's exact commands; --collect-only judges the outputs
-already in OUT without running anything.
+The measuring steps run on a --vdisplay (120) Hz virtual display as the main display, the helper split-spring.sh
+--vdisplay uses (scripts/perf-lab/run_story.py VirtualDisplay); its measured refresh goes into the report, and the
+rows defined at 120 Hz (D7, D8, D14) are not judged on another rate. Before each measuring step it waits for the
+1-minute load to drop under --max-load (4), at most --quiet-wait seconds; a step that starts above it says so on its
+checks. A step's later commands do not run once one fails. Each check is pass, FAIL or not judged (not measured, or
+its tool could not judge): not measured is never a pass, and the exit status is 0 only when every asked check
+passes. A step deletes its own outputs (OUT/<step>.log and OUT/<step>/) before it runs or is skipped, and a check
+reads only the outputs of steps that ran in this invocation, so an earlier run's files never judge this one. Writes
+Markdown (stdout and OUT/report.md, with the rows for plans/cmux-next/perf-lead.md sec. 5) and JSON (OUT/report.json,
+and --json). --dry-run prints each step's exact commands; --collect-only judges the outputs already in OUT (of the
+steps OUT/steps.json records as run) without running anything.
 
   python3 scripts/cmux-next/energy-test-phase.py --app "<...>/cmux DEV <tag>.app" [--debug-app APP] [--checks D1,D7|all]
-      [--out DIR] [--ref SHA] [--chrome-app APP] [--chrome-ublock DIR] [--json out.json] [--dry-run] [--collect-only]
+      [--out DIR] [--ref SHA] [--chrome-app APP] [--chrome-ublock DIR] [--vdisplay 120|0] [--json out.json]
+      [--dry-run] [--collect-only]
   python3 scripts/cmux-next/energy-test-phase.py --tag energy-sim --checks D7   (D7 auto against a running tagged app)
 
 Never referenced from .github/workflows: the person or agent runs it on the fleet.
@@ -37,11 +45,14 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import json
 import os
 import re
 import shlex
+import shutil
 import socket
+import statistics
 import subprocess
 import sys
 import time
@@ -89,9 +100,22 @@ SIGNED_IN_SESSIONS = ("light-hidden", "signed-in", "signed-in-display-sleep")
 BENCH_SESSIONS = tuple(s for s in SESSION_CHECK if s not in SIGNED_IN_SESSIONS[1:])
 HIDDEN_SESSIONS = ("light-hidden", "minimized", "occluded")
 ROLE_SESSIONS = (*HIDDEN_SESSIONS, "tabs-static")
-# What a check needs beyond its own sessions: the session its relative rows compare with, or the sessions it reads.
-SESSIONS_NEEDED = {"D3": ("light",), "D7": ("tabs-static",), "D12": ("tabs-static",), "D16": ROLE_SESSIONS,
+# The session a check's relative rows compare with ("no higher than light", "<= 0.6 x tabs-static").
+REFERENCE_SESSIONS = {"D3": ("light",), "D7": ("tabs-static",)}
+# What a check needs beyond its own sessions: its reference session, or the sessions it reads.
+SESSIONS_NEEDED = {**REFERENCE_SESSIONS, "D12": ("tabs-static",), "D16": ROLE_SESSIONS,
                    "D17": HIDDEN_SESSIONS, "D11": BENCH_SESSIONS, "D15": BENCH_SESSIONS}
+# p14-energy.md sec. 5: settle 60 s, median of 3 x 60 s windows. One window is one idle-budget (or cef-idle) run.
+WINDOWS = 3
+SETTLE_S = MEASURE_S = 60
+# The measuring steps' display (split-spring.sh --vdisplay=120's helper and size), and the checks whose rows are
+# defined at that rate, with the steps that measure them: D7's 120 fps page, D8's 120 Hz scroll, D14's visible
+# agent at <= 35/s.
+FRAME_HZ = 120.0
+FRAME_STEPS = {"D7": ("idle-budget",), "D8": ("bench-typing",), "D14": ("idle-budget",)}
+VDISPLAY_SIZE = "1920x1200"
+VDISPLAY_HOLD_S = 8 * 3600  # the helper ends by itself after this even when this script is killed
+RUN_STORY = REPO / "scripts" / "perf-lab" / "run_story.py"
 
 
 def idle_sessions(checks):
@@ -102,6 +126,8 @@ def idle_sessions(checks):
 D17_RENDERER_WAKES = 1.0  # a hidden unfrozen page: <= 1 timer wake/s
 D12_OWNER_MAX = 0.1
 D8_SURFACES = ("terminal", "agent-composer-chromium", "chromium-page-scroll")
+D8_SPLIT_SPRING = ("split-spring pane motion (0 dropped frames at 120 Hz, saver off and always): not measured, "
+                   "split-spring-terminal.py cannot set energy.saver yet")
 D9_BINARIES = ("idle_wakeups", "daemon_idle")
 D10_SUITES = ("MainWakeUpQueueTests", "DemandTimerLeewayTests", "DemandTimerMainQueueTests", "EnergyPolicyResolverTests",
               "BatteryLevelTests", "SuspendWatchTests", "CEFPumpScheduleTests", "FrameSchedulerRateClassTests")
@@ -263,6 +289,8 @@ class Step:
     quiet: bool = True  # wait for a quiet host first (a measurement on this host)
     skip: str = ""  # why it cannot run with these options
     text: tuple = ()  # what --dry-run prints instead of the commands (a step that runs no command)
+    ok_exits: tuple = (0,)  # the exits after which its next command runs (idle-budget --gate: 1 is overs, a result)
+    display: bool = False  # measures frames or wakeups of a shown app: runs on the --vdisplay display
 
     def lines(self):
         return list(self.text) or [shlex.join(argv) for argv in self.commands]
@@ -273,15 +301,22 @@ def tag_of(app):
     return re.sub(r"[^a-z0-9]+", "-", match.group(1).lower()).strip("-") if match else None
 
 
+def window_dir(out, name, window):
+    """OUT/<step>/w<N>: one window's run of a windowed step."""
+    return f"{out}/{name}/w{window}"
+
+
 def plan(opts, checks=tuple(CHECKS)):
     """The steps of a full run with these options, each with the D-checks it feeds."""
     out, app, ref, py = opts.out, opts.app or "APP", opts.ref, "python3"
     no_app = "" if opts.app else "needs --app (a Release + CMUX_BENCH_HOOKS bundle)"
     chrome = [*(["--chrome-app", opts.chrome_app] if opts.chrome_app else []),
               *(["--chrome-ublock", opts.chrome_ublock] if opts.chrome_ublock else [])]
-    idle = lambda name, bundle, sessions, gate: [  # noqa: E731
-        py, "scripts/cmux-next/idle-budget.py", "--app", bundle, "--out", f"{out}/{name}", "--json",
-        f"{out}/{name}/idle-budget.json", "--sessions", ",".join(sessions), *(["--gate"] if gate else []), *chrome]
+    windows = range(1, WINDOWS + 1)
+    idle = lambda name, bundle, sessions, gate: tuple(  # noqa: E731
+        (py, "scripts/cmux-next/idle-budget.py", "--app", bundle, "--out", window_dir(out, name, n), "--json",
+         f"{window_dir(out, name, n)}/idle-budget.json", "--sessions", ",".join(sessions), "--settle", f"{SETTLE_S:g}",
+         "--measure", f"{MEASURE_S:g}", *(["--gate"] if gate else []), *chrome) for n in windows)
     xbench = f"{out}/xbench"
     fleet = lambda name, step_class, script, *args: [  # noqa: E731
         opts.cmux_ci, "run", "--class", step_class, "--script", script, "--ref", ref,
@@ -291,28 +326,78 @@ def plan(opts, checks=tuple(CHECKS)):
     return [
         Step("audit", ("D1",), ((py, "-I", "scripts/cmux-next/wakeup-audit.py", "--strict"),), quiet=False),
         Step("idle-budget", ("D2", "D3", "D4", "D5", "D6", "D7", "D11", "D12", "D13", "D14", "D15", "D16", "D17"),
-             (idle("idle-budget", app, idle_sessions(checks), True),), skip=no_app),
+             idle("idle-budget", app, idle_sessions(checks), True), skip=no_app, ok_exits=(0, 1), display=True),
         Step("idle-budget-signed-in", ("D11", "D13", "D15"),
-             (idle("idle-budget-signed-in", opts.debug_app or "DEBUG_APP", SIGNED_IN_SESSIONS, False),),
-             skip="" if opts.debug_app else "needs --debug-app (a Debug bundle of the same commit)"),
-        Step("cef-idle", ("D12",), ((py, "scripts/cmux-next/cef-idle-probe.py", "--app", app, "--out", f"{out}/cef-idle"),),
-             skip=no_app),
+             idle("idle-budget-signed-in", opts.debug_app or "DEBUG_APP", SIGNED_IN_SESSIONS, False),
+             skip="" if opts.debug_app else "needs --debug-app (a Debug bundle of the same commit)", display=True),
+        Step("cef-idle", ("D12",), tuple(
+            (py, "scripts/cmux-next/cef-idle-probe.py", "--app", app, "--out", window_dir(out, "cef-idle", n),
+             "--settle", f"{SETTLE_S:g}", "--window", f"{MEASURE_S:g}") for n in windows), skip=no_app, display=True),
         Step("bench-typing", ("D8",), ((py, "scripts/cmux-next/bench-typing.py", "--app", app, "--surface",
                                         ",".join(D8_SURFACES), "--energy-saver", "off,on", "--out", f"{out}/bench-typing"),),
-             skip=no_app),
+             skip=no_app, display=True),
         Step("xbench", ("D6",), (
             (py, "scripts/perf-bench/xbench.py", "run", "--out", f"{xbench}/run", "--app", f"cmux={app}",
              *(["--app", f"chrome={opts.chrome_app}"] if opts.chrome_app else []),
              *(["--chrome-extension", opts.chrome_ublock] if opts.chrome_ublock else []),
              "--browsers", "cmux-chromium,cmux-terminal,chrome", "--rounds", "3", "--max-load", f"{opts.max_load:g}"),
             (py, "scripts/perf-bench/xbench.py", "report", "--out", f"{xbench}/run", "--json", f"{xbench}/results.json"),
-            (py, "scripts/cmux-next/idle-budget.py", "--xbench", f"{xbench}/results.json")), skip=no_app),
+            (py, "scripts/cmux-next/idle-budget.py", "--xbench", f"{xbench}/results.json")), skip=no_app, display=True),
         Step("d7-auto", ("D7",), (), quiet=False, skip="" if opts.app or opts.tag else "needs --app or --tag", text=d7),
         Step("rust-idle", ("D9",), (fleet("d9", "isolated", "scripts/ci/cmux-tui-rust-check.sh", "test", "daemon_idle"),),
              quiet=False),
         Step("swift-suites", ("D10",), (fleet("d10", "light", "scripts/ci/package-test-lane.sh", "suite",
                                               "Packages/macOS/CmuxNext", ",".join(D10_SUITES)),), quiet=False),
     ]
+
+
+def display_text(opts):
+    """What --dry-run prints for the display the measuring steps run on."""
+    if not opts.vdisplay:
+        return ("# display: the real main display (--vdisplay 0), its refresh read by `VDisplay probe` into each "
+                f"measuring step's {opts.out}/steps.json entry")
+    return (f"# display: VDisplay {opts.vdisplay:g} {VDISPLAY_HOLD_S} main {VDISPLAY_SIZE} as the main display for the "
+            f"measuring steps ({RUN_STORY.relative_to(REPO)} VirtualDisplay, split-spring.sh --vdisplay's helper), "
+            f"its measured refresh in each measuring step's {opts.out}/steps.json entry")
+
+
+def start_vdisplay(work, hz):
+    """Brings up the measuring steps' display (VirtualDisplay of perf-lab's run_story.py: the helper of
+    split-spring.sh --vdisplay); returns (its display block, the holder: stop() ends it, alive() says whether it still
+    holds the display it reported). hz 0: the real display, probed."""
+    spec = importlib.util.spec_from_file_location("perf_lab_run_story", RUN_STORY)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # before exec: its dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    holder = module.VirtualDisplay(str(work))
+    try:
+        return holder.start(hz, VDISPLAY_HOLD_S, VDISPLAY_SIZE), holder
+    except (OSError, subprocess.SubprocessError) as error:  # no xcrun, a helper build that hung
+        holder.stop()
+        return {"requested_hz": hz, "vdisplay": False, "refresh_ms": None, "line": f"error: {error}"[:300]}, holder
+
+
+def display_hz(display):
+    """The measured refresh rate (Hz) of the measuring steps' display, or None: the virtual display's interval, or
+    after a fallback the real main display's `VDisplay probe` line."""
+    if not isinstance(display, dict):
+        return None
+    ms = display.get("refresh_ms") if display.get("vdisplay") else None
+    if not ms:
+        match = re.match(r"main \d+ ([\d.]+)", display.get("probe") or "")
+        ms = float(match.group(1)) if match else None
+    return round(1000 / ms, 1) if ms else None
+
+
+def display_missing(display):
+    """Why the frame-rate rows cannot be judged on this display ([] at FRAME_HZ, within VirtualDisplay's 15 %)."""
+    hz = display_hz(display)
+    if hz is None:
+        line = (display.get("probe") or display.get("line")) if isinstance(display, dict) else None
+        return [f"display: refresh not measured ({line or 'no display record'}); rows defined at {FRAME_HZ:g} Hz not judged"]
+    if abs(1000 / hz - 1000 / FRAME_HZ) > 0.15 * 1000 / FRAME_HZ:
+        return [f"display: measured at {hz:g} Hz, not {FRAME_HZ:g} Hz; rows defined at {FRAME_HZ:g} Hz not judged"]
+    return []
 
 
 def wait_quiet(max_load, wait_s, load=lambda: os.getloadavg()[0], sleep=time.sleep, clock=time.monotonic):
@@ -333,11 +418,23 @@ def run_step(step, opts, runner=subprocess.run):
         log.write_text(json.dumps({"problems": problems, "reports": reports}, indent=1) + "\n")
         return {**evidence, "problems": problems}
     with log.open("w") as handle:
-        for argv in step.commands:
+        for index, argv in enumerate(step.commands):
             handle.write("$ " + shlex.join(argv) + "\n")
             handle.flush()
-            evidence["exits"].append(runner(list(argv), cwd=REPO, stdout=handle, stderr=subprocess.STDOUT).returncode)
+            code = runner(list(argv), cwd=REPO, stdout=handle, stderr=subprocess.STDOUT).returncode
+            evidence["exits"].append(code)
+            if code not in step.ok_exits and index + 1 < len(step.commands):
+                left = len(step.commands) - index - 1
+                evidence["stopped"] = f"command {index + 1} exited {code}: the {left} after it did not run"
+                handle.write(f"# {evidence['stopped']}\n")
+                break
     return {**evidence, "log": str(log)}
+
+
+def clear_outputs(out, name):
+    """Deletes what a step writes (OUT/<name>.log and OUT/<name>/), before it runs or is skipped."""
+    Path(out, f"{name}.log").unlink(missing_ok=True)
+    shutil.rmtree(Path(out, name), ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -376,7 +473,7 @@ def sessions_ran(report, sessions):
         code = (report.get("session_exits") or {}).get(session)
         error = ((report.get("sessions") or {}).get(session) or {}).get("error")
         if code is None:
-            missing.append(f"{session}: not run")
+            missing.append(f"{session}: not run" + (f" ({error})" if error else ""))
         elif code != 0:
             missing.append(f"{session}: failed (exit {code}): {error}")
         if session in (report.get("refused") or []):
@@ -384,8 +481,55 @@ def sessions_ran(report, sessions):
     return missing
 
 
+def numeric(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def median_over(overs, windows):
+    """One row's over in the median of `windows` windows, from the windows where it was over (each [session,
+    subject, field, value, limit]), or None. The median of the windows' values is over its limit exactly when most
+    windows are over; it is then the median's place among the over values (the others are under the limit)."""
+    if len(overs) * 2 <= windows:
+        return None
+    values = [over[3] for over in overs]
+    value = sorted(values)[(windows - 1) // 2 - (windows - len(values))] if all(map(numeric, values)) else values[0]
+    return [*overs[0][:3], value, overs[0][4], f"(over in {len(overs)} of {windows} windows)"]
+
+
+def merge_windows(reports):
+    """One report of a step's WINDOWS idle-budget reports (None: that window wrote none), judged as their median:
+    a row is over when it is over in most windows (median_over); a session ran only when it ran cleanly in every
+    window; every window's refusals, not-judged notes and failed readers count. None when no window has a report."""
+    reports = list(reports or []) + [None] * (WINDOWS - len(reports or []))
+    present = [report for report in reports if report]
+    if not present:
+        return None
+    by_row = {}
+    for report in present:
+        for over in report.get("over") or []:
+            by_row.setdefault(tuple(map(str, over[:3])), []).append(list(over))
+    names = list(dict.fromkeys(name for report in present for name in report.get("session_exits") or {}))
+    exits, sessions = {}, {}
+    for name in names:
+        codes = [((report or {}).get("session_exits") or {}).get(name) for report in reports]
+        entries = [((report or {}).get("sessions") or {}).get(name) or {} for report in reports]
+        not_run = [index for index, code in enumerate(codes, 1) if code is None]
+        failed = [code for code in codes if code]
+        exits[name] = None if not_run else failed[0] if failed else 0
+        errors = [f"window {index}: {entry['error']}" for index, entry in enumerate(entries, 1) if entry.get("error")]
+        sessions[name] = {
+            "error": f"not run in window {','.join(map(str, not_run))}" if not_run else "; ".join(errors) or None,
+            "not_judged": list(dict.fromkeys(note for entry in entries for note in entry.get("not_judged") or [])),
+            "readers_failed": list(dict.fromkeys(r for entry in entries for r in entry.get("readers_failed") or []))}
+    return {"windows": len(reports), "session_exits": exits, "sessions": sessions,
+            "over": [over for overs in by_row.values() if (over := median_over(overs, len(reports)))],
+            "refused": list(dict.fromkeys(name for report in present for name in report.get("refused") or [])),
+            "not_judged": list(dict.fromkeys(note for report in present for note in report.get("not_judged") or []))}
+
+
 def over_checks(over, assertion_keys):
-    """The D-checks one idle-budget over [session, subject, field, value, limit] fails."""
+    """The D-checks one idle-budget over [session, subject, field, value, limit] fails. D17 is judge_d17's alone
+    (renderer visibility and <= 1 timer wake/s); a hidden session's other renderer rows are its own check's."""
     session, subject, field = over[0], str(over[1]), str(over[2])
     if field == "role":
         return ["D16"]
@@ -393,22 +537,66 @@ def over_checks(over, assertion_keys):
         return ["D11"]
     if field.startswith(("disk_", "network_", "log_")):
         return ["D15"]
-    checks = [SESSION_CHECK[session]] if session in SESSION_CHECK else []
-    return checks + (["D17"] if session in HIDDEN_SESSIONS and subject == "cef-renderer" else [])
+    return [SESSION_CHECK[session]] if session in SESSION_CHECK else []
+
+
+def note_checks(note, session, assertion_keys):
+    """The D-checks one idle-budget not-judged note of `session` belongs to. A note names `<session> <subject>
+    <field>[/<reference>]: ...`; one with no field (a Debug build's own rows) covers every row of the session."""
+    head = note.split(":", 1)[0].split()
+    if len(head) < 3:
+        checks = [SESSION_CHECK.get(session), "D11", "D15", "D16"]
+    else:
+        field = head[2].split("/", 1)[0]
+        checks = ["D16"] if field in ("role", "reshow") else over_checks([session, head[1], field], assertion_keys)
+    if session == "chrome-static":  # the reference browser: its rows are D4's ratios, never cmux's D11 or D15
+        checks = [SESSION_CHECK[session]]
+    return [check for check in checks if check]
+
+
+def deferred_note(note, session, budget):
+    """Whether `note` is idle-budget's deferred_notes line: a kind limit set to null with a `_<field>` reason (a
+    row a later task turns on). Every other not-judged note is a row not measured."""
+    kinds = (((budget.get("sessions") or {}).get(session) or {}).get("kinds")) or {}
+    return any(note.startswith(f"{session} {name} {field}: not judged: ")
+               for name, limits in kinds.items() for field, limit in limits.items()
+               if not field.startswith("_") and limit is None and limits.get("_" + field))
 
 
 def judge_idle(report, budget, sessions=None):
-    """{D: verdict} of the D-checks an idle-budget report judges (its overs by session and field)."""
+    """{D: verdict} of the D-checks an idle-budget report judges: its overs by session and field, and as missing
+    its sessions (and each check's reference session) not run cleanly, each not-judged note (but a deferred row's,
+    which rides along) and each failed D15 reader."""
     keys = set(budget.get("assertions_allowed_when") or [])
     sessions = sessions or BENCH_SESSIONS
+    checks = sorted({SESSION_CHECK[s] for s in sessions} | {"D11", "D15", "D16"}, key=lambda c: int(c[1:]))
+    problems, missing, notes = ({check: [] for check in checks} for _ in range(3))
+    for over in (report or {}).get("over") or []:
+        for check in over_checks(over, keys):
+            if check in problems:
+                problems[check].append("IDLE-BUDGET-OVER " + " ".join(map(str, over)))
+    entries = (report or {}).get("sessions") or {}
+    for session in sessions:
+        entry = entries.get(session) or {}
+        for note in entry.get("not_judged") or []:
+            into = notes if deferred_note(note, session, budget) else missing
+            for check in note_checks(note, session, keys):
+                if check in into:
+                    into[check].append(note)
+        if session != "chrome-static":
+            missing["D15"] += [f"{session}: the {reader} reader failed (not measured)"
+                               for reader in entry.get("readers_failed") or []]
+    for note in (report or {}).get("not_judged") or []:  # the cross-session rows judge_across could not judge
+        session = (note.split() or [""])[0]
+        for check in note_checks(note, session, keys) if session in sessions else []:
+            if check in missing:
+                missing[check].append(note)
     out = {}
-    for check in sorted({SESSION_CHECK[s] for s in sessions} | {"D11", "D15", "D16"}, key=lambda c: int(c[1:])):
+    for check in checks:
         own = [s for s in sessions if SESSION_CHECK.get(s) == check] or (
-            ROLE_SESSIONS if check == "D16" else [s for s in sessions if s != "chrome-static"])
-        overs = [over for over in (report or {}).get("over") or [] if check in over_checks(over, keys)]
-        notes = [note for s in own for note in ((report or {}).get("sessions") or {}).get(s, {}).get("not_judged") or []]
-        out[check] = verdict(["IDLE-BUDGET-OVER " + " ".join(map(str, over)) for over in overs],
-                             sessions_ran(report, own), notes)
+            list(ROLE_SESSIONS) if check == "D16" else [s for s in sessions if s != "chrome-static"])
+        needed = own + [s for s in REFERENCE_SESSIONS.get(check, ()) if s not in own]
+        out[check] = verdict(problems[check], sessions_ran(report, needed) + missing[check], notes[check])
     return out
 
 
@@ -416,44 +604,83 @@ def session_result(report, session):
     return (((report or {}).get("sessions") or {}).get(session) or {}).get("result") or {}
 
 
-def judge_d12(report, cef, budget):
-    """D12: no ledger owner over 0.1/s in tabs-static but CEFMessagePump `delayed` and allowed_periodic owners,
-    BusyWatchdog `window` at 0/s; CEFPumpStats earlyPasses 0 in cef-idle."""
+def median_ledger(ledgers):
+    """The debug.wakeups ledger owners, each (owner, reason) at its median rate over the windows' ledgers (0 in
+    a window that has no such owner)."""
+    rates = [{(entry.get("owner"), entry.get("reason")): entry.get("per_s") or 0 for entry in ledger.get("owners") or []}
+             for ledger in ledgers]
+    keys = dict.fromkeys(key for window in rates for key in window)
+    return [{"owner": owner, "reason": reason, "per_s": statistics.median(window.get((owner, reason), 0) for window in rates)}
+            for owner, reason in keys]
+
+
+def early_passes(cef):
+    """CEFPumpStats earlyPasses of one cef-idle window, or None when the app did not report the counter (only the
+    counters it reported are in `pump_per_s`)."""
+    if not isinstance(cef, dict) or "early_passes" not in (cef.get("pump_per_s") or {}):
+        return None
+    return cef.get("early_passes")
+
+
+def judge_d12(windows, cefs, budget):
+    """D12: in the median of the windows, no ledger owner over 0.1/s in tabs-static but CEFMessagePump `delayed`
+    and allowed_periodic owners, BusyWatchdog `window` at 0/s; CEFPumpStats earlyPasses 0 in cef-idle."""
     allowed = {entry.get("owner") for entry in budget.get("allowed_periodic") or []}
-    problems, missing = [], sessions_ran(report, ["tabs-static"])
-    ledger = session_result(report, "tabs-static").get("ledger")
-    if not missing and not ledger:
-        missing.append("tabs-static has no debug.wakeups ledger (a build without it)")
-    for entry in (ledger or {}).get("owners") or []:
-        owner, reason, rate = entry.get("owner"), entry.get("reason"), entry.get("per_s") or 0
+    windows = list(windows or []) + [None] * (WINDOWS - len(windows or []))
+    problems, missing = [], sessions_ran(merge_windows(windows), ["tabs-static"])
+    ledgers = [session_result(window, "tabs-static").get("ledger") for window in windows]
+    if not missing and not all(ledgers):
+        missing.append("tabs-static has no debug.wakeups ledger in every window (a build without it)")
+    for entry in median_ledger(ledgers) if all(ledgers) else []:
+        owner, reason, rate = entry["owner"], entry["reason"], entry["per_s"]
         if owner == "BusyWatchdog" and reason == "window" and rate > 0:
             problems.append(f"BusyWatchdog.window at {rate}/s (want 0)")
         elif rate > D12_OWNER_MAX and (owner, reason) != ("CEFMessagePump", "delayed") \
                 and owner not in allowed and f"{owner}.{reason}" not in allowed:
             problems.append(f"ledger owner {owner} {reason} at {rate}/s > {D12_OWNER_MAX}")
-    if not isinstance(cef, dict) or "early_passes" not in cef:
-        missing.append("cef-idle: no early-pass count" + (f" ({cef['error']})" if isinstance(cef, dict) and cef.get("error") else ""))
-    elif cef["early_passes"] != 0:
-        problems.append(f"cef-idle: {cef['early_passes']} early CEF pump passes (want 0)")
+    if cefs is None:
+        return verdict(problems, [*missing, "cef-idle: not run"])
+    cefs = list(cefs) + [None] * (WINDOWS - len(cefs))
+    counts = [early_passes(cef) for cef in cefs]
+    for index, (cef, count) in enumerate(zip(cefs, counts), 1):
+        if count is None:
+            error = cef.get("error") if isinstance(cef, dict) else "no cef-idle.json"
+            missing.append(f"cef-idle window {index}: no early-pass count from the app" + (f" ({error})" if error else ""))
+    if None not in counts and statistics.median(counts) != 0:
+        problems.append(f"cef-idle: a median of {statistics.median(counts)} early CEF pump passes in {len(counts)} "
+                        "windows (want 0)")
     return verdict(problems, missing)
 
 
-def judge_d17(report):
-    """D17: in each hidden session every Chromium renderer row is hidden (the page census) and at <= 1 wake/s."""
-    problems, missing = [], []
+def judge_d17(windows):
+    """D17: in each hidden session, in the median of the windows, every Chromium renderer row is hidden (the page
+    census) and the busiest is at <= 1 wake/s."""
+    windows = list(windows or []) + [None] * (WINDOWS - len(windows or []))
+    problems, missing, merged = [], [], merge_windows(windows)
+    if merged is None:
+        return verdict(missing=sessions_ran(None, HIDDEN_SESSIONS))
     for session in HIDDEN_SESSIONS:
-        rows = [row for row in session_result(report, session).get("processes") or [] if row.get("kind") == "cef-renderer"]
-        missing += sessions_ran(report, [session]) or ([] if rows else [f"{session}: no Chromium renderer measured"])
-        for row in rows:
-            if row.get("hidden") is not True:
-                problems.append(f"{session}: renderer pid {row.get('pid')} is not reported hidden")
-            if (row.get("wakeups_per_s") or 0) > D17_RENDERER_WAKES:
-                problems.append(f"{session}: renderer pid {row.get('pid')} at {row['wakeups_per_s']}/s > {D17_RENDERER_WAKES}")
+        not_run = sessions_ran(merged, [session])
+        rows = [[row for row in session_result(window, session).get("processes") or [] if row.get("kind") == "cef-renderer"]
+                for window in windows]
+        empty = [index for index, found in enumerate(rows, 1) if not found]
+        if not_run or empty:
+            missing += not_run or [f"{session}: no Chromium renderer measured (window {','.join(map(str, empty))})"]
+            continue
+        shown = {index: [row.get("pid") for row in found if row.get("hidden") is not True]
+                 for index, found in enumerate(rows, 1)}
+        if sum(bool(pids) for pids in shown.values()) * 2 > len(rows):
+            problems.append(f"{session}: renderers not reported hidden: " + "; ".join(
+                f"window {index} pid {','.join(map(str, pids))}" for index, pids in shown.items() if pids))
+        busiest = statistics.median(max(row.get("wakeups_per_s") or 0 for row in found) for found in rows)
+        if busiest > D17_RENDERER_WAKES:
+            problems.append(f"{session}: the busiest renderer at a median {busiest}/s > {D17_RENDERER_WAKES}")
     return verdict(problems, missing, ["a hidden page's rAF count is not read in these sessions"])
 
 
 def judge_d8(d8):
-    """D8 from bench-typing's d8.json verdicts (pass, fail, unscored) of each surface."""
+    """D8 from bench-typing's d8.json verdicts (pass, fail, unscored) of each surface; its split-spring part is
+    not measured yet (D8_SPLIT_SPRING)."""
     verdicts = (d8 or {}).get("d8") or {}
     problems, missing = [], []
     for surface in D8_SURFACES:
@@ -464,7 +691,7 @@ def judge_d8(d8):
             problems.append(f"{surface}: {entry.get('check')}: on {entry.get('on')} off {entry.get('off')}")
         elif entry.get("verdict") != "pass":
             missing.append(f"{surface}: unscored: {'; '.join(entry.get('why') or [])}")
-    return verdict(problems, missing)
+    return verdict(problems, [*missing, D8_SPLIT_SPRING])
 
 
 def judge_xbench(code, text):
@@ -510,8 +737,10 @@ def judge_d10(code, text):
 
 def judge_all(data, budget):
     """{D: verdict} for every D-check from the collected outputs (`collect`)."""
-    idle = judge_idle(data.get("idle"), budget)
-    signed = judge_idle(data.get("signed_in"), budget, SIGNED_IN_SESSIONS) if data.get("signed_in") is not None else {}
+    idle_windows = data.get("idle")
+    idle = judge_idle(merge_windows(idle_windows), budget)
+    signed_in = data.get("signed_in")
+    signed = judge_idle(merge_windows(signed_in), budget, SIGNED_IN_SESSIONS) if signed_in is not None else {}
     no_signed = verdict(missing=["signed-in sessions: not run (--debug-app)"])
     d7_auto = data.get("d7_auto")
     checks = {
@@ -523,14 +752,16 @@ def judge_all(data, budget):
         "D8": judge_d8(data.get("d8")),
         "D9": judge_d9(*data.get("rust", (None, None))),
         "D10": judge_d10(*data.get("swift", (None, None))),
-        "D11": merge(idle["D11"], *([signed["D11"]] if signed else [])),
-        "D12": judge_d12(data.get("idle"), data.get("cef"), budget),
+        "D11": merge(idle["D11"], signed.get("D11", no_signed)),
+        "D12": judge_d12(idle_windows, data.get("cef"), budget),
         "D13": merge(idle["D13"], signed.get("D13", no_signed)),
-        "D15": merge(idle["D15"], *([signed["D15"]] if signed else [])),
-        "D17": judge_d17(data.get("idle")),
+        "D15": merge(idle["D15"], signed.get("D15", no_signed)),
+        "D17": judge_d17(idle_windows),
     }
-    if signed:
-        checks["D13"]["notes"].append("signed-in rows come from a Debug bundle: reported, not judged by idle-budget")
+    displays = data.get("display") or {}
+    for check, steps in FRAME_STEPS.items():
+        missing = [f"{step} {problem}" for step in steps if step in displays for problem in display_missing(displays[step])]
+        checks[check] = merge(checks[check], verdict(missing=missing))
     return {check: checks[check] for check in CHECKS}
 
 
@@ -541,24 +772,30 @@ def read_json(path):
         return None
 
 
-def read_log(out, name):
-    """(last exit, text) of OUT/<name>.log and its exits in OUT/steps.json, or (None, None)."""
-    exits = ((read_json(Path(out) / "steps.json") or {}).get(name) or {}).get("exits") or []
+def read_log(out, name, ran):
+    """(last exit, text) of OUT/<name>.log and its exits in `ran` (the steps.json entries), or (None, None)."""
+    exits = (ran.get(name) or {}).get("exits") or []
     try:
         return (exits[-1] if exits else None), (Path(out) / f"{name}.log").read_text(errors="replace")
     except OSError:
         return None, None
 
 
-def collect(out):
-    """The outputs a run left in OUT, for judge_all."""
+def collect(out, ran):
+    """The outputs in OUT of the steps `ran` records as run (steps.json entries; a skipped or absent step's files,
+    an earlier run's, are never read), for judge_all."""
     out = Path(out)
-    d7 = read_json(out / "d7-auto.log")
-    return {"audit": read_log(out, "audit"), "idle": read_json(out / "idle-budget" / "idle-budget.json"),
-            "signed_in": read_json(out / "idle-budget-signed-in" / "idle-budget.json"),
-            "cef": read_json(out / "cef-idle" / "cef-idle.json"), "d8": read_json(out / "bench-typing" / "d8.json"),
-            "xbench": read_log(out, "xbench"), "rust": read_log(out, "rust-idle"), "swift": read_log(out, "swift-suites"),
-            "d7_auto": d7.get("problems") if isinstance(d7, dict) else None}
+    ran = {name: entry for name, entry in (ran or {}).items() if isinstance(entry, dict) and not entry.get("skipped")}
+    log = lambda name: read_log(out, name, ran) if name in ran else (None, None)  # noqa: E731
+    windows = lambda name, file: (  # noqa: E731
+        [read_json(out / name / f"w{n}" / file) for n in range(1, WINDOWS + 1)] if name in ran else None)
+    d7 = read_json(out / "d7-auto.log") if "d7-auto" in ran else None
+    return {"audit": log("audit"), "idle": windows("idle-budget", "idle-budget.json"),
+            "signed_in": windows("idle-budget-signed-in", "idle-budget.json"), "cef": windows("cef-idle", "cef-idle.json"),
+            "d8": read_json(out / "bench-typing" / "d8.json") if "bench-typing" in ran else None,
+            "xbench": log("xbench"), "rust": log("rust-idle"), "swift": log("swift-suites"),
+            "d7_auto": d7.get("problems") if isinstance(d7, dict) else None,
+            "display": {name: entry.get("display") for name, entry in ran.items() if "display" in entry}}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -572,12 +809,22 @@ def cell(result):
     return f"{'FAIL' if result['status'] == 'fail' else 'not judged'}: " + "; ".join(detail[:6]).replace("|", "/")
 
 
-def markdown(checks, sha, host, loads):
+def describe_display(display):
+    """One measuring step's display, for the report."""
+    hz = display_hz(display)
+    if hz is None:
+        return "refresh not measured"
+    return f"{hz:g} Hz " + ("virtual display" if display.get("vdisplay") else "real display")
+
+
+def markdown(checks, sha, host, loads, displays):
     date = datetime.date.today().isoformat()
     lines = [f"# cmux energy test phase, {host}, {sha}", "", "| Check | What | Result |", "| --- | --- | --- |"]
     lines += [f"| {check} | {CHECKS[check]} | {cell(result)} |" for check, result in checks.items()]
     hot = {step: load for step, load in loads.items() if load is not None}
     lines += ["", "Load (1 min) at each measuring step's start: " + (", ".join(f"{s} {l}" for s, l in hot.items()) or "none"),
+              "", "Display of each measuring step: "
+              + (", ".join(f"{s} {describe_display(d)}" for s, d in displays.items()) or "none"),
               "", "Rows for plans/cmux-next/perf-lead.md sec. 5:", "",
               "| Date | Workstream | sha range on feat-cmux-next | Row | Before | After |", "|---|---|---|---|---|---|"]
     lines += [f"| {date} | p14-energy test phase (energy-test-phase.py, {host}) | {sha[:11]} | {check} {CHECKS[check]} | - | "
@@ -598,7 +845,34 @@ def head_sha():
     return done.stdout.strip() or "unknown"
 
 
-def main(argv=None, runner=subprocess.run):
+LOST_DISPLAY = {"vdisplay": False, "refresh_ms": None, "line": "the virtual display helper exited during the step"}
+
+
+def run_steps(steps, opts, runner, start_display, record):
+    """{name: evidence} of each step, run in order: its outputs deleted first, skipped or run; the measuring
+    steps on one display brought up before the first of them and ended after the last. `record(done)` after each."""
+    done, holder, display = {}, None, None
+    try:
+        for step in steps:
+            clear_outputs(opts.out, step.name)
+            if step.skip:
+                done[step.name] = {"skipped": step.skip}
+            elif not step.display:
+                done[step.name] = run_step(step, opts, runner)
+            else:
+                if holder is None:
+                    shutil.rmtree(Path(opts.out, "vdisplay"), ignore_errors=True)
+                    display, holder = start_display(Path(opts.out, "vdisplay"), opts.vdisplay)
+                evidence = run_step(step, opts, runner)
+                done[step.name] = {**evidence, "display": display if holder.alive() else {**display, **LOST_DISPLAY}}
+            record(done)
+    finally:
+        if holder is not None:
+            holder.stop()
+    return done
+
+
+def main(argv=None, runner=subprocess.run, start_display=start_vdisplay):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--app", type=os.path.abspath, help="a Release + CMUX_BENCH_HOOKS `cmux DEV <tag>.app` (not running)")
     parser.add_argument("--debug-app", type=os.path.abspath, help="a Debug bundle of the same commit (signed-in sessions)")
@@ -611,6 +885,8 @@ def main(argv=None, runner=subprocess.run):
     parser.add_argument("--cmux-ci", default="cmux-ci")
     parser.add_argument("--max-load", type=float, default=4)
     parser.add_argument("--quiet-wait", type=float, default=900, help="seconds to wait for the load to drop")
+    parser.add_argument("--vdisplay", type=float, default=FRAME_HZ,
+                        help="Hz of the virtual main display the measuring steps run on (0: the real display, probed)")
     parser.add_argument("--json", type=Path, help="also write the report JSON here")
     parser.add_argument("--dry-run", action="store_true", help="print the exact commands of each step and run nothing")
     parser.add_argument("--collect-only", action="store_true", help="judge the outputs already in --out; run nothing")
@@ -622,24 +898,30 @@ def main(argv=None, runner=subprocess.run):
     opts.out = opts.out or str(REPO / "artifacts" / "energy-test-phase" / opts.ref[:12])
     steps = [step for step in plan(opts, checks) if set(step.checks) & set(checks)]
     if opts.dry_run:
+        if any(step.display and not step.skip for step in steps):
+            print(display_text(opts))
         for step in steps:
             print(f"# {step.name} ({', '.join(step.checks)})" + (f": skipped, {step.skip}" if step.skip else ""))
             print("\n".join(step.lines()))
         return 0
     os.makedirs(opts.out, exist_ok=True)
-    ran = read_json(Path(opts.out) / "steps.json") or {}
-    if not opts.collect_only:
-        for step in steps:
-            ran[step.name] = {"skipped": step.skip} if step.skip else run_step(step, opts, runner)
-            (Path(opts.out) / "steps.json").write_text(json.dumps(ran, indent=1) + "\n")
+    steps_path = Path(opts.out) / "steps.json"
+    earlier = read_json(steps_path) or {}
+    if opts.collect_only:
+        judged = earlier
+    else:
+        judged = run_steps(steps, opts, runner, start_display,
+                           lambda done: steps_path.write_text(json.dumps({**earlier, **done}, indent=1) + "\n"))
+    ran = {**earlier, **judged}
     budget = read_json(BUDGET_FILE) or {}
-    results = {check: result for check, result in judge_all(collect(opts.out), budget).items() if check in checks}
+    results = {check: result for check, result in judge_all(collect(opts.out, judged), budget).items() if check in checks}
     for step in steps:
         load = (ran.get(step.name) or {}).get("load")
         for check in (c for c in step.checks if c in results and load is not None and load >= opts.max_load):
             results[check]["notes"].append(f"{step.name} started at load {load} (not under {opts.max_load:g})")
     loads = {name: entry.get("load") for name, entry in ran.items()}
-    text = markdown(results, opts.ref, socket.gethostname(), loads)
+    displays = {name: entry["display"] for name, entry in ran.items() if entry.get("display")}
+    text = markdown(results, opts.ref, socket.gethostname(), loads, displays)
     print(text)
     report = {"sha": opts.ref, "host": socket.gethostname(), "steps": ran, "checks": results}
     (Path(opts.out) / "report.md").write_text(text + "\n")
