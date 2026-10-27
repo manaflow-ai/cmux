@@ -69,6 +69,9 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// Deletes the saved pictures of both stores above when what they show must go (`LaunchPictureStore`,
+    /// p08-startup-100): Clear Browsing Data, a profile deleted, a close, `launch.savedPicture` off.
+    var launchPictureDeletions: LaunchPictureStore?
     /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
     /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
     var launchSnapshot: LaunchSnapshotPrefetch?

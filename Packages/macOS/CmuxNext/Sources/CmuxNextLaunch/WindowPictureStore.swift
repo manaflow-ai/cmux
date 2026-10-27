@@ -152,31 +152,10 @@ public final class WindowPictureStore {
         _ = try? await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.write(shots, to: directory, encode: encode) }
     }
 
-    /// Deletes every saved picture (the feature off, Clear Browsing Data, a profile deleted).
+    /// Deletes every saved picture. The deletions while the app runs (Clear Browsing Data, a profile deleted, a close,
+    /// `launch.savedPicture` off) go through ``LaunchPictureStore``.
     public func removeAll() async {
         await save([])
-    }
-
-    /// Follows `launch.savedPicture` (p08-startup 3C: the pictures are deleted with it off): each time `savedPicture`
-    /// reads off, every saved picture is deleted on the files lane at once, not at the next quit, so a crash or a
-    /// force quit after the change leaves no terminal text or page on disk. A launch that loads it off deletes any
-    /// the last run left. The quit's save stays the backstop (``saveAtQuit(featureOn:savedPicture:_:)``).
-    ///
-    /// - Parameters:
-    ///   - savedPicture: Reads the setting; nil until the settings first load (the person's choice is not known).
-    ///   - mainWork: The app's main-thread scheduler.
-    /// - Returns: The follower; the caller keeps it for as long as the setting is followed (the app's life).
-    public func followSavedPicture(_ savedPicture: @escaping @MainActor () -> Bool?, on mainWork: MainWorkScheduler) -> ServiceObservation<Bool?> {
-        // `background`: nothing on screen waits for the delete.
-        ServiceObservation(.background, owner: "WindowPictureStore.savedPicture", on: mainWork, read: savedPicture) { [weak self] on in
-            if on == false { self?.removeAllSoon() }
-        }
-    }
-
-    /// ``removeAll()`` queued on the files lane, returning at once.
-    private func removeAllSoon() {
-        guard let directory else { return }
-        work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.write([], to: directory, encode: { _ in nil }) }
     }
 
     /// The quit's save (p08-startup 3C): `shots` is asked and its pictures saved only with the `savedWindowPicture`

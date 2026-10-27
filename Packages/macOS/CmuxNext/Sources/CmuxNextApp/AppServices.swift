@@ -789,6 +789,7 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages; crashRecovery.armSurvivalWindow(on: mainDeadlines)
         cache.useLaunchPictures(environment.browserLaunchPictures, enabled: self.features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
+        cache.launchPictureDeletions = environment.launchPictureDeletions
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDaemon
+import CmuxNextLaunch
 import Foundation
 
 /// Deleting a browser profile with its data, removing that data once no
@@ -33,6 +34,10 @@ extension BrowserProfileService {
         }
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
+        // Its pages' pictures saved for the next launch go with its data (p08-startup-100).
+        if let profile = BrowserProfileRecord.engineProfile(for: id) {
+            services.environment.launchPictureDeletions?.delete(.browserProfile(profile.rawValue, since: nil))
+        }
         services.bookmarks.dropProfile(id)
         Task { [sync = services.onboarding.historySync] in _ = try? await sync.removeImported(profile: id, bookmarks: nil, forgetPages: false) }  // task-owner: its imports and their sync go too
         cleanUpDeletedProfiles()

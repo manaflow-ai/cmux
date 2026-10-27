@@ -369,8 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
-        // `launch.savedPicture` off deletes the saved window pictures at once, not at the next quit (p08-startup 3C).
-        if let pictures = services.environment.windowPictures {
+        // `launch.savedPicture` off deletes the saved window and page pictures at once, not at the next quit (p08-startup 3C).
+        if let pictures = services.environment.launchPictureDeletions {
             services.lifetimeFollowers.append(pictures.followSavedPicture({
                 settings.loadCount >= 1 ? settings.snapshot.savedPicture : nil
             }, on: services.mainWork))

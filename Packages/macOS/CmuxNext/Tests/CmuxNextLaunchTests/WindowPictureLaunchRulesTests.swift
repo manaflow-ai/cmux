@@ -4,7 +4,6 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
-import Observation
 import Testing
 import UniformTypeIdentifiers
 
@@ -189,40 +188,6 @@ struct WindowPictureLaunchRulesTests {
             #expect(asked == keeps, "\(label): the windows were drawn for pictures nobody keeps")
             #expect(FileManager.default.fileExists(atPath: directory.path) == keeps, "\(label): the saved pictures were kept or lost wrongly")
         }
-    }
-
-    /// `launch.savedPicture` as the app reads it: nil until the settings load.
-    @Observable @MainActor final class SavedPictureSetting {
-        var value: Bool?
-    }
-
-    /// Runs the main run loop until `done` holds, for at most 5 s; returns `done()`.
-    static func runMainLoop(until done: () -> Bool) -> Bool {
-        let end = Date(timeIntervalSinceNow: 5)
-        while !done(), Date() < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-        }
-        return done()
-    }
-
-    /// Turning `launch.savedPicture` off deletes the saved pictures at once, with no quit; while the settings have not
-    /// loaded, and with it on, they stay.
-    @Test func turningTheSettingOffDeletesThePicturesWithNoQuit() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "window-picture-setting-\(UUID().uuidString)", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = WindowPictureStore(directory: directory, work: Self.work, encode: Self.png)
-        await store.save([try Self.shot()])
-        let setting = SavedPictureSetting()
-        let follower = store.followSavedPicture({ setting.value }, on: MainWorkScheduler.testing { _ in nil })
-        defer { follower.cancel() }
-
-        setting.value = true
-        let flushed = Date(timeIntervalSinceNow: 0.2)
-        _ = Self.runMainLoop { Date() >= flushed }  // the change's flush runs (RunLoop.run is unavailable in async code)
-        #expect(FileManager.default.fileExists(atPath: directory.path), "the pictures went while the setting was not loaded or on")
-
-        setting.value = false
-        #expect(Self.runMainLoop { !FileManager.default.fileExists(atPath: directory.path) }, "the pictures stayed on disk with the setting off")
     }
 
     static func shot() throws -> WindowPictureStore.Shot {

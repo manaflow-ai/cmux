@@ -124,6 +124,8 @@ public struct CmuxNextApp {
         environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
+        environment.launchPictureDeletions = LaunchPictureStore(pages: environment.browserLaunchPictures, windows: environment.windowPictures,
+                                                                work: work)  // and what deletes them (p08-startup-100)
         relaunchWake.begin(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).

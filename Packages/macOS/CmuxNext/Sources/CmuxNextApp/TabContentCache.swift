@@ -153,6 +153,8 @@ final class TabContentCache {
     var enginesAwait: LaunchReadEvent?
     /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
     var launchPictures: BrowserLaunchPictures?
+    /// Deletes a closed tab's saved pictures (`LaunchPictureStore`, p08-startup-100); nil keeps none (tests).
+    var launchPictureDeletions: LaunchPictureStore?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -534,7 +536,10 @@ final class TabContentCache {
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
         // A stand-in's content moving to its daemon tab (`displacing` false) is no close: the wait follows the content.
-        if displacing { createTabs.released(key) }
+        if displacing {
+            createTabs.released(key)
+            launchPictureDeletions?.delete(.tab(key))  // its page picture, and the window pictures showing it
+        }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key); launchDeferredNodes[key] = nil

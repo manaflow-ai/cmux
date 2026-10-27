@@ -1,7 +1,7 @@
 /// `launch.savedPicture` in cmux-next.json: whether a quit saves one picture of each window and the next launch
 /// shows it as that window's first frame until the live window is built under it (p08-startup 3C,
 /// `WindowPictureStore`). On by default; nothing is saved or shown while the `savedWindowPicture` feature is off.
-/// Off, the saved pictures are deleted at once (`WindowPictureStore.followSavedPicture(_:on:)`) and the next launch shows none. Agents may not change it
+/// Off, the saved pictures are deleted at once (`LaunchPictureStore.followSavedPicture(_:on:)`, with the browser pages' pictures) and the next launch shows none. Agents may not change it
 /// (`AgentRefusal.privacy`): the pictures hold terminal text and pages.
 ///
 /// Read from the snapshot's document, not stored: a value that is not `false` is on.

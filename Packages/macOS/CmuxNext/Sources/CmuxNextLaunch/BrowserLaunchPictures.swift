@@ -230,7 +230,7 @@ public final class BrowserLaunchPictures {
         return data as Data
     }
 
-    private nonisolated static func writePrivate(_ data: Data, to url: URL) {
+    nonisolated static func writePrivate(_ data: Data, to url: URL) {
         guard (try? data.blockingWrite(to: url, options: [.atomic])) != nil else { return }
         try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }

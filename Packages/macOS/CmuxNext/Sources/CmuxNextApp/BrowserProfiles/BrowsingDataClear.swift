@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextHistory
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
 import os
@@ -68,10 +69,12 @@ enum BrowsingDataClear {
     /// daemon (restorable) and in the omnibar's memory; cookies, site data
     /// and caches in the profile's WebKit store and Chromium profile.
     static func clear(_ kinds: Kinds, of profile: BrowserProfileID, in range: HistoryRange, _ services: AppServices) {
+        let since = range.start(now: Date())
+        // The pictures of its pages saved for the next launch show what it visited and its signed-in pages (p08-startup-100).
+        if !kinds.isEmpty { services.environment.launchPictureDeletions?.delete(.browserProfile(profile.rawValue, since: since)) }
         if kinds.contains(.history) { services.history.clearPages(profile: profile, range: range) }
         let cookies = kinds.contains(.cookies), cache = kinds.contains(.cache)
         guard cookies || cache else { return }
-        let since = range.start(now: Date())
         let webKit = services.cache.webKit.profileStore
         let cef = services.cache.cef
         let liveTabs = services.cache.browsers.values.compactMap { $0.tab as? CEFTab }.filter { $0.profileID == profile }
