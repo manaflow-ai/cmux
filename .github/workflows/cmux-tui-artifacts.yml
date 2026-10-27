@@ -2094,7 +2094,13 @@ jobs:
           }
           publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
 
+      # Only where latest is published (main's first pass): it keeps a bad
+      # commit manifest out of latest/. Elsewhere "Verify published Unix
+      # manifests" below checks the same immutable manifests (and acpmux), so
+      # running both took 75 s more of every feat-cmux-next publish, which
+      # publish-tree and so the nightly-next request wait for.
       - name: Verify immutable Unix manifests before latest publish
+        if: github.ref == 'refs/heads/main' && env.CMUX_TUI_PUBLISH_PASS != 'windows'
         run: |
           set -euo pipefail
           python3 cmux-tui/scripts/verify_published_manifest.py \
