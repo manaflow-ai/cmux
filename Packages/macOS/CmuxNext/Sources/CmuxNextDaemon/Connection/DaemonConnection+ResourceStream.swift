@@ -1,4 +1,6 @@
 public import Foundation
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A `cmux.protocol/2` stream opened on the control connection and read apart from the event
 /// path (the transport routes its lines by stream id), for a stream only one caller reads, such
@@ -45,8 +47,34 @@ extension DaemonConnection {
     /// One resource request on `transport` itself (never whichever transport is current).
     private nonisolated static func send(_ operation: String, params: [String: JSONValue], on transport: LineTransport,
                                          timeout: Duration?) async throws {
-        let response = try await transport.request(cmd: operation, timeout: timeout) { id in
-            try ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil).line()
+        let slot = ReplySlot()
+        // concurrency-allow: a bounded admission gate orders cancellation against this one
+        // nonblocking transport submission; no await or external I/O occurs under this mutex.
+        let admission = Mutex((cancelled: false, id: UInt64?.none))
+        let timer = DemandTimer(owner: "ResourceStream.deadline")
+        defer { timer.cancel() }
+        let response = try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            let submitted = admission.withLock { state -> Result<UInt64, any Error> in
+                guard !state.cancelled else { return .failure(CancellationError()) }
+                let result = transport.submit(.reply(cmd: operation, slot)) { id in
+                    try ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil).line()
+                }
+                if case .success(let id) = result { state.id = id }
+                return result
+            }
+            if case .failure(let error) = submitted { throw error }
+            if let timeout, case .success(let id) = submitted {
+                timer.schedule(after: timeout) { transport.expire(id: id, after: timeout) }
+            }
+            return try await slot.value()
+        } onCancel: {
+            let id = admission.withLock { state in
+                state.cancelled = true
+                return state.id
+            }
+            slot.resolve(.failure(CancellationError()))
+            if let id { transport.expire(id: id, after: .zero) }
         }
         _ = try ResourceRequestEnvelope.decodeResult(JSONValue.self, from: response.line)
     }

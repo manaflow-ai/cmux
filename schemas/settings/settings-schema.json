@@ -1463,7 +1463,8 @@
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines"
+          "machines",
+          "tailnet"
         ],
         "symbol" : "person.crop.circle",
         "title" : {

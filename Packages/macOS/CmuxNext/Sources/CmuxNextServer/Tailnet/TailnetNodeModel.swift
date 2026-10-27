@@ -36,6 +36,9 @@ public final class TailnetNodeModel {
     @ObservationIgnored private var signInRequested = false
     /// Stream snapshots and local cancellation invalidate replies from an older state.
     @ObservationIgnored private var revision: UInt64 = 0
+    /// Pair validity changes only with its identity, a local dismissal or a disconnected read.
+    @ObservationIgnored private var pairRevision: UInt64 = 0
+    @ObservationIgnored private var openSignInLink = false
 
     @ObservationIgnored private let services: TailnetNodeServices
 
@@ -48,14 +51,22 @@ public final class TailnetNodeModel {
     public func apply(_ state: TailnetNodeState) {
         revision &+= 1
         set(Self.phase(of: state, signInRequested: signInRequested))
-        if case .signedIn = phase { signInRequested = false }
+        if case .signedIn = phase {
+            signInRequested = false
+            openSignInLink = false
+        } else if openSignInLink, case .waitingForBrowser(let url) = phase {
+            openSignInLink = false
+            services.openURL(url)
+        }
     }
 
     /// The daemon has no node, or the connection to it ended. Changes nothing when already so, so
     /// a page that reads the card while the daemon is away does not wake itself again.
     public func markUnavailable() {
         revision &+= 1
+        pairRevision &+= 1
         signInRequested = false
+        openSignInLink = false
         set(.unavailable)
         if pairCode != nil { pairCode = nil }
     }
@@ -63,6 +74,7 @@ public final class TailnetNodeModel {
     /// Writes `phase` only when it changes (Observation wakes readers on every write).
     private func set(_ next: Phase) {
         if phase != next {
+            pairRevision &+= 1
             phase = next
             if pairCode != nil { pairCode = nil }
         }
@@ -73,21 +85,23 @@ public final class TailnetNodeModel {
         guard !busy else { return }
         if case .waitingForBrowser(let url) = phase { return services.openURL(url) }
         signInRequested = true
+        openSignInLink = true
         let expected = revision
         if let state = await run(services.loginStart, isCurrent: { self.revision == expected }) { apply(state) }
-        if case .waitingForBrowser(let url) = phase { services.openURL(url) }
     }
 
     /// Cancel on the waiting state: the link stays unused; the node keeps waiting until Sign In.
     public func cancelSignIn() {
         revision &+= 1
         signInRequested = false
+        openSignInLink = false
         if case .waitingForBrowser = phase { set(.signedOut) }
     }
 
     public func signOut() async {
         guard !busy else { return }
         signInRequested = false
+        openSignInLink = false
         let expected = revision
         guard let state = await run(services.logout, isCurrent: { self.revision == expected }) else { return }
         apply(state)
@@ -96,15 +110,15 @@ public final class TailnetNodeModel {
     /// Pair: a single-use client ticket for this Mac's address, shown as a QR code and a link.
     public func pair() async {
         guard !busy, case .signedIn(let address, _) = phase else { return }
-        let expected = revision
+        let expected = pairRevision
         guard let ticket = await run({ try await self.services.mintTicket(address) },
-                                    isCurrent: { self.revision == expected }) else { return }
+                                    isCurrent: { self.pairRevision == expected }) else { return }
         pairCode = TailnetPairCode(address: address, ticket: ticket)
         if pairCode == nil { actionError = TailnetNodeStrings.pairFailed }
     }
 
     public func closePair() {
-        revision &+= 1
+        pairRevision &+= 1
         if pairCode != nil { pairCode = nil }
     }
 
