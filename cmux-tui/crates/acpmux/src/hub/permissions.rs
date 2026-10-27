@@ -92,7 +92,7 @@ impl Hub {
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
                     tokio::spawn(async move {
-                        hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+                        hub.on_agent_request(s, id, m, params, epoch, turn_id, ask, None).await
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -294,13 +294,14 @@ impl Hub {
             // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
             if fence.is_cut() && c.is_alive().await {
                 let (m, params, epoch, turn_id) = again;
-                hub.on_agent_request(s, id, m, params, epoch, turn_id, None).await;
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, None, Some(c)).await;
             }
         });
     }
 
     /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write
-    /// (`ANSWER_FENCE`). Boxed: a cut answer's request is handled again from inside it.
+    /// (`ANSWER_FENCE`). Boxed: a cut answer's request is handled again from inside it, for
+    /// `asked_of`, the agent that asked it.
     pub(super) fn on_agent_request(
         self: Arc<Self>,
         session: Arc<Session>,
@@ -310,9 +311,11 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         ask: Option<super::permission_groups::AskInFlight>,
+        asked_of: Option<Arc<ChildAgent>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         Box::pin(async move {
-            let request = self.on_agent_request_in(session, id, m, params, epoch, turn_id, ask);
+            let request =
+                self.on_agent_request_in(session, id, m, params, epoch, turn_id, ask, asked_of);
             ANSWER_FENCE.scope(Default::default(), request).await;
         })
     }
@@ -326,11 +329,17 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         ask: Option<super::permission_groups::AskInFlight>,
+        asked_of: Option<Arc<ChildAgent>>,
     ) {
         // Context was captured before spawning this request task, so cancel
         // or a new turn cannot make a delayed request join the new ask.
-        let Some(child) = session.child.lock().await.clone() else {
-            return;
+        let current = session.child.lock().await.clone();
+        // A request handled again is answered only to the agent that asked it, while it still
+        // has the session: a failover's agent starts its request ids over (review 88 of #23322).
+        let child = match (asked_of, current) {
+            (Some(asked), Some(now)) if Arc::ptr_eq(&asked, &now) => asked,
+            (None, Some(now)) => now,
+            _ => return,
         };
         // Grok's x.ai extension requests: a question or a plan approval,
         // asked through the same permission path (xai.rs).

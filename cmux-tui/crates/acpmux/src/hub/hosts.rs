@@ -806,7 +806,7 @@ impl Hub {
             let s = session.clone();
             let turn_id = turn_id.clone();
             tokio::spawn(async move {
-                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask, None).await
             });
         }
     }
