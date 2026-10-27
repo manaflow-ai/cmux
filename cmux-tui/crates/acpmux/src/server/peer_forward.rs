@@ -324,7 +324,7 @@ async fn forward_inner(
                                     "peer": peer.name,
                                     "method": m,
                                 }))
-                        } else if m == method::MUX_PERMISSION_RESPOND {
+                        } else if matches!(m, method::MUX_PERMISSION_RESPOND | method::MUX_PERMISSION_GROUP_RESPOND) {
                             // A refused answer names the peer that refused it, so the app can say
                             // where to enroll this Mac (`hub/mac_approvers.rs`).
                             name_peer(e, &peer.name)
@@ -348,11 +348,8 @@ async fn forward_inner(
         {
             obj.insert("presence".into(), crate::hub::presence::none(&id));
         }
-        // This daemon's link is never the person on the peer, so the peer
-        // refuses every group allow it forwards (`hub/person.rs`), whatever
-        // its build says: the client draws none.
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
-            result["allowRefused"] = json!(crate::hub::person::REASON);
+            mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
@@ -378,6 +375,27 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
+/// daemon's link is never the person on the peer, so the peer refuses every group allow it
+/// forwards (`hub/person.rs`), whatever its build says: the client draws none
+/// (`allowRefused`). One exception: the peer counts an enrolled Mac's signed Allow once
+/// (`macAllowOnce`), and the reader is this machine's person whose app holds this Mac's
+/// approver key (`mac_signs`): it may draw Allow once and Deny, never Allow for the chat.
+fn mac_group_read(result: &mut Value, mac_signs: bool) {
+    if !(mac_signs && result.get("macAllowOnce") == Some(&Value::Bool(true))) {
+        result["allowRefused"] = json!(crate::hub::person::REASON);
+        return;
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.remove("allowRefused");
+    }
+    for group in result.get_mut("groups").and_then(Value::as_array_mut).into_iter().flatten() {
+        if let Some(decisions) = group.get_mut("decisions").and_then(Value::as_array_mut) {
+            decisions.retain(|d| d != "allow_chat");
+        }
+    }
 }
 
 /// Drop from a peer's reply for its session `id` every ask the peer may
@@ -458,6 +476,30 @@ mod tests {
         assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
         let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
         assert_eq!(e.data.unwrap()["peer"], "hb");
+    }
+
+    /// A peer's group read: the person here whose app holds this Mac's key draws Allow once and
+    /// Deny when the peer counts a Mac's signed allow; every other reader, or a peer that does
+    /// not say so, draws no Allow.
+    #[test]
+    fn a_peers_group_read_draws_allow_once_only_for_a_mac_that_signs() {
+        let read = || {
+            json!({"groups": [{"decisions": ["allow_once", "allow_chat", "deny"]}],
+                   "allowRefused": crate::hub::person::REASON, "macAllowOnce": true})
+        };
+        let mut r = read();
+        mac_group_read(&mut r, true);
+        assert!(r.get("allowRefused").is_none(), "{r}");
+        assert_eq!(r["groups"][0]["decisions"], json!(["allow_once", "deny"]));
+        let mut r = read();
+        mac_group_read(&mut r, false);
+        assert_eq!(r["allowRefused"], crate::hub::person::REASON);
+        assert_eq!(r["groups"][0]["decisions"].as_array().unwrap().len(), 3);
+        for old in [json!({"groups": []}), json!({"groups": [], "macAllowOnce": false})] {
+            let mut r = old;
+            mac_group_read(&mut r, true);
+            assert_eq!(r["allowRefused"], crate::hub::person::REASON, "{r}");
+        }
     }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
