@@ -31,7 +31,6 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   text-align: start;
-  cursor: default;
 }
 .acpmux-started-row + .acpmux-started-row {
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);

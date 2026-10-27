@@ -11,7 +11,8 @@ extension SettingDescriptor {
     /// The stored value when it is valid, else the default (what the app
     /// applies: a bad value keeps the default, with a diagnostic).
     public func effectiveValue(in root: JSONValue) -> JSONValue? {
-        if let stored = storedValue(in: root), accepts(stored) { return stored }
+        if let stored = storedValue(in: root),
+           let value = AgentPaneDisplaySettingsSchema.pageValue(id, stored), accepts(value) { return value }
         return defaultValue
     }
 

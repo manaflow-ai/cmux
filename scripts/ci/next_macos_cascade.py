@@ -31,6 +31,20 @@ runner there is idle it stays there and takes no slot, and with none idle it
 takes a Blacksmith slot ahead of the other jobs, since it gates the nightly-next
 request. It never counts against an idle side mini then: it does not run there.
 
+The labels are not independent: every Blacksmith macOS label the organization
+runs (these two and blacksmith-6vcpu-macos-15) draws on one pool of POOL_VCPU
+vCPUs, so a job takes a label only while that pool has room for it
+(pool_room()). From 13:34Z to 21:30Z on 2026-10-26, 53 of 55 placements sampled saw 12
+vCPU with no runner in flight, while 6 vCPU ran up to ten at once
+(60 vCPU; the janitor's snapshots never saw this repository's Blacksmith macOS
+jobs run more than 60 vCPU at once). The old per-label count saw "0 in flight + 0
+queued of 5" on 12 vCPU and sent jobs there that waited behind the pool: two DEV
+Release compiles, runs 40386035282 and 40386506758, queued at 19:25Z and started
+at 20:42Z and 20:52Z. A 12 vCPU job needs twelve vCPUs freed at once, so while
+any Blacksmith macOS job queues the 6 vCPU jobs take each freed slot first:
+LARGE takes a job only while nothing queues on any Blacksmith macOS label
+(pool_queued()), and otherwise SMALL does.
+
 A slot counted free can still be taken by another run placing in the same
 snapshot window, and nothing rescues a job queued on Blacksmith. MAX_PER_RUN
 bounds how far a burst of runs can overfill a label.
@@ -40,6 +54,8 @@ A free slot is CAPACITY less the jobs in flight and the jobs already queued:
   registers each label's just-in-time runners in its own scale-set group
   ("Blacksmith scale sets - <label>"); a runner online there holds a job or is
   about to take one. That is one request for the group list and one per label.
+  A pool label whose group is not visible here counts the snapshot's running
+  jobs instead (with_running()).
 - Queued comes from the queue janitor's pool snapshot (macos-pool-load), the
   only repository-wide job listing, read with the job's GITHUB_TOKEN. It counts
   only while it is at most QUEUE_SNAPSHOT_MINUTES old: a job sent to a label with
@@ -103,6 +119,12 @@ from typing import Any, Callable, Mapping, Sequence
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
 LABELS = (LARGE, SMALL)
+# Every Blacksmith macOS label draws on one organization pool; cmux-next places only on LABELS, but the
+# others' jobs use the same vCPUs (classic CI's vars.MACOS_RUNNER_15 is blacksmith-6vcpu-macos-15).
+POOL_LABELS = (*LABELS, "blacksmith-6vcpu-macos-15")
+# The pool's size: ten 6 vCPU jobs at most in flight at once (2026-10-26 19:35Z, with 12 vCPU at none), the
+# same 60 vCPU as the five 12 vCPU and the ten 6 vCPU slots CAPACITY counted when they were read as separate.
+POOL_VCPU = 60
 # GitHub-hosted macOS 26 (Xcode 26.6 default): free here, capped by the organization's concurrency.
 HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
@@ -117,6 +139,11 @@ CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-com
 # The jobs a feat-cmux-next push runs on the promotion mini (PROMOTE_LABEL) instead of the side label.
 PROMOTE_JOBS = ("release-compile",)
 MAX_PER_RUN = 2
+# Jobs a feed's freshness waits on (FRESH_JOBS: a feat-cmux-next push's Release compile, a DEV daily's
+# Release compile). When the counts cannot be read they take SMALL, the last resort, instead of the owned
+# label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
+# 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
+# 2026-10-24: a feed is never more than 30 minutes behind its branch).
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
@@ -131,17 +158,64 @@ class Placement:
     why: str
 
 
+def vcpus(label: str) -> int:
+    """The vCPUs one job on a Blacksmith label takes: the `<n>vcpu` in its name."""
+    size = label.removeprefix("blacksmith-").split("vcpu-", 1)[0]
+    return int(size) if size.isdigit() else 0
+
+
+def pool_label(label: str) -> bool:
+    """A Blacksmith macOS label: it draws on the organization's one macOS pool."""
+    return label.startswith("blacksmith-") and "-macos-" in label and vcpus(label) > 0
+
+
 def in_flight(groups: Sequence[Mapping[str, Any]], runners_of: Callable[[int], Sequence[Mapping[str, Any]]],
               ) -> dict[str, int] | None:
-    """Each label's online just-in-time runners, from its scale-set group; None when a group is missing."""
+    """Each pool label's online just-in-time runners, from its scale-set group; None when a LABELS group is
+    missing. Another pool label is counted while its group is visible, else left to with_running()."""
     by_name = {str(group.get("name") or ""): group.get("id") for group in groups if isinstance(group, Mapping)}
     counts: dict[str, int] = {}
-    for label in LABELS:
+    for label in POOL_LABELS:
         group = by_name.get(SCALE_SET_GROUP.format(label=label))
         if not isinstance(group, int):
-            return None
+            if label in LABELS:
+                return None
+            continue
         counts[label] = sum(1 for runner in runners_of(group) if runner.get("status") == "online")
     return counts
+
+
+def with_running(live: Mapping[str, int], snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, int]:
+    """`live`, plus the fresh snapshot's running jobs on each pool label no visible group counted."""
+    counts = dict(live)
+    fresh = _fresh(snapshot, now)
+    if fresh is not None:
+        for label in fresh[1]:
+            if pool_label(str(label)) and label not in counts:
+                counts[str(label)] = _field(fresh[1], str(label), "running")
+    return counts
+
+
+def pool_queued(waiting: Mapping[str, int]) -> int:
+    """The jobs queued on every Blacksmith macOS label."""
+    return sum(count for label, count in waiting.items() if pool_label(label))
+
+
+def pool_room(live: Mapping[str, int], waiting: Mapping[str, int]) -> int:
+    """The pool's vCPUs neither in flight nor promised to a queued job (negative when oversubscribed).
+
+    A job queued on LARGE holds no room: it waits for twelve vCPUs freed at once while the 6 vCPU jobs
+    take each freed slot (2026-10-26 20:38Z to 20:47Z: six queued on 12 vCPU for 78 to 83 minutes while
+    6 vCPU ran seven and five with none queued).
+    """
+    return POOL_VCPU - sum(vcpus(label) * count for counts in (live, waiting)
+                           for label, count in counts.items()
+                           if pool_label(label) and not (counts is waiting and label == LARGE))
+
+
+def fits(label: str, room: int, queue: int) -> bool:
+    """Whether a job on `label` starts now: the pool has its vCPUs, and for LARGE nothing queues ahead."""
+    return room >= vcpus(label) and (label != LARGE or queue == 0)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -178,11 +252,13 @@ def _field(pools: Mapping[str, Any], label: str, key: str) -> int:
 
 
 def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, int] | None:
-    """Each label's queued jobs from a janitor snapshot at most QUEUE_SNAPSHOT_MINUTES old, else None."""
+    """Each pool label's queued jobs (LABELS always) from a janitor snapshot at most
+    QUEUE_SNAPSHOT_MINUTES old, else None."""
     fresh = _fresh(snapshot, now)
     if fresh is None:
         return None
-    return {label: _field(fresh[1], label, "queued") for label in LABELS}
+    labels = [*LABELS, *(str(label) for label in fresh[1] if pool_label(str(label)) and label not in LABELS)]
+    return {label: _field(fresh[1], label, "queued") for label in labels}
 
 
 def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -213,25 +289,32 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
             stall: Sequence[str] = (), hosted_free: int = 0) -> dict[str, tuple[str, ...]]:
-    """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS."""
+    """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
+
+    A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
+    """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
     free[HOSTED] = min(hosted_free, MAX_PER_RUN)
+    room, queue = pool_room(live, waiting), pool_queued(waiting)
     placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
         targets = (*LABELS, HOSTED) if job in HOSTED_JOBS else LABELS
-        label = next((label for label in targets if free[label] > 0), None)
+        label = next((label for label in targets
+                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
         if label is None:
             continue
         placed[label].append(job)
         if len(placed[label]) >= MAX_PER_RUN:
             free[label] = 0
         free[label] -= 1
+        room -= vcpus(label) if label != HOSTED else 0
     return {label: tuple(names) for label, names in placed.items()}
 
 
 def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequence[str] = ()) -> str:
-    """The overflow label: the lowest (in flight + queued) / capacity among moving labels with a free slot, else "".
+    """The overflow label: the lowest (in flight + queued) / capacity among moving labels with a free slot that
+    the shared pool fits (fits()), else "".
 
     "" sends the bot's overflow to the owned side label: a job never falls back
     to a Blacksmith label with no free slot, where it would queue for hours.
@@ -243,7 +326,9 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     over, started 69 at a median 2.5 minutes.
     """
     load = {label: live.get(label, 0) + waiting.get(label, 0) for label in LABELS}
-    free = [label for label in LABELS if load[label] < CAPACITY[label] and label not in stall]
+    room, queue = pool_room(live, waiting), pool_queued(waiting)
+    free = [label for label in LABELS
+            if load[label] < CAPACITY[label] and label not in stall and fits(label, room, queue)]
     if not free:
         return ""
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
@@ -252,8 +337,10 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
 def skipped(env: Mapping[str, str]) -> str:
     """Why this run places nothing on Blacksmith before reading anything, or ""."""
     label = (env.get("SIDE_LABEL") or "").strip()
-    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
-        return "a re-run keeps its own route"
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
+    actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
+    if attempt not in ("", "1") and actor != "github-actions[bot]":
+        return "a person re-run keeps its own route"
     if not label.startswith("glaeda-side-"):
         return f"`{label or 'no label'}` is not an owned side label"
     return ""
@@ -269,13 +356,18 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     empty = {label: () for label in (*LABELS, HOSTED)}
     if skipped(env):
         return Placement(empty, "", skipped(env))
-    if live is None:
-        return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
-    stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
-    if waiting is None:
-        # Without the queue count no slot is known free, so the overflow keeps the owned label too.
-        return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
-                                    "Blacksmith's queue; no job leaves the minis' queue")
+    if live is None or waiting is None:
+        why = ("Blacksmith's runner groups could not be read" if live is None else
+               f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
+        # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
+        # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
+        fresh = unread_fresh_jobs(env, owned)
+        if fresh:
+            return Placement({**empty, SMALL: fresh}, "", f"{why}; {', '.join(fresh)} gate a feed's freshness, "
+                                                          f"so they take `{SMALL}`, the last resort; the rest "
+                                                          "stay on the minis' queue")
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue")
+    stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -295,20 +387,38 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
-    # The overflow label counts the slots this run's own jobs just took.
-    retry = retry_label(live, {label: waiting.get(label, 0) + len(placed.get(label, ())) for label in LABELS}, stall)
-    load = ", ".join(f"`{label}` {live[label]} in flight + {waiting[label]} queued of {CAPACITY[label]}"
+    # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
+    # the pool's vCPUs as jobs in flight do.
+    retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
+                        waiting, stall)
+    load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
                      for label in LABELS)
+    used = POOL_VCPU - pool_room(live, waiting)
+    others = ", ".join(f"`{label}` {live.get(label, 0)} + {waiting.get(label, 0)}"
+                       for label in sorted({*live, *waiting}) if pool_label(label) and label not in LABELS)
+    pool_text = (f"pool {used} of {POOL_VCPU} vCPU in flight or queued"
+                 + (f" ({others} in flight + queued)" if others else "")
+                 + (", so 12 vCPU waits behind the queue" if pool_queued(waiting) else ""))
     moved = "; ".join(f"`{label}` takes {', '.join(names)}" for label, names in placed.items() if names)
     left = [job for job in candidates if not any(job in names for names in placed.values())]
-    why = f"Blacksmith: {load}. " + (moved or "No free Blacksmith slot")
+    why = f"Blacksmith: {load}; {pool_text}. " + (moved or "No free Blacksmith slot")
     if seen is not None:
         why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
+
+
+def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
+    """The FRESH_JOBS that run here and that no idle mini took (`owned` counts against the run's other jobs
+    first, as in place()), at most MAX_PER_RUN."""
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    fresh = [job for job in running if job in set((env.get("FRESH_JOBS") or "").split())]
+    others = len(running) - len(fresh)
+    return tuple(fresh[max(0, len(owned) - others):][:MAX_PER_RUN])
 
 
 class Api:
@@ -342,22 +452,30 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     found: Seen | None = None
     if skipped(env):
         return live, waiting, found
-    route, repository = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
-    if route and repository:
+    repository = env.get("GITHUB_REPOSITORY", "")
+    # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        route = env.get(name, "")
+        if not (route and repository):
+            continue
         try:
             live = Api(route, repository).in_flight()
             if live is None:
                 log("::warning title=macOS cascade::no `Blacksmith scale sets - <label>` runner group is visible")
+            break
         except Exception as error:  # noqa: BLE001 - fail closed: nothing leaves the minis' queue
-            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups ({error})")
+            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups with {name} ({error})")
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
+    # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
+    # the organization's, so a refused runner read leaves `live` None and only FRESH_JOBS move (place()).
     if live is not None and snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
             waiting, found = queued(snapshot, now), seen(snapshot, now)
+            live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     return live, waiting, found

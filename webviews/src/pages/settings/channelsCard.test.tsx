@@ -131,3 +131,50 @@ test("the card names the app's acpmux daemon's build and whether it is up to dat
   expect(card(none.container)!.querySelector("[data-channel-daemon]")).toBeNull();
   none.unmount();
 });
+
+test("the card lists the machines that cannot update in place or failed to, in one row, as the host says", async () => {
+  const lines = [
+    "lofty-lemon-stoat runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.",
+    "Couldn't update build-box: Bootstrap failed: 125",
+  ];
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: { title: "Other machines", lines } };
+    },
+  });
+  await settle();
+  const rows = card(page.container)!.querySelectorAll<HTMLElement>("[data-channel-machines]");
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.textContent).toContain("Other machines");
+  expect([...rows[0]!.querySelectorAll("[data-channel-machine]")].map((line) => line.textContent)).toEqual(lines);
+  page.unmount();
+  // None to list: no row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  none.unmount();
+});
+
+test("a machine failing while the card shows joins its row at once, without a re-read", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  const line = "Couldn't update build-box: Bootstrap failed: 125";
+  await run(() => page.provider.setMachines({ title: "Other machines", lines: [line] }));
+  const lines = [...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent);
+  expect(lines).toEqual([line]);
+  await run(() => page.provider.setMachines(null));
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  page.unmount();
+});

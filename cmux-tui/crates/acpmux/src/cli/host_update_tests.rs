@@ -1216,6 +1216,55 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
     );
 }
 
+/// A host that answers to nothing: a held peer must never reach it.
+struct Unreachable;
+
+impl Remote for Unreachable {
+    fn host(&self) -> &str {
+        "cmux@mini-a.tail0.ts.net"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a held peer was reached: {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a held peer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a held peer was reached: {script}")
+    }
+}
+
+/// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen
+/// until 10-28") must never have its daemon restarted by the update queue. Held by its host's first
+/// label, it is left alone with no ssh at all, and that is no failure (exit 0); a holds file that
+/// cannot be read leaves it alone too.
+#[test]
+fn a_held_peer_is_left_alone_without_reaching_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-held-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("update-holds.json");
+    let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
+    std::fs::write(&path, holds).unwrap();
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let now = 1_793_000_000_000; // 2026-10-26
+    let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Held, Some("held")), "{up:?}");
+    assert!(!up.outcome.failed(), "held is no failure: the command exits 0");
+    let row = up.to_json("peer-a", "cmux@mini-a.tail0.ts.net");
+    assert_eq!((row["outcome"].as_str(), row["ok"].as_bool()), (Some("held"), Some(true)));
+    assert!(row["error"].as_str().unwrap().contains("reserved for a teammate"), "{row}");
+    assert!(up.line().starts_with("held, left alone: mini-a is held"), "{}", up.line());
+
+    std::fs::write(&path, "{not json").unwrap();
+    let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("holdsUnreadable")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(unix)]
 #[path = "host_lock_tests.rs"]
 mod lock;

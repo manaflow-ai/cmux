@@ -486,6 +486,9 @@ pub mod method {
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
+    /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
+    /// olderThanDays?, only?}` -> the pass's report.
+    pub const MUX_RETENTION: &str = "_acpmux/retention";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";

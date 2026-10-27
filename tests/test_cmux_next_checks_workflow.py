@@ -1184,12 +1184,30 @@ class SameTreeIsAnEvent(unittest.TestCase):
         condition = " ".join(self.jobs()["checks"]["if"].split())
         self.assertNotIn("!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')", condition)
 
-    def test_an_unavailable_tree_is_red_without_waiting(self):
+    def test_an_unavailable_pr_tree_is_skipped_with_named_reason(self):
         gate = self.jobs()["same-tree-cmux-tui"]
         self.assertLessEqual(int(gate["timeout-minutes"]), 5)
-        self.assertIn("needs.path_route.outputs.tree_state == 'failed'", gate["if"])
-        self.assertIn("inputs.same_tree_state == 'failed'", gate["if"])
+        condition = " ".join(gate["if"].split())
+        self.assertIn("github.event_name != 'pull_request'", condition)
+        self.assertIn("inputs.same_tree_origin != 'pull_request'", condition)
+        self.assertIn("needs.path_route.outputs.tree_state == 'failed'", condition)
+        self.assertIn("inputs.same_tree_state == 'failed'", condition)
         self.assertFalse([step for step in gate["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+        route = self.jobs()["path_route"]
+        summary = next(step for step in route["steps"] if step.get("name") == "Summarize the same-tree cmux-tui")
+        self.assertIn("same-tree cmux-tui skipped", summary["run"])
+        self.assertIn("pin ref", summary["run"])
+        marker = next(step for step in route["steps"] if step.get("id") == "marker")
+        self.assertIn("github.event_name != 'pull_request'", marker["if"])
+        with tempfile.NamedTemporaryFile(mode="r+") as receipt:
+            result = subprocess.run(["bash", "-c", summary["run"]], text=True, capture_output=True,
+                                    env={**os.environ, "EVENT_NAME": "pull_request", "STATE": "failed",
+                                         "KEY": "a" * 40, "REASON": "HTTP 422: tree unavailable",
+                                         "GITHUB_STEP_SUMMARY": receipt.name}, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("::notice title=same-tree cmux-tui skipped::", result.stdout)
+            self.assertNotIn("::error", result.stdout)
+            self.assertIn(": skipped", receipt.read())
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2141,6 +2159,36 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertEqual(evaluate(self.job()["runs-on"], labeled), "shared-side-route")
         self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], labeled), "shared-side-route")
 
+    def test_a_same_repository_pr_runs_the_mac_release_compile_only_for_what_only_xcodebuild_sees(self):
+        """With no build-fleet verdict, a same-repository PR's Mac Release compile (the CmuxNext package
+        through xcodebuild) runs only for a MAC_RELEASE_INPUTS change; the base push compiles every merge."""
+        source = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+
+        def unjudged(context: dict) -> dict:
+            context["needs.app-compile-fleet.outputs.verdict"] = ""
+            return context
+
+        plain = unjudged(self.context([source]))
+        self.assertEqual(plain["needs.path_route.outputs.native"], "true")
+        self.assertEqual(plain["needs.path_route.outputs.mac_release"], "false")
+        self.assertFalse(self.runs(plain))
+        for changed in (["Packages/macOS/CmuxNext/Package.swift"], ["Packages/macOS/CmuxNext/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], ["scripts/ci/xcode-pins.txt"],
+                        ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Assets.xcassets/Contents.json"]):
+            with self.subTest(changed=changed):
+                context = unjudged(self.context(changed))
+                self.assertEqual(context["needs.path_route.outputs.mac_release"], "true")
+                self.assertTrue(self.runs(context))
+                # A build-fleet verdict still answers for it.
+                context["needs.app-compile-fleet.outputs.verdict"] = "pass"
+                self.assertFalse(self.runs(context))
+        # The base push and a fork keep the Mac Release compile whatever they change.
+        self.assertTrue(self.runs(self.context([source], event="push")))
+        self.assertTrue(self.runs(unjudged(self.context([source], head_repo="someone/cmux"))))
+        place = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-placement"]["steps"]
+                     if step.get("id") == "place")
+        self.assertIn("needs.path_route.outputs.mac_release == 'true' && 'release-compile'", place["env"]["GATEWAY_CASCADE"])
+
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         fast = jobs["release-compile-fast"]
@@ -2258,9 +2306,13 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
         self.assertFalse(self.runs(context))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
-        # With no build-fleet verdict, the Mac compiles it instead.
+        # With no build-fleet verdict, the Mac compiles it only for an input only its xcodebuild sees
+        # (path_route's mac_release): App/ is the Xcode app target's, not the package's.
         context["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
-        self.assertTrue(self.runs(context))
+        self.assertFalse(self.runs(context))
+        resolved = self.context(["Packages/macOS/CmuxNext/Package.resolved"])
+        resolved["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
+        self.assertTrue(self.runs(resolved))
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
@@ -2516,7 +2568,7 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
 
     def context(self, event: str = "pull_request", *, head_repo: str = "manaflow-ai/cmux",
                 labels: tuple[str, ...] = (), ref: str = "refs/pull/1/merge", association: str = "CONTRIBUTOR",
-                cmuxnext_swift: str = "true", fleet: str = "pass") -> dict:
+                cmuxnext_swift: str = "true", fleet: str = "pass", mac_release: str = "true") -> dict:
         context = {
             # The build fleet compiled the PR's head (app-compile-fleet), so no Mac Release compile is needed.
             "needs.app-compile-fleet.outputs.verdict": fleet,
@@ -2529,6 +2581,7 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.push-head-preflight.outputs.current": "true",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.path_route.outputs.cmuxnext_swift": cmuxnext_swift,
+            "needs.path_route.outputs.mac_release": mac_release,
             "inputs.same_tree_sha": "",
         }
         for tier in ("macos", "native", "scheme"):
@@ -2555,6 +2608,10 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             with self.subTest(fleet=fleet):
                 self.assertEqual(self.compiling(self.context(fleet=fleet)), {"release-compile"})
         self.assertEqual(self.compiling(self.context(fleet="fail")), set())
+        # Not when the change has no input only the Mac Release compile sees (path_route's mac_release).
+        for fleet in ("unavailable", ""):
+            with self.subTest(fleet=fleet, mac_release="false"):
+                self.assertEqual(self.compiling(self.context(fleet=fleet, mac_release="false")), set())
 
     def test_a_same_repository_pr_with_full_ci_runs_both(self):
         self.assertEqual(self.compiling(self.context(labels=("full-ci",))), set(HEAVY_COMPILES))
@@ -2622,6 +2679,8 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "github.run_attempt": attempt, "github.triggering_actor": "someone",
             "vars.CI_COMPILE_CHECK_GATEWAY": self.LIGHT, "vars.CI_PR_POOL_OWNED": "1",
             "needs.path_route.outputs.native": "true", "needs.path_route.outputs.swift_canary": "true",
+            # A change the Mac Release compile sees (path_route's mac_release): its fallback.
+            "needs.path_route.outputs.mac_release": "true",
             "needs.path_route.outputs.macos": "true", "needs.push-head-preflight.outputs.current": "true",
             "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
             "github.event.pull_request.labels.*.name": [],
@@ -2668,7 +2727,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     """A same-repository PR's app compile runs on the build fleet (`cmux-ci compile-check --ref <head> --app`,
     about a minute) instead of the Mac Release queue. 2026-10-21: 76 of ~350 queued Mac jobs were Release
-    compiles. The job compiles the PR's head, the commit merge_compile_guard.py and the landing hooks ask
+    compiles. The job compiles the PR's head, the commit the landing gate asks
     about; a fleet red fails it; no verdict hands the PR to the Mac Release compile."""
 
     NAME = "cmux-next app compile (build fleet)"
@@ -2682,6 +2741,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
         }
         if event == "pull_request":

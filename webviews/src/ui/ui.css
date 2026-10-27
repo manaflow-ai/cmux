@@ -19,6 +19,11 @@
   font-family: var(--ui-font);
   -webkit-user-select: none;
   user-select: none;
+}
+/* The chrome around the controls keeps the arrow. A button (.ui-button) and a drill row (role
+   option) are not in this list: a rule here comes after the shared pointing-hand rule and would
+   beat it (clickable-cursor.test.ts). */
+:where(.ui-popup, .ui-tooltip, .ui-toolbar, .ui-crumbs, .ui-drill-section, .ui-drill-hint, .ui-listbox, .ui-dialog, .ui-backdrop) {
   cursor: default;
 }
 
@@ -138,7 +143,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */

@@ -6,7 +6,7 @@ import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
-import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
+import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
@@ -49,7 +49,6 @@ import {
   inStrip,
   shellEntry,
   shortHost,
-  stepSelection,
   type CreateKind,
   type ScreenRow,
 } from "./screenModel";
@@ -748,8 +747,11 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
-    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
-    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
+    // address with no row selected (↑ from the top row): there is no prompt to send.
+    const list = rows.length ? rows : suggested;
+    const opensTop = !rows.length || (current < 0 && isAddress(text.trim(), home));
+    const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
@@ -920,6 +922,13 @@ export function NewTabScreen(props: Props) {
       edit(completion);
       return;
     }
+    // ← and → on a row the arrows picked go back to the text, and the caret moves there at once (the
+    // default action: no preventDefault). Return then sends the prompt, until typing selects the top
+    // row. The top row typing selects stays: ← to fix a typo in an address keeps Return opening it.
+    if (plain && kept >= 0 && rows.length && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      pick(-1);
+      return;
+    }
     if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
@@ -928,7 +937,10 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    const step = listStep(event);
+    // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
+    // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
+    // list they always step the rows.
+    const step = current < 0 && movesCaretInPrompt(event, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -1634,6 +1646,15 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
   if (event.key === "n") return 1;
   if (event.key === "p") return -1;
   return undefined;
+}
+
+/// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
+/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
+function movesCaretInPrompt(event: React.KeyboardEvent, field: HTMLTextAreaElement): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
+  if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
+  return false;
 }
 
 /// A control that takes typed keys itself: a text field, or a menu or list with type-ahead.

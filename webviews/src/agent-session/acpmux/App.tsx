@@ -136,6 +136,7 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -357,6 +358,8 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { avatarRows } from "./header/avatarRow";
+import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -519,6 +522,8 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
+      agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -4027,7 +4032,7 @@ export function VirtualTranscript({
       )}
       {jumpButton && (
         <JumpToLatest
-          // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
+          // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
           shown={behind || (needsYou?.elsewhere ?? 0) > 0}
           working={working}
           onJump={(focused) => {
@@ -5429,11 +5434,10 @@ function AcpmuxPane() {
       }),
       ...(connected && {
         retry: (rowId: string, prompt: string) =>
-          void (async () =>
-            callNative("chat.send", {
-              text: prompt,
-              attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
-            }))().catch(() => undefined),
+          void (async () => {
+            const draft = await directClient.current?.resendPrompt(rowId, prompt);
+            return callNative("chat.send", { text: draft?.input ?? prompt, attachments: draft?.attachments ?? [] });
+          })().catch(() => undefined),
       }),
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
@@ -5475,6 +5479,8 @@ function AcpmuxPane() {
           takeBackSteer(row, {
             withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
             attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+            draft: (rowId, text) =>
+              directClient.current?.resendPrompt(rowId, text) ?? Promise.reject(new Error(translate("error.notOpen"))),
             restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
           }),
       }),
@@ -6675,6 +6681,9 @@ function AcpmuxPane() {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      agentAvatarChanged(sessionId) {
+        if (typeof sessionId === "string") agentAvatarChanged(sessionId);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -7312,7 +7321,8 @@ function AcpmuxPane() {
               const live = summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined;
               if (!(await harnessSwitch.pickModel(next, live))) return;
             }
-            await send(String(prompt ?? ""), await client.promptAttachments(String(rowId ?? "")));
+            const draft = await client.resendPrompt(String(rowId ?? ""), String(prompt ?? ""));
+            await send(draft.input, draft.attachments);
           },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
@@ -7388,7 +7398,7 @@ function AcpmuxPane() {
           // edited text with the prompt's attachments; the original chat stays as it was.
           "chat.editResend": async ({ rowId, throughSeq, text }) => {
             harnessSwitch.cancel();
-            const attachments = await client.promptAttachments(String(rowId ?? ""));
+            const draft = await client.resendPrompt(String(rowId ?? ""), String(text ?? ""));
             // A fork's own edited prompt edits again from the chat it was forked from, at the same
             // turn, so every version of the prompt is a sibling (conversation/branches.ts).
             const current = snapshotRef.current;
@@ -7403,7 +7413,7 @@ function AcpmuxPane() {
             await persistSession(forked);
             // The reader may open another chat while the fork is saved: the edit belongs to the fork.
             if (client.selectedSession !== forked) return false;
-            await send(String(text ?? ""), attachments);
+            await send(draft.input, draft.attachments);
             return true;
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
@@ -7794,6 +7804,16 @@ function AcpmuxPane() {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  const avatarSrc = useAgentAvatar(snapshot.sessionId);
+  const avatar = avatarRows(
+    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    {
+      set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
+      remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
+    },
+    t,
+  );
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8090,6 +8110,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
@@ -9730,7 +9751,14 @@ function AcpmuxPane() {
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
-                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                    <HomeLists
+                      sessions={snapshot.sessions}
+                      currentId={snapshot.sessionId}
+                      asks={snapshot.asks}
+                      onSelect={selectSession}
+                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      shortcuts={!hasBottomAsk}
+                    />
                   </div>
                 )}
                 {hostErrorCard}

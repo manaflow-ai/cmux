@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts/ci"
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 LARGE, SMALL, HOSTED = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "macos-26"
+MACOS_15 = "blacksmith-6vcpu-macos-15"
 SIDE = "glaeda-side-light-xcode-26.6"
 GUI = "glaeda-gui-std-xcode-26.6"
 CASCADED = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
@@ -79,7 +80,11 @@ class Counts(unittest.TestCase):
         runners = {15: [{"status": "online", "busy": True}] * 4 + [{"status": "offline", "busy": False}] * 3,
                    10: [{"status": "online", "busy": True}] * 9 + [{"status": "online", "busy": False}],
                    8: [{"status": "online", "busy": True}] * 7}
-        self.assertEqual(cascade.in_flight(self.GROUPS, runners.__getitem__), {LARGE: 4, SMALL: 10})
+        # The macOS 15 label draws on the same organization pool, so its runners count too.
+        self.assertEqual(cascade.in_flight(self.GROUPS, runners.__getitem__),
+                         {LARGE: 4, SMALL: 10, MACOS_15: 7})
+        # Its group is optional: without it the snapshot's running jobs stand in (with_running()).
+        self.assertEqual(cascade.in_flight(self.GROUPS[:2], runners.__getitem__), {LARGE: 4, SMALL: 10})
 
     def test_a_missing_scale_set_group_counts_nothing(self):
         self.assertIsNone(cascade.in_flight(self.GROUPS[1:], lambda group: []))
@@ -93,14 +98,60 @@ class Counts(unittest.TestCase):
         self.assertEqual(cascade.queued({"generated_at": "2026-10-19T21:58:00Z", "pools": {}}, NOW),
                          {LARGE: 0, SMALL: 0})
 
+    def test_the_pools_other_labels_count_from_the_snapshot(self):
+        shot = snapshot(large=1, small=2)
+        shot["pools"][MACOS_15] = {"queued": 4, "running": 3}
+        shot["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 121, "running": 10}
+        # Queued counts every Blacksmith macOS label, never an owned or hosted one.
+        self.assertEqual(cascade.queued(shot, NOW), {LARGE: 1, SMALL: 2, MACOS_15: 4})
+        self.assertEqual(cascade.pool_queued(cascade.queued(shot, NOW)), 7)
+        # A label no visible scale-set group counted takes the snapshot's running jobs; a live count wins.
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5}, shot, NOW), {LARGE: 0, SMALL: 5, MACOS_15: 3})
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5, MACOS_15: 1}, shot, NOW),
+                         {LARGE: 0, SMALL: 5, MACOS_15: 1})
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5}, None, NOW), {LARGE: 0, SMALL: 5})
+        self.assertEqual((cascade.vcpus(LARGE), cascade.vcpus(SMALL), cascade.vcpus(MACOS_15)), (12, 6, 6))
+        self.assertFalse(cascade.pool_label(HOSTED) or cascade.pool_label("blacksmith-4vcpu-ubuntu-2404"))
+
 
 class Cascade(unittest.TestCase):
     def test_twelve_vcpu_first_then_six_then_the_queue(self):
-        placed = cascade.cascade(CASCADED, {LARGE: 4, SMALL: 8}, {LARGE: 0, SMALL: 1})
-        self.assertEqual(placed, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
+        # 30 of the pool's 60 vCPU are free: two 12 vCPU jobs (this run's share), then one 6 vCPU job.
+        placed = cascade.cascade(CASCADED, {LARGE: 1, SMALL: 3}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(placed, none_placed(**{LARGE: ("fast-tier", "swift-canary"),
+                                                SMALL: ("cmux-scheme-compile",)}))
 
-    def test_a_full_twelve_sends_the_jobs_to_six(self):
-        placed = cascade.cascade(CASCADED[:2], {LARGE: 5, SMALL: 2}, {LARGE: 0, SMALL: 0})
+    def test_a_queue_anywhere_sends_the_jobs_to_six_not_twelve(self):
+        # A 12 vCPU job needs twelve vCPUs freed at once; while 6 vCPU jobs queue, they take each one first.
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1})
+        self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
+        # A queue on the macOS 15 label is the same pool's queue.
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 0, MACOS_15: 1})
+        self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
+
+    def test_twelve_vcpu_waits_behind_a_pool_its_own_count_calls_free(self):
+        """Runs 40386035282 and 40386506758 (2026-10-26): the placement read 12 vCPU as "0 in flight + 0
+        queued of 5" and 6 vCPU as "9 in flight + 3 queued of 10", sent both DEV Release compiles to 12 vCPU,
+        and they queued from 19:25Z to 20:42Z and 20:52Z. 6 vCPU's nine are 54 of the pool's 60 vCPU."""
+        live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 3}
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), live, waiting), none_placed())
+        self.assertEqual(cascade.retry_label(live, waiting), "")
+        result = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), live, waiting)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("pool 72 of 60 vCPU in flight or queued", result.why)
+        self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
+        # The pool's other label holds vCPUs as well: five 6 vCPU jobs on each fill it.
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), {LARGE: 0, SMALL: 5, MACOS_15: 5},
+                                         {LARGE: 0, SMALL: 0}), none_placed())
+        # With room for twelve and nothing queued anywhere, 12 vCPU still comes first.
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), {LARGE: 0, SMALL: 8}, {LARGE: 0, SMALL: 0}),
+                         none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+
+    def test_a_stalled_twelve_vcpu_queue_holds_no_six_vcpu_room(self):
+        # 2026-10-26 20:38Z to 20:47Z: six jobs queued on 12 vCPU for 78 to 83 minutes while 6 vCPU ran
+        # seven and five with no queue, so a 12 vCPU job that waits does not hold the pool's vCPUs.
+        self.assertEqual(cascade.pool_room({LARGE: 0, SMALL: 7}, {LARGE: 6, SMALL: 0}), 18)
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 7}, {LARGE: 6, SMALL: 0})
         self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
 
     def test_one_run_takes_at_most_max_per_run_slots_on_a_label(self):
@@ -116,10 +167,12 @@ class Cascade(unittest.TestCase):
         self.assertEqual(placed, none_placed())
 
     def test_retry_goes_to_the_least_loaded_label(self):
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 4}, {LARGE: 6, SMALL: 3}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 1, SMALL: 4}, {LARGE: 1, SMALL: 0}), SMALL)
         # No free slot anywhere: no Blacksmith label, so the overflow waits on the owned label.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 6, SMALL: 0}), "")
-        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), LARGE)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}), LARGE)
+        # Ten 6 vCPU jobs fill the pool: 12 vCPU's five idle slots are no room.
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), "")
 
     def test_a_full_fleet_overflows_to_6_vcpu_whose_slots_turn_over(self):
         # 2026-10-20 01:04-02:35Z: other workflows' long jobs held 12 vCPU's five slots. The
@@ -127,7 +180,7 @@ class Cascade(unittest.TestCase):
         # 15 minutes, up to 89, then cancelled) while 6 vCPU started 69 at a median 2.5 minutes.
         # Both full: never a Blacksmith queue (5+ hour waits on 12 vCPU, 2026-10-20); the owned label.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), "")
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}), SMALL)
         # The placement log of run 39358219316: 12 vCPU 5 + 1 of 5, 6 vCPU 10 + 4 of 10.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 4}), "")
         self.assertEqual(cascade.retry_label({LARGE: 7, SMALL: 30}, {LARGE: 0, SMALL: 9}), "")
@@ -137,6 +190,14 @@ class Cascade(unittest.TestCase):
 
 
 class Place(unittest.TestCase):
+    def test_bot_rerun_can_place_after_a_refusal_but_a_person_rerun_stays_owned(self):
+        result = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR=BOT), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertTrue(result.jobs[LARGE] or result.jobs[SMALL])
+        person = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="teamleaderleo"), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(person.why, "a person re-run keeps its own route")
+
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("swift-canary", "cmux-scheme-compile")}))
@@ -230,13 +291,13 @@ class Place(unittest.TestCase):
         self.assertEqual(busy.jobs, none_placed(**{LARGE: ("release-compile",)}))
 
     def test_a_partly_free_fleet_splits_and_leaves_the_rest_queued(self):
-        result = cascade.place(env(), (), {LARGE: 4, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        result = cascade.place(env(), (), {LARGE: 1, SMALL: 5}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
         self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
 
     def test_the_overflow_counts_the_slots_this_run_just_took(self):
-        # 6 vCPU had one free slot and this run's fast-tier took it: the overflow has none left.
-        result = cascade.place(env(), (), {LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        # The pool had one 6 vCPU job's room and this run's fast-tier took it: the overflow has none left.
+        result = cascade.place(env(), (), {LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
         self.assertEqual(result.retry_runner, "")
 
@@ -246,6 +307,49 @@ class Place(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed())
         # Without the queue count no slot is known free: the overflow keeps the owned label.
         self.assertEqual(result.retry_runner, "")
+
+    def test_unread_counts_send_a_feeds_compile_to_the_last_resort(self):
+        """2026-10-26: the route token read 403 and the snapshot was stale, so DEV daily 40415036753's Release
+        compile (cmux-scheme-compile) queued on the owned label behind ~260 jobs and the DEV feed fell 100
+        minutes behind. A feed's compile (FRESH_JOBS) takes 6 vCPU when the counts cannot be read."""
+        dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        for live, waiting in ((None, None), ({LARGE: 0, SMALL: 0}, None)):
+            with self.subTest(live=live, waiting=waiting):
+                result = cascade.place(dev, (), live, waiting)
+                self.assertEqual(result.jobs, none_placed(**{SMALL: ("cmux-scheme-compile",)}))
+                self.assertEqual(result.retry_runner, "")
+                self.assertIn("last resort", result.why)
+        push = env(CASCADE_RUNS=" fast-tier cmux-scheme-compile release-compile ", FRESH_JOBS="release-compile")
+        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        # An idle mini is spent on the run's other jobs first; as many idle minis as jobs, and nothing moves.
+        self.assertEqual(cascade.place(push, ("fast-tier",), None, None).jobs,
+                         none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, ("a", "b", "c"), None, None).jobs, none_placed())
+        # A job that does not run here, or a run with no FRESH_JOBS, still places nothing.
+        self.assertEqual(cascade.place(env(FRESH_JOBS="release-compile"), (), None, None).jobs, none_placed())
+        self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
+        # A person's re-run reads nothing and keeps its own route, as before.
+        self.assertEqual(cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="teamleaderleo",
+                                           FRESH_JOBS="cmux-scheme-compile",
+                                           CASCADE_RUNS=" cmux-scheme-compile "), (), None, None).jobs,
+                         none_placed())
+
+    def test_the_placement_names_the_fresh_jobs_on_attempt_1_of_a_feed_run_only(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["FRESH_JOBS"]
+        for event, ref, attempt, dev_daily, expected in (
+                ("push", "refs/heads/feat-cmux-next", "1", False, "release-compile"),
+                ("push", "refs/heads/feat-cmux-next", "2", False, ""),
+                ("push", "refs/heads/next-batch/abc", "1", False, ""),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "1", True, "cmux-scheme-compile"),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "2", True, ""),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "1", False, ""),
+                ("pull_request", "refs/pull/1/merge", "1", False, "")):
+            with self.subTest(event=event, ref=ref, attempt=attempt, dev_daily=dev_daily):
+                context = {"github": {"event_name": event, "ref": ref, "run_attempt": attempt},
+                           "inputs": {"dev_daily": dev_daily}}
+                self.assertEqual(evaluate(expression, context), expected)
 
     def test_only_attempt_1_of_an_owned_side_label_cascades(self):
         free = {LARGE: 0, SMALL: 0}
@@ -269,8 +373,28 @@ class Place(unittest.TestCase):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
                              ({LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0},
                               cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
-        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("boom")):
+        # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) is not replaced by the snapshot,
+        # which counts only this repository's share of the organization's pool.
+        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("HTTP Error 403: Forbidden")):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
+        # cmux-bot's token (ROUTE_TOKEN_FALLBACK) reads again when the routing App's read is refused.
+        tokens = []
+
+        def in_flight(api):
+            tokens.append(api.route_token)
+            if api.route_token == "t":
+                raise OSError("HTTP Error 403: Forbidden")
+            return {LARGE: 2, SMALL: 3}
+
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            live, waiting, _ = cascade.read({**live_env, "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                                            log=lambda _: None)
+        self.assertEqual((tokens, live, waiting), (["t", "bot"], {LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0}))
+        tokens.clear()
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            cascade.read({**live_env, "ROUTE_TOKEN": "ok", "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                         log=lambda _: None)
+        self.assertEqual(tokens, ["ok"])
         pool.GitHub.return_value.snapshot.side_effect = OSError("boom")
         with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 2, SMALL: 3}):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
@@ -325,14 +449,14 @@ class Place(unittest.TestCase):
             fake.return_value.runners.return_value = runners
             with mock.patch.object(placement.pool, "GitHub", fake), \
                     mock.patch.object(placement.cascade, "read",
-                                      return_value=({LARGE: 4, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)):
+                                      return_value=({LARGE: 0, SMALL: 7}, {LARGE: 0, SMALL: 0}, None)):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-        # The idle mini takes the first job; 12 vCPU's one free slot the next; 6 vCPU the rest.
+        # The idle mini takes the first job; the pool's 18 free vCPU take one 12 vCPU job, then one 6 vCPU job.
         self.assertEqual(lines["owned_jobs"], " fast-tier ")
         self.assertEqual(lines["blacksmith_12_jobs"], " swift-canary ")
         self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile ")
-        self.assertEqual(lines["retry_runner"], SMALL)
+        self.assertEqual(lines["retry_runner"], "")
         self.assertEqual((lines["hosted_jobs"], lines["hosted_runner"]), ("", ""))
 
     def test_side_lane_placement_reads_the_promotion_minis_load(self):
@@ -478,12 +602,13 @@ class Stall(unittest.TestCase):
 
     def test_without_the_snapshots_waits_nothing_changes(self):
         # Fail toward the current behavior: no stall known, no hosted spill.
-        result = cascade.place(env(), (), {LARGE: 4, SMALL: 10}, {LARGE: 0, SMALL: 0}, None)
+        result = cascade.place(env(), (), {LARGE: 4, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",)}))
 
     def test_the_bots_overflow_avoids_a_stalled_label(self):
         live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 1, SMALL: 0}
-        self.assertEqual(cascade.retry_label(live, waiting), LARGE)
+        # A job already waits on 12 vCPU, so the overflow takes the pool's last 6 vCPU job instead.
+        self.assertEqual(cascade.retry_label(live, waiting), SMALL)
         seen = cascade.Seen(waits={LARGE: 30.0, SMALL: 0.0}, hosted=0)
         self.assertEqual(cascade.place(env(), (), {LARGE: 0, SMALL: 5}, waiting, seen).retry_runner, SMALL)
         # The one free 6 vCPU slot goes to this run's fast-tier, so no label is left for the overflow.

@@ -675,7 +675,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-dim);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
 }
 .acpmux-queue-fold:hover {
   background: var(--agent-control-hover);
@@ -759,7 +758,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-composer-bg);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: default;
 }
 .acpmux-queued-image-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));

@@ -28,7 +28,7 @@
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
-.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
+.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-highlight);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
@@ -39,7 +39,7 @@
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
-.acpmux-composer-box button{font:inherit;cursor:default}
+.acpmux-composer-box button{font:inherit}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
@@ -50,7 +50,7 @@
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
    look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
-.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted);cursor:default}
+.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted)}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
@@ -58,7 +58,7 @@
 /* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
 :root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}
 .acpmux-dictation-notice span{flex:1}
-.acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
 .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-dictation-settings:focus-visible,.acpmux-dictation-dismiss:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-dictation-gallery{flex-direction:column}
@@ -77,7 +77,7 @@
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 .acpmux-picker-button:focus-visible,:where(button).acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
-:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
+:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap}
 :where(button).acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 /* Plan on is the lit-glyph ink (the accent, never fainter than at rest) with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
 :where(button).acpmux-plan[aria-pressed=true]{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
@@ -118,7 +118,7 @@
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
-.acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);cursor:default}
+.acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-detail);line-height:1}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
@@ -128,7 +128,7 @@
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
-.acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;cursor:default;white-space:nowrap}
+.acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
@@ -159,7 +159,7 @@
 .acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
 .acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .acpmux-newtab-switch{flex:none;display:flex;gap:2px;margin:0;min-width:0;border:0;padding:3px;border-radius:15px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
-.acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap;cursor:default}
+.acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap}
 .acpmux-newtab-kind:hover{color:var(--agent-text)}
 .acpmux-newtab-kind.is-selected{background:var(--acpmux-composer-bg);color:var(--agent-text);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-1)}
 .acpmux-newtab kbd{font:11.5px/1 system-ui;color:var(--acpmux-composer-dim)}
@@ -188,7 +188,7 @@
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-newtab-anchor{position:relative}
 .acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
-.acpmux-omni-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);cursor:default;font-size:var(--text-control)}
+.acpmux-omni-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control)}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
@@ -219,21 +219,21 @@
 /* One compact muted line per queued prompt, as ChatGPT and Codex draw them (Leo, 2026-10-21): no header and no number; a hairline between rows. */
 .acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:24px;padding:3px 6px 3px 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-composer-queue>li+li{box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge)}
-.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;cursor:default}
+.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
 /* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
 /* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first 18px line and take no more height than it. */
 .acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;margin:-2px 0;opacity:0}
 .acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
-.acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);cursor:default}
+.acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 /* Focus is the hover's soft pill, no ring (Leo, 2026-10-21); Increase Contrast keeps the shared ring. */
 .acpmux-queued-action:focus-visible{outline:none;background:var(--agent-control-hover);color:var(--agent-text)}
 @media (prefers-contrast:more){.acpmux-queued-action:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,var(--agent-text));outline-offset:-1px}}
 .acpmux-queue-paused{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:24px;padding:0 6px 0 12px;box-sizing:border-box;color:var(--agent-status-warning);font-size:var(--text-detail)}
 .acpmux-queue-paused>span{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-queue-resume{grid-column:2;justify-self:end;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-queue-resume{grid-column:2;justify-self:end;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit}
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}
 .acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* New chat (EmptyState.tsx): a centered hero, small and muted, in place of the empty transcript. */
@@ -246,7 +246,7 @@
 .acpmux-unavailable{gap:10px}
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere}
 .acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
-.acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);cursor:default}
+.acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body)}
 .acpmux-unavailable-action:hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .acpmux-unavailable-action:active{background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-unavailable-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -274,7 +274,7 @@
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-file-search [role=listbox]{max-height:min(360px,50vh);overflow:auto}
 .acpmux-file-search [role=listbox]:not(:empty){margin-top:4px}
-.acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;cursor:default;white-space:nowrap}
+.acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
 .acpmux-file-name{flex:none}
 .acpmux-file-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-file-result b{font-weight:600;color:var(--agent-text)}
@@ -289,14 +289,15 @@
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
-.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
-/* A project's own icon (projectIcon.ts) or the folder glyph on a quiet neutral tile, so a dark or a
-   white icon reads in either theme. No corner dot on any row (Leo 2026-10-21). */
-.acpmux-project-badge[data-project-icon],.acpmux-project-badge[data-project-folder]{background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
-.acpmux-project-badge[data-project-folder]{color:var(--agent-muted)}
+/* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
+   and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
+   project with neither draws a muted folder. No corner dot on any row (Leo 2026-10-21). */
+.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-muted);line-height:1}
+/* A brand color is pulled a quarter toward the text color: darker on a light tile, lighter on a dark
+   one, so a pale mark (React's cyan) and a deep one (Flutter's blue) both read in either theme. */
+.acpmux-project-badge[data-project-glyph]{color:color-mix(in srgb,var(--acpmux-project-badge) 72%,var(--agent-text))}
 .acpmux-project-badge>img{display:block;width:16px;height:16px;border-radius:3px;object-fit:contain}
-/* A language's or framework's glyph (ProjectBadge.tsx) in its own color on its tinted tile. */
-.acpmux-project-badge[data-project-glyph]>svg{display:block}
+.acpmux-project-badge>svg{display:block}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
@@ -355,6 +356,35 @@
 .acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
 .acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
+/* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
+.acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:4px}
+.acpmux-home-inbox-count{color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-home-inbox-row{display:flex;flex-direction:column;gap:4px;padding:0 0 4px;border-radius:10px}
+.acpmux-home-inbox-row[data-sending]{opacity:.6}
+.acpmux-home-inbox-open{display:flex;align-items:center;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-body);text-align:left;cursor:pointer}
+.acpmux-home-inbox-open:hover{background:var(--acpmux-menu-hover)}
+.acpmux-home-inbox-open:focus-visible{background:var(--acpmux-menu-hover);outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-home-inbox-mark{flex:none;display:inline-flex;width:16px;justify-content:center;color:var(--agent-muted)}
+.acpmux-home-inbox-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
+.acpmux-home-inbox-ask{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-home-inbox-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-home-inbox-detail[data-code]{font-family:var(--font-mono)}
+.acpmux-home-inbox-where{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-home-inbox-kind{color:var(--acpmux-needs-you-mark)}
+.acpmux-home-inbox-answers{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:0 8px 0 32px;border:0}
+.acpmux-home-inbox-answers button{display:inline-flex;align-items:baseline;min-height:24px;padding:4px 12px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25;white-space:nowrap;cursor:pointer}
+.acpmux-home-inbox-answers button[data-tone=allow]{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
+.acpmux-home-inbox-answers button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 14%,transparent)}.acpmux-home-inbox-answers button[data-tone=allow]:hover:not(:disabled){background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-home-inbox-answers button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-home-inbox-answers button:disabled{cursor:default}
+.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 6px;padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 -apple-system,BlinkMacSystemFont,sans-serif}
+.acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
+.acpmux-home-inbox-error{margin:0;padding:0 8px 0 32px;color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-row{flex-direction:row;align-items:center;flex-wrap:wrap;padding:0}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-open{flex:1;min-width:0;width:auto}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-answers{padding:0 8px 0 0}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-error{flex-basis:100%}
+.acpmux-home-inbox-folder{margin:4px 0 0;padding:4px 8px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:500}
 
 /* Added and removed lines: the theme's ANSI green and red, as the syntax colors use them. */
 :root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}
@@ -365,14 +395,14 @@
 /* Changes and the inspector come in from the right (data-enter, ui/presence.ts): a short travel over the transcript, the panel's own width beside it (header.css). */
 .acpmux-diff-panel,.acpmux-inspector{--ui-enter-distance:24px}
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
-/* In a pane too narrow for one row (a split beside the chat), the toolbar wraps under the scope pill instead of drawing over it. */
+/* In a pane too narrow for one row (a split beside the chat), the toolbar wraps under the scope pill and its buttons wrap inside it, so no control draws over another. */
 .acpmux-diff-header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-height:48px;box-sizing:border-box;padding:7px 8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:pointer}
 .acpmux-diff-back:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-diff-scope{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;overflow:hidden;height:29px;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-diff-scope strong{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .acpmux-diff-counts{display:inline-flex;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.acpmux-diff-tools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:100%;min-height:33px;box-sizing:border-box;padding:0 2.5px;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge)}
+.acpmux-diff-tools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:100%;min-height:33px;box-sizing:border-box;padding:2.5px;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge)}
 /* The changes view's scope pill and toolbar ring; appearance.borders none clears it, the fill stays. */
 :root{--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 :root[data-borders=none]{--acpmux-pill-edge:transparent}
@@ -385,7 +415,7 @@
 /* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
 .acpmux-diff-tree-motion{display:contents}
 .acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:28px;box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
-.acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
+.acpmux-diff-filter input{all:unset;cursor:text;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
 .acpmux-diff-tree-empty{padding:6px 16px;color:var(--agent-muted);font-size:12px}
 .acpmux-file-header{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--agent-page-bg);color:var(--agent-text);font-weight:400}
@@ -480,7 +510,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
    a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
 :root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
-.acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-floating-bar-open:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-floating-bar-open .acpmux-floating-status{margin-inline-end:0}
@@ -582,7 +612,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-missing-chat-detail{color:var(--agent-muted)}
 .acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
-.acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-status-failure) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-status-failure) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:6px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+.acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-status-failure) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-status-failure) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:6px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
 .acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:8px}
 .acpmux-host-error-card button[data-secondary]{background:transparent;color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-text) 18%,transparent)}
@@ -604,7 +634,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-strip:color-mix(in srgb,var(--agent-text) 8%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 5%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 8%,transparent);--acpmux-question-input:var(--acpmux-needs-you-mark)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
 .acpmux-question-ask{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
-.acpmux-question-status{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 7px 0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--acpmux-question-input) 14%,transparent);color:var(--acpmux-question-input);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);cursor:default}
+.acpmux-question-status{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 7px 0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--acpmux-question-input) 14%,transparent);color:var(--acpmux-question-input);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis)}
 .acpmux-question-status:hover{background:color-mix(in srgb,var(--acpmux-question-input) 20%,transparent)}
 .acpmux-question-status:focus-visible{outline:2px solid color-mix(in srgb,var(--acpmux-question-input) 55%,transparent);outline-offset:1px}
 .acpmux-question-status-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
@@ -618,14 +648,14 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis);overflow-wrap:anywhere}
 .acpmux-question-chip{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;padding:0 7px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-soft,var(--agent-text));font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:var(--weight-emphasis)}
 .acpmux-question-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 14px 0}
-.acpmux-question-tab{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 9px;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-caption);line-height:var(--text-caption--line-height);cursor:default}
+.acpmux-question-tab{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 9px;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-question-tab[data-answered]::before{content:"";display:inline-block;width:5px;height:5px;margin:0 5px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
 .acpmux-question-tab:hover{background:var(--acpmux-question-hover)}
 .acpmux-question-tab[aria-current=step]{background:var(--acpmux-question-highlight);color:var(--agent-text)}
 .acpmux-question-body{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
 .acpmux-question[data-preview] .acpmux-question-body{padding-right:12px}
 .acpmux-question-rows{flex:1 1 260px;display:flex;flex-direction:column;min-width:0}
-.acpmux-question-row{display:flex;align-items:flex-start;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border:0;border-radius:0;background:transparent;color:var(--agent-text);font:inherit;text-align:left;cursor:default}
+.acpmux-question-row{display:flex;align-items:flex-start;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border:0;border-radius:0;background:transparent;color:var(--agent-text);font:inherit;text-align:left}
 .acpmux-question-row+.acpmux-question-row{box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
 .acpmux-question-row:hover{background-color:var(--acpmux-question-hover)}
 .acpmux-question-row[data-highlighted]{background-color:var(--acpmux-question-highlight)}
@@ -665,9 +695,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-error{margin:0;padding:8px 14px 0;color:var(--agent-status-failure);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .acpmux-question-error-reason{color:var(--agent-muted)}
 .acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 12px;box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
-.acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
+.acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail)}
 .acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
-.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);cursor:default}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis)}
 .acpmux-question-submit .acpmux-keycap{margin:0;min-width:14px;padding:0 4px;color:inherit;opacity:.7;letter-spacing:.04em}
 .acpmux-question-submit:disabled{opacity:.35}
 .acpmux-question-submit[data-action=next]{padding-right:12px}
@@ -748,7 +778,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full{align-self:stretch;margin:0;max-height:220px;overflow:auto;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full code{font:inherit}
-.acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
+.acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:pointer}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
 .acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
@@ -802,7 +832,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-row input[type="range"] { width: 100%; margin: 0; accent-color: var(--agent-muted); }
 .acpmux-display-row select, .acpmux-display-row input[type="text"] { grid-column: 2 / -1; min-width: 0; font: inherit; color: inherit; background: var(--agent-input-bg, transparent); border: 1px solid var(--agent-border, transparent); border-radius: 6px; padding: 3px 6px; }
 .acpmux-display-check { grid-template-columns: auto 1fr; }
-.acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: default; }
+.acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; }
 .acpmux-display-reset:hover { background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}

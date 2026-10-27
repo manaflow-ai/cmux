@@ -512,6 +512,8 @@ export class PermissionGroupClient {
     await this.sendRevoke(this.generation);
   }
 
+  /// The connection went. The pane reconnects by itself and its attach reads the groups again, so
+  /// the panel waits for that read (no answers meanwhile) instead of asking for a Refresh.
   disconnected(): void {
     this.generation += 1;
     this.refreshSerial += 1;
@@ -521,7 +523,7 @@ export class PermissionGroupClient {
       ready: false,
       loading: true,
       busy: false,
-      error: translate("permission.error.disconnected"),
+      error: undefined,
       uncertain: this.state.uncertain,
     };
     this.changed();

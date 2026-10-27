@@ -130,9 +130,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // changed; not recorded, so a later connect or launch tries again.
         case "machine_update_unavailable", "machine_update_download_failed":
             return .needsBinary(target: cloudTarget)
-        // Too old to update in place: final for this build, one notice.
+        // Too old to update in place: no failure and no notice; not asked again while it runs
+        // this build, whatever the app's build. Settings > Updates names it, with what still works.
         case "machine_update_unsupported":
-            return .failed(reason: CloudMachineUpdateStrings.unsupported(machine))
+            return .unsupported(reason: CloudMachineUpdateStrings.unsupported(machine))
         case "machine_update_rolled_back":
             return .rolledBack(reason: detail)
         default:

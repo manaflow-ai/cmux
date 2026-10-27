@@ -23,7 +23,10 @@ import os
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
 ///   left for the next launch (no binary, still busy after 6 hours) is not tried again in this run;
-/// - each target's state on ``DaemonUpdateBoard``, and one notice per failed target and build;
+/// - a target that cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``) is
+///   no failure: it shows on the board with no notice, and is not tried again, on this build or a
+///   later one, while it reports the build it ran then (``DaemonUpdateLedger/cannotUpdate``);
+/// - each target's state on ``DaemonUpdateBoard``, which groups the failures into one notice;
 /// - off with the Debug Settings toggle `agent.updatePeers`, read before every step.
 public actor DaemonUpdatePolicy {
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon-update")
@@ -246,10 +249,34 @@ public actor DaemonUpdatePolicy {
     private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
         let deps = dependencies
         let target = pending.target
+        // Before the run's own memory (`settled`): a machine reinstalled since it said it cannot
+        // update is asked again at its next offer, in this run too.
+        if let known = ledger.cannotUpdate?[target.id] {
+            let now = await target.currentBuild()
+            if now == nil, !(await target.urgent) {
+                // Nothing to say now: it serves all this app uses (repaired), it is gone, or the
+                // toggles are off. Its line goes; the ledger keeps the answer for that build.
+                await deps.report(DaemonUpdateEvent(target, .cleared))
+                return nil
+            }
+            guard now != known.build else {
+                // Still the build that could not update in place: its line again, no attempt.
+                settled[target.id] = local.hash
+                await deps.report(DaemonUpdateEvent(target, .cannotUpdate(reason: known.reason), build: local.hash))
+                return nil
+            }
+            // It runs another build now (reinstalled), or the app refuses its daemon: ask it
+            // again, on this build too.
+            ledger.cannotUpdate?[target.id] = nil
+            ledger.targets[target.id] = nil
+            settled[target.id] = nil
+            write(ledger)
+        }
         guard !ledger.attempted(target.id), settled[target.id] != local.hash else { return await dropped(pending) }
         // Read at its turn: the machine may have gone, or reached this build meanwhile.
         let urgent = await target.urgent
-        let current = DaemonBuildCommit(await target.currentBuild())
+        let reported = await target.currentBuild()
+        let current = DaemonBuildCommit(reported)
         if let current, local.sameCommit(current.hash) { return await dropped(pending) }
         if let current, current.dirty || current.isNewer(than: local) {
             Self.logger.info("\(target.displayName, privacy: .public) runs \(current.hash, privacy: .public)\(current.dirty ? " with local changes" : ", newer than this app's build", privacy: .public); left alone")
@@ -287,12 +314,23 @@ public actor DaemonUpdatePolicy {
         settled[target.id] = local.hash
         if let recorded = Self.recorded(outcome) {
             ledger.targets[target.id] = recorded
-            do { try ledger.write(deps.directory) } catch {
-                Self.logger.error("daemon update ledger not written: \(String(describing: error), privacy: .public)")
+            // Kept across builds only with the build it ran: an unknown build (a refused daemon's)
+            // cannot show later that the machine is still the same.
+            if case .unsupported(let reason) = outcome, let reported, !reported.isEmpty {
+                var known = ledger.cannotUpdate ?? [:]
+                known[target.id] = DaemonUpdateLedger.CannotUpdate(build: reported, reason: reason)
+                ledger.cannotUpdate = known
             }
+            write(ledger)
         }
         await deps.report(Self.event(target, outcome, local: local))
         return nil
+    }
+
+    private func write(_ ledger: DaemonUpdateLedger) {
+        do { try ledger.write(dependencies.directory) } catch {
+            Self.logger.error("daemon update ledger not written: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Drops `pending`, which no longer needs an update; one asked again before leaves the board,
@@ -309,6 +347,7 @@ public actor DaemonUpdatePolicy {
         case .updated: "updated"
         case .current: "current"
         case .rolledBack: "rolledBack"
+        case .unsupported: "unsupported"
         case .failed: "failed"
         case .busy, .needsBinary, .handledElsewhere: nil
         }
@@ -326,6 +365,8 @@ public actor DaemonUpdatePolicy {
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
         case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
         case .handledElsewhere: DaemonUpdateEvent(target, .cleared)
+        // Not a failure: no notice, the board's grouped line.
+        case .unsupported(let reason): DaemonUpdateEvent(target, .cannotUpdate(reason: reason), build: build)
         case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true, build: build)
         }
     }

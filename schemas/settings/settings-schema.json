@@ -808,6 +808,7 @@
               "agentPane.display.code.scale",
               "agentPane.display.inspector.placement",
               "agentPane.display.environment.placement",
+              "agentPane.display.minimap",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.needsYou.enabled",
@@ -18948,6 +18949,92 @@
     },
     {
       "accepts" : [
+        "compact",
+        "full",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapRail",
+            "text" : "Rail"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapFull",
+            "text" : "Full Map"
+          },
+          "value" : "full"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "compact",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.minimap.help",
+        "text" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.minimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "thread minimap",
+        "map",
+        "overview",
+        "scroll",
+        "vscode",
+        "rail",
+        "tick",
+        "ticks",
+        "wave",
+        "prompt rail",
+        "scroll rail",
+        "prompts"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "minimap"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.minimap",
+        "text" : "Chat Minimap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -33490,7 +33577,8 @@
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox"
+        "fox",
+        "mochi"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -33557,6 +33645,13 @@
             "text" : "Fox"
           },
           "value" : "fox"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.mochi",
+            "text" : "Mochi"
+          },
+          "value" : "mochi"
         }
       ],
       "consumers" : [

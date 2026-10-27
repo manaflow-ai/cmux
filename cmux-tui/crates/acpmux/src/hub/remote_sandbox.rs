@@ -769,10 +769,16 @@ pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
 }
 
 /// Whether a new session with no asked policy runs approve-all: only on a
-/// `vmHost` machine that is not a Mac, and only for the owner's peer daemon
-/// (`Origin::Peer`, proven by the peer token over ssh); a Web client never.
-pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> bool {
-    vm_host_unsandboxed(vm_host, macos) && from_peer
+/// `vmHost` machine that is not a Mac, only for the owner's peer daemon
+/// (`Origin::Peer`, proven by the peer token over ssh), and only while
+/// MDM leaves approve-all allowed (`Hub::approve_all_allowed`); a Web client never.
+pub fn vm_host_peer_approves(
+    vm_host: bool,
+    macos: bool,
+    from_peer: bool,
+    approve_all_allowed: bool,
+) -> bool {
+    vm_host_unsandboxed(vm_host, macos) && from_peer && approve_all_allowed
 }
 
 #[cfg(test)]
@@ -809,10 +815,14 @@ mod vm_host_tests {
 
     #[test]
     fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {
-        assert!(vm_host_peer_approves(true, false, true));
-        assert!(!vm_host_peer_approves(true, false, false), "a Web client still asks");
-        assert!(!vm_host_peer_approves(true, true, true), "never on a Mac");
-        assert!(!vm_host_peer_approves(false, false, true), "off by default");
+        assert!(vm_host_peer_approves(true, false, true, true));
+        assert!(!vm_host_peer_approves(true, false, false, true), "a Web client still asks");
+        assert!(!vm_host_peer_approves(true, true, true, true), "never on a Mac");
+        assert!(!vm_host_peer_approves(false, false, true, true), "off by default");
+        assert!(
+            !vm_host_peer_approves(true, false, true, false),
+            "never while MDM forces full access off"
+        );
     }
 
     #[test]

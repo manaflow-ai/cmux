@@ -620,7 +620,7 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE,
+                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
@@ -774,6 +774,9 @@ async fn dispatch_request(
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
+                    // A family lives on one daemon: this daemon's caller is no session there.
+                    m.remove(crate::hub::lineage::PARENT_FIELD);
+                    m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
@@ -818,6 +821,7 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            refuse_full_access_policy(hub, policy)?;
             let env = crate::session_env::parse(meta)?;
             let route = pick("route");
             if let Some(r) = &route
@@ -826,6 +830,19 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
+            // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
+            let parent_ask = crate::hub::lineage::parent_ask(meta)?;
+            let tool_call = crate::hub::lineage::tool_call_id(meta)?;
+            let lineage = if adopting || super::ephemeral::requested(&params) {
+                // It records none, but a parent it names is still one the caller owns.
+                if let crate::hub::lineage::ParentAsk::Named(id) = &parent_ask {
+                    hub.check_lineage_parent(conn.caller(), id)?;
+                }
+                None
+            } else {
+                hub.new_session_lineage(conn.caller(), parent_ask, tool_call)?
+            };
             let lane_parent = super::lane_parent(hub, conn, &params);
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
@@ -856,6 +873,7 @@ async fn dispatch_request(
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
                 subsession: None,
+                lineage,
                 disallowed_tools,
                 checked_cwd: None,
             };
@@ -881,6 +899,7 @@ async fn dispatch_request(
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,
+                        hub.approve_all_allowed(),
                     )
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
@@ -1234,6 +1253,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             {
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
@@ -1567,14 +1587,25 @@ async fn dispatch_request(
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
             let newest = after.is_none() || before.is_some();
+            // Read before the page, as `_acpmux/events` does: a page that reads to the log's
+            // end holds every record up to it (of the kinds asked), so a client may take
+            // the page as covering it.
+            let last = s.meta().last_seq;
             let page = hub
                 .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The newest page holds to the log's end; a page of older records, or a forward one
+            // with more to read, only to its own last record.
+            let through = if before.is_none() && (after.is_none() || !page.has_more) {
+                last
+            } else {
+                events::newest_seq(&page.events)
+            };
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": s.meta().last_seq, "presence": presence}),
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence}),
             )
         }
         method::MUX_DETACH => {
@@ -1701,6 +1732,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
@@ -1789,6 +1821,19 @@ async fn dispatch_request(
             Err(RpcError::method_not_found(other))
         }
     }
+}
+
+/// MDM forces `sessions.allowFullAccess` off: a request for the approve-all policy (`approve-all`, `yolo`)
+/// on `session/new`, `_acpmux/set_policy` or `_acpmux/set_default_policy` is refused, as a
+/// switch into a full-access mode is (`full_access_off`). A stored approve-all runs as `ask`
+/// meanwhile (`Hub::policy_for`).
+fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Result<(), RpcError> {
+    if policy.is_some_and(crate::hub::full_access_bound::policy_is_full_access)
+        && !hub.approve_all_allowed()
+    {
+        return Err(crate::hub::start_mode::full_access_off());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

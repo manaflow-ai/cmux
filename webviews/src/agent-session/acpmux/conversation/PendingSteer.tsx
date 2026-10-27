@@ -124,15 +124,20 @@ export async function takeBackSteer(
   io: {
     withdraw: (promptId: string) => Promise<boolean>;
     attachments: (rowId: string) => Promise<ComposerAttachment[]>;
+    draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
 ): Promise<boolean> {
   const promptId = row.steerPromptId;
   if (!promptId || row.steer !== "waiting") return false;
-  const attachments = await io.attachments(row.id).catch(() => undefined);
+  const text = row.resend ?? row.text ?? "";
+  const draft = await (
+    io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
+  ).catch(() => undefined);
+  const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
   const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
-  if (!attachments || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
-  io.restore(row.resend ?? row.text ?? "", attachments);
+  if (!draft || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
+  io.restore(draft.input, draft.attachments);
   return true;
 }

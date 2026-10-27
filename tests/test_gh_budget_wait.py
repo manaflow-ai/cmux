@@ -227,7 +227,7 @@ class WrapperTests(unittest.TestCase):
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
     "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
-    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "keep-published-dsyms",
+    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",

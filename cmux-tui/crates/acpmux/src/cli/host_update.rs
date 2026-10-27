@@ -6,6 +6,7 @@
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::host_auto_update::take_auto_update_off;
+use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
     DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
     SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
@@ -346,6 +347,8 @@ enum Outcome {
     RolledBack,
     /// Refused before any change, or the rollback failed too.
     Failed,
+    /// The peer is held (`host hold`, `host_hold.rs`): not reached at all.
+    Held,
 }
 
 impl Outcome {
@@ -357,6 +360,7 @@ impl Outcome {
             Self::NeedsBinary => "needsBinary",
             Self::RolledBack => "rolledBack",
             Self::Failed => "failed",
+            Self::Held => "held",
         }
     }
 
@@ -451,6 +455,7 @@ impl PeerUpdate {
             Outcome::NeedsBinary => format!("needs a binary: {error}"),
             Outcome::RolledBack => format!("rolled back: {error}"),
             Outcome::Failed => error.to_owned(),
+            Outcome::Held => format!("held, left alone: {error}"),
         }
     }
 }
@@ -493,6 +498,30 @@ fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             PeerUpdate::new().end(Outcome::Failed, "updateRunning", why)
         }
         Err(e) => PeerUpdate::new().end(Outcome::Failed, "unreachable", e.to_string()),
+    }
+}
+
+/// [`update_locked`], unless peer `name` is held ([`Holds::why`]): then
+/// nothing reaches `remote`, not even ssh, and the row is `held`. The holds
+/// are read right before the peer is, so one written meanwhile counts; a
+/// holds file that cannot be read leaves the peer alone too (`failed`,
+/// `holdsUnreadable`): a hold is never skipped on a guess.
+fn update_unless_held(
+    name: &str,
+    remote: &dyn Remote,
+    holds: &Path,
+    now: u64,
+    opts: &UpdateOptions,
+) -> PeerUpdate {
+    let holds = match Holds::read(holds) {
+        Ok(holds) => holds,
+        Err(e) => {
+            return PeerUpdate::new().end(Outcome::Failed, "holdsUnreadable", format!("{e:#}"));
+        }
+    };
+    match holds.why(name, remote.host(), now) {
+        Some(why) => PeerUpdate::new().end(Outcome::Held, "held", why),
+        None => update_locked(remote, opts),
     }
 }
 
@@ -779,8 +808,9 @@ fn cut(mut text: String, max: usize) -> String {
 /// ```
 ///
 /// - `outcome`: `updated`, `current` (already that commit), `busy`
-///   (`--if-idle`), `needsBinary` (`--binary-dir` lacks `acpmux-<target>`,
-///   or without it this binary is for another target),
+///   (`--if-idle`), `held` (`host hold`: not reached at all),
+///   `needsBinary` (`--binary-dir` lacks `acpmux-<target>`, or without it
+///   this binary is for another target),
 ///   `rolledBack` (the restarted daemon failed its check; the previous
 ///   binary and unit run again) or `failed`. Only `updated` and `rolledBack`
 ///   restarted the daemon (a `busy` after the push only refreshed
@@ -790,8 +820,9 @@ fn cut(mut text: String, max: usize) -> String {
 /// - `version` and `status`: the pushed binary's `--version` and the
 ///   restarted daemon's status text (cut to 400 bytes), after a push.
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
-///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
-///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
+///   code (`busy`, `unknown`, `held`, `holdsUnreadable` (`host hold`'s
+///   file could not be read, so the peer was not reached), `noBinary`,
+///   `wrongPlatform`, `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
 ///   (another update of the host, such as its self-update timer, holds its
 ///   update lock), `lockLost` (this update's hold on that lock ended, its
 ///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
@@ -824,9 +855,10 @@ pub(crate) async fn update(
     if targets.is_empty() {
         return Err(anyhow!("no ssh peer to update (name one, or --all)"));
     }
+    let holds = holds_path();
     let mut rows = Vec::new();
     for (n, host) in targets {
-        let up = update_locked(&SshRemote(&host), &opts);
+        let up = update_unless_held(&n, &SshRemote(&host), &holds, now_ms(), &opts);
         if !json_out {
             if up.outcome.failed() {
                 eprintln!("{n} ({host}): {}", up.line());

@@ -13,6 +13,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
+  stepSelection,
   EMPTY_OMNIBAR,
   MAX_NEW_TAB_ENTRIES,
   omnibarContext,
@@ -580,9 +581,7 @@ export function NewTabPage({
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setSelected((current) =>
-        current < 0 && step < 0 ? rows.length - 1 : (current + step + rows.length) % rows.length,
-      );
+      setSelected((current) => stepSelection(current, step, rows.length));
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");

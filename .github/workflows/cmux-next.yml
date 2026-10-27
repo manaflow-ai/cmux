@@ -23,7 +23,9 @@ name: cmux-next
 # scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
 # deep); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
 # native tier compiles the PR's head on the build fleet instead
-# (app-compile-fleet; the Mac Release compile only when it gives no verdict). A fork pull
+# (app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
+# that changes an input only that xcodebuild sees: path_route's mac_release,
+# cmux_next_route.MAC_RELEASE_INPUTS). A fork pull
 # request runs the fast tier and,
 # for a CmuxNext .swift change, the Release compile, and the other Mac tiers
 # only with the full-ci label, on its hosted fallback. full-ci also makes the router
@@ -199,7 +201,11 @@ on:
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
+      - tests/test_cmux_next_hybrid_ref_capture.py
+      - scripts/cmux-next/hybrid_ref_capture.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -437,7 +443,11 @@ on:
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
+      - tests/test_cmux_next_hybrid_ref_capture.py
+      - scripts/cmux-next/hybrid_ref_capture.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -643,10 +653,11 @@ jobs:
   # The daemon and scheme tiers also need this commit's same-tree cmux-tui.
   # It is probed once here, never awaited (pin-cmux-tui.sh probe): published,
   # the tree jobs run in this run; still being built, this run leaves a
-  # cmux-next-tree-wait-<key> marker and skips them, and the cmux-tui
-  # artifacts run that publishes the key dispatches this workflow's same-tree
-  # mode for it (scripts/ci/cmux_next_tree_notify.py). A superseded push skips
-  # them; a tree that nothing will publish fails same-tree-cmux-tui at once.
+  # cmux-next-tree-wait-<key> marker and skips them, and a trusted publication
+  # may dispatch this workflow's same-tree mode for it
+  # (scripts/ci/cmux_next_tree_notify.py). A superseded push skips them. PRs
+  # never create a synthetic pin ref: a cold PR tree is skipped with a named
+  # reason, while trusted branch pushes still report an unavailable tree.
   path_route:
     if: ${{ inputs.same_tree_sha == '' }}
     name: cmux-next path routing
@@ -663,6 +674,9 @@ jobs:
       native: ${{ steps.route.outputs.native }}
       swift_canary: ${{ steps.route.outputs.swift_canary }}
       cmuxnext_swift: ${{ steps.route.outputs.cmuxnext_swift }}
+      # A same-repository pull request runs the Mac Release compile only when this is true: it changes
+      # an input only that xcodebuild sees (cmux_next_route.MAC_RELEASE_INPUTS).
+      mac_release: ${{ steps.route.outputs.mac_release }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
       scheme: ${{ steps.route.outputs.scheme }}
@@ -852,22 +866,20 @@ jobs:
           # still publishing, build the exact app head against the newest
           # published compatible tree instead of waiting on nightly's tree.
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
-          # A same-repository PR with its own merge tree waits (read-only, the
-          # script's 90s default) for the artifacts run main's
-          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
-          # workflow skips forks, so a fork PR looks once.
-          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
+          # No PR merge-tree publisher exists. A PR looks once for an already
+          # published tree or trusted publisher; a cold own tree is skipped.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
-      # What the publish needs to start this run's tree jobs later. Written for
-      # failed too: a later publication of the key (a takeover run, a
-      # cmux-tui-pin-* push) still starts them.
+      # What a trusted publication needs to start this run's tree jobs later.
+      # A cold PR tree has no publisher, so it leaves no marker. An active
+      # trusted run still gets one and may later start the tree jobs.
       - name: Write the tree wait marker
         id: marker
         # A DEV daily run waits for its own tree (job dev-daily-tree-wait): a
         # same-tree run would start only while the tip is still its SHA.
-        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || steps.tree.outputs.tree_state == 'failed')
+        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || (github.event_name != 'pull_request' && steps.tree.outputs.tree_state == 'failed'))
         env:
           KEY: ${{ steps.tree.outputs.tree_key }}
           DAEMON: ${{ steps.route.outputs.daemon }}
@@ -936,7 +948,7 @@ jobs:
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
-          # The first probe already waited for main's merge-tree publisher.
+          # The first probe already inspected the trusted publisher.
           CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -947,13 +959,20 @@ jobs:
           STATE: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
           KEY: ${{ steps.tree.outputs.tree_key }}
           REASON: ${{ steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if [[ "$EVENT_NAME" == pull_request && "$STATE" == failed ]]; then
+            STATE=skipped
+            REASON="No cmux-tui-pin ref is created for pull requests; re-run after a trusted feat-cmux-next publication. $REASON"
+          fi
           {
             echo "### same-tree cmux-tui $KEY: $STATE"
             echo
             echo "$REASON"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$STATE" == deferred ]]; then
+          if [[ "$STATE" == skipped ]]; then
+            echo "::notice title=same-tree cmux-tui skipped::$REASON"
+          elif [[ "$STATE" == deferred ]]; then
             echo "::notice title=same-tree cmux-tui deferred::$REASON"
           fi
 
@@ -1076,6 +1095,20 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      # The second identity for the same runner reads: when the routing App's read is refused (403s
+      # from 22:47Z on 2026-10-26 sent every DEV compile to an owned queue), the placement reads again
+      # with cmux-bot (organization self-hosted runners: read). A failed mint leaves it empty.
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
       # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
       # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
@@ -1102,6 +1135,7 @@ jobs:
         timeout-minutes: 2
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # The cascade's jobs that run on this route at all (next_macos_cascade.py):
           # not a job that path routing or the pull request's labels skip (a job
@@ -1133,11 +1167,16 @@ jobs:
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'app-compile-fleet' || '',
             needs.path_route.outputs.swift_canary == 'true' && 'swift-canary-fleet' || '',
             github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '') }}
-          GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'release-compile' || '' }}
+          GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && needs.path_route.outputs.mac_release == 'true' && 'release-compile' || '' }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
+          # The jobs a feed's freshness waits on: when the counts cannot be read (a 403 on the route token, a
+          # stale snapshot) they take Blacksmith 6 vCPU, the last resort, instead of an owned queue nobody
+          # measured (next_macos_cascade.unread_fresh_jobs()). A DEV daily's Release compile feeds the DEV
+          # channel, a feat-cmux-next push's gates nightly-next.
+          FRESH_JOBS: ${{ github.run_attempt == 1 && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
         run: |
           python3 scripts/ci/side_lane_placement.py
           # The trusted checkout may still be on a base branch that predates
@@ -1502,11 +1541,11 @@ jobs:
             python3 tests/test_dev_release_product_key.py
             # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
             python3 tests/test_dev_release_product_reuse.py
-            # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
-            python3 tests/test_merge_compile_guard.py
+            # The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.
+            python3 tests/test_nightly_release_product_key.py
             # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
             python3 tests/test_ci_compile_test_plan.py
-            # The merge guards run from the feat-cmux-next tip, never a pull request's checkout.
+            # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
             python3 tests/test_guard_hooks_from_base.py
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
@@ -1691,7 +1730,9 @@ jobs:
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_release_host_root.py
+          python3 tests/test_cmux_next_hybrid_ref_capture.py
           python3 tests/test_cmux_next_dev_release_import_out.py
+          python3 tests/test_xcode_build_timeline.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
@@ -2096,8 +2137,10 @@ jobs:
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
-    # A superseded push reports nothing: its newer head is tested.
-    if: ${{ !cancelled() && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
+    # A superseded push reports nothing: its newer head is tested. Pull
+    # requests with a cold own tree are named in path_route's summary and
+    # skipped here; no synthetic cmux-tui-pin ref is created for them.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
@@ -2203,7 +2246,7 @@ jobs:
   # A same-repository pull request's app compile, on the build fleet instead
   # of the Mac Release queue (2026-10-21: 76 of ~350 queued Mac jobs were
   # Release compiles). It compiles and links the app at the PR's head, the
-  # commit merge_compile_guard.py and the landing hooks ask about, in about a
+  # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
   # (no client, the fleet down, a timeout) is a notice, and release-compile
   # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
@@ -3869,7 +3912,7 @@ jobs:
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast]
-    if: ${{ always() && !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
+    if: ${{ always() && !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
     name: cmux-next Release compile (Xcode 26)
     # The base's compile check: a current feat-cmux-next push compiles once its
     # preflight sees it is still the tip. Superseded pushes skip before queueing,
@@ -4470,6 +4513,43 @@ jobs:
           retention-days: 3
 
       # A current feat-cmux-next push also produces the Release app consumed by
+      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
+      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
+      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
+      # have no complete capture yet; most landings share a key and skip it.
+      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
+      - name: Decide the Linux build's REF capture
+        id: hybrid-ref
+        # A reused product compiles nothing, so its capture step finds no build mode and skips.
+        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
+          # A complete capture counts while its packs are still readable in the store (14 days from
+          # their upload; the manifest artifact keeps the same 14 days).
+          since="$(date -u -v-13d +%Y-%m-%dT%H:%M:%SZ)"
+          have="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hybrid-ref-capture-$key&per_page=100" \
+            --jq "[.artifacts[] | select(.expired == false and .created_at >= \"$since\")] | length")"
+          capture=false
+          [[ "$have" == 0 ]] && capture=true
+          echo "REF key $key: readable complete captures $have, capture $capture"
+          printf 'key=%s\ncapture=%s\n' "$key" "$capture" >> "$GITHUB_OUTPUT"
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
@@ -4502,6 +4582,7 @@ jobs:
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           REUSED_ARCHIVE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.archive || '' }}
+          CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES: ${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}
         run: |
           set -euo pipefail
           if [[ -n "$REUSED_ARCHIVE" && -f "$REUSED_ARCHIVE" ]]; then
@@ -4637,6 +4718,63 @@ jobs:
           if-no-files-found: error
           retention-days: 2
           compression-level: 0
+      # Last, so nothing in this job waits for it; bounded so it cannot reach the job's limit or hold
+      # the push compile slot long (a capture is a few minutes, about once a day). Only a host-mode build (one tree and DerivedData
+      # per host, the paths every mini shares) is captured, from the snapshot compile-dev-release.sh
+      # cloned while it held the host lock (another build may own the host tree by now). The packs go to the build fleet's
+      # private store; the manifest artifact names their sizes and sha256 only.
+      - name: Capture the Linux build's REF
+        id: hybrid-ref-capture
+        if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          BUILD_ROOT: ${{ steps.compile-cmux-next-dev-release.outputs.build_root }}
+          DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
+          KEY: ${{ steps.hybrid-ref.outputs.key }}
+          SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf -- "$SNAPSHOT"' EXIT
+          # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
+          # most) and its manifest upload (2) start only while the job, timed from its own start, is
+          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
+          started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
+            echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
+            exit 0
+          fi
+          log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
+          python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
+            --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
+            --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
+            --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
+      - name: Upload the REF capture manifest
+        if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
+          path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
+          if-no-files-found: error
+          retention-days: 14
 
   # The crash gate runs in cmux-scheme-compile on the app that job built. This
   # job is its check: red when a crash froze the app instead of ending it.

@@ -10,6 +10,10 @@ impl Hub {
         let draft = &spec.draft;
         let name = self.unique_name(&draft.harness);
         let profile = &spec.spawn;
+        // MDM forces full access off (#23322): a profile pinning it is never prewarmed.
+        if self.refuse_pinned_full_access(profile).is_err() {
+            anyhow::bail!("{} pins full access, which MDM forces off", draft.harness);
+        }
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let (command_line, translator) = if claude {
             // As `ensure_child` starts a fresh Claude session.

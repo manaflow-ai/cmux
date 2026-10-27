@@ -4,7 +4,8 @@
 // each kind of ask reads as its kind with its one-click answers, a chat waiting with no readable ask
 // is never missing, held agent pair messages offer Resume, an answer goes out the way the ask's card
 // sends it (to the ask's own chat), links name an ask, the Needs your input pill visits this chat's
-// ask first and cycles the others, and the panel draws, answers and hides what was answered.
+// ask first and cycles its started chats' (never an unrelated chat's), and the panel draws, answers
+// and hides what was answered.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,7 +17,12 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import { nextAsk, NeedsYouPill } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import {
+  nextAsk,
+  NeedsYouPill,
+  pillAsks,
+  type TranscriptNeedsYou,
+} from "../src/agent-session/acpmux/needsYou/JumpPill";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
 import {
   NeedsYouPanel,
@@ -380,6 +386,86 @@ test("the pill goes to this chat's ask first, then cycles the asks open elsewher
   // No ask here: even a press from behind moves on to the others.
   expect(nextAsk([item("x1", "other")], "here", true, undefined)?.id).toBe("x1");
   expect(nextAsk([item("h1", "here")], "here", false, undefined)).toBeUndefined();
+});
+
+test("the pill speaks for this chat and the chats it started, never an unrelated chat's ask", () => {
+  // Leo 2026-10-22 ("it doesn't work rn"): his chat read "Needs your input" at its latest message
+  // with nothing there waiting on him. The one ask open was a Codex audit on Huge Blue that no chat
+  // on screen had started: a chat on another computer, which acpmux lists with its `peer`.
+  const sessions = [
+    session("here"),
+    session("audit", { peer: "huge-blue", status: "waiting", indicator: "input", pendingPermissions: 1 }),
+    session("tests", { startedBy: "here" }),
+    session("deeper", { spawnedBy: "tests" }),
+    session("theirs", { spawnedBy: "other" }),
+    session("loop-a", { startedBy: "loop-b" }),
+    session("loop-b", { startedBy: "loop-a" }),
+  ];
+  const items = needsYouItems({
+    sessions,
+    asks: [
+      ask("tests", permission({ permissionId: "p-tests" }), 4),
+      ask("deeper", permission({ permissionId: "p-deeper" }), 3),
+      ask("theirs", permission({ permissionId: "p-theirs" }), 2),
+      ask("loop-a", permission({ permissionId: "p-loop" }), 1),
+    ],
+  });
+  // The header's list keeps every ask, the other computer's chat as one waiting item.
+  expect(items.map((item) => item.sessionId).sort()).toEqual(["audit", "deeper", "loop-a", "tests", "theirs"]);
+  expect(pillAsks(items, sessions, "here").map((item) => item.id)).toEqual(["acpmux:p-tests", "acpmux:p-deeper"]);
+  // Leo's screenshot: only the other computer's audit is open, so this chat's button stays Jump to latest.
+  const audit = items.filter((item) => item.sessionId === "audit");
+  expect(pillAsks(audit, sessions, "here")).toEqual([]);
+  // A New Tab page (no chat) has no pill.
+  expect(pillAsks(items, sessions, undefined)).toEqual([]);
+});
+
+test("the pill's count and its press see only this chat's asks", async () => {
+  const host = installDom();
+  const calls: string[] = [];
+  const callNative = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push(`${method}:${String(params?.sessionId ?? "")}`);
+    return undefined;
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let pill: TranscriptNeedsYou | undefined;
+  let listed = 0;
+  const sessions = [
+    session("here"),
+    session("audit", { peer: "huge-blue", status: "waiting", indicator: "input", pendingPermissions: 1 }),
+    session("other", { pendingPermissions: 1 }),
+  ];
+  function Probe({ started }: { started: boolean }) {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: started ? [...sessions, session("tests", { startedBy: "here" })] : sessions,
+        asks: [
+          ask("other", permission({ permissionId: "p-other" }), 1),
+          ...(started ? [ask("tests", permission({ permissionId: "p-tests" }), 2)] : []),
+        ],
+      },
+      callNative,
+      sideSession: async () => undefined,
+    });
+    pill = needsYou.pill;
+    listed = needsYou.items.length;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe started={false} />));
+  // Two asks in the header's list, none of them this chat's: Jump to latest stays the plain button.
+  expect(listed).toBe(2);
+  expect(pill).toBeUndefined();
+  await act(async () => root!.render(<Probe started />));
+  expect(listed).toBe(3);
+  expect(pill?.count).toBe(1);
+  expect(pill?.elsewhere).toBe(1);
+  // A press at the latest message goes to the started chat's ask, and only ever there.
+  pill!.next(false);
+  pill!.next(false);
+  await Promise.resolve();
+  expect(calls).toEqual(["chat.asks.open:tests", "chat.asks.open:tests"]);
 });
 
 test("the pill reads Needs your input, and how many when several are open", () => {
