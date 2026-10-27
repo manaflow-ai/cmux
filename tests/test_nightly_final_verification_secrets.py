@@ -32,6 +32,17 @@ class FinalVerificationTests(unittest.TestCase):
             "KEY": "${{ secrets.SPARKLE_PRIVATE_KEY }}"}})
         self.assertTrue(any("holds secrets" in f for f in self.verdict(job)))
 
+    def test_version_probe_cannot_precede_another_secret(self):
+        job = self.job()
+        job["steps"].insert(1, {"run": 'scripts/cmux-next/check-version-surfaces.sh "$APP"'})
+        job["steps"].insert(2, {"run": "sign", "env": {"KEY": "${{ secrets.SPARKLE_PRIVATE_KEY }}"}})
+        self.assertTrue(any("holds secrets" in f for f in self.verdict(job)))
+
+    def test_version_probe_requires_keychain_deletion(self):
+        job = self.job()
+        job["steps"].insert(1, {"run": 'scripts/cmux-next/check-version-surfaces.sh "$APP"'})
+        self.assertTrue(any("exists" in f for f in self.verdict(job)))
+
     def test_keychain_must_be_deleted_before_verification(self):
         job = self.job()
         job["steps"][1], job["steps"][2] = job["steps"][2], job["steps"][1]

@@ -78,6 +78,7 @@ BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
     re.compile(r"smoke-signed-app-cli\.sh"),
     re.compile(r"test_cli_version_memory_guard\.py"),
+    re.compile(r"check-version-surfaces\.sh"),
     re.compile(r"scripts/ci/smoke-dmg\.sh"),
     re.compile(r"install-cmux-tui-client\.sh"),
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
