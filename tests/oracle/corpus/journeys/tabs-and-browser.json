@@ -45,7 +45,7 @@
   "allow_crashes": [
     {
       "kind": "renderer",
-      "reason": "crash-renderer types chrome://crash/ in the address bar on purpose: the debug URL ends that page's renderer",
+      "reason": "crash-renderer types chrome://crash/ in a person's address bar on purpose: the debug URL ends that page's renderer",
       "steps": [
         "crash-renderer"
       ],
@@ -102,11 +102,9 @@
         "maxMs": 10000
       },
       "checkpoint": [
-        "before",
-        "turn",
-        "settled"
+        "before"
       ],
-      "note": "a script run files the Chromium tab at the end of the pane without selecting it; no browser.page call ever drives it, so it stays a person's tab"
+      "note": "a script run (origin cli) files the Chromium tab at the end of the pane without selecting it, and marks it agent-driven (TabLifecycle: markAgentDriven(surface:)). Only `before`: until its page reports a title, the tab's title is its URL, which holds the fixture's port, and no hashed title is rewritten to $WEB (the untested entry)"
     },
     {
       "id": "show-page",
@@ -125,21 +123,22 @@
         "receipt": "action.done"
       },
       "waitFor": {
-        "pointer": "/focus/context/browser",
-        "equals": true,
-        "maxMs": 10000
-      },
-      "note": "Select Tab 9 (a focus action) shows the last tab, the page, so Chromium makes its browser"
-    },
-    {
-      "id": "page-loaded",
-      "op": "settle",
-      "waitFor": {
         "pointer": "/tabs/panes/0/tabs/0/loadState",
         "equals": "finished",
         "maxMs": 15000
       },
-      "settleMaxMs": 15000
+      "settleMaxMs": 15000,
+      "note": "Select Tab 9 (a focus action) shows the last tab, the page, so Chromium makes its browser. The wait is for the finished load, so the settled checkpoint, the tab's first, comes after the page's title (Chromium reports a head <title> before DidFinishLoad: content/browser/web_contents/web_contents_impl.cc, WebContentsImpl::UpdateTitle before OnDidFinishLoad)"
+    },
+    {
+      "id": "page-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/focus/context/browser",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "note": "the shown page has the keyboard, so the Cmd-[ and Cmd-] below go to it"
     },
     {
       "id": "navigate-other",
@@ -164,7 +163,10 @@
         "equals": true,
         "maxMs": 10000
       },
-      "note": "the focused tab (`page`) loads the second page through browser.page.navigate; canGoBack turns true when it commits"
+      "checkpoint": [
+        "before"
+      ],
+      "note": "the focused tab (`page`) loads the second page through browser.page.navigate; canGoBack turns true when it commits. Only `before`: other-loaded takes the settled checkpoint once the load finished"
     },
     {
       "id": "other-loaded",
@@ -197,10 +199,9 @@
         "maxMs": 10000
       },
       "checkpoint": [
-        "turn",
-        "settled"
+        "turn"
       ],
-      "note": "a person's Cmd-[ (browserBack) on the shown page"
+      "note": "a person's Cmd-[ (browserBack) on the shown page; the input turn only, back-loaded takes the settled checkpoint"
     },
     {
       "id": "back-loaded",
@@ -233,10 +234,9 @@
         "maxMs": 10000
       },
       "checkpoint": [
-        "turn",
-        "settled"
+        "turn"
       ],
-      "note": "a person's Cmd-] (browserForward)"
+      "note": "a person's Cmd-] (browserForward); the input turn only, forward-loaded takes the settled checkpoint"
     },
     {
       "id": "forward-loaded",
@@ -420,51 +420,12 @@
       },
       "checkpoint": [
         "before",
-        "turn",
-        "settled"
+        "turn"
       ],
-      "note": "Shift-Cmd-T reopens the newest closed tab, the page, where it was"
+      "note": "Shift-Cmd-T reopens the newest closed tab, the page, where it was. Closing it ended its agent marks (TabContentCache.release: agentMarks.forget) and the reopen makes a new page from the tab's record, so the reopened tab is a person's tab. The input turn only: show-reopened takes the settled checkpoint once its load finished"
     },
     {
-      "id": "reopened-location",
-      "op": "settle",
-      "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/url",
-        "equals": "$WEB/other.html",
-        "maxMs": 15000
-      },
-      "settleMaxMs": 15000,
-      "note": "the reopened tab keeps its location: the forward step left it on the second page"
-    },
-    {
-      "id": "open-crash-page",
-      "op": "action.run",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "action": "openBrowser.chromium",
-        "params": {
-          "url": "$WEB/crash.html"
-        }
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
-      "waitFor": {
-        "pointer": "/topology/tab_count",
-        "predicate": "changed",
-        "maxMs": 10000
-      },
-      "checkpoint": [
-        "before",
-        "settled"
-      ],
-      "note": "webfixture's chrome://crash link page, in a tab of its own that no agent drove"
-    },
-    {
-      "id": "show-crash-page",
+      "id": "show-reopened",
       "op": "action.run",
       "target": {
         "window": "current"
@@ -480,20 +441,23 @@
         "receipt": "action.done"
       },
       "waitFor": {
-        "pointer": "/topology/topology/focus/tab",
-        "predicate": "changed",
-        "maxMs": 5000
-      }
-    },
-    {
-      "id": "crash-page-loaded",
-      "op": "settle",
-      "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/1/loadState",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "equals": "finished",
         "maxMs": 15000
       },
-      "settleMaxMs": 15000
+      "settleMaxMs": 15000,
+      "note": "Select Tab 9 shows the reopened page, the last tab, if the reopen did not; the wait is for its finished load"
+    },
+    {
+      "id": "reopened-location",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/url",
+        "equals": "$WEB/other.html",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000,
+      "note": "the reopened tab keeps its location: the forward step left it on the second page (read after its load finished)"
     },
     {
       "id": "focus-omnibar",
@@ -513,7 +477,7 @@
         "equals": "addressBar",
         "maxMs": 5000
       },
-      "note": "the address bar of the shown crash page takes the keyboard (Chrome's FocusLocationBar)"
+      "note": "the address bar of the reopened page takes the keyboard (Chrome's FocusLocationBar). A focus action: no browser.page call, so the tab stays a person's"
     },
     {
       "id": "crash-renderer",
@@ -551,17 +515,16 @@
         "maxMs": 15000
       },
       "checkpoint": [
-        "before",
-        "settled"
+        "before"
       ],
       "settleMaxMs": 15000,
-      "note": "a person types chrome://crash/ (Shift-; is the colon; with the trailing slash, the URL Chromium compares, the omnibar completes no chrome page (its completed hosts list `crashes`, never `crash/`)) and presses Return: the debug URL never commits and ends the page's renderer (third_party/blink/public/common/chrome_debug_urls.h kChromeUICrashURL; content/public/test/browser_test_utils.h CrashTab). The app, its other tabs and the daemon stay"
+      "note": "a person types chrome://crash/ in the address bar of the case's only page tab, a person's (Shift-; is the colon; with the trailing slash, the URL Chromium compares, the omnibar completes no chrome page (its completed hosts list `crashes`, never `crash/`)) and presses Return: the debug URL never commits and ends the page's renderer (third_party/blink/public/common/chrome_debug_urls.h kChromeUICrashURL; content/public/test/browser_test_utils.h CrashTab). No other page tab exists, so no other tab shares that renderer. The app and the daemon stay. Only `before`: crashed-tab takes the settled checkpoint once the tab shows the crash"
     },
     {
       "id": "crashed-tab",
       "op": "settle",
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/1/crashed",
+        "pointer": "/tabs/panes/0/tabs/0/crashed",
         "equals": true,
         "maxMs": 10000
       },
@@ -584,22 +547,21 @@
         "receipt": "action.done"
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/1/crashed",
+        "pointer": "/tabs/panes/0/tabs/0/crashed",
         "equals": false,
         "maxMs": 15000
       },
       "checkpoint": [
-        "before",
-        "settled"
+        "turn"
       ],
       "settleMaxMs": 15000,
-      "note": "the retry: Cmd-R (browserReload) loads the page again in a new renderer"
+      "note": "the retry: Cmd-R (browserReload) loads the page again in a new renderer; crashed turns false when that load starts (BrowserTabStateMachine .started), so retry-loaded takes the settled checkpoint"
     },
     {
       "id": "retry-loaded",
       "op": "settle",
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/1/loadState",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "equals": "finished",
         "maxMs": 15000
       },
@@ -626,8 +588,10 @@
   "invariants": [
     "tab identity and browser location stay distinct: back, forward and reopen change the page tab's url, never its place among the terminal tabs, and a reopened tab keeps the location it closed with",
     "the app pid does not change in crash-renderer (driver_app fails the case when it does): a renderer crash ends one page's process, never the app (content/public/test/browser_test_utils.h CrashTab)",
-    "crash-renderer raises crashes.counts.renderer by exactly one and no other kind (I17: allow_crashes renderer, max 1); the first page tab is not crashed in any later checkpoint",
+    "crash-renderer raises crashes.counts.renderer by exactly one and no other kind (I17: allow_crashes renderer, max 1); the crashed tab is the only page tab, so the crash ends no other tab's renderer (Chrome's same-site process reuse, kProcessPerSiteUpToMainFrameThreshold, has no second tab to put on it)",
+    "the crash is a person's: the reopened tab is not agent-driven, so chrome://crash/ takes Chromium's renderer-debug-URL path and never meets the agent URL guard (CEFAgentURLGuard)",
     "the crashed tab shows an error state with retry (tabs crashed true), and Cmd-R brings it back (crashed false, loadState finished)",
+    "no checkpoint is taken while a page loads or crashes: a step that starts a load or a crash takes `before` or `turn` only, and the settle step after it takes the settled checkpoint at a finished load or a crashed tab",
     "the split leaves the page in the left pane: the tabs facet keeps one pane, since the new pane holds only a terminal"
   ],
   "teardown": [
@@ -637,7 +601,8 @@
   "untested": [
     "pointer entrypoints (no pointer op in case-v1): tab clicks, drags between panes, the sad tab's Reload button",
     "the page's own content after the crash: no facet reads a page's DOM",
-    "GPU, hang and helper-kill failures (p15-oracle-223's chromium-* journeys)",
+    "a browser tab before its page reports a title: its title is its URL, and the app hashes it with the fixture's port in it (OracleBrowserTab hashes titles raw; OraclePaths and normalize's path mode know no $WEB), so no checkpoint is taken then",
+    "chrome://crash/ in an agent-driven tab (the agent URL guard's own case) and GPU, hang and helper-kill failures (p15-oracle-223's chromium-* journeys)",
     "the new terminal's directory and output (the terminal-input journey)"
   ]
 }

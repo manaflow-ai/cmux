@@ -18,7 +18,8 @@ any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits 
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
 
 Steps: action.run (`action.run`), key (`debug.key`, one request per keystroke, through the app's real key
-path, to the focused pane of the step's window; Shift alone on a digit or symbol types its shifted character, as on a
+path, to the focused pane of the step's window, or with `keyWindow` to the open palette or the focused pane's
+Chromium page window as the key window; Shift alone on a digit or symbol types its shifted character, as on a
 US keyboard, so `shift+;` is `:`), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
 serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any step may carry `waitFor`
 (`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
@@ -120,6 +121,10 @@ KEY_NAMES = {"plus": "+", "backspace": "delete", "delete": "forwarddelete"}
 # shifted character, as a real keyboard does, so a case types `chrome://` as `shift+;` (case-v1 keystrokes have no
 # `:`). debug.key sends the character with the base key's code and Shift.
 SHIFTED = dict(zip("`1234567890-=[]\\;',./", "~!@#$%^&*()_+{}|:\"<>?"))
+# case-v1 keyArgs.keyWindow -> debug.key `target` (DebugKey.send): the window made key for the keystrokes. Without
+# one, debug.key sends to the shell window, whose first responder (a terminal) never reaches the palette's field or
+# a Chromium page; app_reset.DISMISS_KEYS aims its palette Escape the same way.
+KEY_WINDOWS = {"palette": "palette", "page": "page"}
 OTHER_DRIVERS = {
     "resource.call": "driver_daemon.py (p15-oracle-023)",
     "kill": "driver_daemon.py (p15-oracle-023); app child kills are p15-oracle-188",
@@ -788,7 +793,13 @@ class CaseRun:
         window = target.get("window", CURRENT)
         if not isinstance(window, str):
             raise CaseError("Crash", f"target.window is {window!r}, not a string", step_id)
-        where = {} if window == CURRENT else {"window": window}
+        where: Dict[str, Any] = {} if window == CURRENT else {"window": window}
+        key_window = step["args"].get("keyWindow")
+        if key_window is not None:
+            if key_window not in KEY_WINDOWS:
+                raise CaseError("Crash", f"keyWindow {key_window!r}: debug.key has no such window "
+                                         f"({', '.join(sorted(KEY_WINDOWS))})", step_id)
+            where["target"] = KEY_WINDOWS[key_window]
         replies = []
         for stroke in step["args"]["keys"]:
             reply = self.call("debug.key", {**debug_key(stroke, step_id), **where}, step_id)

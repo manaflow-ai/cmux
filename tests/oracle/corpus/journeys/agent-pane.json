@@ -3,9 +3,9 @@
   "corpusVersion": 1,
   "id": "agent-pane",
   "suite": "journeys",
-  "title": "Agent pane: open a chat, send a prompt to the mock agent, stop, allow and deny, leave and resume it",
+  "title": "Agent pane, part 1: dock a mock chat, type and send a prompt into its page, stop, allow and deny with nothing pending, leave and resume it",
   "journey": "agent-pane",
-  "priority": "P0",
+  "priority": "P1",
   "surface": "cmux-next-native",
   "source": {
     "repo": "manaflow-ai/cmux",
@@ -94,14 +94,20 @@
           "l",
           "l",
           "o"
-        ]
+        ],
+        "keyWindow": "page"
       },
       "expect": {
         "outcome": "ok",
         "noReceiptReason": "typing into the chat composer runs no registry action"
       },
+      "waitFor": {
+        "pointer": "/agents/sessions/0/draftSha256",
+        "equals": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "maxMs": 5000
+      },
       "settleMaxMs": 5000,
-      "note": "the composer's draft is hashed only (agents and webviews draftSha256)"
+      "note": "the chat is a Chromium page (agentChromium), so its page window is the key window (keyWindow page); the shell window would give the keys to the terminal. The new chat's composer text reaches the app as its unsent draft (chat.unsentDraft, the last text always goes), hashed only: the wait holds for exactly `hello`"
     },
     {
       "id": "send-prompt",
@@ -112,14 +118,20 @@
       "args": {
         "keys": [
           "return"
-        ]
+        ],
+        "keyWindow": "page"
       },
       "expect": {
         "outcome": "ok",
         "noReceiptReason": "Return sends the composer's prompt to the page's agent, not a registry action"
       },
+      "waitFor": {
+        "pointer": "/agents/sessions/0/draftSha256",
+        "equals": null,
+        "maxMs": 10000
+      },
       "settleMaxMs": 10000,
-      "note": "the mock agent answers in the page; the app sees no session (the untested entry)"
+      "note": "Return in the chat's page sends the prompt to the mock agent: the composer empties, and the app forgets the unsent draft (AgentUnsentDrafts.set with blank text). The mock's reply stays in the page (the untested entry)"
     },
     {
       "id": "stop-turn",
@@ -139,7 +151,7 @@
         "settled"
       ],
       "settleMaxMs": 5000,
-      "note": "Stop Agent Turn on the focused chat: with no running turn it changes nothing"
+      "note": "Stop Agent Turn on the focused chat: the app sees no turn of the mock (no session), so no app facet changes; whether the mock's reply is still streaming in the page is not read"
     },
     {
       "id": "approve",
@@ -264,6 +276,7 @@
   ],
   "invariants": [
     "chat identity is stable: the chat the first Cmd-I opened is the one the second Cmd-I focuses (agents.sessions has one row from chat-listed to the end, the same tab)",
+    "the prompt reaches the chat's composer and is sent: draftSha256 is the hash of `hello` after type-prompt and null after send-prompt",
     "stop, allow and deny with nothing pending change no chat state: their before and settled checkpoints agree on agents and topology",
     "the person's chat keys run their registry actions (receipts), and focus returns to the chat on resume"
   ],
@@ -272,7 +285,8 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "a started turn, streamed tool progress, expanding and collapsing output, and answering a pending permission: the mock agent pane never gives the app a session (webviews agent-session/acpmux/App.tsx persistSession skips the mock), so AgentPaneModel.sessionId stays nil; a fixture agent with a session the app sees is the follow-up",
+    "this case is not the agent-pane P0 journey (priority P1): it never starts a fixture turn the app sees, streams tool progress, expands or collapses output, approves or denies a pending request, or stops a running turn. The mock agent pane never gives the app a session (webviews agent-session/acpmux/App.tsx persistSession skips the mock), so no app facet shows the mock's seeded open turns or permission waits (acpmux/mock.ts openTurns): agents.sessions state, turn and pendingApprovals come only from acpmux's lane. The P0 journey needs a fixture agent with a session the app sees",
+    "the mock's reply to the prompt: no app facet reads the chat's conversation",
     "Session Info (agentPane.toggleInspector) needs a run that may change the view"
   ]
 }

@@ -563,6 +563,30 @@ class AppSessionTest(unittest.TestCase):
             self.assertEqual((result["status"], result.get("step")), ("Crash", "w"), result["message"])
             self.assertIn("focused pane", result["message"])
 
+    def test_key_window_makes_the_palette_or_page_the_key_window(self) -> None:
+        # Without keyWindow debug.key sends to the shell window, whose terminal takes the keys: a palette query or a
+        # chat prompt would never reach its field (DebugKey.send, app_reset.DISMISS_KEYS).
+        session = self.session()
+        typed = step("t", "key", target={"window": "current"}, args={"keys": ["a", "return"], "keyWindow": "palette"},
+                     expect={"outcome": "ok", "noReceiptReason": "typing into the palette runs no action"})
+        result = session.run_case(case(typed), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        sent = [p for m, p in self.apps[0].calls if m == "debug.key"]
+        self.assertEqual([(p["key"], p.get("target")) for p in sent], [("a", "palette"), ("return", "palette")])
+        self.assertNotIn("window", sent[0], "`current` names no window")
+        page = dict(typed, args={"keys": ["h"], "keyWindow": "page"})
+        result = session.run_case(case(page), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual([p for m, p in self.apps[0].calls if m == "debug.key"][-1]["target"], "page")
+        shell = dict(typed, args={"keys": ["h"]})
+        result = session.run_case(case(shell), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("target", [p for m, p in self.apps[0].calls if m == "debug.key"][-1])
+        bogus = dict(typed, args={"keys": ["h"], "keyWindow": "devtools"})
+        result = session.run_case(case(bogus), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "t"), result["message"])
+        self.assertIn("keyWindow", result["message"])
+
     def test_expect_result_is_the_action_value_not_the_run_reply(self) -> None:
         session = self.session()
         named = dict(NEW_WORKSPACE, args={"action": "workspace.new", "params": {"name": "a"}},
