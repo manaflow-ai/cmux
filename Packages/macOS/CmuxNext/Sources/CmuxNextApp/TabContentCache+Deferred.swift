@@ -70,7 +70,8 @@ extension TabContentCache {
         let next = typed ?? (incognito ? shown : tab.url.flatMap(URL.init(string:)))
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
             _ = chromiumUnavailable(tab, url: next, reason: reason)
-            if let typed, typed.absoluteString != tab.url { browserTabs.writeRecordURL(typed, for: tab) }
+            // Every typed address, also one equal to the record's: an earlier typed write may still be on its way.
+            if let typed { browserTabs.writeRecordURL(typed, for: tab) }
         } else if let entry = browser(for: tab), let typed, typed.absoluteString != tab.url {
             entry.tab.load(typed)
         }
