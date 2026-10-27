@@ -29,7 +29,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/summary/PullRequestDock.tsx"],
   variants: {
     "compact-count": {
-      native: { "pane.tabState": { inspector: true } },
+      native: { "pane.tabState": { inspector: false } },
       note: "Selected: up to two underlined PR links beside the action row, plus instant overflow.",
       snapshot,
     },
