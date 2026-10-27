@@ -60,8 +60,9 @@ const IDLE_EXIT: Duration = Duration::from_secs(5 * 60);
 const IDLE_EXIT_ENV: &str = "CMUX_MCP_HOST_IDLE_EXIT_MS";
 /// How long a client waits for the host's answer to its hello.
 const HELLO_ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
-/// A client that reads none of its output for this long loses that write.
-const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the host waits for the app's answer to its admission probe;
+/// well under [`HELLO_ANSWER_TIMEOUT`], so the client hears the refusal.
+const APP_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Tries to reach a host; between them another host may be starting or exiting.
 const START_ATTEMPTS: u32 = 4;
 const START_RETRY: Duration = Duration::from_millis(100);
@@ -117,15 +118,26 @@ fn try_relay(global: &GlobalArgs, code_mode: bool, config: &Path) -> Result<Infa
     let socket = socket_path()?;
     // A host that reaches its idle exit between our connect and its answer
     // closes the connection: the next try starts a new one.
+    // A refusal is the host's answer and final.
     let mut last = String::new();
     for _ in 0..2 {
         let mut stream = connect_or_start(&socket)?;
         match greet(&mut stream, &hello) {
             Ok(()) => return exec_relay(&relay, stream),
-            Err(why) => last = why,
+            Err(Greeting::Refused(why)) => return Err(why),
+            Err(Greeting::Lost(why)) => last = why,
         }
     }
     Err(last)
+}
+
+/// Why a hello did not lead to a session.
+#[derive(Debug)]
+enum Greeting {
+    /// The host answered no (a bad hello, or an app that does not admit it).
+    Refused(String),
+    /// No answer: the connection failed or closed.
+    Lost(String),
 }
 
 /// `cmux-tui-host` beside this executable (never from `PATH`), a regular file.
@@ -271,27 +283,31 @@ fn hello_line(global: &GlobalArgs, code_mode: bool, config: &Path) -> Result<Str
 
 /// Sends the hello and reads the host's answer, one byte at a time so
 /// nothing after it is taken from the relay.
-fn greet(stream: &mut UnixStream, hello: &str) -> Result<(), String> {
-    stream.write_all(hello.as_bytes()).map_err(|error| format!("MCP host: {error}"))?;
+fn greet(stream: &mut UnixStream, hello: &str) -> Result<(), Greeting> {
+    use Greeting::{Lost, Refused};
+    stream.write_all(hello.as_bytes()).map_err(|error| Lost(format!("MCP host: {error}")))?;
     // wakeup-allow: deadline one bounded wait for the host's answer to the hello
     let _ = stream.set_read_timeout(Some(HELLO_ANSWER_TIMEOUT));
     let mut answer = Vec::new();
     let mut byte = [0u8];
     while answer.len() < 4096 {
         match stream.read(&mut byte) {
-            Ok(0) => return Err("the MCP host closed the connection".into()),
+            Ok(0) => return Err(Lost("the MCP host closed the connection".into())),
             Ok(_) if byte[0] == b'\n' => break,
             Ok(_) => answer.push(byte[0]),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(format!("MCP host: {error}")),
+            Err(error) => return Err(Lost(format!("MCP host: {error}"))),
         }
     }
     let _ = stream.set_read_timeout(None);
-    let answer: Value = serde_json::from_slice(&answer).map_err(|error| error.to_string())?;
+    let answer: Value = serde_json::from_slice(&answer).map_err(|error| Lost(error.to_string()))?;
     if answer["ok"] == true {
         return Ok(());
     }
-    Err(format!("the MCP host refused: {}", answer["error"].as_str().unwrap_or("no reason")))
+    Err(Refused(format!(
+        "the MCP host refused: {}",
+        answer["error"].as_str().unwrap_or("no reason")
+    )))
 }
 
 /// Replaces this process with the relay on `stream` (same pid, stdio and
@@ -527,8 +543,8 @@ fn serve_clients(listener: &UnixListener, catalog: &SharedCatalog, idle: &Idle) 
         let (catalog, done) = (catalog.clone(), idle.clone());
         let started =
             cmux_threads::spawn("cmux-mcp-client", cmux_threads::ThreadQos::Utility, move || {
-                serve_client(stream, client, &catalog);
-                done.disconnected();
+                let mut seat = Seat { client, catalog, idle: done, watched: None };
+                serve_client(stream, &mut seat);
             });
         if let Err(error) = started {
             eprintln!("cmux mcp host: cannot serve a client: {error}");
@@ -537,9 +553,38 @@ fn serve_clients(listener: &UnixListener, catalog: &SharedCatalog, idle: &Idle) 
     }
 }
 
+/// A connected client's hold on the host: its count in [`Idle`] and its
+/// app's watch. Its client thread drops it at the end, on a panic's unwind
+/// too, so a failed client neither keeps the host alive nor leaves its
+/// socket open behind the owner's notifier.
+struct Seat {
+    client: u64,
+    catalog: SharedCatalog,
+    idle: Idle,
+    watched: Option<PathBuf>,
+}
+
+impl Seat {
+    fn watch(&mut self, app: PathBuf, output: &watch::Output) {
+        self.catalog.watch(app.clone(), self.client, output.clone());
+        self.watched = Some(app);
+    }
+}
+
+impl Drop for Seat {
+    fn drop(&mut self) {
+        if let Some(app) = self.watched.take() {
+            self.catalog.unwatch(app, self.client);
+        }
+        self.idle.disconnected();
+    }
+}
+
 /// One client: its hello, then its MCP session with its caller in scope.
-fn serve_client(stream: UnixStream, client: u64, catalog: &SharedCatalog) {
-    let _ = stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT));
+/// Writes to the client block until it reads, as the in-process server's
+/// writes to its stdout did: a message is never cut, and a client that stops
+/// reading holds only its own threads.
+fn serve_client(stream: UnixStream, seat: &mut Seat) {
     let Ok(read_half) = stream.try_clone() else { return };
     let mut reader = BufReader::new(read_half);
     let mut line = Vec::new();
@@ -548,27 +593,46 @@ fn serve_client(stream: UnixStream, client: u64, catalog: &SharedCatalog) {
         Ok(0) | Err(_) => return,
         Ok(_) => parse_hello(&line),
     };
-    let answer = match &hello {
-        Ok(_) => json!({"ok": true}),
-        Err(why) => json!({"ok": false, "error": why}),
+    let Hello { global, config, code_mode, caller } = match hello {
+        Ok(hello) => hello,
+        Err(why) => {
+            let _ = writeln!(&stream, "{}", json!({"ok": false, "error": why}));
+            return;
+        }
     };
-    if writeln!(&stream, "{answer}").is_err() {
-        return;
-    }
-    let Ok(Hello { global, config, code_mode, caller }) = hello else { return };
     caller_env::scope(Arc::new(caller), || {
-        let output = watch::Output::new(stream);
         let mut server = client_server(global, config, code_mode);
-        server.shared = Some(catalog.clone());
         let app = server.backend.catalog_key();
-        if let Some(app) = &app {
-            catalog.watch(app.clone(), client, output.clone());
+        let answer = match app.as_deref().map_or(Ok(()), app_admits_host) {
+            Ok(()) => json!({"ok": true}),
+            Err(why) => json!({"ok": false, "error": why}),
+        };
+        if writeln!(&stream, "{answer}").is_err() || answer["ok"] != true {
+            return;
+        }
+        let output = watch::Output::new(stream);
+        server.shared = Some(seat.catalog.clone());
+        if let Some(app) = app {
+            seat.watch(app, &output);
         }
         server.run(reader, &output);
-        if let Some(app) = app {
-            catalog.unwatch(app, client);
-        }
     });
+}
+
+/// `Ok` when the app at `app` answers this host's requests. In `cmuxOnly`
+/// mode the app admits only a peer with a trusted ancestor
+/// (ControlPeerAncestry.swift), and the host is launchd's child, so that
+/// client serves in its own process, which descends from its agent's
+/// supervisor. An app that is not listening cannot say which mode it will
+/// use, so its clients serve in their own process too.
+fn app_admits_host(app: &Path) -> Result<(), String> {
+    let mut stream = super::super::app::connect(app)?;
+    match super::super::app::request(&mut stream, "system.ping", json!({}), APP_PROBE_TIMEOUT) {
+        // The app's one plain-text line for a peer it refuses
+        // (`ControlAuthorizer.accessDenied`).
+        Err(message) if message.starts_with("ERROR: Access denied") => Err(message),
+        _ => Ok(()),
+    }
 }
 
 /// Counts connected clients and ends the host once none has been
@@ -645,7 +709,174 @@ fn wait_for_idle(live: &AtomicUsize, woken: &mpsc::Receiver<()>, grace: Duration
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use std::ffi::OsString;
+
+    /// The refusal of an app in `cmuxOnly` mode (`ControlAuthorizer.accessDenied`).
+    const DENIED: &str = "ERROR: Access denied - only processes started inside cmux can connect";
+
+    /// An app control socket in `dir` that answers each request line with
+    /// `answer(request)`.
+    fn fake_app(dir: &Path, answer: fn(&Value) -> String) -> PathBuf {
+        let path = dir.join("app.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                std::thread::spawn(move || {
+                    let mut writer = stream.try_clone().unwrap();
+                    for line in BufReader::new(stream).lines() {
+                        let Ok(line) = line else { return };
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        if writeln!(writer, "{}", answer(&request)).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        path
+    }
+
+    /// An app with a catalog whose tools/list answer is larger than a
+    /// socket's buffer.
+    fn large_app(request: &Value) -> String {
+        let result = if request["method"] == "action.list" {
+            let actions = (0..2000)
+                .map(|index| {
+                    json!({"id": format!("a{index}"), "cli_name": format!("app action-{index}"),
+                           "title": format!("Action {index} {}", "x".repeat(400)), "cli": true,
+                           "surfaces": {"cli": "offered", "mcp": "offered"}, "arguments": []})
+                })
+                .collect::<Vec<_>>();
+            json!({ "actions": actions })
+        } else {
+            json!({})
+        };
+        json!({"id": request["id"], "ok": true, "result": result}).to_string()
+    }
+
+    struct Client {
+        agent: UnixStream,
+        idle: Idle,
+        thread: std::thread::JoinHandle<()>,
+        greeting: Result<(), Greeting>,
+    }
+
+    /// One client of the host for the app at `app`, through `serve_client`.
+    fn connect_client(app: &Path, catalog: &SharedCatalog) -> Client {
+        let (host_end, mut agent) = UnixStream::pair().unwrap();
+        let (wake, _) = mpsc::channel();
+        let idle = Idle { live: Arc::new(AtomicUsize::new(0)), wake };
+        assert!(idle.connected());
+        let (seat_idle, seat_catalog) = (idle.clone(), catalog.clone());
+        let thread = std::thread::spawn(move || {
+            let mut seat =
+                Seat { client: 1, catalog: seat_catalog, idle: seat_idle, watched: None };
+            serve_client(host_end, &mut seat);
+        });
+        let global = GlobalArgs { app_socket: Some(app.to_owned()), ..GlobalArgs::default() };
+        let hello = hello_line(&global, false, &app.with_file_name("cmux-next.json")).unwrap();
+        let greeting = greet(&mut agent, &hello);
+        Client { agent, idle, thread, greeting }
+    }
+
+    #[test]
+    fn a_client_that_panics_leaves_the_host_and_closes_its_socket() {
+        let catalog = SharedCatalog::start_unwatched().unwrap();
+        let (wake, _) = mpsc::channel();
+        let idle = Idle { live: Arc::new(AtomicUsize::new(0)), wake };
+        assert!(idle.connected());
+        let (host_end, agent) = UnixStream::pair().unwrap();
+        let (seat_idle, seat_catalog) = (idle.clone(), catalog);
+        let client = std::thread::spawn(move || {
+            let mut seat =
+                Seat { client: 1, catalog: seat_catalog, idle: seat_idle, watched: None };
+            let output = watch::Output::new(host_end);
+            seat.watch(PathBuf::from("/tmp/app.sock"), &output);
+            panic!("a request of this client failed");
+        });
+        assert!(client.join().is_err());
+        assert_eq!(idle.live.load(Ordering::Acquire), 0, "a panicked client still counts");
+        // The owner dropped the client's notifier, the last holder of its
+        // output: the agent's relay reads the end.
+        agent.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut rest = Vec::new();
+        assert_eq!((&agent).read_to_end(&mut rest).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_client_that_pauses_reading_gets_only_whole_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = fake_app(dir.path(), large_app);
+        let catalog = SharedCatalog::start_unwatched().unwrap();
+        let Client { agent, idle, thread, greeting } = connect_client(&app, &catalog);
+        greeting.unwrap();
+        for message in [
+            json!({"jsonrpc": "2.0", "id": "init", "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "pause", "version": "1"}}}),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json!({"jsonrpc": "2.0", "id": "list-1", "method": "tools/list"}),
+            json!({"jsonrpc": "2.0", "id": "list-2", "method": "tools/list"}),
+        ] {
+            writeln!(&agent, "{message}").unwrap();
+        }
+        // The agent reads nothing for 25 s (a harness stopped in a debugger)
+        // while each response is larger than the socket's buffer, and
+        // notifications come while the first response waits to be sent.
+        std::thread::sleep(Duration::from_secs(1));
+        for _ in 0..3 {
+            catalog.changed(app.clone());
+        }
+        std::thread::sleep(Duration::from_secs(24));
+        agent.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        let mut reader = BufReader::new(&agent);
+        let mut answered = HashSet::new();
+        while answered.len() < 3 {
+            let mut line = String::new();
+            assert!(reader.read_line(&mut line).unwrap() > 0, "the host ended the session");
+            let message: Value = serde_json::from_str(&line)
+                .unwrap_or_else(|error| panic!("a cut message ({error}): {line:.200}"));
+            if let Some(id) = message["id"].as_str() {
+                if id.starts_with("list") {
+                    assert!(message["result"]["tools"].as_array().is_some_and(|t| t.len() > 2000));
+                }
+                answered.insert(id.to_owned());
+            }
+        }
+        agent.shutdown(std::net::Shutdown::Write).unwrap();
+        thread.join().unwrap();
+        assert_eq!(idle.live.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn an_app_that_refuses_the_host_sends_its_client_to_serve_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = fake_app(dir.path(), |_| DENIED.to_owned());
+        let catalog = SharedCatalog::start_unwatched().unwrap();
+        let Client { idle, thread, greeting, .. } = connect_client(&app, &catalog);
+        assert!(
+            matches!(&greeting, Err(Greeting::Refused(why)) if why.contains("Access denied")),
+            "{greeting:?}"
+        );
+        thread.join().unwrap();
+        assert_eq!(idle.live.load(Ordering::Acquire), 0);
+
+        // An app that does not listen cannot say which mode it will use.
+        let Client { thread, greeting, .. } =
+            connect_client(&dir.path().join("gone.sock"), &catalog);
+        assert!(matches!(greeting, Err(Greeting::Refused(_))), "{greeting:?}");
+        thread.join().unwrap();
+
+        // An app that admits the host keeps its client.
+        let admits = tempfile::tempdir().unwrap();
+        let app = fake_app(admits.path(), large_app);
+        let Client { agent, thread, greeting, .. } = connect_client(&app, &catalog);
+        greeting.unwrap();
+        agent.shutdown(std::net::Shutdown::Write).unwrap();
+        thread.join().unwrap();
+    }
 
     #[test]
     fn the_hello_carries_the_caller_and_the_options() {

@@ -8,7 +8,10 @@
 //! so every client of an app points at one copy (Chromium keeps one copy of
 //! shared state in the browser process and hands renderers handles to it).
 //! The same thread runs one `action.catalog.changed` watcher per app and
-//! tells each of that app's clients to list the tools again.
+//! wakes each of that app's clients to list the tools again. It never writes
+//! to a client: each client's notifier thread writes its own notification, so
+//! a client that reads nothing stalls only its own threads, as each per-agent
+//! server's watcher thread did before.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -45,11 +48,12 @@ enum Message {
         catalog: Arc<ActionCatalog>,
         reply: mpsc::Sender<Arc<ActionCatalog>>,
     },
-    /// Tell `output` when `app`'s actions change, until `Unwatch`.
+    /// Wake `notify` (the client's notifier thread) when `app`'s actions
+    /// change, until `Unwatch`.
     Watch {
         app: PathBuf,
         client: u64,
-        output: watch::Output,
+        notify: mpsc::Sender<()>,
     },
     Unwatch {
         app: PathBuf,
@@ -61,6 +65,9 @@ enum Message {
     },
 }
 
+/// Starts the watcher of one app, which sends [`Message::Changed`].
+type StartWatcher = fn(PathBuf, mpsc::Sender<Message>);
+
 /// The handle every client of the host shares.
 #[derive(Clone)]
 pub(super) struct SharedCatalog {
@@ -70,12 +77,28 @@ pub(super) struct SharedCatalog {
 impl SharedCatalog {
     /// Starts the thread that owns the catalogs and the watchers.
     pub(super) fn start() -> std::io::Result<Self> {
+        Self::start_with(start_watcher)
+    }
+
+    fn start_with(start_watcher: StartWatcher) -> std::io::Result<Self> {
         let (sender, receiver) = mpsc::channel();
         let watchers = sender.clone();
         cmux_threads::spawn("cmux-mcp-catalog", cmux_threads::ThreadQos::Utility, move || {
-            Owner::default().run(&receiver, &watchers);
+            Owner::new(start_watcher).run(&receiver, &watchers);
         })?;
         Ok(Self { sender })
+    }
+
+    /// A catalog thread that opens no app socket (tests).
+    #[cfg(test)]
+    pub(super) fn start_unwatched() -> std::io::Result<Self> {
+        Self::start_with(|_, _| {})
+    }
+
+    /// As if `app` published `action.catalog.changed` (tests).
+    #[cfg(test)]
+    pub(super) fn changed(&self, app: PathBuf) {
+        let _ = self.sender.send(Message::Changed { app });
     }
 
     /// The one catalog the host keeps for `app`, equal to `catalog`. With
@@ -89,8 +112,15 @@ impl SharedCatalog {
         answer.recv().unwrap_or(fallback)
     }
 
+    /// Writes `notifications/tools/list_changed` to `output` each time
+    /// `app`'s actions change, from a notifier thread of this client's own.
     pub(super) fn watch(&self, app: PathBuf, client: u64, output: watch::Output) {
-        let _ = self.sender.send(Message::Watch { app, client, output });
+        match spawn_notifier(output) {
+            Ok(notify) => {
+                let _ = self.sender.send(Message::Watch { app, client, notify });
+            }
+            Err(error) => eprintln!("cmux mcp host: cannot watch the app's actions: {error}"),
+        }
     }
 
     pub(super) fn unwatch(&self, app: PathBuf, client: u64) {
@@ -99,26 +129,36 @@ impl SharedCatalog {
 }
 
 /// The owner thread's state: one catalog and one watcher per app socket.
-#[derive(Default)]
 struct Owner {
     catalogs: HashMap<PathBuf, Arc<ActionCatalog>>,
-    clients: HashMap<PathBuf, Vec<(u64, watch::Output)>>,
+    /// Each client's notifier, by the app it watches.
+    clients: HashMap<PathBuf, Vec<(u64, mpsc::Sender<()>)>>,
     /// The apps whose watcher runs.
     watched: HashSet<PathBuf>,
+    start_watcher: StartWatcher,
 }
 
 impl Owner {
+    fn new(start_watcher: StartWatcher) -> Self {
+        Self {
+            catalogs: HashMap::new(),
+            clients: HashMap::new(),
+            watched: HashSet::new(),
+            start_watcher,
+        }
+    }
+
     fn run(mut self, receiver: &mpsc::Receiver<Message>, watchers: &mpsc::Sender<Message>) {
         for message in receiver {
             match message {
                 Message::Intern { app, catalog, reply } => {
                     let _ = reply.send(self.intern(app, catalog));
                 }
-                Message::Watch { app, client, output } => {
+                Message::Watch { app, client, notify } => {
                     if self.watched.insert(app.clone()) {
-                        start_watcher(app.clone(), watchers.clone());
+                        (self.start_watcher)(app.clone(), watchers.clone());
                     }
-                    self.clients.entry(app).or_default().push((client, output));
+                    self.clients.entry(app).or_default().push((client, notify));
                 }
                 Message::Unwatch { app, client } => {
                     if let Some(clients) = self.clients.get_mut(&app) {
@@ -126,8 +166,10 @@ impl Owner {
                     }
                 }
                 Message::Changed { app } => {
-                    for (_, output) in self.clients.get(&app).into_iter().flatten() {
-                        let _ = output.tools_changed();
+                    // A send never blocks; a notifier that ended (its client
+                    // stopped reading for good) leaves the list.
+                    if let Some(clients) = self.clients.get_mut(&app) {
+                        clients.retain(|(_, notify)| notify.send(()).is_ok());
                     }
                 }
             }
@@ -145,6 +187,22 @@ impl Owner {
     }
 }
 
+/// A client's notifier thread: one notification for each wake, and one for
+/// all the wakes that came while it wrote. It ends when the owner drops its
+/// sender (the client's `Unwatch`) or a write fails (the client is gone).
+fn spawn_notifier(output: watch::Output) -> std::io::Result<mpsc::Sender<()>> {
+    let (notify, changes) = mpsc::channel::<()>();
+    cmux_threads::spawn("cmux-mcp-client-notes", cmux_threads::ThreadQos::Utility, move || {
+        while changes.recv().is_ok() {
+            while changes.try_recv().is_ok() {}
+            if output.tools_changed().is_err() {
+                return;
+            }
+        }
+    })?;
+    Ok(notify)
+}
+
 /// One watcher for the app at `app` (its control socket), for the host's life.
 fn start_watcher(app: PathBuf, watchers: mpsc::Sender<Message>) {
     let global = GlobalArgs { app_socket: Some(app.clone()), ..GlobalArgs::default() };
@@ -157,6 +215,9 @@ fn start_watcher(app: PathBuf, watchers: mpsc::Sender<Message>) {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
 
     fn list(titles: &[&str]) -> Value {
         let actions = titles
@@ -171,9 +232,17 @@ mod tests {
         json!({ "actions": actions })
     }
 
+    /// A client's output over a socket, and the agent's end of it.
+    fn client() -> (watch::Output, UnixStream) {
+        let (host, agent) = UnixStream::pair().unwrap();
+        let output = watch::Output::new(host);
+        output.set_ready();
+        (output, agent)
+    }
+
     #[test]
     fn clients_of_one_app_share_one_catalog() {
-        let shared = SharedCatalog::start().unwrap();
+        let shared = SharedCatalog::start_unwatched().unwrap();
         let app = PathBuf::from("/tmp/app-a.sock");
         let first = shared.intern(app.clone(), Arc::new(ActionCatalog::parse(&list(&["One"]))));
         let second = shared.intern(app.clone(), Arc::new(ActionCatalog::parse(&list(&["One"]))));
@@ -190,63 +259,73 @@ mod tests {
 
     #[test]
     fn a_change_reaches_every_client_of_that_app_only() {
-        let (sender, receiver) = mpsc::channel();
-        let mut owner = Owner::default();
+        let shared = SharedCatalog::start_unwatched().unwrap();
         let app = PathBuf::from("/tmp/app-a.sock");
         let other = PathBuf::from("/tmp/app-b.sock");
-        let buffers = (0..3).map(|_| Buffer::default()).collect::<Vec<_>>();
-        let outputs = buffers
-            .iter()
-            .map(|buffer| {
-                let output = watch::Output::new(buffer.clone());
-                output.set_ready();
-                output
-            })
-            .collect::<Vec<_>>();
-        // The watchers are marked started so the test opens no app socket.
-        owner.watched.insert(app.clone());
-        owner.watched.insert(other.clone());
-        for (client, (target, output)) in
-            [(&app, &outputs[0]), (&app, &outputs[1]), (&other, &outputs[2])]
-                .into_iter()
-                .enumerate()
+        let clients = (0..3).map(|_| client()).collect::<Vec<_>>();
+        for (index, (target, (output, _))) in
+            [&app, &app, &other].into_iter().zip(&clients).enumerate()
         {
-            sender
-                .send(Message::Watch {
-                    app: target.clone(),
-                    client: client as u64,
-                    output: output.clone(),
-                })
-                .unwrap();
+            shared.watch(target.clone(), index as u64, output.clone());
         }
-        sender.send(Message::Unwatch { app: app.clone(), client: 1 }).unwrap();
-        sender.send(Message::Changed { app }).unwrap();
-        drop(sender);
-        let (unused, _) = mpsc::channel();
-        owner.run(&receiver, &unused);
-        let notes = buffers.iter().map(Buffer::text).collect::<Vec<_>>();
-        assert!(notes[0].contains("notifications/tools/list_changed"));
-        assert!(notes[1].is_empty(), "a client that left hears nothing");
-        assert!(notes[2].is_empty(), "another app's client hears nothing");
-    }
-
-    #[derive(Clone, Default)]
-    struct Buffer(Arc<std::sync::Mutex<Vec<u8>>>);
-
-    impl Buffer {
-        fn text(&self) -> String {
-            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        shared.unwatch(app.clone(), 1);
+        shared.changed(app);
+        let agent = &clients[0].1;
+        agent.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut note = String::new();
+        BufReader::new(agent).read_line(&mut note).unwrap();
+        assert!(note.contains("notifications/tools/list_changed"), "{note}");
+        // The owner handles its messages in order: the unwatch and the other
+        // app's client were settled before the change woke client 0.
+        for (index, (_, agent)) in clients.iter().enumerate().skip(1) {
+            agent.set_nonblocking(true).unwrap();
+            let read = (&*agent).read(&mut [0u8; 64]);
+            assert!(
+                matches!(&read, Err(error) if error.kind() == ErrorKind::WouldBlock),
+                "client {index} heard {read:?}"
+            );
         }
     }
 
-    impl std::io::Write for Buffer {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
+    #[test]
+    fn a_client_that_never_reads_holds_up_no_other_client() {
+        let shared = SharedCatalog::start_unwatched().unwrap();
+        let app = PathBuf::from("/tmp/app-a.sock");
+        // The stuck agent's socket is full, so the next write to it blocks.
+        let (host, agent) = UnixStream::pair().unwrap();
+        fill(&host);
+        let stuck = watch::Output::new(host);
+        stuck.set_ready();
+        shared.watch(app.clone(), 1, stuck);
+        for _ in 0..3 {
+            shared.changed(app.clone());
         }
+        let (answered, answer) = mpsc::channel();
+        let other = shared;
+        std::thread::spawn(move || {
+            let kept = other.intern(app, Arc::new(ActionCatalog::parse(&list(&["One"]))));
+            let _ = answered.send(kept.tools.len());
+        });
+        assert_eq!(
+            answer.recv_timeout(Duration::from_secs(5)),
+            Ok(1),
+            "another client's tools/list waited on a client that reads nothing"
+        );
+        // The blocked notifier's write fails once the agent is gone.
+        drop(agent);
+    }
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
+    /// Writes into `stream` until its socket buffer is full.
+    fn fill(mut stream: &UnixStream) {
+        stream.set_nonblocking(true).unwrap();
+        let chunk = [b' '; 4096];
+        loop {
+            match stream.write(&chunk) {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                Err(error) => panic!("fill: {error}"),
+            }
         }
+        stream.set_nonblocking(false).unwrap();
     }
 }
