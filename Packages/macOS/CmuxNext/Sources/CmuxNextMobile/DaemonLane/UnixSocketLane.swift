@@ -1,3 +1,4 @@
+#if canImport(Network)
 public import Foundation
 import Network
 import CmuxNextWakeups
@@ -7,7 +8,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// A `MobileByteLane` over a Unix stream socket (the local cmux-tui daemon
 /// or a Cloud link socket). Network.framework keeps every read and write off
 /// the caller's thread; connect has a deadline so a wedged daemon is a typed
-/// error, never a hang.
+/// error, never a hang. Linux, which has no Network.framework, has its own
+/// lane of the same surface (UnixSocketLane+Linux.swift).
 public final class UnixSocketLane: MobileByteLane {
     public enum Failure: Error, Equatable, Sendable {
         case connectTimedOut(path: String)
@@ -109,3 +111,4 @@ public final class UnixSocketLane: MobileByteLane {
         connection.cancel()
     }
 }
+#endif

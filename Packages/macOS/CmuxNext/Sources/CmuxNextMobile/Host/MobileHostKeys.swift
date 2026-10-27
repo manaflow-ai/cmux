@@ -1,7 +1,11 @@
 import CmuxIrxTransport
 import CmuxNextCompat
 import CmuxNextWakeups
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// The Mac's v2 installation id and per-identity endpoint key. The key files

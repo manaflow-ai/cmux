@@ -1,6 +1,9 @@
 public import CmuxNextDaemon
+import CmuxNextCompat
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Serves one admitted phone connection's shipped-iOS mobile RPC dialect
 /// from the daemon. Events (`workspace.updated`, `terminal.bytes`) go out

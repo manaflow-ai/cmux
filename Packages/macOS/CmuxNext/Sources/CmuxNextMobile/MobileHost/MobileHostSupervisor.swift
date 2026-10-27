@@ -1,6 +1,9 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
+#if canImport(os)
 import os
+#endif
 
 /// Runs `cmux-mobile-host` for the signed-in account and keeps it running: hands it
 /// an access token and the app's acpmux endpoint over stdin at start and again

@@ -44,8 +44,11 @@ public final class MobileHostProcess: Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = Self.logHandle(log) ?? FileHandle.nullDevice
-        // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app.
+        // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app. Linux has no
+        // per-pipe F_SETNOSIGPIPE: there the process's SIGPIPE disposition (ChildSignalDefaults) does it.
+        #if canImport(Darwin)
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #endif
         let buffer = LineBuffer()
         let continuation = continuation
         output.fileHandleForReading.readabilityHandler = { handle in

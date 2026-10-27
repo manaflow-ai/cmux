@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// A phone that proved its keys to `cmux-mobile-host` and asks this Mac to trust it
 /// (cmux-next-ios `verify/phone-approvals.md`). The keys are 65-byte X9.63 P-256

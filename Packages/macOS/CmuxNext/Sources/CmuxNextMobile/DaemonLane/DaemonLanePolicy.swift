@@ -298,7 +298,7 @@ public struct DaemonLanePolicy: Sendable {
     /// A non-negative integer (as Rust's `is_u64`): never a Bool, a float such as
     /// 3.0, or a number past `Int.max`.
     static func isPlace(_ value: Any) -> Bool {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+        guard let number = value as? NSNumber, !number.isJSONBoolean,
               let type = String(validatingCString: number.objCType), ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type)
         else { return false }
         if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(clamping: Int.max) }
@@ -383,7 +383,7 @@ public struct DaemonLanePolicy: Sendable {
             return "\(operation) color is one of the Mac's group colors"
         }
         if let collapsed = params["collapsed"] {
-            guard let number = collapsed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            guard let number = collapsed as? NSNumber, number.isJSONBoolean else {
                 return "\(operation) collapsed is true or false"
             }
         }

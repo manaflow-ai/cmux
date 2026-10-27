@@ -145,4 +145,37 @@ import Testing
         #expect(MobileHostMacIdentity.restore(Data([1, 2])) == nil)
         #expect(first.fingerprint.count == 16)
     }
+
+    /// A slot that holds `stored` and takes a new key only when `accepts`.
+    struct FixedSlot: MobileHostIdentitySecretSlot {
+        var stored: Data?
+        var accepts: Bool
+        func read() -> Data? { stored }
+        func add(_ privateKey: Data) -> Bool { accepts }
+    }
+
+    /// The Keychain is a seam (Linux has none): its key wins over the file, a key it takes needs no file,
+    /// and a key it refuses goes to the 0600 file, which the next load reads.
+    @Test func theSlotIsTriedBeforeTheFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let kept = MobileHostMacIdentity.generate()
+        let fromSlot = MobileHostMacIdentityStore(service: "s", stateDirectory: directory,
+                                                  keychain: FixedSlot(stored: kept.privateKey, accepts: false))
+        #expect(try fromSlot.loadOrCreate() == kept)
+        #expect(!FileManager.default.fileExists(atPath: fromSlot.fallbackFile.path))
+
+        let taken = MobileHostMacIdentityStore(service: "s", stateDirectory: directory,
+                                               keychain: FixedSlot(stored: nil, accepts: true))
+        _ = try taken.loadOrCreate()
+        #expect(!FileManager.default.fileExists(atPath: taken.fallbackFile.path))
+
+        let refused = MobileHostMacIdentityStore(service: "s", stateDirectory: directory,
+                                                 keychain: FixedSlot(stored: nil, accepts: false))
+        let made = try refused.loadOrCreate()
+        let mode = try FileManager.default.attributesOfItem(atPath: refused.fallbackFile.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        let reloaded = MobileHostMacIdentityStore(service: "s", stateDirectory: directory, keychain: nil)
+        #expect(try reloaded.loadOrCreate() == made)
+    }
 }

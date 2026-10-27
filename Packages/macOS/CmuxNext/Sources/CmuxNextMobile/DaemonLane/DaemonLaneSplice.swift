@@ -1,5 +1,8 @@
+import CmuxNextCompat
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Pipes an admitted phone's daemon lane to a daemon socket through
 /// `DaemonLanePolicy`.

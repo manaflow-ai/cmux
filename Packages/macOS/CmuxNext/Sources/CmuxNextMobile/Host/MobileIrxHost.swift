@@ -2,6 +2,9 @@ public import CmuxIrxTransport
 import CmuxNextDaemon
 public import CmuxNextWakeups
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The cmux-next Mac's phone listener: one irx (Iroh, ALPN `cmux/irx/1`)
 /// endpoint, registered as a v2 Mac device for the signed-in account and

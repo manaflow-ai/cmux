@@ -1,6 +1,5 @@
 package import CmuxNextSettings
-package import CoreGraphics
-import Foundation
+package import Foundation
 
 /// When hidden content may be discarded: Chrome's proactive discard of a background tab after a
 /// time hidden (chrome/browser/performance_manager/policies/proactive_discarding_policy.cc). Memory

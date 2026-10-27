@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The account's registered devices on the mobile service (`GET /v1/me/devices`,
 /// `DELETE /v1/devices/:id`, cmux-next-ios/PROTOCOL.md 0.7.0), for Settings > Mobile's
