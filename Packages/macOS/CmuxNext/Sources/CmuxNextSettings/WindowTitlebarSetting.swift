@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `window.titlebar` in cmux.json: "minimal" (default: no titlebar strip,
 /// the top row's empty space moves the window) or "standard" (a titlebar

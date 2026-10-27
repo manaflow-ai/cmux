@@ -25,7 +25,7 @@ struct AppServicesHangWatchTests {
 
         // BackgroundWork: its three lanes, and an item runs in its lane's scope (other lanes' items may be open too).
         #expect(Set(hangs.lanes).isSuperset(of: ["lane.files", "lane.system", "lane.cpu"]))
-        let inside = try await services.work.run(.userVisible, mayBlock: .files) { hangs.openNames }
+        let inside = try await services.work.run(.userVisible, mayBlock: .files) { () throws -> [String] in hangs.openNames }
         #expect(inside.contains("lane.files"))
 
         // The daemon: every connection's LineTransport and every terminal attachment take the service's.

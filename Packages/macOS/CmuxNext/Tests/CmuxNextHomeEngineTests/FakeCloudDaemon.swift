@@ -1,5 +1,6 @@
 @testable import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// A daemon's cloud proxy without a daemon: it answers the reads a Cloud
@@ -78,7 +79,7 @@ actor FakeCloudDaemon: CloudConversationCommands {
     }
 
     func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
-                            to destination: URL) async throws -> String {
+                            to destination: URL, on work: BackgroundWork) async throws -> String {
         downloads.append("\(conversation):\(hash):\(variant.rawValue)")
         guard let blob = blobs["\(hash):\(variant.rawValue)"] else {
             throw DaemonError.command(cmd: "cloud-attachment-read", message: "no such attachment", code: "cloud_conversation_rejected")

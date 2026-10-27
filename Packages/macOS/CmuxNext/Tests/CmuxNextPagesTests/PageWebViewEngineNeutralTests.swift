@@ -20,7 +20,7 @@ struct PageWebViewEngineNeutralTests {
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         before(view)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -65,6 +65,59 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// p01-process-232: on the page channel the page script names its event, and a post after the page's commit
+    /// reaches the handler in the event's turn, each message of a batched post in order, with no DevTools call.
+    @Test func aPageChannelPostReachesTheHandlerWithNoDevToolsCall() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { $0.pageHostEvent = "cmux-page-host-post" }
+        var heard: [String] = []
+        let (view, page) = try await started(hosting) { view in
+            view.addMessageHandler("testReport") { body in heard.append((body as? [String: Any])?["text"] as? String ?? "?") }
+        }
+        #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument" &&
+            (($0.params["source"] as? String)?.contains(#"const channelEvent = "cmux-page-host-post";"#) ?? false) })
+        page.onEvent?(.committed(descriptor.url(route: "")))
+        let before = page.calls.count
+        page.onEvent?(.pageHostPost(#"[{"name":"testReport","body":{"text":"a"}},{"name":"testReport","body":{"text":"b"}}]"#,
+                                    sender: descriptor.url(route: "")))
+        #expect(heard == ["a", "b"], "the post's messages reach the handler in its turn")
+        #expect(page.calls.count == before, "a DevTools call for the post: \(page.calls.dropFirst(before).map(\.method))")
+        view.close()
+    }
+
+    /// A new document's first-paint report that arrives before its commit is held, and delivered after the view
+    /// reset for that commit: the page stays painted instead of the reset clearing the paint it already reported.
+    @Test func aPaintReportBeforeItsCommitSurvivesTheCommit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { $0.pageHostEvent = "cmux-page-host-post" }
+        let (view, page) = try await started(hosting)
+        let url = descriptor.url(route: "")
+        page.onEvent?(.pageHostPost(#"{"name":"\#(PagePaintProbe.handlerName)","body":1}"#, sender: url))
+        #expect(!view.hasPainted, "a post was judged before its document's commit")
+        page.onEvent?(.committed(url))
+        #expect(view.hasPainted, "the commit's reset cleared the paint its document reported before it")
+        view.close()
+    }
+
+    /// The next-frame wait runs through the page's `evaluate`: on the renderer path (`tabEvaluate`)
+    /// it makes no DevTools call, and the body runs once the page answers.
+    @Test func theNextFrameWaitRunsThroughTheChromiumPagesEvaluate() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        page.rendererEvaluate = { _ in "null" }
+        let ran: Bool? = await PageTestWait.value("frame") { done in
+            view.afterNextFrame { done(true) }
+        }
+        #expect(ran == true)
+        #expect(page.evaluations.last?.contains("requestAnimationFrame") == true)
+        #expect(!page.calls.contains { $0.method == "Runtime.evaluate" &&
+            (($0.params["expression"] as? String)?.contains("requestAnimationFrame") ?? false) })
+        view.close()
+    }
+
     /// A host whose menu depends on the page's report (the agent chat) builds it only after its wait.
     @Test func aRightClickMenuWaitsForTheHostsWait() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
@@ -85,6 +138,39 @@ struct PageWebViewEngineNeutralTests {
         }
         #expect(waitedBeforeBuilding)
         #expect(shown == ["Row 1"])
+        view.close()
+    }
+
+    /// The WebKit engine is there for the WebKit-only tools only while it shows the page
+    /// (p13-webui-074): nil while Chromium shows it.
+    @Test func theWebKitEngineIsOfferedOnlyWhileWebKitShowsThePage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, _) = try await started(FakeChromiumHosting())
+        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
+        view.close()
+        let webKit = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        #expect(webKit.webKitEngine === webKit.webView)
+        webKit.close()
+    }
+
+    /// Ending a Chromium page's document loads nothing into its unused WebKit view: an empty load
+    /// there starts a WebContent process for a page that never had one.
+    @Test func endingAChromiumDocumentLoadsNothingIntoWebKit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started(FakeChromiumHosting())
+        view.close()
+        view.endPageDocument()
+        #expect(page.closed)
+        #expect(view.webKitPieces == nil, "ending a Chromium document built a WebKit view")
+    }
+
+    /// One zoom in both engines: points per CSS pixel, which the WebKit view shows too.
+    @Test func thePageZoomIsTheOneBothEnginesShow() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        view.additionalZoom = 1.5
+        #expect(Double(view.webView.pageZoom) == view.pageZoom)
         view.close()
     }
 }

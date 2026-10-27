@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -27,8 +28,10 @@ extension InternalPageID {
 @MainActor
 final class ChiefInspectorPageService: InternalPageProvider {
     private weak var services: AppServices?
-    /// The server whose Chief the open tabs inspect.
+    /// The server whose Chief the latest open asked for (a tab restored at launch takes it).
     private(set) var machineID: String?
+    /// The server each tab with no view yet was opened for, by tab key.
+    private var openedFor: [String: String] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -41,22 +44,60 @@ final class ChiefInspectorPageService: InternalPageProvider {
     /// Shows the page for the Chief on `machineID` in `window`.
     func open(machineID: String, in window: WindowController, focus: Bool) -> Bool {
         self.machineID = machineID
-        return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
+        guard let view = services?.pages.show(.chiefInspector, in: window, focus: focus) else { return false }
+        // A tab inspects the server it was opened for, not the one asked for when it first shows.
+        if !view.isBuilt, openedFor[view.key] == nil { openedFor[view.key] = machineID }
+        return true
     }
 
+    /// The server each tab inspects, by key, from its first view on: the server it was opened for,
+    /// else the first server that served it. A view made again after a discard asks the same one.
+    private var tabMachines: [String: String] = [:]
+    /// The tabs that had a first view: a later view never reads the service-wide ``machineID``.
+    private var opened: Set<String> = []
+    /// Each tab's page, while its view exists.
+    private var pages: [String: PageWebView] = [:]
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        // Each tab keeps the server it was opened for; a tab restored at
-        // launch (no open request yet) takes the first server that serves
-        // chief-inspect.
-        let opened = machineID
-        let provider = ChiefInspectorPageProvider { [weak self] in
-            guard let machines = self?.services?.machines else { return nil }
-            let server = opened.flatMap(machines.server)
-                ?? machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
-            return server?.daemon.connection
-        }
+        // A tab's first view takes the server it was opened for (else the latest open request's);
+        // a tab restored at launch (no open request yet) takes the first server that serves
+        // chief-inspect, once it asks.
+        let requested = openedFor.removeValue(forKey: key)
+        if opened.insert(key).inserted { tabMachines[key] = requested ?? machineID }
+        let provider = ChiefInspectorPageProvider { [weak self] in self?.connection(forTab: key) }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) ?? NSView()
+        guard let page = services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) else { return NSView() }
+        pages[key] = page
+        return page
+    }
+
+    /// Tab `key`'s server's daemon connection; the first serving server becomes the tab's own.
+    private func connection(forTab key: String) -> DaemonConnection? {
+        guard let machines = services?.machines else { return nil }
+        if let machine = tabMachines[key] { return machines.server(machine)?.daemon.connection }
+        guard let server = machines.servers.first(where: { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }) else { return nil }
+        tabMachines[key] = server.machineID
+        return server.daemon.connection
+    }
+
+    func tabClosed(_ key: String) {
+        openedFor[key] = nil
+        tabMachines[key] = nil
+        opened.remove(key)
+        pages.removeValue(forKey: key)?.close()
+    }
+
+    /// The server tab `key` inspects; nil until its first view opened for one or asked one.
+    func machine(ofTab key: String) -> String? { tabMachines[key] }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: the page only reads, and a new page asks the brain again.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The page ends with its view; the tab keeps its server.
+    func viewDiscarded(_ key: String) {
+        if let page = pages.removeValue(forKey: key) { services?.webUI.close(page) }
     }
 }
 

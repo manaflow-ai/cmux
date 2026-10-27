@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
@@ -14,8 +15,8 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
-        registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
+        registry.bindEffect("palette.openCmuxSettingsFile", effect: { _ in openCmuxConfig(context) })
+        registry.bindEffect("palette.openGhosttySettings", effect: { _ in openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
@@ -29,15 +30,15 @@ enum SettingsHandlers {
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
-        registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
+        registry.bindEffect("sendFeedback", effect: { _ in context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         HangReportsHandlers.bind(into: registry, context: context)
-        registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
+        registry.bindEffect("help.documentation", effect: { invocation in context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
         // The changelog page's provider exists from launch, so a What's New tab that the session
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
-        UpdateHandlers.bind(into: registry, updater: context.services.updater,
+        UpdateHandlers.bind(into: registry, updater: context.services.updater, mainWork: context.services.mainWork,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
@@ -65,9 +66,9 @@ enum SettingsHandlers {
     }
 
     /// Opens cmux-next.json in the default editor, creating an empty one first.
-    static func openCmuxConfig(_ context: AppActionContext) throws {
+    static func openCmuxConfig(_ context: AppActionContext) -> ActionEffect {
         let url = context.services.settings?.file.url ?? CmuxConfigFile.defaultURL()
-        try openCreatingIfMissing(url, contents: "{\n}\n", context)
+        return openCreatingIfMissing(url, contents: "{\n}\n", context)
     }
 
     /// Opens Ghostty's config (terminal fonts, colors, keybinds), which cmux
@@ -75,22 +76,33 @@ enum SettingsHandlers {
     /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
     /// `config.ghostty` or in Application Support gets that file, not a new
     /// empty `~/.config/ghostty/config` (R92).
-    private static func openGhosttyConfig(_ context: AppActionContext) throws {
+    private static func openGhosttyConfig(_ context: AppActionContext) -> ActionEffect {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
         let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
             ?? base.appending(path: "ghostty/config")
-        try openCreatingIfMissing(url, contents: "", context)
+        return openCreatingIfMissing(url, contents: "", context)
     }
 
-    private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {
-        let manager = FileManager.default
-        if !manager.fileExists(atPath: url.path) {
-            try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
+    /// Opens `url` in its app, first writing `contents` there when no file exists. The write runs on the files lane
+    /// and the open after it (``AppActionContext/openWork(_:)``); a failure of either fails the action.
+    private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) -> ActionEffect {
+        let work = context.services.work, open = context.openWork(url)
+        // action-wait-allow: the file is created off the main thread first; its app opens it once it exists.
+        return .waiting(.fileSystem) {
+            do {
+                try await work.run(.userBlocking, mayBlock: .files) {
+                    let manager = FileManager.default
+                    guard !manager.fileExists(atPath: url.path) else { return }
+                    try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
+                }
+            } catch {
+                return ActionWorkFailure(error.localizedDescription)
+            }
+            return await open()
         }
-        try context.open(url)
     }
 
     /// Writes a boolean setting at a dotted cmux-next.json path. Without `on`,

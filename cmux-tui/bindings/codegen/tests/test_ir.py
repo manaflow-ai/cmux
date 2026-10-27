@@ -641,6 +641,11 @@ class IpcMetaTests(unittest.TestCase):
         self.assertIn("$.commands.list-workspaces: IPC attributes need method_id", text)
         self.assertIn("$.events.workspace-created: IPC attributes need priority", text)
 
+    def test_framed_command_requires_durability(self) -> None:
+        document = _framed_document()
+        del document["commands"]["send-text"]["durability"]
+        self.assert_rejected(document, "$.commands.send-text: IPC attributes need durability")
+
     def test_rejects_independent_ordering_on_a_mutating_command(self) -> None:
         document = _framed_document()
         document["commands"]["send-text"]["ordering"] = "independent"

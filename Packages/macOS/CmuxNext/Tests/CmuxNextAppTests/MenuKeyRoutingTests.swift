@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -45,7 +46,7 @@ import CmuxNextFocusUI
 
     private static func harness(userConfig: String) throws -> Harness {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
         let controller = try #require(services.windows.openWindow(workspaces: ["c11-workspace"]))
@@ -75,7 +76,7 @@ import CmuxNextFocusUI
                                                claims: claims, keyNames: keyNames)
 
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         // The theme config owns `user` (and frees it).
         session.setTheme(GhosttyThemeConfig(config: user, themeName: "cmux-next-test", colors: nil))

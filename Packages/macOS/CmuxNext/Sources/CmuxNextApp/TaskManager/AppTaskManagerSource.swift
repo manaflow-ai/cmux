@@ -34,7 +34,7 @@ final class AppTaskManagerSource: TaskManagerSampleSource {
         for (key, sample) in await Self.sampleLocal(daemons.map(\.pid)) { resources.samples[key] = sample }
         guard memorySaved else { return TaskManagerSampleSet(resources: resources, daemons: daemons) }
         let cache = services.cache
-        cache.hibernation?.noteMemory(resources.tabMemory(kinds: TabResourceKind.browserPages))
+        cache.hibernation?.noteMemory(resources.browserPageMemory)
         let discarded = TaskManagerDiscardedItem.list(in: resources.tabs, isDiscarded: { cache.dormantTabs.contains($0) },
                                                       savedBytes: cache.hibernation?.savedBytes ?? [:])
         return TaskManagerSampleSet(resources: resources, daemons: daemons, discarded: discarded)

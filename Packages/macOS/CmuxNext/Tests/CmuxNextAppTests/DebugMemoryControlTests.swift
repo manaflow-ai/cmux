@@ -60,7 +60,7 @@ import Testing
     }
 
     private func call(_ router: ControlRouter, id: String = "1") async throws -> [String: JSONValue] {
-        let reply = try await router.handle(ControlRequest(id: id, method: "debug.memory")).get()
+        let reply = try await router.handle(ControlRequest(id: .string(id), method: "debug.memory")).get()
         return try #require(reply.objectValue)
     }
 

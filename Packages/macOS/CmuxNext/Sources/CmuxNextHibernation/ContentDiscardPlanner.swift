@@ -56,12 +56,19 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         package var isNeighbor = false
         /// An agent called the page within its grace (browser pages).
         package var isAgentDriving = false
+        /// The page a pane shows while its window is off screen (browser pages).
+        package var isActiveTab = false
+        /// A discard of it was tried and did not finish since it last showed (``AttemptMarkers``).
+        package var discardAttempted = false
 
         // The lead rule's facts (p07-memory.md section 3.C). A web page's probe fills them right
         // before a discard (`PageProbe.fill(_:)`); other kinds set them from their own state.
 
         /// Sound, media its mute silences, or Picture in Picture.
         package var isAudible = false
+        /// Seconds since the content last played sound (its sound ended, or a probe heard it); nil
+        /// when it never did. ``DiscardRule/recentlyAudible`` keeps it for a minute after.
+        package var secondsSinceAudible: Double?
         /// The person's edits in its form fields.
         package var hasFormInput = false
         /// The person moved into a child frame whose fields cannot be read.
@@ -123,7 +130,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// per critical pressure event (`UrgentPageDiscardingPolicy`,
         /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
         /// every 5 s while it stays critical. Browser pages keep their own paces
-        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        /// (`HibernationPlanner.pace(at:urgent:)`): at critical, cmux's relieves more within 30 s
+        /// (`HibernationPlanner.UrgentPace.browsers`).
         package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
     }
 
@@ -163,10 +171,14 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     package func eligibility(of candidate: Candidate, setting: BrowserHibernationSetting, for reason: DiscardReason) -> DiscardEligibility {
         let context = DiscardRule.Context(browser: setting, reason: reason)
         var eligibility = DiscardEligibility()
+        var ends: Double? = 0
         for rule in rules where rule.matches(candidate, context) {
             eligibility.result = max(eligibility.result, rule.result)
             eligibility.reasons.append(rule.reason)
+            // Kept until the last time-bound rule runs out; a rule only an event ends keeps no deadline.
+            ends = ends.flatMap { latest in rule.expires(candidate).map { max(latest, $0) } }
         }
+        eligibility.endsIn = eligibility.reasons.isEmpty ? nil : ends
         return eligibility
     }
 
@@ -196,7 +208,9 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     /// A candidate is due once its idleness reaches `threshold`. For an urgent discard, when none
     /// is due, the least valuable candidate hidden at least `Pace.minimumHidden` goes anyway, to
     /// relieve the pressure. Each pass takes at most `Pace.perPass` and looks again after
-    /// `Pace.interval` while more are waiting.
+    /// `Pace.interval` while more are waiting. A candidate kept only by rules that run out with time
+    /// (``DiscardEligibility/endsIn``, Chrome's audio protection) is looked at again once they do and
+    /// it would be due, in the same one deadline.
     ///
     /// - Parameters:
     ///   - setting: `browser.hibernation`, read by the rules of browser pages.
@@ -210,9 +224,14 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         var plan = Plan()
         let urgent = reason == .urgent
         var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
+        var expiring: [(idleness: Double, hiddenFor: Double, endsIn: Double)] = []
         for candidate in candidates {
-            if let kept = eligibility(of: candidate, setting: setting, for: reason).reason {
+            let eligibility = eligibility(of: candidate, setting: setting, for: reason)
+            if let kept = eligibility.reason {
                 plan.exemptions[candidate.key] = kept
+                if let endsIn = eligibility.endsIn {
+                    expiring.append((Self.idleness(candidate, for: reason, timeout: threshold), candidate.hiddenFor, endsIn))
+                }
                 continue
             }
             ranked.append((candidate.key, Self.idleness(candidate, for: reason, timeout: threshold), candidate.hiddenFor,
@@ -236,12 +255,51 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         }
         let dueKeys = Set(due.map(\.key))
         for page in ranked where !dueKeys.contains(page.key) {
-            let young = pace.minimumHidden - page.hiddenFor
-            var wait = max(threshold - page.idleness, young)
-            // Under pressure anything old enough is relief: look again once this one is.
-            if urgent { wait = min(wait, max(young, pace.interval)) }
-            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
+            let dueIn = Self.secondsUntilDue(page.idleness, hiddenFor: page.hiddenFor, threshold: threshold, pace: pace, urgent: urgent)
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(dueIn, 0.001))
+        }
+        for page in expiring {
+            let dueIn = Self.secondsUntilDue(page.idleness, hiddenFor: page.hiddenFor, threshold: threshold, pace: pace, urgent: urgent)
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(dueIn, page.endsIn, 0.001))
         }
         return plan
+    }
+
+    /// Seconds until a candidate that is not due now would be: its idleness reaches `threshold` and
+    /// it is hidden `Pace.minimumHidden`. Under pressure anything old enough is relief, so it is
+    /// looked at again once it is old enough, no sooner than `Pace.interval`.
+    private static func secondsUntilDue(_ idleness: Double, hiddenFor: Double, threshold: Double, pace: Pace, urgent: Bool) -> Double {
+        let young = pace.minimumHidden - hiddenFor
+        let dueIn = max(threshold - idleness, young)
+        return urgent ? min(dueIn, max(young, pace.interval)) : dueIn
+    }
+}
+
+extension ContentDiscardPlanner {
+    /// Content whose discard was tried and did not finish, by its owner's key: a refused freeze, a
+    /// `beforeunload` that asked, no state to restore it from, or a teardown that failed. Each such
+    /// item is ``DiscardRule/discardAttempted`` until it shows again, so the planner gives its slot
+    /// to the next candidate instead of trying it on every pass. Chrome marks a page the same way
+    /// (`DiscardAttemptMarker`, chrome/browser/performance_manager/policies/page_discarding_helper.cc);
+    /// cmux clears the mark when the person sees the content again.
+    package nonisolated struct AttemptMarkers: Hashable, Sendable {
+        private var keys: Set<String> = []
+
+        package init() {}
+
+        /// Whether `key`'s discard was tried and did not finish since it last showed.
+        package func contains(_ key: String) -> Bool {
+            keys.contains(key)
+        }
+
+        /// `key`'s discard was tried and did not finish.
+        package mutating func mark(_ key: String) {
+            keys.insert(key)
+        }
+
+        /// `key` showed or closed: a later discard may try it again.
+        package mutating func clear(_ key: String) {
+            keys.remove(key)
+        }
     }
 }

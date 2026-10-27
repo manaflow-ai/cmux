@@ -95,7 +95,8 @@ extension AuthCoordinator {
             }
             let deadline = Task { [clock, log] in
                 do {
-                    try await clock.sleep(for: timeout, tolerance: nil)
+                    // wakeup-allow: deadline the exchange's one timeout; cancelled when the exchange finishes first
+                    try await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
                     try Task.checkCancellation()
                 } catch {
                     return

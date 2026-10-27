@@ -93,7 +93,10 @@ pub struct Session {
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
+    pub(super) purged: std::sync::Arc<AtomicBool>,
+    /// Wakes a watched transcript's follower (`watch.rs`) when the watch ends: a take-over,
+    /// a close or a purge.
+    pub(super) watch_end: tokio::sync::Notify,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.

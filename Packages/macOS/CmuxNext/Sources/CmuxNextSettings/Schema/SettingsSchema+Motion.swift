@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Settings > Appearance > Motion: the master switch `ui.animations.enabled`
 /// and one switch per ``MotionCategory`` (``MotionCategoriesSetting``,

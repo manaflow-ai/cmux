@@ -1,6 +1,5 @@
 #if DEBUG
 import Foundation
-@preconcurrency import Sparkle
 
 /// Drives the ``UpdateStateModel`` into specific states for UI tests, and can run a mock feed
 /// check against an in-process appcast (``UpdateTestURLProtocol``).
@@ -30,7 +29,9 @@ public struct UpdateTestSupport {
                 if delayMilliseconds > 0 {
                     let model = self.model
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                        let delay = Duration.milliseconds(delayMilliseconds)
+                        // wakeup-allow: fixture DEBUG UI-test delay set by CMUX_UI_TEST_DETECTED_UPDATE_DELAY_MS
+                        try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
                         guard !Task.isCancelled else { return }
                         model.recordDetectedUpdate(item)
                     }
@@ -47,7 +48,7 @@ public struct UpdateTestSupport {
         case "available":
             let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
             transition(to: .updateAvailable(.init(
-                appcastItem: Self.makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty(),
+                appcastItem: Self.makeAppcastItem(displayVersion: version) ?? UpdateAppcastItem.empty(),
                 reply: { _ in }
             )))
         case "notFound":
@@ -92,10 +93,12 @@ public struct UpdateTestSupport {
             let delayMilliseconds = Int(env["CMUX_UI_TEST_MOCK_FEED_DELAY_MS"] ?? "") ?? 0
             Task { @MainActor in
                 if delayMilliseconds > 0 {
-                    try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                    let delay = Duration.milliseconds(delayMilliseconds)
+                    // wakeup-allow: fixture DEBUG UI-test feed delay set by CMUX_UI_TEST_MOCK_FEED_DELAY_MS
+                    try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
                 }
                 if hasItem {
-                    let appcastItem = Self.makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
+                    let appcastItem = Self.makeAppcastItem(displayVersion: version) ?? UpdateAppcastItem.empty()
                     model.applyDriverState(.updateAvailable(.init(appcastItem: appcastItem, reply: { _ in })))
                 } else {
                     model.applyDriverState(.notFound(.init(acknowledgement: {})))
@@ -110,12 +113,14 @@ public struct UpdateTestSupport {
         model.applyDriverState(.checking(.init(cancel: {})))
         let model = self.model
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
+            let delay = Duration.milliseconds(200)
+            // wakeup-allow: fixture DEBUG UI-test pause between the checking state and the forced one
+            try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
             model.applyDriverState(state)
         }
     }
 
-    private static func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+    private static func makeAppcastItem(displayVersion: String) -> UpdateAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",
             "length": "1024",
@@ -127,7 +132,7 @@ public struct UpdateTestSupport {
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
-        return SUAppcastItem(dictionary: dict)
+        return UpdateAppcastItem(dictionary: dict)
     }
 }
 #endif

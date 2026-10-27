@@ -344,7 +344,7 @@ Each queue is printed by `python3 scripts/cmux-next/ipc-census.py --queue QN` as
 `--record` writes base counts to plans/cmux-next/ipc-targets.json. The raw query is given so a reviewer can
 check it.
 
-- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(: String)? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory. 235 at base. `--callers <dir>` lists call-site files.
+- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory (a `DaemonRequest` declares `commandName: DaemonCommandName`; the first form of the query, without `Name`, missed every one of them). 235 at base; `ipc-census.py --record` keeps the current count in ipc-targets.json. `--callers <dir>` lists call-site files.
 - Q2 daemon sniffers (063-070): `git grep -n 'fn try_handle' -- cmux-tui/crates/cmux-tui-core/src/server`. 16.
 - Q3 F10 receipt waits (121-126, 134): today's wrapper pattern `\.commit_terminal\(|commit_workspace_registry\(|commit_effect_intent\(|\.send_durable(_until)?\(|\.send_producer\(` (17) plus direct callers `commit_registry_intent(_with)?\(` and `flush_terminal_journal\(` outside their definitions, excluding tests.
 - Q4 side connections (095, 100-105, 108, 151): multi-line scan for `LineTransport(path:` and `DaemonConnection(` (with the argument on the same or next line), plus `NWConnection(to: .unix`, raw `connect(` to daemon sockets, and `DaemonBridge.open`; minus the allowlist.
@@ -380,7 +380,8 @@ check it.
 - Merge conflicts. Family-scoped ids avoid collisions; api-compat-check before every push; hot files serialized
   (rule 11); sniffer tasks edit only their own ROUTES.
 - Build time. Generated Swift is limited to `clients: macos` methods, in a leaf target, per-family files; task
-  194 measures leaf-edit and schema-edit rebuilds before and after.
+  194 measures leaf-edit and schema-edit rebuilds before and after. The method table (023) is one file: it is
+  small data, and every output is rewritten on any schema edit, so per-family files would gain nothing.
 - Head-of-line. Streams stay off by default (095) until 056, 072, 086, 087, 099 and 144 land and B1 shows IPC-8;
   task 094 flips the default with that evidence.
 - Scope. The CLI-to-app control socket, cmux-pane-protocol and acpmux keep their own framing in this push.
@@ -682,6 +683,10 @@ lists dictionary-valued fields whose bytes change on purpose. Test: SWIFT(CmuxNe
 Change: `DaemonWireEvent` with a case per event plus `unknown(name, raw)`; `decode(line:)` finds the name with a
 byte scan (full-parse fallback) then decodes once; `decode(eventID:payload:)` for TYPED_EVENT. Acceptance: a
 counting decoder over 20 fixture lines shows 1 decode per event. Test: SWIFT(CmuxNextWireGenTests).
+A TYPED_EVENT payload is the event's JSON object, `event` included; an id the table does not know is `unknown`,
+never an error. CmuxNextWireGenPlugin builds the fixture schema's `DaemonWireEvent` into CmuxNextIPCTests
+(`--event-output`), where the counted decode runs. Follow-up p05-ipc-195 (after 020) passes `--event-output` for
+CmuxNextIPC itself, once TypeEmitter's payload types build.
 
 **p05-ipc-023 method tables.** Files: cmux-tui/crates/cmux-ipc/build.rs, cmux-tui/crates/cmux-ipc/src/methods.rs,
 app:CmuxNextWireGen/TableEmitter.swift, app:CmuxNextIPC/MethodTable.swift. Change: per-family dense arrays

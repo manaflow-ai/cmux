@@ -2,7 +2,7 @@
 /// section E), so close deadlines share the queue's one wake.
 ///
 /// The placements are the resolved form of `TimerAlignment` (p06-scheduler-011): `MainDeadline` maps
-/// `.whenHidden(node)` to ``Placement/hidden`` while the node is hidden and not exempt for media or capture,
+/// `.whenHidden(node)` to ``Placement/hidden`` while the node is hidden and not exempt for media,
 /// and to ``Placement/flexible`` otherwise; this type only places. They are Chrome's:
 /// - ``Placement/flexible``, the default: no sooner than its time, snapped up to the next 8 ms tick
 ///   (32 ms in Energy Saver), with that leeway (`kAlignWakeUps` and `kDefaultLeeway`,
@@ -63,20 +63,72 @@ public struct AlignedWakeups: Sendable {
     ///   - owner: Who asked; the `WakeupLedger` owner of the deadline (reason `deadline`).
     ///   - delay: How long to wait at least (zero or less: the next fire).
     ///   - placement: Where the deadline goes.
+    ///   - file: The line that asked, named by the arm census in Debug and bench builds (leave the default).
+    ///   - line: See `file`.
     ///   - action: Runs on the main actor in the boundary's fire; it should post its work, not do it.
     /// - Returns: The ticket that cancels it.
     @discardableResult
     public func schedule(owner: String, after delay: Duration, placement: Placement = .flexible,
+                         file: StaticString = #fileID, line: UInt = #line,
                          _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // One record per deadline in the launch's arm census (p08-startup-085); its fire is the record's first.
+        let action = Self.census(queue.ledger.armCensus, owner: owner, site: ArmCensus.Site(file: file, line: line), action)
+        #endif
         switch placement {
         case .precise:
-            Ticket(token: queue.insert(owner: owner, after: delay, policy: .precise, action))
+            return Ticket(token: queue.insert(owner: owner, after: delay, policy: .precise, action))
         case .flexible:
-            Ticket(token: queue.insert(owner: owner, after: delay, policy: .flexibleNoSooner, action))
+            return Ticket(token: queue.insert(owner: owner, after: delay, policy: .flexibleNoSooner, action))
         case .hidden:
-            Ticket(token: queue.insertHidden(owner: owner, after: delay, action))
+            return Ticket(token: queue.insertHidden(owner: owner, after: delay, action))
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `action`, recording its first fire when `census` records the deadline's arm.
+    private static func census(_ census: ArmCensus, owner: String, site: ArmCensus.Site,
+                               _ action: @escaping MainWakeUpQueue.Action) -> MainWakeUpQueue.Action {
+        guard let slot = census.armed(.mainDeadline, owner: owner, site: site) else { return action }
+        return {
+            census.fired(slot)
+            action()
+        }
+    }
+    #endif
+
+    /// ``schedule(owner:after:placement:file:line:_:)`` for a deadline given as an instant on the queue's clock
+    /// (uptime ns), so a deadline that moves to another placement keeps its due time. Callable from any
+    /// thread.
+    @discardableResult
+    func schedule(owner: String, at deadline: UInt64, placement: Placement,
+                  _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
+        if placement == .hidden { return Ticket(token: queue.insertHidden(owner: owner, at: deadline, action)) }
+        let window = self.window(placement, deadline: deadline)
+        return Ticket(token: queue.insert(owner: owner, at: deadline, window: window, action))
+    }
+
+    /// The window `placement` gives a deadline at `deadline` (uptime ns), from the time left now: the one
+    /// ``schedule(owner:at:placement:_:)`` places it in, whose ``WakeLeeway/fireTime(deadline:)`` is when
+    /// it fires alone.
+    func window(_ placement: Placement, deadline: UInt64) -> WakeLeeway {
+        let now = queue.now
+        let delay: Duration = deadline > now ? .nanoseconds(Int64(clamping: deadline - now)) : .zero
+        switch placement {
+        case .precise: return .window(delay: delay, policy: .precise, alignment: queue.alignment)
+        case .flexible: return .window(delay: delay, policy: .flexibleNoSooner, alignment: queue.alignment)
+        case .hidden: return .hidden(delay: delay)
+        }
+    }
+
+    /// Now on the queue's clock (uptime ns).
+    var now: UInt64 { queue.now }
+
+    /// The uptime the queue's timer is armed for (ns), for every user of the queue; nil while it is parked.
+    var nextFireDate: UInt64? { queue.armedDate }
+
+    /// The queue's ledger, for owners that run in a fire under another owner's entry.
+    var ledger: WakeupLedger { queue.ledger }
 
     /// Drops a pending deadline; false when it already ran or was cancelled. The queue's timer moves to the
     /// next deadline, or parks when this was the last one. Callable from any thread.

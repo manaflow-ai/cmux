@@ -33,6 +33,7 @@
 //! with lstat), owned by this uid, with no group or other access; anything
 //! else refuses. Nothing is chmod-repaired or reused after a failed check.
 
+use cmux_threads::checked::fs as files;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 
@@ -128,8 +129,7 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
         }
         let tmp = Path::new("/tmp");
         shared_tmp(tmp)?;
-        // SAFETY: geteuid has no preconditions.
-        let uid = unsafe { libc::geteuid() };
+        let uid = crate::platform::effective_uid();
         let dir = tmp.join(format!("cmux-apps-{uid}")).join(name);
         fits(&dir)?;
         Ok(dir)
@@ -141,13 +141,12 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
 /// another user cannot rename or delete the per-user folder in it.
 #[cfg(not(target_os = "macos"))]
 fn shared_tmp(path: &Path) -> Result<(), String> {
-    let meta = std::fs::symlink_metadata(path)
+    let meta = files::symlink_metadata(path)
         .map_err(|e| format!("no runtime dir, and {}: {e}", path.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("no runtime dir, and {} is not a real directory", path.display()));
     }
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     // S_ISVTX; mode_t is u16 on some BSDs, so the bit is spelled out.
     let sticky = meta.mode() & 0o1000 != 0;
     if (meta.uid() != 0 && meta.uid() != uid) || (meta.mode() & 0o022 != 0 && !sticky) {
@@ -165,12 +164,11 @@ fn shared_tmp(path: &Path) -> Result<(), String> {
 /// no group or other access.
 pub(super) fn private_dir(path: &Path, what: &str) -> Result<(), String> {
     let meta =
-        std::fs::symlink_metadata(path).map_err(|e| format!("{what} {}: {e}", path.display()))?;
+        files::symlink_metadata(path).map_err(|e| format!("{what} {}: {e}", path.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("{what} {} is not a real directory", path.display()));
     }
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     if meta.uid() != uid {
         return Err(format!("{what} {} belongs to another user", path.display()));
     }
@@ -199,31 +197,26 @@ pub(super) fn fresh_server_tmp(dir: &Path) -> Result<(), String> {
     let parent = dir
         .parent()
         .ok_or_else(|| format!("the app socket folder {} has no parent", dir.display()))?;
-    match std::fs::symlink_metadata(parent) {
+    match files::symlink_metadata(parent) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)
+            files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), parent)
                 .map_err(|e| format!("app socket folders' parent {}: {e}", parent.display()))?;
         }
         Err(e) => return Err(format!("app socket folders' parent {}: {e}", parent.display())),
     }
     private_dir(parent, "the app socket folders' parent")?;
-    match std::fs::symlink_metadata(dir) {
+    match files::symlink_metadata(dir) {
         Ok(_) => {
             // Never empty a folder another user or a symlink put there.
             private_dir(dir, "the app socket folder")?;
-            std::fs::remove_dir_all(dir)
+            files::remove_dir_all(dir)
                 .map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("app socket folder {}: {e}", dir.display())),
     }
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(dir)
+    files::create_dir_with(files::DirBuilder::new().mode(0o700), dir)
         .map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
     private_dir(dir, "the app socket folder")
 }
@@ -231,7 +224,7 @@ pub(super) fn fresh_server_tmp(dir: &Path) -> Result<(), String> {
 /// When the server ends or the app goes: the folder goes, only if it is ours.
 pub(super) fn remove_server_tmp(dir: &Path) {
     if private_dir(dir, "the app socket folder").is_ok() {
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = files::remove_dir_all(dir);
     }
 }
 

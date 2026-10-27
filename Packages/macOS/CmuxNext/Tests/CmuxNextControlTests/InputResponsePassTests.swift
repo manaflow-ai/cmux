@@ -262,7 +262,7 @@ import Testing
     }
 
     /// An observer at Core Animation's commit order that logs `commit`.
-    private static func addCommitObserver(_ log: Log) -> CFRunLoopObserver {
+    private static func addCommitObserver(_ log: Log) -> CFRunLoopObserver? {
         let commit = CFRunLoopObserverCreateWithHandler(
             nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, true, 2_000_000
         ) { _, _ in

@@ -6,7 +6,7 @@ import CmuxNextSettingsWindow
 import Foundation
 import Testing
 
-/// Help > Feature Flags (`help.featureFlags`, `cmux settings feature-flags`):
+/// Help > Feature Flags (`help.featureFlags`, `cmux action run help.featureFlags`):
 /// cmux-next's feature flags are the Labs toggles (`labs.*`), so the action
 /// opens Settings > Advanced > Labs instead of showing a greyed-out reason.
 @MainActor @Suite(.serialized)
@@ -16,7 +16,7 @@ struct FeatureFlagsActionTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         #expect(services.registry.unavailableReason(for: "help.featureFlags") == nil, "Feature Flags is still greyed out")
-        let anchor = try #require(SettingsAnchor(key: FeatureFlagsPage.settingKey))
+        let anchor = try #require(SettingsAnchor(key: FeatureFlagsPage.settingKey, availability: SettingsAvailability()))
         #expect(anchor.section == .advanced)
         // Without a loaded cmux.json the run says why instead of doing nothing.
         services.settings = nil

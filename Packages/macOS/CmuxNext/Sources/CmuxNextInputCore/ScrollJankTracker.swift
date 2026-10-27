@@ -122,6 +122,30 @@ public struct ScrollJankTracker: Sendable, Equatable {
         }
     }
 
+    /// Moves the counts out (the emitted histograms and the frame counters) and returns them as a
+    /// tracker of counts only. The fixed window not yet full, the scroll in progress and its
+    /// previous presentation stay, as cc's tracker keeps its state across UMA uploads.
+    public mutating func takeCounts() -> ScrollJankTracker {
+        var counts = ScrollJankTracker()
+        counts.histograms = histograms
+        counts.presentedFrames = presentedFrames
+        counts.delayedFrames = delayedFrames
+        counts.skippedFrames = skippedFrames
+        histograms = ScrollJankHistograms()
+        presentedFrames = 0
+        delayedFrames = 0
+        skippedFrames = 0
+        return counts
+    }
+
+    /// Adds the counts of `other` (emitted histograms and frame counters), not its state.
+    public mutating func addCounts(_ other: ScrollJankTracker) {
+        histograms.add(other.histograms)
+        presentedFrames &+= other.presentedFrames
+        delayedFrames &+= other.delayedFrames
+        skippedFrames &+= other.skippedFrames
+    }
+
     /// The counts of the window not yet full.
     public var currentWindow: JankData { fixedWindow }
     /// The counts of the scroll in progress, nil before the first scroll.
@@ -148,6 +172,13 @@ public struct ScrollJankHistograms: Sendable, Equatable {
     /// Counts one emitted `value` of `name`.
     public mutating func record(_ name: Name, _ value: Int) {
         values[name, default: [:]][value, default: 0] &+= 1
+    }
+
+    /// Adds every value `other` emitted.
+    public mutating func add(_ other: ScrollJankHistograms) {
+        for (name, counts) in other.values {
+            for (value, count) in counts { values[name, default: [:]][value, default: 0] &+= count }
+        }
     }
 
     /// How many values `name` emitted.

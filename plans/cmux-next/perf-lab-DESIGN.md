@@ -59,7 +59,7 @@ run there. Each host runs one job at a time. A foreground job does not preempt a
 | --- | --- | --- |
 | waterfall M6 | 2 M6 minis | T0 shards A and B, T1 shards. These hosts make the alerting series. |
 | pinpoint M6 | 2 M6 minis | Bisect, culprit verification, A/A, reference runs. Same host class as the waterfall hosts. |
-| waterfall + pinpoint, other classes | cmux20-bench; 1 aws-m4pro on macOS 26 | T1 and T2 (xbench, soak). A bisect for their class borrows them when they are idle. |
+| waterfall + pinpoint, other classes | cmux20-bench; 1 aws-m4pro on macOS 26 | T2 (xbench, soak) on both, T1 on aws-m4pro. cmux20-bench is an M6 16 GB mini, the M6 host class, and a series key names no host, so it runs no T0 or T1 story. A bisect for their class borrows them when they are idle. |
 
 - A generated shard map (`shard_map.json`, bin packing on story seconds) binds each T0 and T1 story to one waterfall
   host, as Chrome's shard maps do. When the owner host is down, the point is a coverage gap. The lab never moves the

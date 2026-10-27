@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 import Foundation
 
@@ -27,9 +28,7 @@ public protocol ScreenSignalSocket: Sendable {
 /// throws ``ScreenSignalingError/fingerprintMismatch``, `bye` is sent and the
 /// socket closed. The ticket admits once, so no new signaling follows a
 /// closed socket; a peer connection already open outlives it.
-// crash-allow: `socket` and `closed` are read and written only under `lock`; every other field is a `let`.
-public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
-    // @unchecked: `socket` and `opened` are behind `lock`.
+public final class TicketSignaling: ScreenSignaling {
 
     /// What the ticket's (unverified, server-signed) payload says; the Session DO checks it.
     public struct Ticket: Sendable, Equatable {
@@ -74,9 +73,13 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     private let signer: any ScreenTicketSigner
     private let servers: [ICEServerConfig]
     private let connect: @Sendable (URLRequest) async throws -> any ScreenSignalSocket
-    private let lock = NSLock()
-    private var socket: (any ScreenSignalSocket)?
-    private var closed = false
+    /// The open socket, and whether ``close()`` ran (a socket that opens after it is closed at once).
+    private struct Connection: Sendable {
+        var socket: (any ScreenSignalSocket)?
+        var closed = false
+    }
+
+    private let connection = Mutex(Connection())
 
     /// `jws` and `signalURL` come from the hub's `session.ticket` push;
     /// `expectedPeerKey` (the push's `peer.signingKey`) must match the
@@ -113,9 +116,9 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
                 var request = URLRequest(url: socketURL)
                 for (name, value) in try await signer.deviceHeaders(for: socketURL) { request.setValue(value, forHTTPHeaderField: name) }
                 let socket = try await connect(request)
-                let alreadyClosed = lock.withLock { () -> Bool in
-                    self.socket = socket
-                    return closed
+                let alreadyClosed: Bool = connection.withLock { state in
+                    state.socket = socket
+                    return state.closed
                 }
                 if alreadyClosed {
                     socket.close()
@@ -139,7 +142,7 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
                 continuation.finish()
             } catch {
                 if error as? ScreenSignalingError == .fingerprintMismatch || error as? ScreenSignalingError == .missingFingerprint {
-                    try? await lock.withLock({ socket })?.send(#"{"type":"bye"}"#)
+                    try? await connection.withLock({ $0.socket })?.send(#"{"type":"bye"}"#)
                 }
                 close()
                 continuation.finish(throwing: error)
@@ -182,13 +185,13 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
             frame = Frame(type: "bye")
         case let .path(relay):
             // `{type:'path', path:'direct'|'relay'}`: the hub stores it, the peer never sees it.
-            guard let socket = lock.withLock({ socket }) else { return }
+            guard let socket = connection.withLock({ $0.socket }) else { return }
             try await socket.send(#"{"type":"path","path":"\#(relay ? "relay" : "direct")"}"#)
             return
         case .hello, .peerJoined, .peerLeft:
             return
         }
-        guard let socket = lock.withLock({ socket }) else { throw VNCWebRTCError.signaling("the session socket is not open") }
+        guard let socket = connection.withLock({ $0.socket }) else { throw VNCWebRTCError.signaling("the session socket is not open") }
         let data = try JSONEncoder().encode(frame)
         try await socket.send(String(decoding: data, as: UTF8.self))
     }
@@ -201,9 +204,9 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     }
 
     public func close() {
-        let socket = lock.withLock { () -> (any ScreenSignalSocket)? in
-            closed = true
-            return self.socket
+        let socket: (any ScreenSignalSocket)? = connection.withLock { state in
+            state.closed = true
+            return state.socket
         }
         socket?.close()
     }

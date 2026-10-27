@@ -12,9 +12,10 @@ import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
 import CmuxNextStash
+import CmuxNextWakeups
 import Foundation
 import os
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -24,7 +25,7 @@ import CmuxNextRemoteBrowser
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
     /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stash = StashService(host: stashHost, mainWork: services.mainWork)
     private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
@@ -77,20 +78,21 @@ final class HistoryPageService: HistoryPageSource {
         HistoryRestorer(services: services).copy(text)
     }
 
-    /// The app's cookie backups (WebKit tabs' agent clears), read off the
-    /// main actor: the files are decrypted with the Keychain key.
+    /// The app's cookie backups (WebKit tabs' agent clears), read on the
+    /// system lane: the files are decrypted with the Keychain key, which
+    /// waits for securityd.
     func cookieBackups() async -> [HistoryCookieBackup] {
         guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
-        return await Task.detached {
+        return (try? await services.work.run(.userVisible, mayBlock: .system) {
             backups.pruneExpired()
             return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
-        }.value
+        }) ?? []
     }
 
     /// The person confirmed: the backups go for good (an agent never gets here).
     func deleteCookieBackups(_ ids: [String]) async {
         guard let backups = services.browserHost?.driver.cookieBackups else { return }
-        let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
+        let deleted = (try? await services.work.run(.userVisible, mayBlock: .files) { ids.filter { (try? backups.remove($0)) != nil }.count }) ?? 0
         Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
     }
 
@@ -163,14 +165,15 @@ extension TabContentCache {
 
     /// A development remote tab record (`cmux://remote-browser`).
     static func isRemoteBrowserPage(_ url: URL?) -> Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         RemoteBrowserTabRecord.matches(url)
         #else
         false
         #endif
     }
 
-    private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+    /// The page at app page address `url` for `tab` (a hibernated one's wake too); nil for another address.
+    func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -179,7 +182,7 @@ extension TabContentCache {
         if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
             return MachineBrowserPages(cache: self).makePage(record, key: key, engine: engine, profile: profile)
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let url, RemoteBrowserTabRecord.matches(url) {
             return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
         }
@@ -199,7 +202,8 @@ extension TabContentCache {
             let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
             let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
             let page = RemoteViewPageTab(
-                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
+                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision, work: services.work, mainWork: services.mainWork,
+                vncSignIns: services.vncSignIns,
                 closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
                 connect: { [weak self] confirmedURL in
                     // The Connect button: a person confirmed this record (view mode).
@@ -211,6 +215,7 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            page.pointerFrames = services.remotePointerFrames
             return page
         }
         if VaultPageAddress.matches(url) {
@@ -234,7 +239,7 @@ extension TabContentCache {
     /// page of its record's engine (WebKit when Chromium cannot start).
     func leaveAppPage(_ key: String, to url: URL) {
         let profile = browserProfile?(key) ?? .default
-        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
+        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url, origin: .user)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
             return swapPage(key, with: unproxiedWebKitPage(config))
         }

@@ -55,7 +55,6 @@ final class ExtensionsMenuHoverButton: NSView {
     /// Whether the highlight shows: hover, keyboard focus or a press.
     var isHighlighted: Bool { isEnabled && (isHovering || hasFocus || isPressed) }
     private let tint: (() -> NSColor)?
-    private var tracking: NSTrackingArea?
 
     /// - Parameters:
     ///   - image: The icon; a template image is tinted by `tint`.
@@ -94,6 +93,7 @@ final class ExtensionsMenuHoverButton: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         if let title { setAccessibilityLabel(title) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -159,20 +159,13 @@ final class ExtensionsMenuHoverButton: NSView {
         onHighlightChange?()
     }
 
+    // visibility-walk-allow: an invalidation only; AppKit draws a hidden view when it shows, which is the deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
 
     // MARK: Pointer
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {
         isHovering = true

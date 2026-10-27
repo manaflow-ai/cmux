@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextVSCodeServer
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// VS Code (Inline): Open Folder in VS Code (Inline)… serves a folder from the app's one
 /// `serve-web` server (`AppServices.vscodeServeWeb`) and opens it in a browser split to the right
@@ -19,10 +21,11 @@ enum VSCodeInlineHandlers {
             Task { await service.stop() }
         })
         registry.bind("palette.vscodeServeWebRestart", run: { _ in
-            let vscode = try installedVSCode()
-            let service = context.services.vscodeServeWeb, registry = context.registry
+            let service = context.services.vscodeServeWeb, registry = context.registry, queries = context.services.workspaceQueries
             Task {
-                do { _ = try await service.restart(vscode: vscode) } catch {
+                do { _ = try await service.restart(vscode: try await installedVSCode(queries)) } catch let failure as ActionFailure {
+                    registry.refuse(failure.message)
+                } catch {
                     if let reason = VSCodeInlineStrings.failure(error) { registry.refuse(reason) }
                 }
             }
@@ -32,12 +35,15 @@ enum VSCodeInlineHandlers {
     private static func openFolder(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let pane = try targetPane(invocation, context: context)
         guard context.services.daemon(for: pane.pane).isLocal else { throw ActionFailure(message: VSCodeInlineStrings.thisMacOnly) }
-        let vscode = try installedVSCode()
+        // Known missing: refuse before the panel. Unknown yet: the serve finds it on the system lane.
+        if let kept = context.services.workspaceQueries.cached(installedVSCodeQuery()), kept == nil {
+            throw ActionFailure(message: VSCodeInlineStrings.notInstalled)
+        }
         let folder = folder(of: pane, invocation)
         let byPerson = invocation.origin == .user
         guard byPerson else {
             guard let folder else { throw ActionFailure(message: VSCodeInlineStrings.noFolder) }
-            return serve(folder, vscode: vscode, beside: pane, byPerson: false, context: context)
+            return serve(folder, beside: pane, byPerson: false, context: context)
         }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -49,7 +55,7 @@ enum VSCodeInlineHandlers {
         panel.directoryURL = URL(fileURLWithPath: folder ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            serve(url.standardizedFileURL.path, vscode: vscode, beside: pane, byPerson: true, context: context)
+            serve(url.standardizedFileURL.path, beside: pane, byPerson: true, context: context)
         }
         if let window = context.activeWindow?.window {
             panel.beginSheetModal(for: window, completionHandler: completion)
@@ -58,12 +64,12 @@ enum VSCodeInlineHandlers {
         }
     }
 
-    /// Starts (or reuses) the server, then opens `folder` in a browser split beside `pane`.
-    private static func serve(_ folder: String, vscode: URL, beside pane: PaneController, byPerson: Bool, context: AppActionContext) {
-        let service = context.services.vscodeServeWeb, registry = context.registry
+    /// Finds VS Code, starts (or reuses) the server, then opens `folder` in a browser split beside `pane`.
+    private static func serve(_ folder: String, beside pane: PaneController, byPerson: Bool, context: AppActionContext) {
+        let service = context.services.vscodeServeWeb, registry = context.registry, queries = context.services.workspaceQueries
         Task {
             do {
-                let url = try await service.url(vscode: vscode, openingFolder: folder)
+                let url = try await service.url(vscode: try await installedVSCode(queries), openingFolder: folder)
                 let effect = try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, byPerson: byPerson, context: context)
                 registry.settle(effect, of: "palette.openFolderInVSCodeInline", ActionInvocation())
             } catch let failure as ActionFailure {
@@ -98,16 +104,25 @@ enum VSCodeInlineHandlers {
         return cwd
     }
 
-    /// The installed VS Code app: by bundle id, else the usual install places; Insiders last.
-    private static func installedVSCode() throws -> URL {
-        let workspace = NSWorkspace.shared
-        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") { return url }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for path in ["/Applications/Visual Studio Code.app", "\(home)/Applications/Visual Studio Code.app", "/Applications/Code.app"]
-            where FileManager.default.fileExists(atPath: path) {
-            return URL(fileURLWithPath: path, isDirectory: true)
+    /// The installed VS Code app, found on the system lane and kept (``WorkspaceQueries``).
+    private static func installedVSCode(_ queries: WorkspaceQueries) async throws -> URL {
+        guard let url = try await queries.value(installedVSCodeQuery(), priority: .userBlocking) else {
+            throw ActionFailure(message: VSCodeInlineStrings.notInstalled)
         }
-        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCodeInsiders") { return url }
-        throw ActionFailure(message: VSCodeInlineStrings.notInstalled)
+        return url
+    }
+
+    /// The installed VS Code app: by bundle id, else the usual install places; Insiders last. Blocking (Launch
+    /// Services and the disk): it runs on the system lane.
+    nonisolated static func installedVSCodeQuery() -> WorkspaceQuery<URL?> {
+        WorkspaceQuery(id: "vscode.installedApp", refreshes: true) { system in
+            if let url = system.application(withBundleIdentifier: "com.microsoft.VSCode") { return url }
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            for path in ["/Applications/Visual Studio Code.app", "\(home)/Applications/Visual Studio Code.app", "/Applications/Code.app"]
+                where FileManager.checked.fileExists(atPath: path) {
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+            return system.application(withBundleIdentifier: "com.microsoft.VSCodeInsiders")
+        }
     }
 }

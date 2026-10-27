@@ -1,5 +1,9 @@
 public import CmuxNextActions
 public import CmuxNextDesign
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 public import Observation
 
@@ -60,19 +64,27 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The design settings this controller applies to (`DesignSettings.shared` in the app).
+    public var design: DesignSettings { applier.design }
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// The app's main-thread scheduler: watcher events, a reload's landing and a cancelled waiter's resume
+    /// reach main as `visible` tasks on it.
+    @ObservationIgnored let mainWork: MainWorkScheduler
+    /// A reload reads off main now; a request made meanwhile reads again once it landed.
+    @ObservationIgnored private var reloading = false
     @ObservationIgnored private var reloadRequested = false
     @ObservationIgnored private var lastSource: LoadInputs?
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
-    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var statusTarget: ManagedStatusTarget?
     @ObservationIgnored var lastStatusBody: JSONValue?
+    /// The app activation backstop's subscription (`followActivation(on:)`).
+    @ObservationIgnored var activation: EventSubscription?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
-    /// The launch's read (`readAtLaunch`), adopted by the first load.
-    @ObservationIgnored private var launchRead: LaunchRead?
+    /// The launch's read (`startLaunchRead`), adopted by the first load; until then it is the managed layer launch steps read.
+    @ObservationIgnored var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -80,11 +92,11 @@ public final class SettingsController {
     private struct LoadWaiter {
         let token: UUID
         let count: Int
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
-    fileprivate nonisolated struct LoadInputs: Equatable, Sendable {
+    nonisolated struct LoadInputs: Equatable, Sendable {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
@@ -96,39 +108,57 @@ public final class SettingsController {
         fileURL: URL = CmuxConfigFile.defaultURL(),
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
-        launch: LaunchRead? = nil
+        launch: LaunchRead? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) {
         self.file = CmuxConfigFile(url: fileURL)
         self.launchRead = launch
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
+        self.mainWork = mainWork
     }
 
-    /// Loads the file now and starts watching it. `announcingDiagnostics`: the app also tells the
-    /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false) {
+    /// Applies the launch's read as the first load, on the calling thread, with no file call and no
+    /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnosticsOn:)``
+    /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
+    /// preferences before the first window and arms the file watchers later). Nothing without a
+    /// launch read or after the first load.
+    public func adoptLaunchRead() {
+        guard loadCount == 0, let launch = launchRead else { return }
+        launchRead = nil
+        adopt(launch.loaded)
+    }
+
+    /// Loads the file now (the launch's read when the controller was made with one: no file call
+    /// on this thread) and starts watching it; the watches are armed off this thread, then reload
+    /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
+    /// thread, so an edit made since the launch read applies. With `events` (the app's notices),
+    /// the app also tells the person about a value it ignores (`SettingsDiagnosticToasts`), sending
+    /// them to its Settings row only while `availability` says the page draws it; tests leave it off.
+    public func start(announcingDiagnosticsOn events: AppEvents? = nil,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
-        if announcingDiagnostics, diagnosticToasts == nil {
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+        let watcher = ConfigFileWatcher(url: file.url) { [weak self, mainWork] in
+            mainWork.postFromAnyThread(.visible, owner: "Settings.fileChanged") { [weak self] in self?.requestReload() }
+        }
+        self.watcher = watcher
+        watcher.startWithoutWaiting()
+        startManagedWatchers()
+        if loadCount == 0 { loadNow() } else { requestReload() }
+        if let events, diagnosticToasts == nil {
+            // After the first load: the toasts' first read is the loaded file, never the empty state before it.
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, events: events, availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }
-        let watcher = ConfigFileWatcher(url: file.url) { [weak self] in
-            Task { @MainActor in self?.requestReload() }
-        }
-        self.watcher = watcher
-        watcher.start()
-        startManagedWatchers()
-        if loadCount == 0 { loadNow() } else { requestReload() }
     }
 
     public func stop() {
         watcher?.stop()
         watcher = nil
         stopManagedWatchers()
-        reloadTask?.cancel()
-        reloadTask = nil
+        reloadRequested = false
     }
 
     /// Reloads now and waits until the load has applied.
@@ -145,23 +175,24 @@ public final class SettingsController {
         // A cancelled caller returns without registering a waiter or
         // spawning the cancellation hop below.
         guard loadCount < count, !Task.isCancelled else { return }
-        let token = UUID()
+        let token = UUID(), mainWork = mainWork
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a loaded or cancelled one does.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 if Task.isCancelled || loadCount >= count {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     loadWaiters.append(LoadWaiter(token: token, count: count, continuation: continuation))
                 }
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.resumeWaiter(token) }
+            mainWork.postFromAnyThread(.visible, owner: "Settings.waiterCancelled") { [weak self] in self?.resumeWaiter(token) }
         }
     }
 
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
-        loadWaiters.remove(at: index).continuation.resume()
+        loadWaiters.remove(at: index).continuation.resume(returning: ())
     }
 
     // MARK: - Writing
@@ -251,29 +282,61 @@ public final class SettingsController {
         await loadOnce()
     }
 
-    /// Coalesces bursts of file events into one load of the latest content.
+    /// Coalesces bursts of file events into one load of the latest content: the managed layers and the
+    /// file are read off main, and the load lands as one `visible` task on ``mainWork`` (Chromium's
+    /// `PostTaskAndReplyWithResult`, base/task/task_runner.h). A request made while one reads reads
+    /// again once that one landed.
     func requestReload() {
         reloadRequested = true
-        guard reloadTask == nil else { return }
-        reloadTask = Task { [weak self] in
-            while let self, self.reloadRequested {
-                self.reloadRequested = false
-                await self.loadOnce()
-            }
-            self?.reloadTask = nil
+        guard !reloading else { return }
+        reloadNext()
+    }
+
+    private func reloadNext() {
+        reloadRequested = false
+        reloading = true
+        let inputs = readInputs(), mainWork = mainWork
+        // task-owner: one off-main read; its load lands on main and asks for the next read there
+        Task { @concurrent [weak self] in
+            let loaded = await Self.read(inputs)
+            mainWork.postFromAnyThread(.visible, owner: "Settings.reload") { [weak self] in self?.landReload(loaded) }
         }
     }
 
-    private func loadOnce() async {
-        let (file, reader, team, lastGood) = (file, managedReader, teamPolicy, fileRoot)
+    private func landReload(_ loaded: Loaded) {
+        adopt(loaded)
+        reloading = false
+        if reloadRequested { reloadNext() }
+    }
+
+    /// What one load reads off main, taken on main.
+    nonisolated struct ReadInputs: Sendable {
+        let file: CmuxConfigFile
+        let reader: any ManagedPreferenceReader
+        let team: TeamPolicyLayer
+        let lastGood: JSONValue
+        let densities: Set<String>
+        let metrics: Set<String>
+    }
+
+    private func readInputs() -> ReadInputs {
         let valid = Self.validValues
-        adopt(await Task.detached {
-            let managed = reader.read()
-            let source: Result<String, any Error>
-            do { source = .success(try await file.source()) } catch { source = .failure(error) }
-            return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent())
-        }.value)
+        return ReadInputs(file: file, reader: managedReader, team: teamPolicy, lastGood: fileRoot,
+                          densities: valid.densities, metrics: valid.metrics)
+    }
+
+    /// The managed layers and the file's text, parsed and merged: the off-main half of a load.
+    @concurrent nonisolated static func read(_ inputs: ReadInputs) async -> Loaded {
+        let managed = inputs.reader.read()
+        let source: Result<String, any Error>
+        do { source = .success(try await inputs.file.source()) } catch { source = .failure(error) }
+        return loaded(source, managed: managed, team: inputs.team, lastGood: inputs.lastGood,
+                      valid: (inputs.densities, inputs.metrics), configDirectory: inputs.file.url.deletingLastPathComponent())
+    }
+
+    private func loadOnce() async {
+        let inputs = readInputs()
+        adopt(await Self.read(inputs))
     }
 
     /// The launch's first load, on the calling thread: the first window
@@ -288,32 +351,15 @@ public final class SettingsController {
                           configDirectory: file.url.deletingLastPathComponent()))
     }
 
-    /// The launch's first load, read before the controller exists so the
-    /// terminal runtime starts in the file's appearance; the controller
-    /// adopts it (`init(launch:)`) instead of reading the file again.
-    public nonisolated struct LaunchRead: Sendable {
-        fileprivate let loaded: Loaded
-        public let fileURL: URL
-        public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
-    }
-
-    public static func readAtLaunch(
-        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
-    ) -> LaunchRead {
-        let source = Result { try CmuxConfigFile.source(at: fileURL) }
-        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
-    }
-
-    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
-    private static var validValues: (densities: Set<String>, metrics: Set<String>) {
+    typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
+    static var validValues: (densities: Set<String>, metrics: Set<String>) {
         (SettingsApplier.validDensities, SettingsApplier.validMetrics)
     }
 
     /// Parses the file's text and merges the managed layers.
-    private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
-                                           lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                           configDirectory: URL) -> Loaded {
+    nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
+                                   lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
+                                   configDirectory: URL) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -358,6 +404,6 @@ public final class SettingsController {
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }
         loadWaiters.removeAll { $0.count <= loadCount }
-        ready.forEach { $0.continuation.resume() }
+        ready.forEach { $0.continuation.resume(returning: ()) }
     }
 }

@@ -397,9 +397,10 @@ Each check is a command with a number. `scripts/cmux-next/stability-final.sh` (1
    (rust-panic-baseline.json 69 crates today 6,519; rust-panic-extra-baseline.json rows for the 6 separate cmux-tui
    workspaces, Native/OptChat/*, Native/DiffSidecar and cmux-mobile-host). The `INVARIANT:` expect count is reported per
    crate. crash-safety-baseline rust rows for unwrap, expect, panic_macro and exit are 0.
-9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the count of `extern "C" fn` equals
-   the count of `ffi_boundary(` plus `ffi-nopanic:` (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source
-   sha contains tasks 152 and 156; `check-app-ffi-pin.sh` passes.
+9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the Q18 test
+   `every_export_is_guarded` passes, so every `extern "C" fn` body runs in `ffi_boundary(` or carries `ffi-nopanic:`
+   (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source sha contains tasks 152 and 156;
+   `check-app-ffi-pin.sh` passes.
 10. TOKIO BLOCKING AND PROCESSES: `cargo run --manifest-path cmux-tui/tools/async-blocking-scan/Cargo.toml -- --root
     cmux-tui/crates --json` reports 0 blocking-in-async, 0 dropped JoinHandles, 0 unsupervised long-lived spawns, 0
     non-signal-safe `pre_exec` bodies, 0 unreaped children and 0 unreasoned unbounded channels in production code; the lab
@@ -481,8 +482,13 @@ Each hit (or each file/module group shown) is one task; the generator splits gro
   rules); each signature is one fix task with its repro.
 - **Q17 field-signatures:** `scripts/cmux-next/stability-health.py --env nightly-next --top 50 --json`; each Sentry issue
   without a GitHub issue is one task.
-- **Q18 ffi-exports:** `git grep -n -A3 'extern "C" fn' -- cmux-tui/crates/{cmux-app-ffi,cmux-rd-ffi,
-  cmux-layout-reducer-ffi,cmux-palette-ranker}/src` without `ffi_boundary`/`ffi-nopanic:` (102 exports).
+- **Q18 ffi-exports:** the exports that `cmux_ffi_guard::testing::unguarded_exports` reports. It reads each
+  `extern "C" fn` body, not a fixed line window (rustfmt puts long parameter lists before the body), and the
+  `every_export_is_guarded` test of each crate fails on any hit. Run `cargo test every_export_is_guarded` with
+  `--manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml`, `.../cmux-rd-ffi/Cargo.toml` and
+  `.../cmux-layout-reducer-ffi/Cargo.toml` (separate workspaces), and `cargo test -p cmux-palette-ranker
+  every_export_is_guarded` in `cmux-tui`. Q18 = 0 when the four tests pass. Do not compare counts of `ffi_boundary(`
+  and `extern "C" fn`: a recovery call inside a guarded body is also an `ffi_boundary(` (102 exports before 152).
 - **Q19 objc-raises:** `crash_ratchet.py --report objc_raises` (160 JSONSerialization, 23 FileHandle, ~440 NSRange).
 - **Q20 rust-process:** `async-blocking-scan --kind pre_exec,child,unbounded` (54 pre_exec lines, 852 Command::new vs 42
   kill_on_drop, 468 unbounded/std channel lines, raw counts incl. tests).
@@ -968,9 +974,13 @@ Dropped, with reasons:
   passes `-rss_limit_mb=2048 -malloc_limit_mb=256 -timeout=2` by default; an OOM or timeout is a finding.
 - Acceptance: Main workspace Cargo.toml/Cargo.lock unchanged; each target builds with `cargo fuzz build`.
 - Test phase: Testbox `scripts/cmux-next/rust-fuzz.sh --all --seconds 600`.
+- Landing order: 018 landed first and created the workspace (Cargo.toml with the release profile above, Cargo.lock,
+  rust-toolchain.toml on nightly-2026-10-20). 017 edits those three files in place: it adds its six `[[bin]]` entries,
+  its dependencies and their lock delta, and rust-fuzz.sh. It never adds them again or changes the pin or profile
+  without saying why. 019-021, 176 and 181 do the same: `[[bin]]` entries, dependencies and the lock delta only.
 
 #### p10-stability-018 Rust fuzz batch 2
-- Files: cmux-tui/fuzz/fuzz_targets/
+- Files: cmux-tui/fuzz/fuzz_targets/, and the workspace files of 017 (it landed first; see 017's landing order)
 - Change: cmux-rd-proto (bulk, clock, datagram, feedback, frame, input decode), cmux-transport (relay_frame, probe, stun
   parse_binding_success), cmux-link (dial parse_request/parse_line, stamp parse), cmux-wg packet paths.
 - Acceptance: One target per decoder, each with a seed corpus.
@@ -1088,6 +1098,12 @@ Dropped, with reasons:
   record polls > 2 ms with spawn location into the hang JSONL. RUSTFLAGS only in the lab lane.
 - Acceptance: Default builds unchanged; no Cargo.lock change in this task.
 - Test phase: acpmux under the lab profile with a sleeping task records one slow poll.
+- Scope as built: the acpmux daemon's runtime (`$ACPMUX_HOME/hangs.jsonl`) and the cmux-tui owner's remote
+  daemon worker (`owner-hangs-<session>.jsonl`; the mux server runs on threads, covered by 032's scopes). The
+  first slow poll per spawn site is a `slow_poll` record; the totals are one `slow_poll_summary` when the
+  watch ends. Time in compensated `block_in_place` calls is not counted. Not watched, on purpose: acpmux's
+  agent host (its own process, no hang log yet), CLI subcommands and short block_on-only runtimes (no tasks);
+  other crates' `cmux-stability` features stay unused until a runtime there is watched.
 
 #### p10-stability-034 stability-health.py
 - Files: scripts/cmux-next/stability-health.py, scripts/cmux-next/tests/test_stability_health.py
@@ -1539,7 +1555,7 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 
 #### p10-stability-146 Chromium host kind in child-crash-e2e (F2)
 - Files: scripts/cmux-next/child-crash-e2e.py
-- Change: Kind `host`: with browserHost.helperPrototype on, SIGKILL the host and navigate to
+- Change: Kind `host`: with browserHost.helper on, SIGKILL the host and navigate to
   chrome://inducebrowsercrashforrealz; cmux stays up, pages show the crash page and reload after restart.
 - Acceptance: Skips with a clear reason when the build lacks the host. Test: `child-crash-e2e.py --only host`.
 
@@ -1577,8 +1593,8 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
   pure arithmetic with no panic path gets `// ffi-nopanic: <why>`. app-ffi release profile: `debug = "line-tables-only"`,
   no strip of line tables, dSYM uploaded with the xcframework. The Swift side forwards stored panics (150). Lands through the
   pin lander (153).
-- Acceptance: Q18 = 0 (export count == ffi_boundary + ffi-nopanic); a unit test per crate makes a guarded fn panic and gets
-  the error value, not an abort.
+- Acceptance: Q18 = 0 (`every_export_is_guarded` passes in each of the four crates); a unit test per crate makes a guarded
+  fn panic and gets the error value, not an abort.
 - Test phase: cargo test in each FFI crate on Testbox; app compile-check with the new pin; motion and remote-view suites.
 
 #### p10-stability-153 FFI pin lander

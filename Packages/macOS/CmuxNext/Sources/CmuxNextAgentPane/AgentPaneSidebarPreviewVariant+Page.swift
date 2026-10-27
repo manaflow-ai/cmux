@@ -1,8 +1,8 @@
 public import CmuxNextSettings
 import Foundation
 
-/// The native Debug Settings sidebar preview choice reaches the page as a host event and as the
-/// equivalent old-host bridge call. A layout customization may override it after this event.
+/// The native Debug Settings sidebar preview choice reaches the page as a host event. A layout
+/// customization may override it after this event.
 extension AgentPageEvent {
     /// The sidebar preview baseline (`card`, `quiet` or `outline`).
     public static func sidebarPreviewVariant(_ variant: AgentPaneSidebarPreviewVariant) -> AgentPageEvent {
@@ -19,10 +19,8 @@ extension AgentPaneSidebarPreviewVariant {
         replay(to: view)
     }
 
-    /// Replays the current choice after an old-host page installs its bridge.
+    /// Sends the current choice to `view`'s page.
     @MainActor public func replay(to view: AgentPaneView) {
-        let event = AgentPageEvent.sidebarPreviewVariant(self)
-        let value = JSONValue.string(rawValue).compactText
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applySidebarPreviewVariant?.(\(value));"])
+        view.deliver([AgentPageEvent.sidebarPreviewVariant(self)])
     }
 }

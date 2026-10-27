@@ -4,7 +4,7 @@ public struct NotifyRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var notification: NotificationID
     }
-    public static let command = "notify"
+    public static let commandName: DaemonCommandName = "notify"
     public var title: String
     public var body: String
     public var level: NotificationLevel?
@@ -52,7 +52,7 @@ public struct AckTabNotificationsRequest: DaemonRequest {
             self.retryable = retryable
         }
     }
-    public static let command = "ack-tab-notifications"
+    public static let commandName: DaemonCommandName = "ack-tab-notifications"
     public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
@@ -79,7 +79,7 @@ public struct ListNotificationsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var notifications: [Entry]
     }
-    public static let command = "list-notifications"
+    public static let commandName: DaemonCommandName = "list-notifications"
     public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var limit: Int?
     public init(limit: Int? = nil) { self.limit = limit }

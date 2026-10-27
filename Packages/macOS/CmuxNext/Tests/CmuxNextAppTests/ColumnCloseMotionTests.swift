@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// Closing a column revealed beside a chat must bring the chat back while its workspace stays visible.
@@ -25,7 +26,7 @@ struct ColumnCloseMotionTests {
                                 activeScreenID: "s", focusedPane: "chat")
             model.followsDesignMetrics = false
             model.baseStyle.columnGap = 0
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

@@ -21,7 +21,7 @@ pub(super) fn send_bad_request(
 /// The `id` member of a request line that failed to decode, if the line is a
 /// JSON object.
 fn undecodable_request_id(message: &str) -> Option<Value> {
-    match serde_json::from_str::<Value>(message) {
+    match crate::line_parses::parse::<Value>(message) {
         Ok(Value::Object(mut object)) => object.remove("id"),
         _ => None,
     }
@@ -51,7 +51,7 @@ pub(super) fn send_request_error_with_delivery(
 }
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+    serde_json::to_value(response).is_ok_and(|value| writer.send_reply(&value).is_ok())
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
@@ -75,7 +75,7 @@ pub(super) fn send_response_with_details(
     if let Some(details) = details {
         value.insert("error_details", details);
     }
-    writer.send_control(&value).is_ok()
+    writer.send_reply(&value).is_ok()
 }
 
 /// The stable `error_code` of a rejected command, when its error has one.
