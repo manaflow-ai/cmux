@@ -94,17 +94,17 @@ final class TerminalEventQueue: Sendable {
 
     /// Reader thread. May block while the consumer is behind.
     func push(_ event: TerminalChannelEvent) {
-        let (waiter, blocked) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
-            guard !state.finished else { return (nil, false) }
-            if let waiter = state.waiter.take() { return (waiter, false) }
-            state.items.append(event)
-            state.outputBytes += Self.outputSize(event)
-            return (nil, state.parkReader(above: highWater))
-        }
-        waiter?.resume(returning: event)
-        guard blocked else { return }
+        pushWithoutWaiting(event)
+        waitForRoom()
+    }
+
+    /// Reader thread: blocks while the queue is armed and more than `highWater` output bytes wait, until the
+    /// consumer drains them below `lowWater`. The attach connection's reader calls it after it hands each line to
+    /// its decode lane (``EventDispatch/readerWait``), whose items push with ``pushWithoutWaiting(_:)``.
+    func waitForRoom() {
+        var parked = state.withLock { $0.parkReader(above: highWater) }
+        guard parked else { return }
         onReaderBlocked?()
-        var parked = blocked
         while parked {
             // The designed backpressure that makes the daemon drop a slow view: a checked wait, only on the attach
             // connection's dedicated reader thread (LineTransport), never the main thread or a pool thread.
@@ -113,8 +113,9 @@ final class TerminalEventQueue: Sendable {
         }
     }
 
-    /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
-    /// hold its own lock across it (a size state is pushed under the lock that orders generations).
+    /// Any thread. Queues an event without the backpressure wait, so a caller may hold its own lock across it
+    /// (a size state is pushed under the lock that orders generations) and a decode lane never waits on the
+    /// consumer; the reader waits instead (``waitForRoom()``).
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
         let waiter = state.withLock { state -> OnceContinuation<TerminalChannelEvent?, OnceContinuationError>? in
             guard !state.finished else { return nil }

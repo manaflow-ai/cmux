@@ -13,7 +13,7 @@ import os
 /// synthetic `.connected` event, so a consumer that fetches `list-workspaces`
 /// on `.connected` sees every later delta and misses none.
 ///
-/// Events are decoded on the socket's reader thread (never the main actor)
+/// Events are decoded on the connection's decode lane (``DecodeLane``, never the reader or the main actor)
 /// and stamped with a monotonic `sequence`; `snapshot()` returns the
 /// sequence barrier its tree supersedes, so a store can drop older events
 /// exactly. A consumer that takes them with ``consumeEvents(_:)`` gets each

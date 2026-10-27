@@ -3,7 +3,7 @@ public import Foundation
 import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
-/// them after the `.connected` marker. Runs on the reader thread.
+/// them after the `.connected` marker. Runs on the connection's decode lane.
 final class EventGate: Sendable {
     private struct State {
         var open = false

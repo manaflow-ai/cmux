@@ -50,6 +50,28 @@ extension LineTransport {
         return { start.duration(to: clock.now) }
     }
 
+    /// A connected, close-on-exec, no-SIGPIPE Unix socket to `path`.
+    static func connect(_ path: String) throws(DaemonError) -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
+        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
+        // peer key is this process's audit token (request-origin.md, peer key caveat).
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        var on: Int32 = 1
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else {
+            Darwin.close(fd)
+            throw .socketPathTooLong(path)
+        }
+        guard address.connect(fd) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw .connectFailed(path: path, errno: code)
+        }
+        return fd
+    }
+
     /// Asks for ``socketBufferBytes`` each way; the kernel may round it up. A refusal keeps the default:
     /// the connection still works, with more reads.
     static func sizeBuffers(_ fd: Int32) {

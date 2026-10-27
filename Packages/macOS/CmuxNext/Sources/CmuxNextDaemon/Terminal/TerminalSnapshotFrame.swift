@@ -61,8 +61,8 @@ struct DecodedAttachLine: Sendable, Equatable {
     var flow: UInt64?
 }
 
-/// The one owner of snapshot order on an attach stream (runs on the reader
-/// thread, in stream order).
+/// The one owner of snapshot order on an attach stream (runs on the attach
+/// connection's decode lane, in stream order).
 ///
 /// - Output tagged with a generation older than the last READY belongs to a
 ///   screen that READY replaced: dropped.

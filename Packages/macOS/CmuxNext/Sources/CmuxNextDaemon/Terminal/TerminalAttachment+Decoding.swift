@@ -106,6 +106,17 @@ extension TerminalAttachment {
         }
     }
 
+    /// Attach lines whose decode is bulk: a snapshot (its history chunks inflate) and a byte replay. They always
+    /// decode on the connection's decode lane, never on its reader (p05-ipc-144).
+    static let bulkEvents: Set<String> = ["snapshot", "vt-state", "resized"]
+
+    /// The reader's weighing of one attach line (``EventDispatch/weigh``), from its name and size only: bulk
+    /// events and lines over ``DecodeLane/lightLineLimit`` are heavy; output and the small events run inline on
+    /// the reader while its lane is idle, so an echo costs no thread hop.
+    static func eventWeight(name: String, line: Data) -> DecodeLane.Weight {
+        bulkEvents.contains(name) || line.count > DecodeLane.lightLineLimit ? .heavy : .light
+    }
+
     /// The surface named by the first line of an attach (`vt-state`, or the
     /// READY `snapshot` of a snapshot attach); names an `unplaced` target.
     static func initialSurface(name: String, line: Data, decoder: WireDecoder) -> SurfaceID? {

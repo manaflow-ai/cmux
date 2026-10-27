@@ -9,7 +9,8 @@ import Testing
 /// for a line from the app, sends a second and exits. The counts are read at close, after the reader
 /// saw EOF: two lines give exactly two scopes and none still open, where a scope around `read(2)`
 /// would give a third enter (the read that saw EOF) or a scope left open. The app's one line goes out in
-/// one `daemon.write` scope on the writer's drain queue (p09-observability-069).
+/// one `daemon.write` scope on the writer's drain queue (p09-observability-069). Each event's handler and
+/// the close run on the connection's decode lane (p05-ipc-144), each in one `daemon.decode` scope.
 @Suite(.timeLimit(.minutes(1))) struct LineTransportHangScopeTests {
     enum Seen: Sendable {
         case event(name: String, open: [ScopeStackHangWatch.Scope])
@@ -29,36 +30,37 @@ import Testing
         let transport = try await LineTransport.open(path: "/tmp/cmux-hang-scope-\(UUID().uuidString).sock", bridge: bridge, role: .control,
                                                      stats: nil, hangs: hangs)
         let (seen, see) = AsyncStream.makeStream(of: Seen.self)
-        transport.start(onEvent: { name, _, _ in see.yield(.event(name: name, open: hangs.open("daemon.line"))) },
+        transport.start(onEvent: { name, _, _ in see.yield(.event(name: name, open: hangs.open("daemon.decode"))) },
                         onClose: { _ in
                             see.yield(.closed(entered: hangs.entered("daemon.line"), open: hangs.open("daemon.line")))
                             see.finish()
                         })
         defer { transport.close() }
         var iterator = seen.makeAsyncIterator()
-        let line = ScopeStackHangWatch.Scope(name: "daemon.line", deadline: .milliseconds(100))
+        let decode = ScopeStackHangWatch.Scope(name: "daemon.decode", deadline: DecodeLane.hangDeadline)
 
         guard case .event(let first, let firstOpen) = try #require(await iterator.next()) else {
             Issue.record("closed before the first event")
             return
         }
         #expect(first == "first")
-        #expect(firstOpen == [line])
+        #expect(firstOpen == [decode], "a control event decoded off its lane")
         #expect(transport.sendLine(Data("{}".utf8)))
         guard case .event(let second, let secondOpen) = try #require(await iterator.next()) else {
             Issue.record("closed before the second event")
             return
         }
         #expect(second == "second")
-        #expect(secondOpen == [line])
+        #expect(secondOpen == [decode])
         guard case .closed(let entered, let open) = try #require(await iterator.next()) else {
             Issue.record("a third event before EOF")
             return
         }
 
         #expect(entered == 2)
-        #expect(open.isEmpty)
-        #expect(hangs.lanes == ["daemon.write", "daemon.line"])
+        #expect(open.isEmpty, "the close ran on the lane while the reader was still in a line")
+        #expect(hangs.entered("daemon.decode") == 3, "two events and the close")
+        #expect(hangs.lanes == ["daemon.write", "daemon.line", "daemon.decode"])
         #expect(hangs.entered("daemon.write") == 1, "the app's one line was not one drain step")
     }
 }

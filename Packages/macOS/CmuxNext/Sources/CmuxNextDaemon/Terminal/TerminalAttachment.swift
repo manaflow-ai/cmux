@@ -52,7 +52,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         init(_ surface: SurfaceID) { value = Mutex(surface) }
     }
 
-    /// Snapshot order of this stream; only the reader thread touches it.
+    /// Snapshot order of this stream; only the connection's decode lane touches it, one line at a time.
     private final class SequencerBox: Sendable {
         let value = Mutex(TerminalSnapshotSequencer())
     }
@@ -151,7 +151,11 @@ public actor TerminalAttachment: TerminalByteChannel {
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
         let decoder = transport.decoder
+        // The reader hands each line to the connection's decode lane: a snapshot or a replay always decodes there,
+        // never on the reader, and the reader waits for the view's queue (p05-ipc-144).
         transport.start(
+            dispatch: EventDispatch(weigh: { name, line in Self.eventWeight(name: name, line: line) },
+                                    readerWait: { queue.waitForRoom() }),
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
                 if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line, decoder: decoder) {
@@ -170,7 +174,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                     queue.finish(event)
                 } else {
                     if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                    queue.push(event)
+                    queue.pushWithoutWaiting(event)
                     if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
