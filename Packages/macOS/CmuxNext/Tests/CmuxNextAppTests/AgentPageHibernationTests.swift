@@ -204,6 +204,19 @@ struct AgentPageHibernationTests {
         #expect(view.crashNotice != nil, "a crashed chat showed no notice")
     }
 
+    /// Even with a timeout written, a crashed chat keeps its page and notice: a release would
+    /// build it again when shown, a reload the person did not ask for.
+    @Test func aCrashedChatIsNeverReleased() async throws {
+        let rig = Rig()
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
+        let view = try rig.hiddenChat("tab_crashed", session: "s-crashed")
+        view.webContentProcessDidTerminate()
+        rig.advance(minutes: 61)
+        await rig.settle { rig.tabs.existingView("tab_crashed") == nil }
+        #expect(rig.tabs.existingView("tab_crashed") === view, "a crashed chat was released and rebuilt")
+        #expect(rig.hibernation.keepsPage("tab_crashed") == .unsupported)
+    }
+
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
     /// keeps its page until the watch is back.
     @Test func withTheTurnWatchDownEveryChatKeepsItsPage() async throws {

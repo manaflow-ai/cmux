@@ -47,6 +47,8 @@ public final class AgentPaneView: NSView {
     var dictationKey = AgentPaneDictationKey()
     /// Shown when the page's web content ends (it never reloads by itself).
     var crashNotice: NSView?
+    /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
+    public var showsCrashNotice: Bool { crashNotice != nil }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.

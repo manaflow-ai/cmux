@@ -189,7 +189,8 @@ final class AgentPageHibernation {
     /// command run in it.
     private static func canRelease(_ key: String, in tabs: AgentTabStore, onScreen: Bool) -> Bool {
         let key = tabs.resolve(key)
-        guard let view = tabs.views[key], !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
+        // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
+        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }

@@ -506,7 +506,12 @@ final class BrowserHibernation {
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
-                  cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
+                  cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else {
+                // Shown and hidden again while it was asked: that hide's replan skipped it (it was
+                // being probed), so plan again for a page still hidden, or it never freezes.
+                if cache.lifecycle.phase(key) == .mountedHidden { self.replan() }
+                return
+            }
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
