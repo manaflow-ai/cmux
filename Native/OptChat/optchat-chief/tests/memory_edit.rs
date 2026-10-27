@@ -84,7 +84,11 @@ fn fixture() -> Fixture {
         .unwrap();
     }
     assert!(chat.wait_idle(None, Some(WAIT)), "the compactor settles");
-    let editor = Editor::open(chat.clone(), dir.path());
+    let editor = Editor::open(
+        &optchat_chief::supervisor::exiting(),
+        chat.clone(),
+        dir.path(),
+    );
     let insp = Inspector::new(
         chat.clone(),
         dir.path().join("traces"),
@@ -367,6 +371,7 @@ fn the_chief_and_its_agents_cannot_change_the_memory() {
     // engine's bash tool would be): refused too.
     let sock = f.dir.path().join("tools.sock");
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &sock,
         optchat_chief::tools::Served {
             memory: f.chat.clone(),

@@ -70,13 +70,20 @@ impl RpcClient {
         path: &std::path::Path,
         on_notification: impl Fn(Notification) + Send + 'static,
     ) -> std::io::Result<Arc<RpcClient>> {
-        Self::over(UnixStream::connect(path)?, on_notification)
+        Self::over(
+            UnixStream::connect(path)?,
+            &crate::supervisor::exiting(),
+            on_notification,
+        )
     }
 
     /// The client over a connected stream (acpmux: one whose server peer
-    /// passed `acpmux_peer::check`).
+    /// passed `acpmux_peer::check`). The reader thread runs under
+    /// `supervisor`: a panic there (in `on_notification`, say) ends the
+    /// process instead of leaving every waiting call without an answer.
     pub fn over(
         stream: UnixStream,
+        supervisor: &cmux_panic_log::Supervisor,
         on_notification: impl Fn(Notification) + Send + 'static,
     ) -> std::io::Result<Arc<RpcClient>> {
         let reader = stream.try_clone()?;
@@ -88,38 +95,43 @@ impl RpcClient {
             next_id: AtomicU64::new(1),
             closed: closed.clone(),
         });
-        std::thread::Builder::new()
-            .name("rpc-reader".into())
-            .spawn(move || {
-                let mut lines = BufReader::new(reader);
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match lines.read_line(&mut line) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => {}
+        supervisor
+            .supervise_thread(
+                "rpc-reader",
+                cmux_panic_log::Fatal,
+                cmux_panic_log::ShutdownBehavior::Skip,
+                move |_: &cmux_panic_log::StopToken| {
+                    let mut lines = BufReader::new(reader);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match lines.read_line(&mut line) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {}
+                        }
+                        let Ok(message) = serde_json::from_str::<Value>(line.trim()) else {
+                            continue;
+                        };
+                        dispatch(&waiters, &on_notification, message);
                     }
-                    let Ok(message) = serde_json::from_str::<Value>(line.trim()) else {
-                        continue;
-                    };
-                    dispatch(&waiters, &on_notification, message);
-                }
-                closed.store(true, Ordering::SeqCst);
-                // Taking the map refuses later registrations and fails the waiting ones.
-                if let Some(pending) = waiters
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .take()
-                {
-                    for (_, tx) in pending {
-                        let _ = tx.send(Err(RpcError::Closed));
+                    closed.store(true, Ordering::SeqCst);
+                    // Taking the map refuses later registrations and fails the waiting ones.
+                    if let Some(pending) = waiters
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .take()
+                    {
+                        for (_, tx) in pending {
+                            let _ = tx.send(Err(RpcError::Closed));
+                        }
                     }
-                }
-                on_notification(Notification {
-                    method: String::new(),
-                    params: Value::Null,
-                });
-            })?;
+                    on_notification(Notification {
+                        method: String::new(),
+                        params: Value::Null,
+                    });
+                },
+            )
+            .map_err(std::io::Error::other)?;
         Ok(client)
     }
 

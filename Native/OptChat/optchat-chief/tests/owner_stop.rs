@@ -101,6 +101,7 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
     h.agents.hold(true);
     h.connect();
     let spawner = Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {
@@ -149,6 +150,7 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
     Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

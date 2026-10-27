@@ -140,11 +140,9 @@ impl Brain {
             }
         };
         let tx = self.tx.clone();
-        let spawned = std::thread::Builder::new()
-            .name("steer".into())
-            .spawn(move || {
-                let _ = tx.send(Input::Steered { id, result: wait() });
-            });
+        let spawned = crate::supervisor::background(&self.supervisor, "steer", move || {
+            let _ = tx.send(Input::Steered { id, result: wait() });
+        });
         if let Err(e) = spawned {
             (self.log)(&format!("waiting for a steer failed: {e}"));
         }

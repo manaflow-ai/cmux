@@ -398,6 +398,7 @@ fn a_subagent_spawned_in_another_persons_turn_takes_the_floor() {
     let mut h = shared(started());
     teammate_turn(&mut h, "@Chief spawn a subagent that cleans the cache");
     let spawner = Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {
@@ -520,6 +521,7 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
 fn owner_spawner(h: &Harness) -> Arc<optchat_chief::subagents::Spawner> {
     use optchat_chief::subagents::{Spawner, SubagentSettings};
     Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

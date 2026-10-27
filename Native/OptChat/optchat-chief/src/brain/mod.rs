@@ -653,6 +653,8 @@ pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_se
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 pub struct Brain {
+    /// Runs every thread the brain starts (`supervisor.rs`).
+    supervisor: cmux_panic_log::Supervisor,
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
     settings: Settings,
@@ -877,6 +879,7 @@ pub struct Brain {
 
 impl Brain {
     pub fn new(
+        supervisor: cmux_panic_log::Supervisor,
         chat: Arc<OptChat>,
         agents: Arc<dyn AgentPort>,
         settings: Settings,
@@ -897,6 +900,7 @@ impl Brain {
         let handled = state.logged_seq;
         let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
         let mut brain = Brain {
+            supervisor,
             chat,
             agents,
             settings,
@@ -1086,7 +1090,7 @@ impl Brain {
     pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
         // A host that runs subagents checks them for stuck runs.
         if starter.is_some() && self.sub_starter.is_none() {
-            control::start_ticker(self.tx.clone());
+            control::start_ticker(&self.supervisor, self.tx.clone());
         }
         self.sub_starter = starter;
     }
@@ -1100,7 +1104,7 @@ impl Brain {
     ) {
         // A host that runs cloud subagents checks its VMs every few seconds.
         if vms.is_some() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
+            control::start_cloud_ticker(&self.supervisor, self.tx.clone());
         }
         self.cloud_vms = vms;
         self.cloud_idle = idle;
@@ -1130,7 +1134,7 @@ impl Brain {
         grace: std::time::Duration,
     ) {
         if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
+            control::start_cloud_ticker(&self.supervisor, self.tx.clone());
         }
         self.agent_keys = keys;
         self.agent_key_grace = grace;

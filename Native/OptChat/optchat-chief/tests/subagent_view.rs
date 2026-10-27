@@ -76,6 +76,7 @@ fn a_subagent_reads_the_coarser_compaction_view() {
         chat.clone(),
     );
     let sp = Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

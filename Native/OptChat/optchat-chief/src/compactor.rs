@@ -232,23 +232,36 @@ pub trait IdleTimer: Send + Sync {
     fn stop(&self);
 }
 
-/// The runtime `IdleTimer`: a thread per call, waiting on the stoppable
-/// `ProbeDelay`.
-#[derive(Default)]
+/// The runtime `IdleTimer`: a supervised thread per call, waiting on the
+/// stoppable `ProbeDelay`.
 pub struct ThreadTimer {
+    supervisor: cmux_panic_log::Supervisor,
     delay: Arc<crate::host::ProbeDelay>,
+}
+
+impl ThreadTimer {
+    pub fn new(supervisor: cmux_panic_log::Supervisor) -> ThreadTimer {
+        ThreadTimer {
+            supervisor,
+            delay: Arc::default(),
+        }
+    }
 }
 
 impl IdleTimer for ThreadTimer {
     fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
         let delay = self.delay.clone();
-        let _ = std::thread::Builder::new()
-            .name("optchat-compact-idle".into())
-            .spawn(move || {
+        let started =
+            crate::supervisor::background(&self.supervisor, "optchat-compact-idle", move || {
                 if crate::host::Delay::wait(&*delay, d) {
                     f();
                 }
             });
+        if let Err(e) = started {
+            crate::log::log(format!(
+                "WARN the compactor's idle timer did not start: {e}"
+            ));
+        }
     }
 
     fn stop(&self) {
@@ -613,6 +626,7 @@ pub struct AcpmuxCompactor {
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
     me: std::sync::Weak<AcpmuxCompactor>,
+    supervisor: cmux_panic_log::Supervisor,
     log: Option<Log>,
     trace: crate::trace::Trace,
     /// Ends the warm sessions after `warm_idle` without compactor work.
@@ -627,7 +641,9 @@ pub struct AcpmuxCompactor {
 }
 
 impl AcpmuxCompactor {
+    /// `supervisor` runs its warm-up and idle timer threads.
     pub fn new(
+        supervisor: cmux_panic_log::Supervisor,
         port: Arc<dyn AgentPort>,
         spec: CompactorSpec,
         slots: Arc<Slots>,
@@ -658,7 +674,8 @@ impl AcpmuxCompactor {
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
-            idle_timer: Arc::new(ThreadTimer::default()),
+            idle_timer: Arc::new(ThreadTimer::new(supervisor.clone())),
+            supervisor,
             warm_idle: warm_idle(),
             work: AtomicU64::new(0),
         }
@@ -1695,9 +1712,11 @@ impl AcpmuxCompactor {
             let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
             match self.me.upgrade() {
                 Some(me) => {
-                    let spawned = std::thread::Builder::new()
-                        .name("optchat-compact-warm".into())
-                        .spawn(move || me.warm_up(slot, system, ours));
+                    let spawned = crate::supervisor::background(
+                        &self.supervisor,
+                        "optchat-compact-warm",
+                        move || me.warm_up(slot, system, ours),
+                    );
                     if let Err(e) = spawned {
                         self.say(&format!("starting a warm compactor session: {e}"));
                         self.slots.give_slot(slot, true);

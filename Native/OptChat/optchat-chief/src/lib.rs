@@ -66,6 +66,7 @@ pub mod skills;
 pub mod state;
 pub mod sub_watch;
 pub mod subagents;
+pub mod supervisor;
 pub mod toolpacks;
 pub mod tools;
 pub mod trace;

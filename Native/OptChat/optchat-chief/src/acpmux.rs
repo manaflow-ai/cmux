@@ -102,9 +102,13 @@ pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
 
 /// `_acpmux/harnesses` from the daemon at `socket` (started when it does not
 /// answer, as the link starts it), on a connection of its own.
-pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<Value, String> {
+pub fn query_harnesses(
+    supervisor: &cmux_panic_log::Supervisor,
+    socket: &std::path::Path,
+    log: &dyn Fn(&str),
+) -> Result<Value, String> {
     crate::acpmux_daemon::ensure(socket, log)?;
-    let client = crate::acpmux_peer::connect(socket, |_| {})
+    let client = crate::acpmux_peer::connect(supervisor, socket, |_| {})
         .map_err(|e| format!("connect {}: {e}", socket.display()))?;
     let result = client
         .request(
@@ -340,6 +344,8 @@ pub struct Preset {
 
 /// The real port: one connection at a time to the acpmux daemon.
 pub struct Acpmux {
+    /// Runs the link, its connection's reader and each prompt's answer wait.
+    supervisor: cmux_panic_log::Supervisor,
     socket: PathBuf,
     client: Mutex<Option<Arc<RpcClient>>>,
     turns: Arc<Mutex<HashMap<String, TurnRoute>>>,
@@ -364,8 +370,14 @@ pub struct Acpmux {
 const PRESET_REFRESH: Duration = Duration::from_secs(30);
 
 impl Acpmux {
-    pub fn new(socket: PathBuf, preset: Option<Preset>, required: Vec<Preset>) -> Arc<Acpmux> {
+    pub fn new(
+        supervisor: cmux_panic_log::Supervisor,
+        socket: PathBuf,
+        preset: Option<Preset>,
+        required: Vec<Preset>,
+    ) -> Arc<Acpmux> {
         Arc::new(Acpmux {
+            supervisor,
             socket,
             client: Mutex::new(None),
             turns: Arc::new(Mutex::new(HashMap::new())),
@@ -518,9 +530,11 @@ impl Acpmux {
     pub fn spawn_link(self: &Arc<Self>, sink: Sink, log: Arc<dyn Fn(&str) + Send + Sync>) {
         let this = self.clone();
         let report = log.clone();
-        let spawned = std::thread::Builder::new()
-            .name("acpmux-link".into())
-            .spawn(move || {
+        let spawned = self.supervisor.supervise_thread(
+            "acpmux-link",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |stop: &cmux_panic_log::StopToken| {
                 let mut delay = Duration::from_millis(500);
                 // The host starts the daemon only before its first link: once
                 // that daemon (or the one it joined) shuts down and no next
@@ -575,10 +589,13 @@ impl Acpmux {
                     if started.elapsed() > Duration::from_secs(30) {
                         delay = Duration::from_millis(500);
                     }
-                    std::thread::sleep(delay);
+                    if stop.wait_timeout(delay) {
+                        return;
+                    }
                     delay = (delay * 2).min(Duration::from_secs(30));
                 }
-            });
+            },
+        );
         if let Err(e) = spawned {
             report(&format!("acpmux: cannot start the link thread: {e}"));
         }
@@ -596,7 +613,7 @@ impl Acpmux {
         let (closed_tx, closed_rx) = channel();
         let turns = self.turns.clone();
         let route_sink = sink.clone();
-        let client = crate::acpmux_peer::connect(&self.socket, move |n| {
+        let client = crate::acpmux_peer::connect(&self.supervisor, &self.socket, move |n| {
             if n.method.is_empty() {
                 let _ = closed_tx.send(());
             } else {
@@ -965,17 +982,15 @@ impl AgentPort for Acpmux {
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
         );
-        std::thread::Builder::new()
-            .name("acpmux-prompt".into())
-            .spawn(move || {
-                let done = match answer.recv() {
-                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
-                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
-                };
-                let _ = signals.send(done);
-            })
-            .map_err(|e| e.to_string())?;
+        crate::supervisor::background(&self.supervisor, "acpmux-prompt", move || {
+            let done = match answer.recv() {
+                Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+            };
+            let _ = signals.send(done);
+        })
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -292,8 +292,8 @@ mod macos {
     }
 
     fn data(bytes: &[u8]) -> Result<Cf, String> {
-        // SAFETY: bytes is valid for its length; CFDataCreate copies it.
         Cf::new(
+            // SAFETY: bytes is valid for its length; CFDataCreate copies it.
             unsafe { CFDataCreate(std::ptr::null(), bytes.as_ptr(), bytes.len() as isize) },
             "CFDataCreate",
         )
@@ -390,8 +390,8 @@ mod macos {
     pub(super) fn cms_signer_team(cms: &[u8], directory: &[u8]) -> Result<String, String> {
         use sha2::Digest as _;
         let mut decoder: CFTypeRef = std::ptr::null();
-        // SAFETY: decoder is a valid out-pointer.
         check(
+            // SAFETY: decoder is a valid out-pointer.
             unsafe { CMSDecoderCreate(&mut decoder) },
             "CMSDecoderCreate",
         )?;
@@ -413,22 +413,22 @@ mod macos {
             )?;
         }
         let mut signers = 0usize;
-        // SAFETY: decoder is live; signers is a valid out-pointer.
         check(
+            // SAFETY: decoder is live; signers is a valid out-pointer.
             unsafe { CMSDecoderGetNumSigners(decoder.0, &mut signers) },
             "CMSDecoderGetNumSigners",
         )?;
         if signers != 1 {
             return Err(format!("its CMS signature has {signers} signers, not 1"));
         }
-        // SAFETY: no arguments.
         let policy = Cf::new(
+            // SAFETY: no arguments.
             unsafe { SecPolicyCreateBasicX509() },
             "SecPolicyCreateBasicX509",
         )?;
         let (mut status, mut trust, mut verify) = (0u32, std::ptr::null(), 0);
-        // SAFETY: decoder and policy are live; the out-pointers are valid.
         check(
+            // SAFETY: decoder and policy are live; the out-pointers are valid.
             unsafe {
                 CMSDecoderCopySignerStatus(
                     decoder.0,
@@ -448,8 +448,8 @@ mod macos {
                 "its CMS signature does not verify (signer status {status}, certificate result {verify})"
             ));
         }
-        // SAFETY: trust is live.
         let chain = Cf::new(
+            // SAFETY: trust is live.
             unsafe { SecTrustCopyCertificateChain(trust.0) },
             "the chain",
         )?;
@@ -477,8 +477,8 @@ mod macos {
 
     /// The subject OU of certificate `cert`.
     fn leaf_ou(cert: CFTypeRef) -> Option<String> {
-        // SAFETY: cert is a SecCertificate; a null keys array asks for every value.
         let values = Cf::new(
+            // SAFETY: cert is a SecCertificate; a null keys array asks for every value.
             unsafe { SecCertificateCopyValues(cert, std::ptr::null(), std::ptr::null_mut()) },
             "SecCertificateCopyValues",
         )
@@ -512,8 +512,8 @@ mod macos {
     pub fn of_file(path: &Path) -> Result<Signer, String> {
         use std::os::unix::ffi::OsStrExt as _;
         let raw = path.as_os_str().as_bytes();
-        // SAFETY: raw is valid for its length.
         let url = Cf::new(
+            // SAFETY: raw is valid for its length.
             unsafe {
                 CFURLCreateFromFileSystemRepresentation(
                     std::ptr::null(),
@@ -525,15 +525,15 @@ mod macos {
             "CFURLCreateFromFileSystemRepresentation",
         )?;
         let mut code = std::ptr::null();
-        // SAFETY: url is live; code is a valid out-pointer.
         check(
+            // SAFETY: url is live; code is a valid out-pointer.
             unsafe { SecStaticCodeCreateWithPath(url.0, 0, &mut code) },
             &format!("{} has no code signature", path.display()),
         )?;
         let code = Cf::new(code, "SecStaticCodeCreateWithPath")?;
         let text = b"anchor apple generic";
-        // SAFETY: text is valid for its length.
         let text = Cf::new(
+            // SAFETY: text is valid for its length.
             unsafe {
                 CFStringCreateWithBytes(
                     std::ptr::null(),
@@ -546,14 +546,14 @@ mod macos {
             "CFStringCreateWithBytes",
         )?;
         let mut requirement = std::ptr::null();
-        // SAFETY: text is live; requirement is a valid out-pointer.
         check(
+            // SAFETY: text is live; requirement is a valid out-pointer.
             unsafe { SecRequirementCreateWithString(text.0, 0, &mut requirement) },
             "SecRequirementCreateWithString",
         )?;
         let requirement = Cf::new(requirement, "SecRequirementCreateWithString")?;
-        // SAFETY: code and requirement are live.
         check(
+            // SAFETY: code and requirement are live.
             unsafe { SecStaticCodeCheckValidity(code.0, 0, requirement.0) },
             &format!(
                 "{} is not validly signed by an Apple-issued certificate",
@@ -561,8 +561,8 @@ mod macos {
             ),
         )?;
         let mut info = std::ptr::null();
-        // SAFETY: code is live; info is a valid out-pointer.
         check(
+            // SAFETY: code is live; info is a valid out-pointer.
             unsafe { SecCodeCopySigningInformation(code.0, SIGNING_INFORMATION, &mut info) },
             "SecCodeCopySigningInformation",
         )?;

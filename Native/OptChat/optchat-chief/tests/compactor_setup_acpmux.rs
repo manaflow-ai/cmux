@@ -125,12 +125,18 @@ fn a_compactor_that_cannot_start_holds_no_turn_and_says_why() {
 
     // The compactor's own presets and link, as the host makes them.
     let presets = compactor_presets(&paths, &home, HARNESS, Family::Claude);
-    let agents = Acpmux::new(socket.clone(), None, presets);
+    let agents = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket.clone(),
+        None,
+        presets,
+    );
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     connect(&agents, &lines);
     let compactor_lines = lines.clone();
     let compactor = Arc::new(
         AcpmuxCompactor::new(
+            optchat_chief::supervisor::exiting(),
             agents.clone(),
             compactor_spec(&paths, &home, HARNESS, Family::Claude, None),
             Slots::new(COMPACTOR_SESSIONS),
@@ -212,7 +218,12 @@ fn a_compactor_that_cannot_start_holds_no_turn_and_says_why() {
 
     // A harness the daemon admits, but a slot preset nobody installed: the
     // compactor installs it once more, then it is a setup error too.
-    let catalog = optchat_chief::acpmux::query_harnesses(&socket, &|_| {}).unwrap();
+    let catalog = optchat_chief::acpmux::query_harnesses(
+        &optchat_chief::supervisor::exiting(),
+        &socket,
+        &|_| {},
+    )
+    .unwrap();
     let harness = catalog["harnesses"]
         .as_object()
         .into_iter()
@@ -221,9 +232,15 @@ fn a_compactor_that_cannot_start_holds_no_turn_and_says_why() {
         .find(|name| optchat_chief::harness_gate::admit(&catalog, name).is_ok())
         .unwrap_or_else(|| panic!("the real acpmux admits no harness: {catalog}"));
     let family = optchat_chief::acpmux::harness_family(&catalog, &harness).unwrap();
-    let bare = Acpmux::new(socket, None, Vec::new());
+    let bare = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        Vec::new(),
+    );
     connect(&bare, &lines);
     let compactor = Arc::new(AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
         bare.clone(),
         compactor_spec(&paths, &home, &harness, family, None),
         Slots::new(COMPACTOR_SESSIONS),

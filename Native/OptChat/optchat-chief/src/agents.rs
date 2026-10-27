@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use cmux_chief::acp::SessionSummary;
 use cmux_chief::rules::PARENT_TAG;
+use cmux_panic_log::Supervisor;
 use serde_json::{Value, json};
 
 use crate::acpmux::{SessionSpec, sessions};
@@ -22,11 +23,11 @@ pub const USAGE: &str =
 
 type Notes = (Sender<Notification>, Receiver<Notification>);
 
-fn connect() -> Result<(Arc<RpcClient>, Notes), String> {
+fn connect(supervisor: &Supervisor) -> Result<(Arc<RpcClient>, Notes), String> {
     let socket = crate::acpmux_daemon::socket_path();
     let (tx, rx) = channel();
     let forward = tx.clone();
-    let client = crate::acpmux_peer::connect(&socket, move |n| {
+    let client = crate::acpmux_peer::connect(supervisor, &socket, move |n| {
         let _ = forward.send(n);
     })
     .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
@@ -68,8 +69,11 @@ pub fn owned_by(s: &SessionSummary, home: &std::path::Path) -> bool {
 /// a Chief home's shared acpmux (`acpmux_daemon::shared`), what `acpmux
 /// daemon shutdown` did for a Chief's own daemon. The daemon keeps
 /// running. Returns the names it stopped.
-pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
-    let client = connect_bounded()?;
+pub fn end_own_sessions(
+    home: &std::path::Path,
+    supervisor: &Supervisor,
+) -> Result<Vec<String>, String> {
+    let client = connect_bounded(supervisor)?;
     // All kills at once, bounded together: a host stops within the
     // supervisor's grace (5 s before SIGKILL), whatever one session does.
     let started: Vec<_> = sessions_bounded(&client)?
@@ -111,6 +115,7 @@ pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
 pub fn other_users(
     home: &std::path::Path,
     chief_home: &std::path::Path,
+    supervisor: &Supervisor,
 ) -> Result<Vec<String>, String> {
     let mut users = Vec::new();
     let chiefs = std::fs::read_dir(chief_home.join("c"))
@@ -123,7 +128,7 @@ pub fn other_users(
             users.push(format!("host {}", chief.display()));
         }
     }
-    let client = connect_bounded()?;
+    let client = connect_bounded(supervisor)?;
     let listed = sessions_bounded(&client);
     client.close();
     let listed = listed?;
@@ -154,9 +159,9 @@ pub fn other_users(
 const STOP_ANSWER_LIMIT: Duration = Duration::from_secs(1);
 
 /// [`connect`] for a stop: it never hangs on a daemon that does not answer.
-fn connect_bounded() -> Result<Arc<RpcClient>, String> {
+fn connect_bounded(supervisor: &Supervisor) -> Result<Arc<RpcClient>, String> {
     let socket = crate::acpmux_daemon::socket_path();
-    let client = crate::acpmux_peer::connect(&socket, |_| {})
+    let client = crate::acpmux_peer::connect(supervisor, &socket, |_| {})
         .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
     let answer = ask_bounded(
         &client,
@@ -229,6 +234,7 @@ fn tell_params(session: &str, text: &str, prompt_id: &str) -> Value {
 /// Sends a prompt and returns once acpmux accepted it (ran, steered or queued it), not when its
 /// turn ends.
 fn prompt_accepted(
+    supervisor: &Supervisor,
     client: &RpcClient,
     notes: &Notes,
     session: &str,
@@ -240,7 +246,7 @@ fn prompt_accepted(
     let prompt_id = format!("chief-cli-{}-{nanos}", std::process::id());
     let answer = client.start("session/prompt", tell_params(session, text, &prompt_id));
     let forward = notes.0.clone();
-    std::thread::spawn(move || {
+    crate::supervisor::background(supervisor, "agents-prompt-answer", move || {
         let params = match answer.recv() {
             Ok(Ok(_)) => Value::Null,
             Ok(Err(e)) => Value::String(e.to_string()),
@@ -250,7 +256,8 @@ fn prompt_accepted(
             method: ANSWER.into(),
             params,
         });
-    });
+    })
+    .map_err(|e| format!("waiting for the answer did not start: {e}"))?;
     loop {
         match notes.1.recv_timeout(Duration::from_secs(60)) {
             Ok(n)
@@ -349,14 +356,14 @@ pub fn retired(words: &[String]) -> Option<&'static str> {
 }
 
 /// Runs one `agents` verb; Ok carries what to print.
-pub fn run(flags: &Flags) -> Result<String, String> {
+pub fn run(flags: &Flags, supervisor: &Supervisor) -> Result<String, String> {
     let words = &flags.words[1..];
     let verb = words.first().map(String::as_str).unwrap_or("");
     let args = &words[words.len().min(1)..];
     match verb {
         "spawn" => Err(SPAWN_RETIRED.into()),
         "list" => {
-            let (client, _) = connect()?;
+            let (client, _) = connect(supervisor)?;
             let rows: Vec<String> = mine(sessions(&client)?)
                 .into_iter()
                 .map(|s| {
@@ -384,9 +391,9 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             if text.trim().is_empty() {
                 return Err(USAGE.into());
             }
-            let (client, notes) = connect()?;
+            let (client, notes) = connect(supervisor)?;
             let target = child(&client, name)?;
-            prompt_accepted(&client, &notes, &target.session_id, &text)?;
+            prompt_accepted(supervisor, &client, &notes, &target.session_id, &text)?;
             client.close();
             Ok(format!(
                 "sent to {name}; its report comes back as a message"
@@ -394,7 +401,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
         }
         "allow" | "deny" => {
             let name = args.first().ok_or(USAGE)?;
-            let (client, _) = connect()?;
+            let (client, _) = connect(supervisor)?;
             let target = child(&client, name)?;
             let info = client
                 .request("_acpmux/info", json!({"sessionId": target.session_id}))

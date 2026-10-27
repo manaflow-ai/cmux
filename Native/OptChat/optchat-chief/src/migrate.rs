@@ -845,6 +845,7 @@ fn ssh(host: &str, script: &str, stdin: Option<&Path>) -> Result<String, String>
     let feeder = match (stdin, child.stdin.take()) {
         (Some(dir), Some(pipe)) => {
             let dir = dir.to_owned();
+            // supervise-allow: per-call tar feeder, joined below; a panic is that join's error.
             Some(std::thread::spawn(move || tar_into(&dir, pipe)))
         }
         _ => None,

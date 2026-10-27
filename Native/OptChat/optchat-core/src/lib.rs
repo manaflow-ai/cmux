@@ -10,6 +10,9 @@
 //! specification (published for replication); section numbers in comments
 //! refer to it.
 
+// Pure and sans I/O: no unsafe code and no threads, and it stays that way.
+#![forbid(unsafe_code)]
+
 mod compact;
 mod memory;
 mod node;

@@ -99,9 +99,8 @@ impl Brain {
         );
         let thread_reply = reply.clone();
         let hold = if media.is_empty() { HOLD } else { MEDIA_HOLD };
-        let spawned = std::thread::Builder::new()
-            .name("optchat-link-previews".into())
-            .spawn(move || {
+        let spawned =
+            crate::supervisor::background(&self.supervisor, "optchat-link-previews", move || {
                 let parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
                 let _ = tx.send(Input::Previews {
                     key: owned_key,

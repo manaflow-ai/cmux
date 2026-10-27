@@ -201,6 +201,7 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     h.brain.set_workspaces(Some(ws.clone()));
     let sp = Arc::new(
         Spawner::new(
+            optchat_chief::supervisor::exiting(),
             h.chat.clone(),
             h.agents.clone(),
             SubagentSettings {

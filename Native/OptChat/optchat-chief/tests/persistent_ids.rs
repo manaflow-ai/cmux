@@ -14,6 +14,7 @@ use optchat_chief::subagents::{Spawner, SubagentSettings};
 
 fn spawn_one(h: &mut Harness) -> String {
     let spawner = Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

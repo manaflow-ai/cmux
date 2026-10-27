@@ -50,6 +50,8 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Runs every thread this process starts (supervisor.rs).
+    let supervisor = optchat_chief::supervisor::exiting();
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {
@@ -85,7 +87,7 @@ fn main() -> std::process::ExitCode {
         );
         let home = home(&flags);
         let out = if args[1] == "mcp" {
-            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+            optchat_chief::toolpacks::serve_mcp(&supervisor, &home, &pack, &server)
         } else {
             optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
                 println!("{h}");
@@ -152,7 +154,7 @@ fn main() -> std::process::ExitCode {
         flags = Flags::parse(&args);
     }
     let code = match flags.words.first().map(String::as_str) {
-        Some("host") => optchat_chief::host::run(&flags, started_ms),
+        Some("host") => optchat_chief::host::run(&flags, started_ms, &supervisor),
         Some("mcp") => {
             let socket = flags.value("socket").map(PathBuf::from).unwrap_or_else(|| {
                 let home = flags
@@ -249,7 +251,10 @@ fn main() -> std::process::ExitCode {
         // The daemon's Chief brain supervisor, when it deletes a Chief on
         // a shared acpmux: that Chief's sessions end, the daemon stays.
         Some("end-sessions") => {
-            match optchat_chief::agents::end_own_sessions(&optchat_chief::paths::mux_home()) {
+            match optchat_chief::agents::end_own_sessions(
+                &optchat_chief::paths::mux_home(),
+                &supervisor,
+            ) {
                 Ok(names) => {
                     println!("ended {} session(s)", names.len());
                     0
@@ -267,7 +272,7 @@ fn main() -> std::process::ExitCode {
             );
             2
         }
-        Some("agents") => match optchat_chief::agents::run(&flags) {
+        Some("agents") => match optchat_chief::agents::run(&flags, &supervisor) {
             Ok(out) => {
                 println!("{out}");
                 0

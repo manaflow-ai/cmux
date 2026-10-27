@@ -195,7 +195,12 @@ fn a_turn_over_the_acpmux_wire() {
         false,
     );
 
-    let acpmux = Acpmux::new(socket, None, Vec::new());
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        Vec::new(),
+    );
     let (tx, rx) = channel();
     let sink_tx = Mutex::new(tx);
     acpmux.spawn_link(
@@ -336,7 +341,12 @@ fn a_session_that_requires_a_preset_refuses_to_start_without_it() {
     let socket = dir.path().join("acpmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
     serve(UnixListener::bind(&socket).unwrap(), requests.clone(), true);
-    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        vec![compactor_preset()],
+    );
     connect(&acpmux);
     let error = acpmux
         .new_session(&compactor_session(dir.path()))
@@ -362,7 +372,12 @@ fn a_required_preset_is_installed_and_named_in_session_new() {
         requests.clone(),
         false,
     );
-    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        vec![compactor_preset()],
+    );
     connect(&acpmux);
     assert_eq!(
         acpmux.new_session(&compactor_session(dir.path())),
@@ -404,7 +419,12 @@ fn preset_args_are_sent_and_feature_detected() {
             false,
             if old { &["args"] } else { &[] },
         );
-        let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+        let acpmux = Acpmux::new(
+            optchat_chief::supervisor::exiting(),
+            socket,
+            None,
+            vec![compactor_preset()],
+        );
         connect(&acpmux);
         assert_eq!(acpmux.preset_args("optchat-compact-1a2b3c4d"), !old);
         assert_eq!(
@@ -453,7 +473,12 @@ fn a_preset_system_prompt_is_installed_replaced_and_feature_detected() {
             system_prompt: Some("seed".into()),
             ..compactor_preset()
         };
-        let acpmux = Acpmux::new(socket, None, vec![preset]);
+        let acpmux = Acpmux::new(
+            optchat_chief::supervisor::exiting(),
+            socket,
+            None,
+            vec![preset],
+        );
         connect(&acpmux);
         let name = "optchat-compact-1a2b3c4d";
         assert_eq!(acpmux.system_prompt(name), prompt, "{unknown:?}");
@@ -502,7 +527,12 @@ fn session_tags_are_set_right_after_session_new() {
         requests.clone(),
         false,
     );
-    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        vec![compactor_preset()],
+    );
     connect(&acpmux);
     let tags = optchat_chief::acpmux::chief_tags("1a2b3c4d", "compactor");
     let spec = SessionSpec {
@@ -565,7 +595,12 @@ fn query_harnesses_reads_the_daemons_harness_metadata() {
             }
         }
     });
-    let answer = query_harnesses(&socket, &|_: &str| {}).unwrap();
+    let answer = query_harnesses(
+        &optchat_chief::supervisor::exiting(),
+        &socket,
+        &|_: &str| {},
+    )
+    .unwrap();
     assert_eq!(harness_family(&answer, "codex"), Ok(Family::Codex));
     assert_eq!(harness_family(&answer, "claude-sr"), Ok(Family::Claude));
     assert_eq!(
@@ -587,7 +622,12 @@ fn prewarm_and_steer_go_over_the_wire() {
         requests.clone(),
         false,
     );
-    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        vec![compactor_preset()],
+    );
     connect(&acpmux);
     let name = compactor_preset().name;
     assert_eq!(acpmux.prewarm("claude-sr", Some(&name), dir.path()), Ok(()));

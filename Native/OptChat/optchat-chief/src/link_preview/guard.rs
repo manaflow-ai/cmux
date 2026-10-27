@@ -164,6 +164,7 @@ thread_local! {
 fn lookup(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal> {
     let (tx, rx) = std::sync::mpsc::channel();
     let name = host.to_owned();
+    // supervise-allow: per-lookup DNS thread; the timed recv below sees it end, and the lookup fails.
     std::thread::Builder::new()
         .name("optchat-link-dns".into())
         .spawn(move || {

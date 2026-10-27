@@ -45,8 +45,13 @@ fn the_start_up_probe_leaves_no_warm_claude_code_running() {
     };
     // Not shared: a warm-up runs on the caller's thread, so the assertions
     // below see it without waiting.
-    let compactor =
-        AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)).with_warm(2);
+    let compactor = AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
+        agents.clone(),
+        spec,
+        Slots::new(COMPACTOR_SESSIONS),
+    )
+    .with_warm(2);
 
     optchat_host::probe(&compactor, "SYS").unwrap();
     assert_eq!(

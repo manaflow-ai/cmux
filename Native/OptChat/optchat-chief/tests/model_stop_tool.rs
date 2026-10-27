@@ -18,6 +18,7 @@ fn serve(home: &Path, seen: Arc<Mutex<Vec<ControlRequest>>>) -> PathBuf {
     let socket = home.join("tools.sock");
     std::fs::create_dir_all(home).unwrap();
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &socket,
         optchat_chief::tools::Served {
             memory: open_chat(&home.join("memory")),

@@ -45,16 +45,21 @@ enum Ended {
 type Sink = Arc<dyn Fn(DaemonEvent) + Send + Sync>;
 type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// Runs the cloud link on its own thread.
+/// Runs the cloud link on its own thread, under `supervisor`. A link that
+/// cannot start is a `Fatal` event, as one that ends for good.
 pub fn spawn_cloud_link(
+    supervisor: &cmux_panic_log::Supervisor,
     config: CloudLinkConfig,
     tokens: Arc<dyn TokenSource>,
     sink: Sink,
     log: Log,
 ) {
-    std::thread::Builder::new()
-        .name("cloud-link".into())
-        .spawn(move || {
+    let fatal = sink.clone();
+    let spawned = supervisor.supervise_thread(
+        "cloud-link",
+        cmux_panic_log::Fatal,
+        cmux_panic_log::ShutdownBehavior::Skip,
+        move |stop: &cmux_panic_log::StopToken| {
             let mut delay = Duration::from_millis(500);
             loop {
                 let started = Instant::now();
@@ -69,11 +74,18 @@ pub fn spawn_cloud_link(
                 if started.elapsed() > Duration::from_secs(30) {
                     delay = Duration::from_millis(500);
                 }
-                std::thread::sleep(delay);
+                if stop.wait_timeout(delay) {
+                    return;
+                }
                 delay = (delay * 2).min(Duration::from_secs(30));
             }
-        })
-        .expect("spawn cloud link");
+        },
+    );
+    if let Err(e) = spawned {
+        fatal(DaemonEvent::Fatal(format!(
+            "cannot start the cloud link thread: {e}"
+        )));
+    }
 }
 
 fn retry(e: impl std::fmt::Display) -> Ended {

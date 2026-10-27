@@ -203,6 +203,7 @@ pub fn probe(home: &Path) -> Result<Value, String> {
         .unwrap_or_default();
     let handles: Vec<_> = names
         .into_iter()
+        // supervise-allow: per-host probe, joined below; a panicked probe is left out.
         .map(|n| std::thread::spawn(move || (n.clone(), ssh_ok(&n))))
         .collect();
     let mut ssh_up = Vec::new();

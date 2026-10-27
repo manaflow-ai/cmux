@@ -101,216 +101,264 @@ impl Brain {
             self.ttl_stale.clone(),
             self.settings.session_dir.clone(),
         );
-        let spawned = std::thread::Builder::new()
-            .name("turn".into())
-            .spawn(move || {
-                // Section 6, as the chief changed it (2026-10-10: a user turn
-                // never waits more than SETTLE_BOUND on compaction): the turn waits
-                // until every view line is a summary, at most SETTLE_BOUND.
-                // Then it starts anyway and reads the lines still building
-                // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
-                // turn reads their summaries. A node that cannot be built at
-                // all (a setup error, or one that fails every try) is stuck
-                // and holds no turn. Every PROGRESS_TICK of waiting,
-                // `settle.json` says how far the compactor is (the app's
-                // "Organizing Chief history"); a wait shorter than one tick
-                // shows nothing.
-                let mut deferred = false;
-                let settled = loop {
-                    let left = SETTLE_BOUND.saturating_sub(waiting_since.elapsed());
-                    if chat.settle(None, Some(left.min(PROGRESS_TICK))) {
-                        break true;
-                    }
-                    let status = chat.status();
-                    if status.closed || status.fatal.is_some() {
-                        break false;
-                    }
-                    if waiting_since.elapsed() >= SETTLE_BOUND {
-                        let failing: Vec<String> = status
-                            .failures
-                            .iter()
-                            .map(|f| format!("{}: {}", f.node.name(), f.error))
-                            .collect();
-                        log(&format!(
-                            "turn starts without {} view line summaries after {}s (still building; failing: {})",
-                            status.unbuilt,
-                            SETTLE_BOUND.as_secs(),
-                            if failing.is_empty() { "none".to_owned() } else { failing.join("; ") }
-                        ));
-                        deferred = true;
-                        break true;
-                    }
-                    if let Some(settle) = &settle_status {
-                        settle.waiting(&status);
-                    }
-                };
+        let spawned = crate::supervisor::background(&self.supervisor, "turn", move || {
+            // Section 6, as the chief changed it (2026-10-10: a user turn
+            // never waits more than SETTLE_BOUND on compaction): the turn waits
+            // until every view line is a summary, at most SETTLE_BOUND.
+            // Then it starts anyway and reads the lines still building
+            // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
+            // turn reads their summaries. A node that cannot be built at
+            // all (a setup error, or one that fails every try) is stuck
+            // and holds no turn. Every PROGRESS_TICK of waiting,
+            // `settle.json` says how far the compactor is (the app's
+            // "Organizing Chief history"); a wait shorter than one tick
+            // shows nothing.
+            let mut deferred = false;
+            let settled = loop {
+                let left = SETTLE_BOUND.saturating_sub(waiting_since.elapsed());
+                if chat.settle(None, Some(left.min(PROGRESS_TICK))) {
+                    break true;
+                }
+                let status = chat.status();
+                if status.closed || status.fatal.is_some() {
+                    break false;
+                }
+                if waiting_since.elapsed() >= SETTLE_BOUND {
+                    let failing: Vec<String> = status
+                        .failures
+                        .iter()
+                        .map(|f| format!("{}: {}", f.node.name(), f.error))
+                        .collect();
+                    log(&format!(
+                        "turn starts without {} view line summaries after {}s (still building; failing: {})",
+                        status.unbuilt,
+                        SETTLE_BOUND.as_secs(),
+                        if failing.is_empty() {
+                            "none".to_owned()
+                        } else {
+                            failing.join("; ")
+                        }
+                    ));
+                    deferred = true;
+                    break true;
+                }
                 if let Some(settle) = &settle_status {
-                    settle.clear();
+                    settle.waiting(&status);
                 }
-                if settled {
-                    // A stuck node (a request error on every try) no longer
-                    // holds the turn: one notice says so, retracted once
-                    // every stuck node is built.
-                    let status = chat.status();
-                    if let Some(text) = stuck_notice(&status) {
-                        let _ = tx.send(Input::CompactorStatus(Err(text)));
-                    } else if status.recovered {
-                        let _ = tx.send(Input::CompactorStatus(Ok(())));
-                    }
+            };
+            if let Some(settle) = &settle_status {
+                settle.clear();
+            }
+            if settled {
+                // A stuck node (a request error on every try) no longer
+                // holds the turn: one notice says so, retracted once
+                // every stuck node is built.
+                let status = chat.status();
+                if let Some(text) = stuck_notice(&status) {
+                    let _ = tx.send(Input::CompactorStatus(Err(text)));
+                } else if status.recovered {
+                    let _ = tx.send(Input::CompactorStatus(Ok(())));
                 }
-                if !settled {
-                    let _ = tx.send(Input::SettleFailed);
-                    return;
-                }
-                let (reply, start) = channel();
-                if tx.send(Input::Settled { reply, deferred }).is_err() {
-                    return;
-                }
-                let Ok(Some(start)) = start.recv() else {
-                    return;
-                };
-                let outcome = match &engine {
-                    Engine::Acpmux => {
-                        let progress = |session_id: &str, after: u64| {
-                            let _ = tx.send(Input::TurnProgress {
-                                key: start.key.clone(),
-                                session_id: session_id.to_owned(),
-                                after,
-                            });
-                        };
-                        // The reply as it streams, to every client.
-                        let draft = |d: crate::draft::Draft| {
-                            let _ = tx.send(Input::Draft(Box::new(d)));
-                        };
-                        // The turn's run record, to the same clients.
-                        let run_update = |u: crate::run::RunUpdate| {
-                            let _ = tx.send(Input::Run(Box::new(u)));
-                        };
-                        let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
-                        // Claude Code placed all four cache breakpoints
-                        // itself: the same turn again without the marker
-                        // (the refused request did nothing), and later
-                        // turns go without it.
-                        let marked = start
-                            .blocks
-                            .iter()
-                            .any(|b| b.get("cache_control").is_some());
-                        // The TTL our marks carry in this request.
-                        let ours = if start.blocks.iter().any(|b| {
+            }
+            if !settled {
+                let _ = tx.send(Input::SettleFailed);
+                return;
+            }
+            let (reply, start) = channel();
+            if tx.send(Input::Settled { reply, deferred }).is_err() {
+                return;
+            }
+            let Ok(Some(start)) = start.recv() else {
+                return;
+            };
+            let outcome = match &engine {
+                Engine::Acpmux => {
+                    let progress = |session_id: &str, after: u64| {
+                        let _ = tx.send(Input::TurnProgress {
+                            key: start.key.clone(),
+                            session_id: session_id.to_owned(),
+                            after,
+                        });
+                    };
+                    // The reply as it streams, to every client.
+                    let draft = |d: crate::draft::Draft| {
+                        let _ = tx.send(Input::Draft(Box::new(d)));
+                    };
+                    // The turn's run record, to the same clients.
+                    let run_update = |u: crate::run::RunUpdate| {
+                        let _ = tx.send(Input::Run(Box::new(u)));
+                    };
+                    let outcome = turn::run_with_drafts(
+                        &*agents,
+                        &chat,
+                        &start,
+                        &interrupt,
+                        &*log,
+                        &progress,
+                        &trace,
+                        &draft,
+                        &run_update,
+                    );
+                    // Claude Code placed all four cache breakpoints
+                    // itself: the same turn again without the marker
+                    // (the refused request did nothing), and later
+                    // turns go without it.
+                    let marked = start
+                        .blocks
+                        .iter()
+                        .any(|b| b.get("cache_control").is_some());
+                    // The TTL our marks carry in this request.
+                    let ours =
+                        if start.blocks.iter().any(|b| {
                             b.get("cache_control") == Some(&CacheTtl::OneHour.cache_control())
                         }) {
                             Some(CacheTtl::OneHour)
                         } else {
                             marked.then_some(CacheTtl::FiveMinutes)
                         };
-                        let stale = ttl_stale.load(Ordering::SeqCst);
-                        let outcome = match (&outcome.error, ours) {
-                            // The API refused our TTL next to Claude Code's.
-                            // A pooled session started under the other TTL
-                            // (cache.ttl changed since the prewarm): the
-                            // same turn once at that TTL. Else the route
-                            // takes no 1-hour TTL: the same turn at 5
-                            // minutes, and later turns stay at 5 minutes.
-                            (Some(e), Some(ttl))
-                                if is_ttl_refused_error(e)
-                                    && (stale || ttl == CacheTtl::OneHour) =>
+                    let stale = ttl_stale.load(Ordering::SeqCst);
+                    let outcome = match (&outcome.error, ours) {
+                        // The API refused our TTL next to Claude Code's.
+                        // A pooled session started under the other TTL
+                        // (cache.ttl changed since the prewarm): the
+                        // same turn once at that TTL. Else the route
+                        // takes no 1-hour TTL: the same turn at 5
+                        // minutes, and later turns stay at 5 minutes.
+                        (Some(e), Some(ttl))
+                            if is_ttl_refused_error(e) && (stale || ttl == CacheTtl::OneHour) =>
+                        {
+                            let retry = match ttl {
+                                CacheTtl::OneHour => CacheTtl::FiveMinutes,
+                                CacheTtl::FiveMinutes => CacheTtl::OneHour,
+                            };
+                            if !stale {
+                                ttl_refused.store(true, Ordering::SeqCst);
+                            }
+                            trace.emit(
+                                "turn.ttl_refused",
+                                serde_json::json!({"turn": start.key, "ttl": retry.as_str()}),
+                            );
+                            log(&format!(
+                                "turn {}: the API refused the {} cache TTL ({e}); running the turn again at {}{}",
+                                start.key,
+                                ttl.as_str(),
+                                retry.as_str(),
+                                if stale {
+                                    " (its session started before cache.ttl changed)"
+                                } else {
+                                    ", and later turns go at 5 minutes (set cache.ttl to try 1h again)"
+                                }
+                            ));
+                            if let Err(e) =
+                                crate::session_dir::set_session_cache(&session_dir, retry, true)
                             {
-                                let retry = match ttl {
-                                    CacheTtl::OneHour => CacheTtl::FiveMinutes,
-                                    CacheTtl::FiveMinutes => CacheTtl::OneHour,
-                                };
-                                if !stale {
-                                    ttl_refused.store(true, Ordering::SeqCst);
-                                }
-                                trace.emit(
-                                    "turn.ttl_refused",
-                                    serde_json::json!({"turn": start.key, "ttl": retry.as_str()}),
-                                );
-                                log(&format!(
-                                    "turn {}: the API refused the {} cache TTL ({e}); running the turn again at {}{}",
-                                    start.key,
-                                    ttl.as_str(),
-                                    retry.as_str(),
-                                    if stale {
-                                        " (its session started before cache.ttl changed)"
-                                    } else {
-                                        ", and later turns go at 5 minutes (set cache.ttl to try 1h again)"
-                                    }
-                                ));
-                                if let Err(e) =
-                                    crate::session_dir::set_session_cache(&session_dir, retry, true)
-                                {
-                                    log(&format!("updating the session's promptCacheTtl: {e}"));
-                                }
-                                let mut again = start.clone();
-                                for block in &mut again.blocks {
-                                    if block.get("cache_control").is_some() {
-                                        block["cache_control"] = retry.cache_control();
-                                    }
-                                }
-                                again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                                log(&format!("updating the session's promptCacheTtl: {e}"));
                             }
-                            (Some(e), _) if marked && is_marker_limit_error(e) => {
-                                marker_refused.refused();
-                                // The inspector lays this turn out unmarked.
-                                trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
-                                log(&format!(
-                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and the next {} turns go without it",
-                                    start.key,
-                                    crate::prompt::MARK_RETRY_AFTER
-                                ));
-                                // Unmarked: Claude Code's own marks again.
-                                if let Err(e) = crate::session_dir::set_session_cache(
-                                    &session_dir,
-                                    ours.unwrap_or(CacheTtl::OneHour),
-                                    false,
-                                ) {
-                                    log(&format!("updating the session's cache settings: {e}"));
+                            let mut again = start.clone();
+                            for block in &mut again.blocks {
+                                if block.get("cache_control").is_some() {
+                                    block["cache_control"] = retry.cache_control();
                                 }
-                                let mut again = start.clone();
-                                for block in &mut again.blocks {
-                                    if let Some(b) = block.as_object_mut() {
-                                        b.remove("cache_control");
-                                    }
+                            }
+                            again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
+                            turn::run_with_drafts(
+                                &*agents,
+                                &chat,
+                                &again,
+                                &interrupt,
+                                &*log,
+                                &progress,
+                                &trace,
+                                &draft,
+                                &run_update,
+                            )
+                        }
+                        (Some(e), _) if marked && is_marker_limit_error(e) => {
+                            marker_refused.refused();
+                            // The inspector lays this turn out unmarked.
+                            trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
+                            log(&format!(
+                                "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and the next {} turns go without it",
+                                start.key,
+                                crate::prompt::MARK_RETRY_AFTER
+                            ));
+                            // Unmarked: Claude Code's own marks again.
+                            if let Err(e) = crate::session_dir::set_session_cache(
+                                &session_dir,
+                                ours.unwrap_or(CacheTtl::OneHour),
+                                false,
+                            ) {
+                                log(&format!("updating the session's cache settings: {e}"));
+                            }
+                            let mut again = start.clone();
+                            for block in &mut again.blocks {
+                                if let Some(b) = block.as_object_mut() {
+                                    b.remove("cache_control");
                                 }
-                                again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
-                            _ => outcome,
-                        };
-                        crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
-                        })
-                    }
-                    Engine::Native(native) => {
-                        let mailbox = || {
-                            let (reply, texts) = channel();
-                            let asked = tx.send(Input::Boundary {
-                                key: start.key.clone(),
-                                reply,
-                            });
-                            if asked.is_err() {
-                                return Vec::new();
-                            }
-                            texts.recv().unwrap_or_default()
-                        };
-                        native.run_gated(
-                            &chat,
-                            &start,
-                            &*log,
-                            &mailbox,
-                            &|| interrupt.is_set(),
-                            &|| interrupt.gated(),
-                        )
-                    }
-                };
-                let _ = tx.send(Input::TurnEnded {
-                    key: start.key,
-                    outcome: Box::new(outcome),
-                });
+                            again.prompt_id = format!("{}:unmarked", start.prompt_id);
+                            turn::run_with_drafts(
+                                &*agents,
+                                &chat,
+                                &again,
+                                &interrupt,
+                                &*log,
+                                &progress,
+                                &trace,
+                                &draft,
+                                &run_update,
+                            )
+                        }
+                        _ => outcome,
+                    };
+                    crate::turn::run_after_capacity_waits(
+                        outcome,
+                        &start,
+                        &interrupt,
+                        &*log,
+                        &trace,
+                        |again| {
+                            turn::run_with_drafts(
+                                &*agents,
+                                &chat,
+                                again,
+                                &interrupt,
+                                &*log,
+                                &progress,
+                                &trace,
+                                &draft,
+                                &run_update,
+                            )
+                        },
+                    )
+                }
+                Engine::Native(native) => {
+                    let mailbox = || {
+                        let (reply, texts) = channel();
+                        let asked = tx.send(Input::Boundary {
+                            key: start.key.clone(),
+                            reply,
+                        });
+                        if asked.is_err() {
+                            return Vec::new();
+                        }
+                        texts.recv().unwrap_or_default()
+                    };
+                    native.run_gated(
+                        &chat,
+                        &start,
+                        &*log,
+                        &mailbox,
+                        &|| interrupt.is_set(),
+                        &|| interrupt.gated(),
+                    )
+                }
+            };
+            let _ = tx.send(Input::TurnEnded {
+                key: start.key,
+                outcome: Box::new(outcome),
             });
+        });
         if let Err(e) = spawned {
             (self.log)(&format!("starting a turn failed: {e}"));
             self.phase = Phase::Idle;

@@ -248,11 +248,22 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
     let token = http::new_secret().unwrap();
     let wide: SocketAddr = "0.0.0.0:0".parse().unwrap();
     assert!(
-        http::start(inspector(&h), wide, token.clone()).is_err(),
+        http::start(
+            &optchat_chief::supervisor::exiting(),
+            inspector(&h),
+            wide,
+            token.clone()
+        )
+        .is_err(),
         "a non-loopback bind is refused"
     );
-    let running =
-        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let running = http::start(
+        &optchat_chief::supervisor::exiting(),
+        inspector(&h),
+        "127.0.0.1:0".parse().unwrap(),
+        token.clone(),
+    )
+    .unwrap();
     let addr = running.addr;
     let host = format!("127.0.0.1:{}", addr.port());
     let bearer = format!("Authorization: Bearer {token}\r\n");
@@ -352,8 +363,13 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
 fn a_foreign_origin_is_refused_even_with_the_token() {
     let h = harness(true, 40);
     let token = http::new_secret().unwrap();
-    let running =
-        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let running = http::start(
+        &optchat_chief::supervisor::exiting(),
+        inspector(&h),
+        "127.0.0.1:0".parse().unwrap(),
+        token.clone(),
+    )
+    .unwrap();
     let addr = running.addr;
     let port = addr.port();
     let host = format!("127.0.0.1:{port}");
@@ -470,8 +486,13 @@ fn the_api_never_writes_the_memory() {
 fn a_spent_ticket_expires() {
     let h = harness(true, 10);
     let token = http::new_secret().unwrap();
-    let running =
-        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let running = http::start(
+        &optchat_chief::supervisor::exiting(),
+        inspector(&h),
+        "127.0.0.1:0".parse().unwrap(),
+        token.clone(),
+    )
+    .unwrap();
     let addr = running.addr;
     let host = format!("127.0.0.1:{}", addr.port());
     let bearer = format!("Authorization: Bearer {token}\r\n");
@@ -496,6 +517,7 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
     let insp = inspector(&h);
     let sock = h.dir.path().join("tools.sock");
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &sock,
         optchat_chief::tools::Served {
             memory: h.chat.clone(),

@@ -149,6 +149,7 @@ impl HomeView {
             .map_err(|e| format!("{}: {e}", self.cli.display()))?;
         let (mut stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
         // stderr drains on its own thread, so a chatty CLI never fills its pipe and stalls.
+        // supervise-allow: per-call stderr drain, joined below; a panic is that join's error.
         let errors = std::thread::spawn(move || {
             let mut err = String::new();
             if let Some(stderr) = stderr.as_mut() {
@@ -159,6 +160,7 @@ impl HomeView {
             err
         });
         let (tx, rx) = std::sync::mpsc::channel();
+        // supervise-allow: per-call stdout read; the timed recv below sees it end, and the call fails.
         std::thread::spawn(move || {
             let mut out = Vec::new();
             if let Some(stdout) = stdout.as_mut() {

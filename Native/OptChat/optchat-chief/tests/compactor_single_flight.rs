@@ -68,7 +68,12 @@ fn compactor(dir: &std::path::Path, agents: &std::sync::Arc<FakeAgents>) -> Acpm
         work: dir.join("work"),
         ..compactor_spec(&paths, &home, "claude-sr", Family::Claude, None)
     };
-    AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+    AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
+        agents.clone(),
+        spec,
+        Slots::new(COMPACTOR_SESSIONS),
+    )
 }
 
 #[test]

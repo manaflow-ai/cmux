@@ -20,7 +20,8 @@ fn the_mcp_server_answers_zoom_and_date_from_the_live_memory() {
     chat.append(Kind::Talk, "hi").unwrap();
     assert!(chat.wait_idle(None, Some(common::WAIT)));
     let socket = dir.path().join("tools.sock");
-    optchat_chief::tools::serve(&socket, chat.clone()).unwrap();
+    optchat_chief::tools::serve(&optchat_chief::supervisor::exiting(), &socket, chat.clone())
+        .unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
         .args(["mcp", "--socket"])

@@ -100,6 +100,7 @@ fn tell_to_a_peer_chief_posts_to_its_hub_box_with_the_reply_box() {
     let (hub, seen) = fake_hub(Vec::new());
     let socket = dir.path().join("tools.sock");
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &socket,
         Served {
             memory: open_chat(&dir.path().join("memory")),
@@ -138,6 +139,7 @@ fn tell_to_a_peer_chief_without_peers_says_why() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("tools.sock");
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &socket,
         Served {
             memory: open_chat(&dir.path().join("memory")),

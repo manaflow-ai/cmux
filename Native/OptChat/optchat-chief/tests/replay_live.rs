@@ -50,7 +50,12 @@ fn replay_a_log_through_both_compactor_prompts_in_acpmux() {
     paths.create().unwrap();
     optchat_chief::compactor::prepare_config(&paths.compactor_config).unwrap();
     let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
-    let agents = Acpmux::new(acpmux_home.join("acpmux.sock"), None, presets);
+    let agents = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        acpmux_home.join("acpmux.sock"),
+        None,
+        presets,
+    );
     let up = Arc::new((Mutex::new(false), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -72,6 +77,7 @@ fn replay_a_log_through_both_compactor_prompts_in_acpmux() {
     }
     let port: Arc<dyn AgentPort> = agents.clone();
     let compactor = Arc::new(AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
         port,
         compactor_spec(
             &paths,

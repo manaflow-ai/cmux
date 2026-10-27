@@ -65,7 +65,12 @@ fn serve(listener: UnixListener) {
 fn brain(dir: &std::path::Path, families: &[(&str, optchat_chief::acpmux::Family)]) -> Brain {
     let socket = dir.join("acpmux.sock");
     serve(UnixListener::bind(&socket).unwrap());
-    let acpmux = Acpmux::new(socket, None, Vec::new());
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        Vec::new(),
+    );
     let (events, up) = channel();
     let sink = Mutex::new(events);
     acpmux.spawn_link(
@@ -86,6 +91,7 @@ fn brain(dir: &std::path::Path, families: &[(&str, optchat_chief::acpmux::Family
     };
     let (tx, _rx) = channel();
     Brain::new(
+        optchat_chief::supervisor::exiting(),
         common::open_chat(&dir.join("chat")),
         acpmux,
         settings,

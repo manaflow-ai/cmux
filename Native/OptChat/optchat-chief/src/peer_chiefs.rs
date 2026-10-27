@@ -481,15 +481,20 @@ impl PeerChiefs {
     }
 
     /// Reads the inbox on its own thread until `deliver` refuses.
+    /// It runs under `supervisor`; one that cannot start is logged.
     pub fn spawn_inbox(
         self: &Arc<Self>,
+        supervisor: &cmux_panic_log::Supervisor,
         deliver: Box<dyn Fn(String) -> bool + Send>,
         log: Arc<dyn Fn(&str) + Send + Sync>,
     ) {
         let me = Arc::clone(self);
-        std::thread::Builder::new()
-            .name("peer-chiefs".into())
-            .spawn(move || {
+        let report = log.clone();
+        let started = supervisor.supervise_thread(
+            "peer-chiefs",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |stop: &cmux_panic_log::StopToken| {
                 log(&format!(
                     "peer chiefs: reading {} on {} (peers: {})",
                     me.inbox(),
@@ -515,16 +520,21 @@ impl PeerChiefs {
                         Ok(_) => delay = Duration::from_secs(1),
                         Err(e) => {
                             log(&format!("peer chiefs: {e}"));
-                            std::thread::sleep(delay);
+                            if stop.wait_timeout(delay) {
+                                return;
+                            }
                             delay = (delay * 2).min(Duration::from_secs(60));
                         }
                     }
-                    if !alive.load(std::sync::atomic::Ordering::SeqCst) {
+                    if !alive.load(std::sync::atomic::Ordering::SeqCst) || stop.is_stopped() {
                         return;
                     }
                 }
-            })
-            .expect("spawn peer chiefs");
+            },
+        );
+        if let Err(e) = started {
+            report(&format!("WARN peer chiefs: the inbox did not start: {e}"));
+        }
     }
 }
 

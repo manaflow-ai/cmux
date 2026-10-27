@@ -328,6 +328,7 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, S
     };
     // Its stderr says why the app's tools are missing; read on its own
     // thread so a full pipe never blocks the child.
+    // supervise-allow: per-call stderr read, joined below; a panic is that join's error.
     let note = std::thread::spawn(move || {
         let mut text = String::new();
         let _ = std::io::Read::read_to_string(
@@ -338,6 +339,7 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, S
         (!text.is_empty()).then_some(text)
     });
     let (tx, rx) = std::sync::mpsc::channel();
+    // supervise-allow: per-call stdout read; the timed recv below sees it end, and the call fails.
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = tx.send(std::io::Read::read_to_end(&mut stdout, &mut bytes).map(|_| bytes));

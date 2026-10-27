@@ -406,6 +406,7 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_cloud_link(
+        &optchat_chief::supervisor::exiting(),
         CloudLinkConfig {
             socket,
             chief: CHIEF.into(),
@@ -531,6 +532,7 @@ fn a_daemon_without_the_cloud_capability_is_fatal() {
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_cloud_link(
+        &optchat_chief::supervisor::exiting(),
         CloudLinkConfig {
             socket,
             chief: CHIEF.into(),
@@ -647,6 +649,7 @@ fn the_cloud_link_subscribes_the_wake_queue_with_the_chief_lease() {
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_cloud_link(
+        &optchat_chief::supervisor::exiting(),
         CloudLinkConfig {
             socket,
             chief: CHIEF.into(),

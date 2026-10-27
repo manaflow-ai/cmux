@@ -272,6 +272,7 @@ fn a_second_chief_answers_its_dm_and_acts_on_its_own_in_a_channel_thread() {
     let (events_tx, events_rx) = channel::<DaemonEvent>();
     let events_tx = Mutex::new(events_tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file),
@@ -442,6 +443,7 @@ fn start_chief(daemon: &Daemon, me: &mut Conn, participant: &str, title: &str) -
     let (events_tx, events_rx) = channel::<DaemonEvent>();
     let events_tx = Mutex::new(events_tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file),

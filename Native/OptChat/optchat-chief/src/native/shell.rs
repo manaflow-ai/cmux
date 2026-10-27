@@ -94,6 +94,7 @@ impl Shell {
         let output = tx.clone();
         // Output streams to this thread as it comes, so what a command printed
         // is kept even when a background process holds the pipe open.
+        // supervise-allow: per-command output reader; Shell::run's deadline loop ends without its events.
         std::thread::Builder::new()
             .name("bash-output".into())
             .spawn(move || {
@@ -111,6 +112,7 @@ impl Shell {
                 let _ = output.send(Event::Eof);
             })
             .map_err(|e| e.to_string())?;
+        // supervise-allow: per-command wait; Shell::run's deadline loop ends without its exit event.
         std::thread::Builder::new()
             .name("bash-wait".into())
             .spawn(move || {

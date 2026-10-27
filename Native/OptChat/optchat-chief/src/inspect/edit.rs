@@ -146,7 +146,12 @@ impl Editor {
     /// The editor of `chat`, whose journal and backups live in `dir`
     /// (`optchat/`). Reads the journal; stale summaries left by an earlier
     /// process are queued, and a worker thread builds them.
-    pub fn open(chat: Arc<OptChat>, dir: &Path) -> Arc<Editor> {
+    /// Its rebuild thread runs under `supervisor`.
+    pub fn open(
+        supervisor: &cmux_panic_log::Supervisor,
+        chat: Arc<OptChat>,
+        dir: &Path,
+    ) -> Arc<Editor> {
         let changes = read_journal(&dir.join(JOURNAL));
         let mut book = Book {
             changes,
@@ -164,9 +169,17 @@ impl Editor {
             work: Condvar::new(),
         });
         let weak = Arc::downgrade(&editor);
-        let _ = std::thread::Builder::new()
-            .name("memory-rebuild".into())
-            .spawn(move || rebuild_loop(weak));
+        let started = supervisor.supervise_thread(
+            "memory-rebuild",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |_: &cmux_panic_log::StopToken| rebuild_loop(weak),
+        );
+        if let Err(e) = started {
+            crate::log::log(format!(
+                "WARN memory edits will not rebuild their summaries: {e}"
+            ));
+        }
         editor
     }
 

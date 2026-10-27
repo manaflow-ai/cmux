@@ -148,9 +148,8 @@ impl Brain {
             let log = self.log.clone();
             let tx = self.tx.clone();
             // The pool tool takes seconds: off the brain thread.
-            let _ = std::thread::Builder::new()
-                .name("cloud-pause".into())
-                .spawn(move || {
+            let started =
+                crate::supervisor::background(&self.supervisor, "cloud-pause", move || {
                     let began = std::time::Instant::now();
                     match vms.pause(&peer) {
                         Ok(()) => log(&format!(
@@ -163,6 +162,9 @@ impl Brain {
                         }
                     }
                 });
+            if let Err(e) = started {
+                (self.log)(&format!("WARN cloud: the pause did not start: {e}"));
+            }
         }
     }
 
@@ -222,18 +224,22 @@ impl Brain {
             let vms = vms.clone();
             let log = self.log.clone();
             let tx = self.tx.clone();
-            let _ = std::thread::Builder::new()
-                .name("cloud-reap".into())
-                .spawn(move || match vms.destroy(&peer) {
-                    Ok(()) => {
-                        log(&format!("cloud: deleted {peer} (its subagent is done)"));
-                        let _ = tx.send(super::Input::CloudVmDeleted { peer });
-                    }
-                    Err(e) => {
-                        log(&format!("cloud: delete {peer}: {e}"));
-                        let _ = tx.send(super::Input::CloudVmDeleteFailed { peer });
+            let started =
+                crate::supervisor::background(&self.supervisor, "cloud-reap", move || {
+                    match vms.destroy(&peer) {
+                        Ok(()) => {
+                            log(&format!("cloud: deleted {peer} (its subagent is done)"));
+                            let _ = tx.send(super::Input::CloudVmDeleted { peer });
+                        }
+                        Err(e) => {
+                            log(&format!("cloud: delete {peer}: {e}"));
+                            let _ = tx.send(super::Input::CloudVmDeleteFailed { peer });
+                        }
                     }
                 });
+            if let Err(e) = started {
+                (self.log)(&format!("WARN cloud: the delete did not start: {e}"));
+            }
         }
     }
 
@@ -264,9 +270,8 @@ impl Brain {
             let fleet = fleet.clone();
             let tx = self.tx.clone();
             let log = self.log.clone();
-            let _ = std::thread::Builder::new()
-                .name("fleet-wait".into())
-                .spawn(move || {
+            let started =
+                crate::supervisor::background(&self.supervisor, "fleet-wait", move || {
                     for job in jobs {
                         match fleet.state(&job) {
                             Ok(state) if crate::fleet_wait::FINAL.contains(&state.as_str()) => {
@@ -282,6 +287,9 @@ impl Brain {
                     }
                     let _ = tx.send(super::Input::FleetPolled { id });
                 });
+            if let Err(e) = started {
+                (self.log)(&format!("WARN fleet wait: the poll did not start: {e}"));
+            }
         }
     }
 
@@ -426,9 +434,8 @@ impl Brain {
             let vms = self.cloud_vms.clone();
             let log = self.log.clone();
             let tx = self.tx.clone();
-            let _ = std::thread::Builder::new()
-                .name("agent-key-revoke".into())
-                .spawn(move || {
+            let started =
+                crate::supervisor::background(&self.supervisor, "agent-key-revoke", move || {
                     match keys.revoke(&key_id) {
                         Ok(()) => {
                             log(&format!(
@@ -448,6 +455,9 @@ impl Brain {
                         }
                     }
                 });
+            if let Err(e) = started {
+                (self.log)(&format!("WARN agent key: the revoke did not start: {e}"));
+            }
         }
     }
 
@@ -1040,17 +1050,21 @@ impl Brain {
                     sub.resume_attempts = attempt;
                 }
                 let (tx, id) = (self.tx.clone(), id.to_owned());
-                std::thread::spawn(move || {
-                    // A bounded backoff before the retry (auto_resume.rs).
-                    std::thread::sleep(delay);
-                    let _ = tx.send(super::Input::AutoResume {
-                        id,
-                        attempt,
-                        reason,
-                        after_network: false,
-                        online: true,
+                let started =
+                    crate::supervisor::background(&self.supervisor, "auto-resume", move || {
+                        // A bounded backoff before the retry (auto_resume.rs).
+                        std::thread::sleep(delay);
+                        let _ = tx.send(super::Input::AutoResume {
+                            id,
+                            attempt,
+                            reason,
+                            after_network: false,
+                            online: true,
+                        });
                     });
-                });
+                if let Err(e) = started {
+                    (self.log)(&format!("WARN auto-resume: the retry did not start: {e}"));
+                }
                 Some((note, true))
             }
             // Planned above (plan_move).
@@ -1061,25 +1075,34 @@ impl Brain {
                 }
                 let (tx, id, reach) = (self.tx.clone(), id.to_owned(), self.reach.clone());
                 let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
-                std::thread::spawn(move || {
-                    let online = crate::auto_resume::wait_online(
-                        &*reach,
-                        crate::auto_resume::NETWORK_POLL,
-                        crate::auto_resume::NETWORK_WAIT_MAX,
-                        std::thread::sleep,
-                    );
-                    if online {
-                        // Let the link settle before the request.
-                        std::thread::sleep(settle);
-                    }
-                    let _ = tx.send(super::Input::AutoResume {
-                        id,
-                        attempt,
-                        reason,
-                        after_network: true,
-                        online,
-                    });
-                });
+                let started = crate::supervisor::background(
+                    &self.supervisor,
+                    "auto-resume-online",
+                    move || {
+                        let online = crate::auto_resume::wait_online(
+                            &*reach,
+                            crate::auto_resume::NETWORK_POLL,
+                            crate::auto_resume::NETWORK_WAIT_MAX,
+                            std::thread::sleep,
+                        );
+                        if online {
+                            // Let the link settle before the request.
+                            std::thread::sleep(settle);
+                        }
+                        let _ = tx.send(super::Input::AutoResume {
+                            id,
+                            attempt,
+                            reason,
+                            after_network: true,
+                            online,
+                        });
+                    },
+                );
+                if let Err(e) = started {
+                    (self.log)(&format!(
+                        "WARN auto-resume: the network wait did not start: {e}"
+                    ));
+                }
                 Some((note, true))
             }
         }
@@ -1306,25 +1329,29 @@ impl Brain {
             );
             let (tx, reach) = (self.tx.clone(), self.reach.clone());
             let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
-            std::thread::spawn(move || {
-                let online = crate::auto_resume::wait_online(
-                    &*reach,
-                    crate::auto_resume::NETWORK_POLL,
-                    crate::auto_resume::NETWORK_WAIT_MAX,
-                    std::thread::sleep,
-                );
-                if online {
-                    // A bounded pause so a restart loop does not hammer the model.
-                    std::thread::sleep(settle);
-                }
-                let _ = tx.send(super::Input::AutoResume {
-                    id,
-                    attempt,
-                    reason: String::new(),
-                    after_network: false,
-                    online,
+            let started =
+                crate::supervisor::background(&self.supervisor, "auto-resume-rearm", move || {
+                    let online = crate::auto_resume::wait_online(
+                        &*reach,
+                        crate::auto_resume::NETWORK_POLL,
+                        crate::auto_resume::NETWORK_WAIT_MAX,
+                        std::thread::sleep,
+                    );
+                    if online {
+                        // A bounded pause so a restart loop does not hammer the model.
+                        std::thread::sleep(settle);
+                    }
+                    let _ = tx.send(super::Input::AutoResume {
+                        id,
+                        attempt,
+                        reason: String::new(),
+                        after_network: false,
+                        online,
+                    });
                 });
-            });
+            if let Err(e) = started {
+                (self.log)(&format!("WARN auto-resume: the re-arm did not start: {e}"));
+            }
         }
     }
 
@@ -1427,11 +1454,17 @@ impl Brain {
         }
         self.save();
         let (log, id) = (self.log.clone(), id.to_owned());
-        std::thread::spawn(move || {
-            if let Err(e) = workspaces.close(&key) {
-                log(&format!("subagent {id}: closing its workspace: {e}"));
-            }
-        });
+        let started =
+            crate::supervisor::background(&self.supervisor, "workspace-close", move || {
+                if let Err(e) = workspaces.close(&key) {
+                    log(&format!("subagent {id}: closing its workspace: {e}"));
+                }
+            });
+        if let Err(e) = started {
+            (self.log)(&format!(
+                "WARN closing a subagent's workspace did not start: {e}"
+            ));
+        }
     }
 
     /// Queues each finished subagent's report of `spawn` as its own item
@@ -1791,45 +1824,62 @@ impl Brain {
             // instead of queuing"); a `queue` tell waits after the turn.
             let log = self.log.clone();
             let message = message.to_owned();
-            std::thread::spawn(move || {
-                if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
-                    if !queue {
+            let supervisor = self.supervisor.clone();
+            let started = crate::supervisor::background(
+                &self.supervisor,
+                "tell-steer",
+                move || {
+                    if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
+                        if !queue {
+                            log(&format!(
+                                "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
+                            ));
+                            let _ = forward.send(super::Input::TellUnsteered {
+                                id: sub_id,
+                                session,
+                                message,
+                            });
+                            return;
+                        }
                         log(&format!(
-                            "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
+                            "subagent {sub_id}: the tell could not be steered ({e}); it goes after the current turn"
                         ));
-                        let _ = forward.send(super::Input::TellUnsteered {
-                            id: sub_id,
-                            session,
-                            message,
-                        });
-                        return;
+                        let back = forward.clone();
+                        if let Err(e) = tell_prompt(
+                            &supervisor,
+                            &*agents,
+                            &session,
+                            blocks,
+                            &prompt_id,
+                            forward,
+                            sub_id.clone(),
+                        ) {
+                            log(&format!(
+                                "subagent {sub_id}: the tell did not reach it: {e}; it is kept for its next prompt"
+                            ));
+                            let _ = back.send(super::Input::TellUndelivered {
+                                id: sub_id,
+                                message: text,
+                                error: e,
+                            });
+                        }
                     }
-                    log(&format!(
-                        "subagent {sub_id}: the tell could not be steered ({e}); it goes after the current turn"
-                    ));
-                    let back = forward.clone();
-                    if let Err(e) = tell_prompt(
-                        &*agents,
-                        &session,
-                        blocks,
-                        &prompt_id,
-                        forward,
-                        sub_id.clone(),
-                    ) {
-                        log(&format!(
-                            "subagent {sub_id}: the tell did not reach it: {e}; it is kept for its next prompt"
-                        ));
-                        let _ = back.send(super::Input::TellUndelivered {
-                            id: sub_id,
-                            message: text,
-                            error: e,
-                        });
-                    }
-                }
-            });
+                },
+            );
+            if let Err(e) = started {
+                return Err(format!("the tell did not start: {e}"));
+            }
             true
         } else {
-            tell_prompt(&*agents, &session, blocks, &prompt_id, forward, sub_id)?;
+            tell_prompt(
+                &self.supervisor,
+                &*agents,
+                &session,
+                blocks,
+                &prompt_id,
+                forward,
+                sub_id,
+            )?;
             false
         };
         let resumed = if let Some(sub) = self.state.sub_mut(id)
@@ -1911,6 +1961,7 @@ impl Brain {
                 let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
                 let blocks = vec![json!({"type": "text", "text": text.clone()})];
                 if let Err(e) = tell_prompt(
+                    &self.supervisor,
                     &*self.agents,
                     session,
                     blocks,
@@ -2603,6 +2654,7 @@ impl Brain {
 
 /// A tell as the subagent's next prompt; its answer goes to the brain.
 fn tell_prompt(
+    supervisor: &cmux_panic_log::Supervisor,
     agents: &dyn crate::acpmux::AgentPort,
     session: &str,
     blocks: Vec<Value>,
@@ -2612,7 +2664,7 @@ fn tell_prompt(
 ) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
     agents.start_prompt(session, blocks, prompt_id, tx)?;
-    std::thread::spawn(move || {
+    crate::supervisor::background(supervisor, "tell-answer", move || {
         while let Ok(signal) = rx.recv() {
             match signal {
                 crate::acpmux::TurnSignal::Changed
@@ -2625,7 +2677,8 @@ fn tell_prompt(
                 crate::acpmux::TurnSignal::Lost => return,
             }
         }
-    });
+    })
+    .map_err(|e| format!("the tell's answer wait did not start: {e}"))?;
     Ok(())
 }
 

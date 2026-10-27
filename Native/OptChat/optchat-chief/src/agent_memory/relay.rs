@@ -228,6 +228,7 @@ impl Relay {
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let stderr_pipe = child.stderr.take().ok_or("no stderr")?;
         let (tx, lines) = std::sync::mpsc::channel();
+        // supervise-allow: per-connection pipe reader; Conn::request's timed recv sees it end, and the request fails.
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -239,6 +240,7 @@ impl Relay {
         let stderr = Arc::new(Mutex::new(String::new()));
         let kept = stderr.clone();
         let (stderr_tx, stderr_done) = std::sync::mpsc::channel::<()>();
+        // supervise-allow: per-connection stderr reader; its done channel tells the connection it ended.
         std::thread::spawn(move || {
             let _done = stderr_tx;
             for line in BufReader::new(stderr_pipe).lines() {

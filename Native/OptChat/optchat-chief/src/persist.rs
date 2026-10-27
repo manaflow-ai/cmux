@@ -26,7 +26,9 @@ impl Persister {
     /// (`backup`, when given) after each `turn_ended`; a failed push is
     /// tried again when it is due. Failures are logged; a missing git is
     /// said once.
+    /// Its thread runs under `supervisor`.
     pub fn start(
+        supervisor: &cmux_panic_log::Supervisor,
         dir: PathBuf,
         db: PathBuf,
         backup: Option<Backup>,
@@ -34,57 +36,66 @@ impl Persister {
         log: crate::brain::Log,
     ) -> std::io::Result<Persister> {
         let (tx, rx) = channel::<String>();
-        std::thread::Builder::new()
-            .name("persist".into())
-            .spawn(move || {
-                let mut told = false;
-                let mut export = Export::new(&dir, &db);
-                let mut backup = backup;
-                let mut last: Option<Outcome> = None;
-                loop {
-                    let due = backup.as_ref().and_then(Backup::due);
-                    let key = match due {
-                        Some(at) => {
-                            match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+        // A turn's export must not be cut short: shutdown waits for it.
+        supervisor
+            .supervise_thread(
+                "persist",
+                cmux_panic_log::Fatal,
+                cmux_panic_log::ShutdownBehavior::Block {
+                    deadline: std::time::Duration::from_secs(5),
+                },
+                move |_: &cmux_panic_log::StopToken| {
+                    let mut told = false;
+                    let mut export = Export::new(&dir, &db);
+                    let mut backup = backup;
+                    let mut last: Option<Outcome> = None;
+                    loop {
+                        let due = backup.as_ref().and_then(Backup::due);
+                        let key = match due {
+                            Some(at) => {
+                                match rx.recv_timeout(at.saturating_duration_since(Instant::now()))
+                                {
+                                    Ok(key) => Some(key),
+                                    Err(RecvTimeoutError::Timeout) => None,
+                                    Err(RecvTimeoutError::Disconnected) => break,
+                                }
+                            }
+                            None => match rx.recv() {
                                 Ok(key) => Some(key),
-                                Err(RecvTimeoutError::Timeout) => None,
-                                Err(RecvTimeoutError::Disconnected) => break,
+                                Err(_) => break,
+                            },
+                        };
+                        if let Some(key) = &key {
+                            if let Err(e) = export.sync() {
+                                log(&format!(
+                                    "exporting the memory after turn {key} failed: {e}"
+                                ));
+                            }
+                            if let Err(e) = snapshot(&dir, key)
+                                && !told
+                            {
+                                told = true;
+                                log(&format!(
+                                    "committing the memory after turn {key} failed: {e} (said once)"
+                                ));
+                            }
+                            if let Some(retention) = &retention
+                                && let Err(e) = retention.cleanup()
+                            {
+                                log(&format!("cleaning expired turn transcripts failed: {e}"));
                             }
                         }
-                        None => match rx.recv() {
-                            Ok(key) => Some(key),
-                            Err(_) => break,
-                        },
-                    };
-                    if let Some(key) = &key {
-                        if let Err(e) = export.sync() {
-                            log(&format!(
-                                "exporting the memory after turn {key} failed: {e}"
-                            ));
-                        }
-                        if let Err(e) = snapshot(&dir, key)
-                            && !told
-                        {
-                            told = true;
-                            log(&format!(
-                                "committing the memory after turn {key} failed: {e} (said once)"
-                            ));
-                        }
-                        if let Some(retention) = &retention
-                            && let Err(e) = retention.cleanup()
-                        {
-                            log(&format!("cleaning expired turn transcripts failed: {e}"));
+                        if let Some(backup) = backup.as_mut() {
+                            let outcome = backup.run(&dir);
+                            if let Some(line) = describe(&outcome, last.as_ref()) {
+                                log(&line);
+                            }
+                            last = Some(outcome);
                         }
                     }
-                    if let Some(backup) = backup.as_mut() {
-                        let outcome = backup.run(&dir);
-                        if let Some(line) = describe(&outcome, last.as_ref()) {
-                            log(&line);
-                        }
-                        last = Some(outcome);
-                    }
-                }
-            })?;
+                },
+            )
+            .map_err(std::io::Error::other)?;
         Ok(Persister { tx })
     }
 

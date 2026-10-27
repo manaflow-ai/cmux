@@ -181,6 +181,7 @@ fn the_reply_streams_to_the_conversation_before_it_is_posted() {
     let (events_tx, events_rx) = channel::<DaemonEvent>();
     let events_tx = Mutex::new(events_tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file),

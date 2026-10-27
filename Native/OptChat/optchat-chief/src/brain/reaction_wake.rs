@@ -387,9 +387,8 @@ impl super::Brain {
         );
         let tx = self.tx.clone();
         let seq = message.seq;
-        let spawned = std::thread::Builder::new()
-            .name("optchat-reaction-judge".into())
-            .spawn(move || {
+        let spawned =
+            crate::supervisor::background(&self.supervisor, "optchat-reaction-judge", move || {
                 let answer = judge.judge(&ask);
                 let _ = tx.send(Input::ReactionJudged { seq, id, answer });
             });

@@ -351,9 +351,8 @@ impl super::Brain {
             data: None,
             ..image.clone()
         };
-        let spawned = std::thread::Builder::new()
-            .name("optchat-describe".into())
-            .spawn(move || {
+        let spawned =
+            crate::supervisor::background(&self.supervisor, "optchat-describe", move || {
                 let description = describer.describe(blocks);
                 let _ = tx.send(super::Input::Described {
                     image: Box::new(image),

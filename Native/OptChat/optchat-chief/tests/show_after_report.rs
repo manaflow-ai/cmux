@@ -96,6 +96,7 @@ fn report_script() -> Script {
 /// Spawns one subagent and steps the brain until its report is in the log.
 fn delivered_report(h: &mut Harness) -> String {
     let spawner = Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

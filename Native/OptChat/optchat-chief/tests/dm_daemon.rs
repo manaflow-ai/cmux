@@ -267,6 +267,7 @@ fn link(
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = lines.clone();
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file.to_owned()),

@@ -15,6 +15,7 @@ use optchat_chief::tools::{ControlCall, Orchestrator};
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
     Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

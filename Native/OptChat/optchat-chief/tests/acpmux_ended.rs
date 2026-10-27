@@ -68,7 +68,12 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
         std::env::set_var("ACPMUX_HOME", dir.path());
     }
     serve_once_then_shut_down(UnixListener::bind(&socket).unwrap(), socket.clone());
-    let acpmux = Acpmux::new(socket, None, Vec::new());
+    let acpmux = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        Vec::new(),
+    );
     let (tx, rx) = channel();
     let sink = Mutex::new(tx);
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));

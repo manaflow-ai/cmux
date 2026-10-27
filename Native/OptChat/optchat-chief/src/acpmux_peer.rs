@@ -33,6 +33,7 @@ use crate::rpc::{Notification, RpcClient};
 /// Connects to the acpmux socket at `path`, checks its server peer, and
 /// only then speaks JSON-RPC on it.
 pub fn connect(
+    supervisor: &cmux_panic_log::Supervisor,
     path: &Path,
     on_notification: impl Fn(Notification) + Send + 'static,
 ) -> io::Result<Arc<RpcClient>> {
@@ -43,7 +44,7 @@ pub fn connect(
             format!("refused the acpmux socket peer: {why}"),
         )
     })?;
-    RpcClient::over(stream, on_notification)
+    RpcClient::over(stream, supervisor, on_notification)
 }
 
 /// The acpmux executable this host runs, symlinks resolved.

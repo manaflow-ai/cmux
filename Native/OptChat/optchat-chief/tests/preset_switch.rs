@@ -118,6 +118,7 @@ fn a_codex_host_installs_the_compactor_preset_a_claude_host_saved() {
     );
     // The claude-sr host before the switch.
     let claude = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
         socket.clone(),
         None,
         vec![preset(
@@ -128,7 +129,12 @@ fn a_codex_host_installs_the_compactor_preset_a_claude_host_saved() {
     );
     connect(&claude);
     // The codex host after it, on the same daemon.
-    let codex = Acpmux::new(socket, None, vec![preset("codex", Vec::new(), None)]);
+    let codex = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket,
+        None,
+        vec![preset("codex", Vec::new(), None)],
+    );
     connect(&codex);
     let spec = SessionSpec {
         name: "optchat-compact-1a2b3c4d-0-0".into(),

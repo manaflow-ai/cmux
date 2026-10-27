@@ -31,6 +31,7 @@ fn serve_recording(home: &Path, chief: Arc<ChiefTools>, asked: Asked) -> PathBuf
     let socket = Paths::new(home).tools_socket;
     std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &socket,
         optchat_chief::tools::Served {
             memory: open_chat(&home.join("memory")),

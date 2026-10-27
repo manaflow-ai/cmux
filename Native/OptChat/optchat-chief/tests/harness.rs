@@ -402,7 +402,8 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
     chat.append(Kind::Talk, "hi").unwrap();
     assert!(chat.wait_idle(None, Some(WAIT)));
     let socket = dir.path().join("tools.sock");
-    optchat_chief::tools::serve(&socket, chat.clone()).unwrap();
+    optchat_chief::tools::serve(&optchat_chief::supervisor::exiting(), &socket, chat.clone())
+        .unwrap();
     let run = |args: &[&str]| {
         let out = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
             .args(args)
@@ -471,6 +472,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         optchat_chief::paths::home_id(&dir.path().join("mux"))
     );
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
         agents.clone(),
         spec,
         optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),

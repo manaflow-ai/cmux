@@ -1051,17 +1051,23 @@ pub struct Served {
 
 /// Serves the tools on `path` until the process ends. The host holds the
 /// host lock, so a socket file left by an earlier host is stale and replaced.
-pub fn serve(path: &Path, memory: Arc<dyn Memory>) -> std::io::Result<()> {
-    serve_with(path, memory, None)
+pub fn serve(
+    supervisor: &cmux_panic_log::Supervisor,
+    path: &Path,
+    memory: Arc<dyn Memory>,
+) -> std::io::Result<()> {
+    serve_with(supervisor, path, memory, None)
 }
 
 /// `serve`, with the host's settings `control`.
 pub fn serve_with(
+    supervisor: &cmux_panic_log::Supervisor,
     path: &Path,
     memory: Arc<dyn Memory>,
     control: Option<Control>,
 ) -> std::io::Result<()> {
     serve_all(
+        supervisor,
         path,
         Served {
             memory,
@@ -1076,19 +1082,33 @@ pub fn serve_with(
 }
 
 /// Serves the memory, the subagent tools and the settings control on `path`.
-pub fn serve_all(path: &Path, served: Served) -> std::io::Result<()> {
+/// The accept loop and each connection run under `supervisor`.
+pub fn serve_all(
+    supervisor: &cmux_panic_log::Supervisor,
+    path: &Path,
+    served: Served,
+) -> std::io::Result<()> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
-    std::thread::Builder::new()
-        .name("tools".into())
-        .spawn(move || {
-            for conn in listener.incoming().flatten() {
-                let served = served.clone();
-                let _ = std::thread::Builder::new()
-                    .name("tools-conn".into())
-                    .spawn(move || connection(conn, &served));
-            }
-        })?;
+    let conns = supervisor.clone();
+    supervisor
+        .supervise_thread(
+            "tools",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |_: &cmux_panic_log::StopToken| {
+                for conn in listener.incoming().flatten() {
+                    let served = served.clone();
+                    let started = crate::supervisor::background(&conns, "tools-conn", move || {
+                        connection(conn, &served);
+                    });
+                    if let Err(e) = started {
+                        crate::log::log(format!("WARN a tools connection was dropped: {e}"));
+                    }
+                }
+            },
+        )
+        .map_err(std::io::Error::other)?;
     Ok(())
 }
 

@@ -598,7 +598,14 @@ pub fn mcp_headers(mux_home: &Path, pack: &str, server: &str) -> Result<String, 
 /// `pack mcp PACK SERVER`: runs a stdio server with its secrets in its env
 /// (never in a file or argv), and keeps only the pack's allowed tools: a
 /// `tools/list` answer is filtered, a `tools/call` of another tool refused.
-pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, String> {
+/// The stdin proxy thread runs under `supervisor`: a panic there ends this
+/// process instead of leaving the server's output with no input.
+pub fn serve_mcp(
+    supervisor: &cmux_panic_log::Supervisor,
+    mux_home: &Path,
+    pack: &str,
+    server: &str,
+) -> Result<i32, String> {
     use std::io::BufRead;
     let packs = load(mux_home);
     let m = find_server(&packs, pack, server)?.clone();
@@ -625,7 +632,7 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
     let from_child = child.stdout.take().ok_or("no stdout")?;
     let allowed = m.tools.clone();
     let (out2, lists2) = (out.clone(), lists.clone());
-    let reader = std::thread::spawn(move || {
+    let reader = crate::supervisor::background(supervisor, "pack-mcp-stdin", move || {
         for line in std::io::stdin().lock().lines() {
             let Ok(line) = line else { break };
             let msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
@@ -650,7 +657,8 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
                 break;
             }
         }
-    });
+    })
+    .map_err(|e| format!("{}: {e}", m.name))?;
     for line in std::io::BufReader::new(from_child).lines() {
         let Ok(line) = line else { break };
         let mut msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);

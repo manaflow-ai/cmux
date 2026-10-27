@@ -1135,6 +1135,7 @@ impl Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(
+            optchat_chief::supervisor::exiting(),
             chat.clone(),
             agents.clone(),
             settings,

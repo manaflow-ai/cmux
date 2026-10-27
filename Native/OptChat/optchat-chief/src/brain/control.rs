@@ -1140,40 +1140,79 @@ impl Brain {
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
 /// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
-pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("cloud-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (idle VM check), not a poll for
-                // a result.
-                std::thread::sleep(CLOUD_TICK);
-                if tx.send(super::Input::CloudTick).is_err() {
-                    return;
-                }
-            }
-        });
+pub(super) fn start_cloud_ticker(
+    supervisor: &cmux_panic_log::Supervisor,
+    tx: std::sync::mpsc::Sender<super::Input>,
+) {
+    // A fixed, intended interval (idle VM check), not a poll for a result.
+    start_tick(supervisor, "cloud-tick", CLOUD_TICK, tx, || {
+        super::Input::CloudTick
+    });
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.
-pub(super) fn start_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("subagent-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (stuck detection), not a poll
-                // of a condition another signal could give.
-                std::thread::sleep(TICK);
-                if tx.send(super::Input::SubTick).is_err() {
+pub(super) fn start_ticker(
+    supervisor: &cmux_panic_log::Supervisor,
+    tx: std::sync::mpsc::Sender<super::Input>,
+) {
+    // A fixed, intended interval (stuck detection), not a poll of a
+    // condition another signal could give.
+    start_tick(supervisor, "subagent-tick", TICK, tx, || {
+        super::Input::SubTick
+    });
+}
+
+/// Sends `tick()` every `every` until the brain is gone or the supervisor
+/// stops the thread. A ticker that does not start is logged: its checks
+/// (stuck subagents, idle VMs) would never run.
+fn start_tick(
+    supervisor: &cmux_panic_log::Supervisor,
+    name: &str,
+    every: Duration,
+    tx: std::sync::mpsc::Sender<super::Input>,
+    tick: fn() -> super::Input,
+) {
+    let started = supervisor.supervise_thread(
+        name,
+        cmux_panic_log::Fatal,
+        cmux_panic_log::ShutdownBehavior::Skip,
+        move |stop: &cmux_panic_log::StopToken| {
+            while !stop.wait_timeout(every) {
+                if tx.send(tick()).is_err() {
                     return;
                 }
             }
-        });
+        },
+    );
+    if let Err(e) = started {
+        crate::log::log(format!("WARN {name} did not start: {e}"));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ticker_runs_under_its_supervisor_and_ends_at_its_shutdown() {
+        let supervisor = crate::supervisor::exiting();
+        let (tx, rx) = std::sync::mpsc::channel();
+        start_tick(
+            &supervisor,
+            "test-tick",
+            Duration::from_millis(5),
+            tx,
+            || super::super::Input::SubTick,
+        );
+        let ticked = rx.recv_timeout(Duration::from_secs(10));
+        assert!(matches!(ticked, Ok(super::super::Input::SubTick)));
+        assert_eq!(supervisor.live_workers(), vec!["test-tick".to_owned()]);
+        let report = supervisor.shutdown();
+        assert!(report.late.is_empty(), "{report:?}");
+        // Its sender drops when the thread ends: the channel closes.
+        while rx.recv_timeout(Duration::from_secs(10)).is_ok() {}
+        assert!(supervisor.live_workers().is_empty());
+    }
 
     #[test]
     fn a_prompt_note_lists_its_options_and_the_policy() {

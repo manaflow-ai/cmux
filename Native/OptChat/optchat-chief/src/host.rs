@@ -24,6 +24,7 @@ use crate::native::{HttpModel, Native, NativeConfig};
 use crate::paths::{Paths, mux_home};
 use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
+use cmux_panic_log::{Fatal, ShutdownBehavior, StopToken, Supervisor};
 
 /// Env passed through to the turn's tools, as mux/host passes it.
 const PASSTHROUGH: [&str; 5] = [
@@ -573,10 +574,11 @@ fn agent_launch_disabled() -> bool {
         || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
 }
 
-/// Runs the host; returns the exit code.
-pub fn run(flags: &Flags, started_ms: u64) -> i32 {
+/// Runs the host; returns the exit code. Every thread it starts runs under
+/// `supervisor` (supervisor.rs).
+pub fn run(flags: &Flags, started_ms: u64, supervisor: &Supervisor) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
-    watch_stop_signals();
+    watch_stop_signals(supervisor);
     let Some(daemon_socket) = flags
         .value("daemon-socket")
         .map(str::to_owned)
@@ -640,14 +642,14 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     settle.clear();
     // The start-up probe says again when the compactor cannot work.
     settle.compactor_fault(None);
-    let started = start(&paths, &home, &daemon_socket, source);
+    let started = start(&paths, &home, &daemon_socket, source, supervisor);
     if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
         // A stop signal: whatever `start` returned (its acpmux connection
         // may close under it), stop what this host started and exit 0.
         if let Err(e) = &started {
             log(format!("while stopping: {e}"));
         }
-        stop_started_acpmux();
+        stop_started_acpmux(supervisor);
         return 0;
     }
     match started {
@@ -695,6 +697,7 @@ fn start(
     home: &std::path::Path,
     daemon_socket: &str,
     source: Source,
+    supervisor: &Supervisor,
 ) -> Result<String, String> {
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
@@ -832,8 +835,9 @@ fn start(
     // each harness is found by kind and command, and a refused one leaves
     // the host up with each of its sessions refused in the chat.
     let (family, compactor_family, sub_family, profiles) = if uses_acpmux {
-        let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
-            .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
+        let answer =
+            crate::acpmux::query_harnesses(supervisor, &acpmux_socket, &|line: &str| log(line))
+                .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
         let plan = |name: &str, role: &str| {
             let plan = crate::harness_gate::plan(&answer, name);
             match &plan.admitted {
@@ -1088,7 +1092,7 @@ fn start(
     if let Some(other) = other_preset {
         required.push(other);
     }
-    let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
+    let agents = Acpmux::new(supervisor.clone(), acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
     {
         let tx = tx.clone();
@@ -1162,7 +1166,7 @@ fn start(
                     fast: compactor_fast,
                     ..spec
                 };
-                AcpmuxCompactor::new(port.clone(), spec, slots.clone())
+                AcpmuxCompactor::new(supervisor.clone(), port.clone(), spec, slots.clone())
                     .with_log(compactor_log.clone())
                     .with_trace(trace.clone())
                     .with_cache_ttl(shared_ttl.clone())
@@ -1353,13 +1357,21 @@ fn start(
             // session, once per start, off the start path (best effort; a failure is logged).
             if Path::new(daemon_socket) != daemon.as_path() {
                 let (owner, app) = (PathBuf::from(daemon_socket), daemon.clone());
-                std::thread::spawn(move || {
-                    match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
-                        Ok(0) => {}
-                        Ok(n) => eprintln!("optchat: moved {n} workspaces into the user's session"),
-                        Err(e) => eprintln!("optchat: workspaces stay on the Chief's session: {e}"),
-                    }
-                });
+                let adopting =
+                    crate::supervisor::background(supervisor, "adopt-workspaces", move || {
+                        match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
+                            Ok(0) => {}
+                            Ok(n) => {
+                                eprintln!("optchat: moved {n} workspaces into the user's session")
+                            }
+                            Err(e) => {
+                                eprintln!("optchat: workspaces stay on the Chief's session: {e}")
+                            }
+                        }
+                    });
+                if let Err(e) = adopting {
+                    log(format!("WARN workspaces stay on the Chief's session: {e}"));
+                }
             }
             // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
             // workspace is the same kind of workspace as one the user makes (it outlives the app
@@ -1400,6 +1412,7 @@ fn start(
     let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
+            supervisor.clone(),
             chat.clone(),
             agents.clone(),
             crate::subagents::SubagentSettings {
@@ -1466,6 +1479,7 @@ fn start(
     if let Some(peers) = &peers {
         let tx = Mutex::new(tx.clone());
         peers.spawn_inbox(
+            supervisor,
             Box::new(move |text| {
                 tx.lock()
                     .expect("peer chiefs tx")
@@ -1476,12 +1490,13 @@ fn start(
         );
     }
     crate::tools::serve_all(
+        supervisor,
         &paths.tools_socket,
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
-            inspector: start_inspector(paths, &chat, &claude_text),
+            inspector: start_inspector(supervisor, paths, &chat, &claude_text),
             chief: Some(chief_tools.clone()),
             // The turn names of `Settings::turn_prefix`, the subagent names
             // of the sub preset (`optchat-sub-<home id>-<id>`).
@@ -1621,6 +1636,7 @@ fn start(
         ));
     }
     let persister = crate::persist::Persister::start(
+        supervisor,
         paths.chat.clone(),
         paths.memory_db.clone(),
         Some(backup),
@@ -1629,6 +1645,7 @@ fn start(
     )
     .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
+        supervisor.clone(),
         chat.clone(),
         agents.clone(),
         settings,
@@ -1687,6 +1704,7 @@ fn start(
     }
     let probe_delay = Arc::new(ProbeDelay::default());
     spawn_probe(
+        supervisor,
         probe_delay.clone(),
         model,
         fallback,
@@ -1705,6 +1723,7 @@ fn start(
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
             daemon::spawn_link(
+                supervisor,
                 LinkConfig {
                     socket: daemon_socket.into(),
                     token_file,
@@ -1726,6 +1745,7 @@ fn start(
                 daemon_socket, install.api_base_url
             ));
             crate::cloud::link::spawn_cloud_link(
+                supervisor,
                 crate::cloud::link::CloudLinkConfig {
                     socket: daemon_socket.into(),
                     chief,
@@ -1818,7 +1838,7 @@ static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 /// (`lock::mark_stopping`) and ends its own sessions, so when Chiefs stop
 /// at once the last one to look stops the daemon. A daemon this host
 /// neither started nor shares is left alone.
-fn stop_started_acpmux() {
+fn stop_started_acpmux(supervisor: &Supervisor) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         let home = HOST_HOME.get().cloned().unwrap_or_else(mux_home);
@@ -1844,11 +1864,11 @@ fn stop_started_acpmux() {
         // all the others gone and stops the daemon, also when all stop at
         // once (the supervisor stops every brain together).
         crate::lock::mark_stopping(&home.join("state/host.lock"));
-        match crate::agents::end_own_sessions(&home) {
+        match crate::agents::end_own_sessions(&home, supervisor) {
             Ok(names) => log(format!("acpmux: ended this Chief's {} session(s)", names.len())),
             Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
         }
-        match crate::agents::other_users(&home, &chief_home) {
+        match crate::agents::other_users(&home, &chief_home, supervisor) {
             Ok(users) if !users.is_empty() => {
                 log(format!(
                     "acpmux: other Chiefs use it, the daemon keeps running: {}",
@@ -1886,15 +1906,20 @@ static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 
 /// One thread waits for a stop signal and hands it to the brain, which
 /// stops; the host then stops the acpmux daemon it started and exits 0.
-fn watch_stop_signals() {
+fn watch_stop_signals(supervisor: &Supervisor) {
     use std::io::Read;
     let Some(mut pipe) = catch_stop_signals() else {
         log("stop signals: no pipe; SIGTERM ends the host at once");
         return;
     };
-    let spawned = std::thread::Builder::new()
-        .name("stop-signals".into())
-        .spawn(move || {
+    let supervisor_for_stop = supervisor.clone();
+    // The stop path itself: it runs until the process exits.
+    let spawned = supervisor.supervise_thread(
+        "stop-signals",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move |_: &StopToken| {
+            let supervisor = supervisor_for_stop;
             let mut byte = [0u8; 1];
             while pipe.read_exact(&mut byte).is_ok() {
                 let signal = libc::c_int::from(byte[0]);
@@ -1921,11 +1946,12 @@ fn watch_stop_signals() {
                 // Once it runs, it stops and `start` stops acpmux after it.
                 if !sent {
                     log(format!("signal {signal}: stopping before the brain runs"));
-                    stop_started_acpmux();
+                    stop_started_acpmux(&supervisor);
                     std::process::exit(0);
                 }
             }
-        });
+        },
+    );
     if let Err(e) = spawned {
         log(format!("stop signals: no watcher thread ({e})"));
     }
@@ -1938,6 +1964,7 @@ fn watch_stop_signals() {
 /// Chief conversation one notice, instead of every turn waiting on settle
 /// with nothing said.
 fn spawn_probe(
+    supervisor: &Supervisor,
     delay: Arc<ProbeDelay>,
     model: Arc<dyn CompactModel>,
     fallback: Option<Arc<dyn CompactModel>>,
@@ -1945,45 +1972,43 @@ fn spawn_probe(
     route: CompactRoute,
     tx: std::sync::mpsc::Sender<Input>,
 ) {
-    let spawned = std::thread::Builder::new()
-        .name("optchat-compact-probe".into())
-        .spawn(move || {
-            let started = std::time::Instant::now();
-            // A transient failure (the network, an exhausted route) is
-            // retried after a backoff through the host's delay, quietly; a
-            // real fault is posted once; the host's end stops the probe.
-            let probe = || probe_models(&*model, fallback.as_deref(), &system);
-            let Some(result) = probe_until_ready(&probe, &*delay, &|line: &str| log(line)) else {
-                return;
-            };
-            match result {
-                Ok(line) => {
-                    log(format!(
-                        "compactor probe ({}{}) built a node in {} ms: {line}",
-                        route.name(),
-                        if fallback.is_some() {
-                            ", fallback too"
-                        } else {
-                            ""
-                        },
-                        started.elapsed().as_millis()
-                    ));
-                    let _ = tx.send(Input::CompactorStatus(Ok(())));
-                }
-                Err(e) => match probe_notice(route, &e) {
-                    Some(text) => {
-                        let _ = tx.send(Input::CompactorStatus(Err(text)));
-                    }
-                    None => log(format!(
-                        "compactor probe: summaries wait for the model: ready in ~{}m ({e})",
-                        optchat_host::capacity_wait(&e)
-                            .unwrap_or_default()
-                            .as_secs()
-                            .div_ceil(60)
-                    )),
-                },
+    let spawned = crate::supervisor::background(supervisor, "optchat-compact-probe", move || {
+        let started = std::time::Instant::now();
+        // A transient failure (the network, an exhausted route) is
+        // retried after a backoff through the host's delay, quietly; a
+        // real fault is posted once; the host's end stops the probe.
+        let probe = || probe_models(&*model, fallback.as_deref(), &system);
+        let Some(result) = probe_until_ready(&probe, &*delay, &|line: &str| log(line)) else {
+            return;
+        };
+        match result {
+            Ok(line) => {
+                log(format!(
+                    "compactor probe ({}{}) built a node in {} ms: {line}",
+                    route.name(),
+                    if fallback.is_some() {
+                        ", fallback too"
+                    } else {
+                        ""
+                    },
+                    started.elapsed().as_millis()
+                ));
+                let _ = tx.send(Input::CompactorStatus(Ok(())));
             }
-        });
+            Err(e) => match probe_notice(route, &e) {
+                Some(text) => {
+                    let _ = tx.send(Input::CompactorStatus(Err(text)));
+                }
+                None => log(format!(
+                    "compactor probe: summaries wait for the model: ready in ~{}m ({e})",
+                    optchat_host::capacity_wait(&e)
+                        .unwrap_or_default()
+                        .as_secs()
+                        .div_ceil(60)
+                )),
+            },
+        }
+    });
     if let Err(e) = spawned {
         log(format!("starting the compactor probe: {e}"));
     }
@@ -2114,6 +2139,7 @@ pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
 /// `optchat/inspector.json`) starts only with `OPTCHAT_INSPECTOR_WEB=1`, the
 /// fallback; a failure only logs (the Chief runs without it).
 fn start_inspector(
+    supervisor: &Supervisor,
     paths: &Paths,
     chat: &Arc<OptChat>,
     system_text: &str,
@@ -2122,7 +2148,7 @@ fn start_inspector(
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    let editor = crate::inspect::edit::Editor::open(supervisor, chat.clone(), &paths.root);
     let inspector = Arc::new(
         crate::inspect::Inspector::new(
             chat.clone(),
@@ -2138,7 +2164,7 @@ fn start_inspector(
     }
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-        crate::inspect::http::start(inspector.clone(), bind, token)
+        crate::inspect::http::start(supervisor, inspector.clone(), bind, token)
     });
     match started.and_then(|running| {
         crate::inspect::http::publish(&paths.inspector, &running).map(|()| running)

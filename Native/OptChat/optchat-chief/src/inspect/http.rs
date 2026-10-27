@@ -94,7 +94,13 @@ pub fn new_secret() -> io::Result<String> {
 
 /// Starts serving `inspector` on `bind` (port 0 picks one). Refuses an
 /// address that is not loopback.
-pub fn start(inspector: Arc<Inspector>, bind: SocketAddr, token: String) -> io::Result<Running> {
+/// The accept loop and each connection run under `supervisor`.
+pub fn start(
+    supervisor: &cmux_panic_log::Supervisor,
+    inspector: Arc<Inspector>,
+    bind: SocketAddr,
+    token: String,
+) -> io::Result<Running> {
     if !bind.ip().is_loopback() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -117,39 +123,44 @@ pub fn start(inspector: Arc<Inspector>, bind: SocketAddr, token: String) -> io::
         sessions: Mutex::new(Vec::new()),
         live: AtomicUsize::new(0),
     });
-    std::thread::Builder::new()
-        .name("optchat-inspector".into())
-        .spawn(move || {
-            for conn in listener.incoming() {
-                let conn = match conn {
-                    Ok(conn) => conn,
-                    Err(_) => {
-                        // Out of descriptors (EMFILE) or the like: an accept
-                        // loop that retries at once would spin a core.
-                        std::thread::sleep(Duration::from_millis(200));
+    let conns = supervisor.clone();
+    supervisor
+        .supervise_thread(
+            "optchat-inspector",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |_: &cmux_panic_log::StopToken| {
+                for conn in listener.incoming() {
+                    let conn = match conn {
+                        Ok(conn) => conn,
+                        Err(_) => {
+                            // Out of descriptors (EMFILE) or the like: an accept
+                            // loop that retries at once would spin a core.
+                            std::thread::sleep(Duration::from_millis(200));
+                            continue;
+                        }
+                    };
+                    let shared = shared.clone();
+                    if shared.live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                        shared.live.fetch_sub(1, Ordering::SeqCst);
+                        let _ = respond(&conn, 503, "text/plain", b"busy", &[]);
                         continue;
                     }
-                };
-                let shared = shared.clone();
-                if shared.live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
-                    shared.live.fetch_sub(1, Ordering::SeqCst);
-                    let _ = respond(&conn, 503, "text/plain", b"busy", &[]);
-                    continue;
+                    let spawned =
+                        crate::supervisor::background(&conns, "optchat-inspector-conn", {
+                            let shared = shared.clone();
+                            move || {
+                                serve(conn, &shared);
+                                shared.live.fetch_sub(1, Ordering::SeqCst);
+                            }
+                        });
+                    if spawned.is_err() {
+                        shared.live.fetch_sub(1, Ordering::SeqCst);
+                    }
                 }
-                let spawned = std::thread::Builder::new()
-                    .name("optchat-inspector-conn".into())
-                    .spawn({
-                        let shared = shared.clone();
-                        move || {
-                            serve(conn, &shared);
-                            shared.live.fetch_sub(1, Ordering::SeqCst);
-                        }
-                    });
-                if spawned.is_err() {
-                    shared.live.fetch_sub(1, Ordering::SeqCst);
-                }
-            }
-        })?;
+            },
+        )
+        .map_err(io::Error::other)?;
     Ok(Running { addr, token })
 }
 

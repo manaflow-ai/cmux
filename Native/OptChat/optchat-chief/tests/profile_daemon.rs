@@ -353,6 +353,7 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
         socket.display().to_string(),
     ];
     optchat_chief::tools::serve_all(
+        &optchat_chief::supervisor::exiting(),
         &socket,
         optchat_chief::tools::Served {
             memory,
@@ -677,6 +678,7 @@ fn a_spawn_on_a_harness_outside_the_grant_starts_nothing() {
     h.connect();
     let spawner = Arc::new(
         Spawner::new(
+            optchat_chief::supervisor::exiting(),
             h.chat.clone(),
             h.agents.clone(),
             SubagentSettings {

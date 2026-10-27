@@ -15,6 +15,7 @@ use optchat_chief::tools::Orchestrator;
 fn spawner(h: &Harness, cloud: Option<CloudPlacement>) -> Arc<Spawner> {
     Arc::new(
         Spawner::new(
+            optchat_chief::supervisor::exiting(),
             h.chat.clone(),
             h.agents.clone(),
             SubagentSettings {

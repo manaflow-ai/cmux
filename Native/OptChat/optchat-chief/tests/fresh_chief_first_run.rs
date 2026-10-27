@@ -49,6 +49,7 @@ fn walk(ws: Option<Arc<dyn Workspaces>>) -> (String, bool, String) {
     h.brain.set_workspaces(ws.clone());
     let sp = Arc::new(
         Spawner::new(
+            optchat_chief::supervisor::exiting(),
             h.chat.clone(),
             h.agents.clone(),
             SubagentSettings {

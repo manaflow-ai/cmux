@@ -64,6 +64,7 @@ fn harness() -> (Harness, Arc<Mutex<Vec<String>>>) {
 fn spawner(h: &Harness, lines: &Arc<Mutex<Vec<String>>>, harness: &str) -> Arc<Spawner> {
     let sink = lines.clone();
     Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

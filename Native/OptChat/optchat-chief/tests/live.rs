@@ -138,8 +138,12 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     let harness = std::env::var("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|_| "claude-sr".into());
     let socket = optchat_chief::acpmux_daemon::socket_path();
     let family = optchat_chief::acpmux::harness_family(
-        &optchat_chief::acpmux::query_harnesses(&socket, &|l: &str| println!("acpmux: {l}"))
-            .unwrap(),
+        &optchat_chief::acpmux::query_harnesses(
+            &optchat_chief::supervisor::exiting(),
+            &socket,
+            &|l: &str| println!("acpmux: {l}"),
+        )
+        .unwrap(),
         &harness,
     )
     .unwrap();
@@ -152,7 +156,12 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         .unwrap();
     }
     let presets = compactor_presets(&paths, &home, &harness, family);
-    let agents = Acpmux::new(optchat_chief::acpmux_daemon::socket_path(), None, presets);
+    let agents = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        optchat_chief::acpmux_daemon::socket_path(),
+        None,
+        presets,
+    );
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -184,6 +193,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     });
     let compactor = Arc::new(
         AcpmuxCompactor::new(
+            optchat_chief::supervisor::exiting(),
             agents.clone(),
             compactor_spec(&paths, &home, &harness, family, model.as_deref()),
             Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
@@ -313,7 +323,12 @@ fn two_turns_and_two_nodes_through_local_acp() {
     let harness = std::env::var("OPTCHAT_CHIEF_HARNESS").unwrap_or_else(|_| "claude-sr".into());
     let socket = optchat_chief::acpmux_daemon::socket_path();
     let family = harness_family(
-        &query_harnesses(&socket, &|l: &str| println!("acpmux: {l}")).unwrap(),
+        &query_harnesses(
+            &optchat_chief::supervisor::exiting(),
+            &socket,
+            &|l: &str| println!("acpmux: {l}"),
+        )
+        .unwrap(),
         &harness,
     )
     .unwrap();
@@ -350,7 +365,12 @@ fn two_turns_and_two_nodes_through_local_acp() {
         .unwrap();
     }
     assert!(chat.wait_idle(None, Some(Duration::from_secs(120))));
-    optchat_chief::tools::serve(&paths.tools_socket, chat.clone()).unwrap();
+    optchat_chief::tools::serve(
+        &optchat_chief::supervisor::exiting(),
+        &paths.tools_socket,
+        chat.clone(),
+    )
+    .unwrap();
     let tools = if claude {
         Tools::Mcp
     } else {
@@ -402,7 +422,12 @@ fn two_turns_and_two_nodes_through_local_acp() {
     }
     println!("turn preset env {:?}", preset.env);
     println!("compactor preset env {:?}", presets[0].env);
-    let agents = Acpmux::new(socket.clone(), Some(preset), presets);
+    let agents = Acpmux::new(
+        optchat_chief::supervisor::exiting(),
+        socket.clone(),
+        Some(preset),
+        presets,
+    );
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -509,6 +534,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         .ok()
         .or_else(|| claude.then(|| optchat_host::DEFAULT_MODEL.to_owned()));
     let compactor = AcpmuxCompactor::new(
+        optchat_chief::supervisor::exiting(),
         agents.clone(),
         compactor_spec(&paths, &home, &harness, family, compactor_model.as_deref()),
         Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),

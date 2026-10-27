@@ -97,6 +97,7 @@ fn prompt(prompt_id: &str, t: u64) -> Value {
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
     Arc::new(Spawner::new(
+        optchat_chief::supervisor::exiting(),
         h.chat.clone(),
         h.agents.clone(),
         SubagentSettings {

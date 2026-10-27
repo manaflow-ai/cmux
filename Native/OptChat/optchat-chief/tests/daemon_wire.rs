@@ -97,6 +97,7 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket,
             token_file: Some(token),

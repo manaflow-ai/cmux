@@ -89,6 +89,7 @@ pub fn fetch_all(
     let mut started = 0;
     for (index, url) in urls {
         let (fetcher, tx) = (fetcher.clone(), tx.clone());
+        // supervise-allow: per-URL fetch; the timed recv below sees it end, and that preview is skipped.
         let spawned = std::thread::Builder::new()
             .name("optchat-link-preview".into())
             .spawn(move || {

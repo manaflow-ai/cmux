@@ -413,6 +413,8 @@ struct Waiting {
 
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
 pub struct Spawner {
+    /// Runs the queue starter and each answer forwarder.
+    supervisor: cmux_panic_log::Supervisor,
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
     settings: SubagentSettings,
@@ -449,6 +451,7 @@ pub struct Spawner {
 
 impl Spawner {
     pub fn new(
+        supervisor: cmux_panic_log::Supervisor,
         chat: Arc<OptChat>,
         agents: Arc<dyn AgentPort>,
         settings: SubagentSettings,
@@ -456,6 +459,7 @@ impl Spawner {
         log: crate::brain::Log,
     ) -> Spawner {
         Spawner {
+            supervisor,
             chat,
             agents,
             settings,
@@ -917,37 +921,44 @@ impl Spawner {
             .clone();
         let agents = self.agents.clone();
         let (id, session, prompt_id) = (id.to_owned(), session.to_owned(), prompt_id.to_owned());
-        std::thread::spawn(move || {
-            // Folded until the session's first turn starts, then no more.
-            let mut start = Some(TurnFolder::default());
-            while let Ok(signal) = rx.recv() {
-                match signal {
-                    TurnSignal::Changed | TurnSignal::Noted => {
-                        let Some(folder) = start.as_mut() else {
-                            continue;
-                        };
-                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
-                            None => {}
-                            Some(ours) => {
-                                start = None;
-                                if ours {
-                                    let _ = tx.send(Input::SubagentTurnStarted {
-                                        id: id.clone(),
-                                        prompt_id: prompt_id.clone(),
-                                    });
+        let log = self.log.clone();
+        let started =
+            crate::supervisor::background(&self.supervisor, "subagent-answer", move || {
+                // Folded until the session's first turn starts, then no more.
+                let mut start = Some(TurnFolder::default());
+                while let Ok(signal) = rx.recv() {
+                    match signal {
+                        TurnSignal::Changed | TurnSignal::Noted => {
+                            let Some(folder) = start.as_mut() else {
+                                continue;
+                            };
+                            match first_turn_start(&*agents, &session, &prompt_id, folder) {
+                                None => {}
+                                Some(ours) => {
+                                    start = None;
+                                    if ours {
+                                        let _ = tx.send(Input::SubagentTurnStarted {
+                                            id: id.clone(),
+                                            prompt_id: prompt_id.clone(),
+                                        });
+                                    }
                                 }
                             }
                         }
+                        TurnSignal::Streamed => {}
+                        TurnSignal::Done(answer) => {
+                            let _ = tx.send(Input::SubagentAnswer { id, answer });
+                            return;
+                        }
+                        TurnSignal::Lost => return,
                     }
-                    TurnSignal::Streamed => {}
-                    TurnSignal::Done(answer) => {
-                        let _ = tx.send(Input::SubagentAnswer { id, answer });
-                        return;
-                    }
-                    TurnSignal::Lost => return,
                 }
-            }
-        });
+            });
+        if let Err(e) = started {
+            log(&format!(
+                "WARN subagent: waiting for its answer did not start: {e}"
+            ));
+        }
     }
 }
 
@@ -957,15 +968,20 @@ impl Spawner {
     pub fn queue_starter(self: &Arc<Self>) -> Sender<QueuedStart> {
         let (tx, rx) = channel::<QueuedStart>();
         let me = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("subagent-queue".into())
-            .spawn(move || {
+        let started = self.supervisor.supervise_thread(
+            "subagent-queue",
+            cmux_panic_log::Fatal,
+            cmux_panic_log::ShutdownBehavior::Skip,
+            move |_: &cmux_panic_log::StopToken| {
                 while let Ok(queued) = rx.recv() {
                     let Some(me) = me.upgrade() else { return };
                     me.start_waiting(&queued);
                 }
-            })
-            .ok();
+            },
+        );
+        if let Err(e) = started {
+            (self.log)(&format!("WARN queued subagents will not start: {e}"));
+        }
         tx
     }
 

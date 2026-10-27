@@ -993,15 +993,19 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
 }
 
 /// Runs the daemon connection loop on its own thread.
+/// It runs under `supervisor` until the daemon is missing or a stop.
 pub fn spawn_link(
+    supervisor: &cmux_panic_log::Supervisor,
     config: LinkConfig,
     sink: Arc<dyn Fn(DaemonEvent) + Send + Sync>,
     log: Arc<dyn Fn(&str) + Send + Sync>,
 ) {
     let fatal = sink.clone();
-    let spawned = std::thread::Builder::new()
-        .name("daemon-link".into())
-        .spawn(move || {
+    let spawned = supervisor.supervise_thread(
+        "daemon-link",
+        cmux_panic_log::Fatal,
+        cmux_panic_log::ShutdownBehavior::Skip,
+        move |stop: &cmux_panic_log::StopToken| {
             let mut delay = Duration::from_millis(500);
             loop {
                 let started = Instant::now();
@@ -1059,10 +1063,13 @@ pub fn spawn_link(
                 if started.elapsed() > Duration::from_secs(30) {
                     delay = Duration::from_millis(500);
                 }
-                std::thread::sleep(delay);
+                if stop.wait_timeout(delay) {
+                    return;
+                }
                 delay = (delay * 2).min(Duration::from_secs(30));
             }
-        });
+        },
+    );
     if let Err(e) = spawned {
         fatal(DaemonEvent::Fatal(format!(
             "cannot start the daemon link thread: {e}"

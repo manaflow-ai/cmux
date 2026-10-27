@@ -182,6 +182,7 @@ fn the_chief_writes_its_run_to_the_conversation_as_it_works() {
     let (events_tx, events_rx) = channel::<DaemonEvent>();
     let events_tx = Mutex::new(events_tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file),
@@ -427,6 +428,7 @@ fn the_chief_streams_its_run_live_while_it_works() {
     let (events_tx, events_rx) = channel::<DaemonEvent>();
     let events_tx = Mutex::new(events_tx);
     spawn_link(
+        &optchat_chief::supervisor::exiting(),
         LinkConfig {
             socket: daemon.socket.clone(),
             token_file: Some(token_file),
