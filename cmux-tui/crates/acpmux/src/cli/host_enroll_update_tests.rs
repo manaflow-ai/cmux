@@ -60,7 +60,7 @@ impl Remote for Host {
         if self.installed.get() && self.install_out.is_empty() && self.starts {
             words.push(format!("{MARK}timer"));
         }
-        if self.found.contains(&"systemd") && !self.no_linger {
+        if self.found.contains(&"systemd") && (!self.no_linger || self.installed.get()) {
             words.push(format!("{MARK}linger"));
         }
         if self.found.contains(&"systemd") && !self.unchecked {
@@ -216,6 +216,13 @@ fn a_manager_that_does_not_linger_is_said() {
     let r = update(&host, true, None);
     assert!(r.detail.contains("enable-linger was refused"), "{r:?}");
     assert!(guarded_install_script().contains(hosts::SYSTEMD_LINGERING));
+    // A running timer that does not linger: --fix asks for lingering under
+    // the lock (the guarded install), then reads it back.
+    let mut host = Host::new(&["os=Linux", "systemd", "timer"]);
+    host.no_linger = true;
+    let r = update(&host, true, None);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    assert_eq!(host.fenced.borrow().len(), 1);
 }
 
 /// acpmux-update.timer is installed on Linux only, and not where the Cloud
@@ -366,8 +373,9 @@ mod probe_in_a_shell {
         dangling: Option<&'static str>,
         /// `Linger` is not yes, and `enable-linger` is refused.
         no_linger: bool,
-        /// The analyzed unit path (`unit`) or the directory above it
-        /// (`above`) cannot be searched.
+        /// The analyzed unit path (`unit`), the directory above it
+        /// (`above`), or ~/.acpmux holding `no-auto-update` (`home`) cannot
+        /// be searched.
         sealed: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
@@ -521,6 +529,7 @@ mod probe_in_a_shell {
         let analyze = bin.join("systemd-analyze");
         let listed = match u.sealed {
             Some("unit") => format!("{}\n{}", extra.display(), extra.join("sealed").display()),
+            Some("home") => extra.display().to_string(),
             Some(_) => {
                 format!("{}\n{}", extra.display(), extra.join("above/inner/units").display())
             }
@@ -573,11 +582,13 @@ esac
         };
         let sealed = match u.sealed {
             Some("unit") => Some(extra.join("sealed")),
+            Some("home") => Some(home.join(".acpmux")),
             Some(_) => Some(extra.join("above")),
             None => None,
         };
         if let Some(dir) = &sealed {
             fs::create_dir_all(dir.join("inner")).unwrap();
+            fs::write(dir.join("no-auto-update"), "").unwrap();
             mode(dir, 0o000).unwrap();
         }
         let out = sh.output().unwrap();
@@ -769,6 +780,18 @@ esac
                 run(Units { sealed: Some(sealed), ..NONE }, &guarded_install_script());
             assert!(parse(&out).unchecked && !written, "{sealed}: {out}");
         }
+    }
+
+    /// ~/.acpmux cannot be searched, so whether it holds `no-auto-update` is
+    /// not known: never checked, and the install writes nothing.
+    #[test]
+    fn an_unreadable_off_mark_is_never_checked() {
+        for u in [OWN, NONE] {
+            let found = probe(Units { sealed: Some("home"), ..u });
+            assert!(found.systemd && !found.checked && !found.off, "{found:?}");
+        }
+        let (out, written) = run(Units { sealed: Some("home"), ..NONE }, &guarded_install_script());
+        assert!(parse(&out).unchecked && !written, "{out}");
     }
 
     /// Lingering is read; the guarded install asks for it, and writes nothing

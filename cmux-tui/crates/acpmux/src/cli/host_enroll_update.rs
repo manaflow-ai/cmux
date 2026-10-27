@@ -33,7 +33,8 @@ const MARK: &str = "ACPMUX_AU=";
 /// row is not read) and the defaults. A unit file of either name in any of
 /// them but `~/.config/systemd/user` is foreign too (a reload would load it
 /// over acpmux's). A unit path this user cannot search, or one under a
-/// directory they cannot search, is not read: the probe is not `checked`.
+/// directory they cannot search, is not read: the probe is not `checked`;
+/// nor is it when `~/.acpmux` (which holds the off mark) cannot be searched.
 /// `linger` says the user's manager outlives the ssh session (`loginctl`),
 /// which a timer needs. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
@@ -59,6 +60,7 @@ pub(super) fn probe_script() -> String {
         r#"echo {MARK}begin; au_o=$(uname -s) && echo "{MARK}os=$au_o"
 if [ -e {cloud} ]; then echo {MARK}cloud; elif [ -e {cloud_dir} ] && [ ! -x {cloud_dir} ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
 if au_e=$(systemctl --user show-environment 2>/dev/null); then echo {MARK}systemd; set -f; au_ok=1
+[ ! -e {home} ] || [ -x {home} ] || au_ok=
 au_m=; au_i=$IFS; IFS='
 '; for au_v in $au_e; do case "$au_v" in XDG_CONFIG_HOME=*) au_m=${{au_v#XDG_CONFIG_HOME=}} ;; esac; done; IFS=$au_i
 for au_v in "${{XDG_CONFIG_HOME:-}}" "$au_m"; do [ -z "$au_v" ] || [ "$au_v" = "$HOME/.config" ] || echo {MARK}xdg; done
@@ -283,8 +285,8 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
     if found.timer && found.linger {
         return ok(EVERY);
     }
-    if found.timer {
-        return no_linger(host, fix);
+    if found.timer && !fix {
+        return no_linger(host, false);
     }
     if !fix {
         let (detail, verb) = if found.stopped {
