@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, setSystemTime, test } from "bun:test";
-import { FreestyleApiError, type Freestyle } from "freestyle";
+import { Freestyle, FreestyleApiError } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -86,6 +86,29 @@ function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
     client: () => fake.client,
   });
 }
+
+// https://github.com/manaflow-ai/cmux/issues/21820: a "destroyed" answer
+// retires the machine's row, so only Freestyle's explicit not-found contract
+// may produce it. A bare 404 from a gateway or a moved endpoint is an outage.
+describe("FreestyleProvider status of a missing machine", () => {
+  function statusProvider(response: () => Response): FreestyleProvider {
+    const client = new Freestyle({ apiKey: "test-only", fetch: (async () => response()) as typeof fetch });
+    return new FreestyleProvider({ client: () => client });
+  }
+
+  test("an explicit NOT_FOUND answer reports the machine destroyed", async () => {
+    const provider = statusProvider(() => Response.json({ code: "NOT_FOUND", message: "VM not found" }, { status: 404 }));
+    await expect(provider.getStatus(VM_ID)).resolves.toBe("destroyed");
+  });
+
+  test.each([
+    { name: "an HTML gateway page", response: () => new Response("<html>404 Not Found</html>", { status: 404 }) },
+    { name: "an unrecognized code", response: () => Response.json({ code: "ROUTE_NOT_FOUND", message: "no route" }, { status: 404 }) },
+  ])("a bare 404 with $name is a provider error, not a destroyed machine", async ({ response }) => {
+    const provider = statusProvider(response);
+    await expect(provider.getStatus(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+  });
+});
 
 describe("FreestyleProvider transport contract", () => {
   test("cmux-remote is the only session transport", () => {

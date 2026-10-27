@@ -239,7 +239,7 @@ const {
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
-const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+const { vmWorkflowErrorResponse, withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 const { VmPublicationProviderError } = await import(
   "../services/vm-publications/provider"
@@ -2685,6 +2685,30 @@ describe("VM REST auth", () => {
     } finally {
       console.error = originalError;
     }
+  });
+
+  test("does not expose unknown provider diagnostics in a retryable VM error", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "getStatus",
+      cause: Object.assign(new Error("upstream https://internal.example/tenant/private-id?token=sentinel"), {
+        status: 404,
+        code: "UNKNOWN_ERROR",
+      }),
+    }), { locale: "en" });
+
+    expect(response).not.toBeNull();
+    const payload = await response!.json();
+    expect(payload).toMatchObject({
+      error: "vm_cloud_service_unavailable",
+      retryable: true,
+      details: { providerCode: "provider_error" },
+    });
+    expect(payload.details.providerMessage).toBeUndefined();
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("internal.example");
+    expect(serialized).not.toContain("sentinel");
+    expect(serialized).not.toContain("UNKNOWN_ERROR");
   });
 
   test("requires an Origin header for cookie-authenticated mutations", async () => {
