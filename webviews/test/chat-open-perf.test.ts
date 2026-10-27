@@ -35,6 +35,7 @@ import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { perfSeries, recordPerfResults } from "../scripts/perf-result.mjs";
 
 await requireBrowserLane("chat-open-perf.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -203,6 +204,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  /// Each reported phase's raw opens, written as result-v1 when PERF_RESULT_DIR is set (the lab's
+  /// webviews-chromium story), also when a budget fails.
+  const perfOpens: ReturnType<typeof perfSeries>[] = [];
   const url = (session: string) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -316,6 +320,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     // Awaited, so a lane's interval cannot outlive the run: an open socket's `close` handler is
     // what clears it, and an interval still ticking holds the loop until the file times out.
     await daemon?.stop(true);
+    if (perfOpens.length > 0) recordPerfResults({ story: "webviews-chromium", engine: "chromium", series: perfOpens });
   });
 
   /// What one measured open ran under: the changes the lanes pushed while it was being timed, and
@@ -531,6 +536,36 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const report = (name: string, phase: "cold" | "cached", opened: Opened[], during: Measured[] = []) => {
     const drawn = opened.map((entry) => entry.drawn ?? Number.POSITIVE_INFINITY);
     const worst = Math.max(...drawn);
+    // `quiet cold` -> web.chat_open.quiet_cold.*; an open that never drew has no draw sample.
+    const metric = (what: string) => `web.chat_open.${name.replaceAll(" ", "_")}.${what}`;
+    perfOpens.push(
+      perfSeries(metric("draw"), "ms", drawn),
+      perfSeries(
+        metric("fade"),
+        "ms",
+        opened.map((entry) => entry.fadeMs),
+      ),
+      perfSeries(
+        metric("draw_frames"),
+        "count",
+        opened.map((entry) => entry.cadence.length),
+      ),
+      perfSeries(
+        metric("shifted_frames"),
+        "count",
+        opened.map((entry) => entry.shifted),
+      ),
+      perfSeries(
+        metric("blank_frames"),
+        "count",
+        opened.map((entry) => entry.blank),
+      ),
+      perfSeries(
+        metric("flashes"),
+        "count",
+        opened.map((entry) => entry.flashes),
+      ),
+    );
     console.log(
       `chat-open-perf ${name}: draws ${drawn.map((ms) => (Number.isFinite(ms) ? ms.toFixed(0) : "never")).join("/")} ms ` +
         `(worst ${Number.isFinite(worst) ? worst.toFixed(0) : "never"}), ` +

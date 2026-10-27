@@ -4,8 +4,10 @@
 // every component) over the mock provider and reports, per scenario, the wall time from the
 // gesture to the settled page, React's own render time (Profiler actualDuration), how many
 // components rendered, and how many settings reads (cmux.settings.list) the gesture cost.
-// Prints one `SETTINGS_BENCH {json}` line per scenario.
+// Prints one `SETTINGS_BENCH {json}` line per scenario. With PERF_RESULT_DIR set it also writes each
+// scenario's raw samples as result-v1 (`web.settings.<scenario>.<field>`, the perf lab's webviews story).
 import { afterAll, expect, test } from "bun:test";
+import { perfSeries, recordPerfResults } from "../../../scripts/perf-result.mjs";
 import { installDom } from "./testDom";
 
 type Fiber = {
@@ -55,8 +57,14 @@ function walk(fiber: Fiber | null): void {
 const enabled = process.env.CMUX_SETTINGS_BENCH === "1";
 const iterations = Number(process.env.CMUX_SETTINGS_BENCH_N ?? 40);
 
+/** Every scenario's raw samples, written once after the bench (also when a later scenario fails). */
+const perfSeriesList: ReturnType<typeof perfSeries>[] = [];
+
 const restore = installDom();
-afterAll(() => restore());
+afterAll(() => {
+  restore();
+  if (perfSeriesList.length > 0) recordPerfResults({ story: "webviews", engine: "none", series: perfSeriesList });
+});
 const { act, Profiler, createElement } = await import("react");
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { settle } = await import("./testing");
@@ -145,7 +153,8 @@ type Sample = {
   firstFrameReact?: number;
 };
 
-function stats(name: string, samples: Sample[]) {
+/** Prints a scenario's summary and keeps its raw samples; `unmeasured` fields hold placeholder zeros. */
+function stats(name: string, samples: Sample[], unmeasured: (keyof Sample)[] = []) {
   const pick = (field: keyof Sample) => {
     const sorted = samples.map((sample) => sample[field] ?? 0).sort((a, b) => a - b);
     const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
@@ -165,6 +174,16 @@ function stats(name: string, samples: Sample[]) {
   };
   // A notice line: run-webviews-tests.sh shows a passing file's notices.
   console.log(`::notice::SETTINGS_BENCH ${JSON.stringify(out)}`);
+  const raw = (field: keyof Sample) => (unmeasured.includes(field) ? [] : samples.map((sample) => sample[field]));
+  perfSeriesList.push(
+    perfSeries(`web.settings.${name}.wall`, "ms", raw("wall")),
+    perfSeries(`web.settings.${name}.react`, "ms", raw("react")),
+    perfSeries(`web.settings.${name}.components_rendered`, "count", raw("rendered")),
+    perfSeries(`web.settings.${name}.setting_rows`, "count", raw("rows")),
+    perfSeries(`web.settings.${name}.settings_list_reads`, "count", raw("lists")),
+    perfSeries(`web.settings.${name}.first_frame`, "ms", raw("firstFrame")),
+    perfSeries(`web.settings.${name}.first_frame_react`, "ms", raw("firstFrameReact")),
+  );
   return out;
 }
 
@@ -256,7 +275,7 @@ test.skipIf(!enabled)(
         ).not.toBeNull();
         page.unmount();
       }
-      stats(`open.${section}`, samples);
+      stats(`open.${section}`, samples, ["rendered"]);
     }
 
     // Search: one keystroke at a time through "font size", then clearing it.
@@ -343,7 +362,15 @@ test.skipIf(!enabled)(
           });
           await settle();
         }
-        stats(`section.switch.${mode}`, samples);
+        // `rows` is the shown-incomplete flag here (1 when the section drew before its buttons).
+        stats(`section.switch.${mode}`, samples, ["react", "rendered", "rows", "firstFrameReact"]);
+        perfSeriesList.push(
+          perfSeries(
+            `web.settings.section.switch.${mode}.shown_incomplete`,
+            "count",
+            samples.map((sample) => sample.rows),
+          ),
+        );
         const shownIncomplete = samples.filter((sample) => sample.rows > 0).length;
         console.log(
           `::notice::SETTINGS_BENCH ${JSON.stringify({ scenario: `section.switch.${mode}.incomplete`, n: samples.length, shownIncomplete })}`,

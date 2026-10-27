@@ -17,6 +17,8 @@
 //   dom_nodes        DOM nodes once interactive;
 //   daemon_cpu_ms    the acpmux daemon's CPU time during the open (from /proc).
 // Then (--scroll) it scrolls to the first message and reports the time and bytes it took.
+// With PERF_RESULT_DIR set it also writes every run's numbers as result-v1 (story
+// webviews-chat-load, or webviews-chat-load-webkit; metrics web.chat_load.*, perfSeriesOf below).
 //
 //   node browser_bench.mjs --pane DIR --shared PAGES/_shared --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P
 //        --token T --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
@@ -26,6 +28,7 @@ import http from "node:http";
 import path from "node:path";
 import pw from "playwright";
 import { builtPageBody, builtPageFile } from "../../pages/shared-origin.mjs";
+import { perfSeries, recordPerfResults } from "../../perf-result.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -45,6 +48,22 @@ const port = Number(arg("port", "4319"));
 const mockTurns = (arg("mock-turns", "") || "").split(",").filter(Boolean).map(Number);
 const onlySessions = arg("sessions") ? new Set(arg("sessions").split(",").map(Number)) : undefined;
 
+/// Run row key -> [result-v1 metric suffix, unit, factor]. bytes_in counts UTF-16 units, not bytes.
+const ROW_SERIES = {
+  first_paint_ms: ["first_paint", "ms", 1],
+  interactive_ms: ["interactive", "ms", 1],
+  pane_painted_ms: ["pane_painted", "ms", 1],
+  seed_ms: ["seed", "ms", 1],
+  bytes_in: ["utf16_in", "count", 1],
+  requests: ["requests", "count", 1],
+  dom_nodes: ["dom_nodes", "count", 1],
+  daemon_cpu_ms: ["daemon_cpu", "ms", 1],
+  script_ms: ["script", "ms", 1],
+  layout_ms: ["layout", "ms", 1],
+  style_ms: ["style", "ms", 1],
+  task_ms: ["task", "ms", 1],
+  heap_mb: ["heap", "bytes", 1e6],
+};
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
 if (!paneDir || !sharedDir) throw new Error("--pane DIR and --shared PAGES/_shared are required");
 const server = http.createServer((req, res) => {
@@ -472,6 +491,43 @@ for (const turns of mockTurns) {
   console.log(JSON.stringify({ mock: turns, median: summarize(runs), scroll }));
 }
 
+recordPerfResults({
+  story: engine === "webkit" ? "webviews-chat-load-webkit" : "webviews-chat-load",
+  engine,
+  series: perfSeriesOf(results),
+});
 fs.writeFileSync(out, JSON.stringify(results, null, 1));
 await browser.close();
 server.close();
+
+/// The result-v1 series of a page stage: each run row's numbers (ROW_SERIES), and the scroll to the
+/// first message, under web.chat_load.{open,switch,mock}.<t<turns>|default>.
+function perfSeriesOf({ sessions, switch: switches = [], mock }) {
+  const scrollSeries = (prefix, scroll) =>
+    scroll?.found
+      ? [
+          perfSeries(`${prefix}.scroll.wall`, "ms", [scroll.ms]),
+          perfSeries(`${prefix}.scroll.utf16_in`, "count", [scroll.bytes_in]),
+          perfSeries(`${prefix}.scroll.requests`, "count", [scroll.requests]),
+        ]
+      : [];
+  const rowSeries = (prefix, runs) =>
+    Object.entries(ROW_SERIES).map(([key, [name, unit, scale]]) =>
+      perfSeries(
+        `${prefix}.${name}`,
+        unit,
+        runs.map((run) => (typeof run[key] === "number" ? run[key] * scale : undefined)),
+      ),
+    );
+  return [
+    ...sessions.flatMap((entry) => [
+      ...rowSeries(`web.chat_load.open.t${entry.turns}`, entry.runs),
+      ...scrollSeries(`web.chat_load.open.t${entry.turns}`, entry.scroll),
+    ]),
+    ...switches.flatMap((entry) => rowSeries(`web.chat_load.switch.t${entry.turns}`, entry.runs)),
+    ...mock.flatMap((entry) => {
+      const prefix = `web.chat_load.mock.${entry.turns === undefined ? "default" : `t${entry.turns}`}`;
+      return [...rowSeries(prefix, entry.runs), ...scrollSeries(prefix, entry.scroll)];
+    }),
+  ];
+}

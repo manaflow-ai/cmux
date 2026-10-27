@@ -9,8 +9,12 @@
 //
 //   node scripts/agent-pane/bench-switch-intent.mjs --url "<agent pane URL>" \
 //     [--engine chromium|webkit] [--sequence codex,claude-sr,codex] [--prompt "Reply with exactly: ok"] [--out FILE]
+//
+// With PERF_RESULT_DIR set it also writes each mark of the first and the repeat picks as result-v1
+// (story webviews-switch-intent or webviews-switch-intent-webkit, web.switch_intent.<kind>.<mark>).
 import fs from "node:fs";
 import { chromium, webkit } from "playwright";
+import { perfSeries, recordPerfResults } from "../perf-result.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -113,5 +117,18 @@ for (const harness of sequence) {
   );
   await page.waitForTimeout(1000);
 }
+recordPerfResults({
+  story: engine === "webkit" ? "webviews-switch-intent-webkit" : "webviews-switch-intent",
+  engine,
+  series: ["first", "repeat"].flatMap((kind) =>
+    ["paint", "ready", "sent", "reply"].map((mark) =>
+      perfSeries(
+        `web.switch_intent.${kind}.${mark}`,
+        "ms",
+        results.filter((entry) => entry.kind === kind).map((entry) => entry[mark]),
+      ),
+    ),
+  ),
+});
 if (out) fs.writeFileSync(out, JSON.stringify({ engine, results }, null, 2));
 await browser.close();
