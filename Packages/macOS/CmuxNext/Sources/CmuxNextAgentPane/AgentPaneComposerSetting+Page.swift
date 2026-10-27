@@ -43,15 +43,15 @@ extension AgentPaneComposerSetting {
     @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessSwitch: false,
                                                    escapeDoublePress: true)
     @MainActor private static var lookChanging = false
-    @MainActor private static var lookObservation: ServiceObservation<Look>?
 
     /// Follows Debug Settings' plain footer look, model menu and harness switch for the agent tabs:
     /// `push` (the tabs' push of their page settings to every view, hidden ones too, so this is a
     /// ``ServiceObservation``, not a view's) runs on each change, as one task on `mainWork`: `visible`,
     /// or `userBlocking` when the person's own toggle caused it.
-    @MainActor public static func followLook(on mainWork: MainWorkScheduler, _ push: @escaping () -> Void) {
-        lookObservation?.cancel()
-        lookObservation = ServiceObservation(.visible, owner: "AgentPaneComposerSetting.look", on: mainWork) {
+    ///
+    /// - Returns: The follow; the caller keeps it, and releasing it ends the follow.
+    @MainActor public static func followLook(on mainWork: MainWorkScheduler, _ push: @escaping () -> Void) -> AnyObject {
+        ServiceObservation(.visible, owner: "AgentPaneComposerSetting.look", on: mainWork) {
             Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value,
                  harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
                  escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)

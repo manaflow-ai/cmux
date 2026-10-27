@@ -28,6 +28,8 @@ final class AgentPanePageSettings {
     private var reasoningSliderObservation: Task<Void, Never>?
     private var sidebarPreviewVariantObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
+    /// Debug Settings' composer look (``AgentPaneComposerSetting/followLook(on:_:)``), replaced by each follow.
+    private var lookFollow: AnyObject?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
@@ -67,7 +69,7 @@ final class AgentPanePageSettings {
                 push()
             }
         }
-        AgentPaneComposerSetting.followLook(on: mainWork, push) // Debug Settings' plain footer look
+        lookFollow = AgentPaneComposerSetting.followLook(on: mainWork, push) // Debug Settings' plain footer look
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
