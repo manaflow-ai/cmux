@@ -192,14 +192,10 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    let mut line = params.clone().unwrap_or(Value::Null);
+                    crate::model_copies::scrub_logged(&mut line);
                     return tap_hub
-                        .append_logged(
-                            &tap_session,
-                            "out",
-                            "claude.stdin",
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        )
+                        .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
@@ -209,6 +205,10 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
+            // What acpmux wrote to the agent, less its model-sized image copies.
+            if d == "out" {
+                crate::model_copies::scrub_logged(&mut value);
+            }
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"

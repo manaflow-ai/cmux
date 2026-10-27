@@ -551,4 +551,22 @@ async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_origin
     let messages = c.user_messages(&session).await;
     let logged = serde_json::to_string(&messages).unwrap();
     assert!(!logged.contains("scaled to"), "{logged}");
+    // Nor any record of the log, what was written to the agent too: the copy's base64 is left out.
+    let (mut after, mut logged) = (0, String::new());
+    loop {
+        let all = json!({"sessionId": session, "afterSeq": after, "maxBytes": 4 << 20});
+        let page = c.call("_acpmux/events", all).await;
+        let records = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
+        for r in records {
+            after = r["seq"].as_u64().unwrap();
+            logged.push_str(&r.to_string());
+        }
+        if page["result"]["hasMore"] != true {
+            break;
+        }
+    }
+    // The prompt as written to the agent is there, with the original's path.
+    assert!(logged.contains(r#""dir":"out","kind":"session/prompt""#), "{logged:.2000}");
+    let copy = b64(&sent[0]);
+    assert!(!logged.contains(&copy[200..300]), "the copy's base64 was logged");
 }

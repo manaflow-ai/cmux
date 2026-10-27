@@ -33,6 +33,13 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
+    // A turn acpmux ended already (a Stop the agent never answered, `cancel.rs`) gets no prompt.
+    if !steer
+        && let Some((turn, answer)) = ended.borrow_and_update().clone()
+        && turn == turn_id
+    {
+        return Ok(answer);
+    }
     let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
     tokio::pin!(request);
     loop {

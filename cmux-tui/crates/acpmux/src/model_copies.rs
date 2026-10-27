@@ -7,7 +7,10 @@
 //! original, while the prompt has inline room.
 //!
 //! - The copy is made only for the agent's `session/prompt`. The transcript and the queue keep the
-//!   prompt as sent, with no base64 in the log.
+//!   prompt as sent, and the record of what was written to the agent leaves the copy out
+//!   ([`scrub_logged`]), so no copy's base64 reaches the log.
+//! - A copy is made only while the turn is the machine's own: the prompt is written without one
+//!   when a remote device took the turn, or a Stop came, while it was made (`hub/turns.rs`).
 //! - A copy is saved next to its upload (`.model-<edge>.png`, a name no upload file can have) and
 //!   goes with it when the upload is swept or cancelled. A retry or a restore reuses it.
 //! - The PNG is read a row at a time and scaled by area averaging, so the original is never held
@@ -23,6 +26,13 @@ use base64::Engine;
 use serde_json::{Value, json};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
+
+/// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
+/// its base64 in any shape a harness's line puts it.
+const MARK: &[u8] = b"acpmux\0model-copy";
+
+/// What a copy's base64 is replaced with in the log.
+const OMITTED: &str = "(acpmux model-sized copy, not logged)";
 
 /// The most pixels a copy is made from (about 1.5 s of decoding): a PNG past it, which no screen
 /// makes, keeps only its link, so its decode never holds the prompt back. The file itself still
@@ -82,25 +92,52 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
     let mut out = Vec::with_capacity(blocks.len());
     for block in blocks {
         let copy = upload_png(session, &block).and_then(|path| {
-            let budget = limits.max_bytes.min(left / 4 * 3);
+            // The note and the image block's own JSON are counted below, as written.
+            let budget = limits.max_bytes.min(left.saturating_sub(4 << 10) / 4 * 3);
             // No room for even a small copy: the rest keep only their links.
             if budget < 64 << 10 {
                 return None;
             }
             let (bytes, w, h) = copy_of(&path, limits.max_edge, budget)?;
             let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-            left = left.saturating_sub(data.len() + 512);
-            Some((path, data, w, h))
+            let image = json!({"type": "image", "mimeType": "image/png", "data": data});
+            let note = json!({"type": "text", "text": format!(
+                "(The image above is {} scaled to {w}x{h} for you; the original is at that path.)",
+                path.display()
+            )});
+            // Each block as it is serialized in the prompt, with its comma.
+            let added = image.to_string().len() + note.to_string().len() + 2;
+            left = left.checked_sub(added)?;
+            Some([image, note])
         });
         out.push(block);
-        let Some((path, data, w, h)) = copy else { continue };
-        out.push(json!({"type": "image", "mimeType": "image/png", "data": data}));
-        out.push(json!({"type": "text", "text": format!(
-            "(The image above is {} scaled to {w}x{h} for you; the original is at that path.)",
-            path.display()
-        )}));
+        out.extend(copy.into_iter().flatten());
     }
     out
+}
+
+/// `record` (what acpmux wrote to an agent, before it is logged) with the base64 of every
+/// model-sized copy in it, in the ACP prompt or a harness's own line, replaced by a note.
+pub fn scrub_logged(record: &mut Value) {
+    match record {
+        Value::String(s) if is_copy(s) => *s = OMITTED.to_owned(),
+        Value::Array(items) => items.iter_mut().for_each(scrub_logged),
+        Value::Object(map) => map.values_mut().for_each(scrub_logged),
+        _ => {}
+    }
+}
+
+/// Whether `s` is the base64 of a copy: a PNG whose first chunk after its header is [`MARK`].
+fn is_copy(s: &str) -> bool {
+    // The signature, IHDR (25 bytes) and the mark's chunk head, in whole base64 quanta.
+    const HEAD: usize = (8 + 25 + 8 + MARK.len()).div_ceil(3) * 4;
+    if s.len() < HEAD || !s.starts_with("iVBORw0KGgo") {
+        return false;
+    }
+    let Ok(head) = base64::engine::general_purpose::STANDARD.decode(&s.as_bytes()[..HEAD]) else {
+        return false;
+    };
+    head.get(33 + 4..33 + 8) == Some(b"tEXt") && head.get(41..41 + MARK.len()) == Some(MARK)
 }
 
 /// The path of the PNG `block` links to, when it is a finished upload of chat `session` that
@@ -196,10 +233,17 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
     let mut sums = vec![[0u64; 4]; out_w as usize];
     let mut counts = vec![0u64; out_w as usize];
     let mut pixels = Vec::with_capacity((out_w * out_h * out_channels) as usize);
+    // Colour is summed weighted by alpha (premultiplied), so a transparent pixel's colour,
+    // which nobody sees, does not tint the opaque ones next to it.
     let mut row_of = |sums: &mut [[u64; 4]], counts: &mut [u64]| {
         for (sum, count) in sums.iter_mut().zip(counts.iter_mut()) {
             let n = (*count).max(1);
-            pixels.extend(sum[..out_channels as usize].iter().map(|v| (v / n) as u8));
+            let weight = sum[3];
+            let rgb = sum[..3].iter().map(|v| v.checked_div(weight).unwrap_or(0) as u8);
+            pixels.extend(rgb);
+            if alpha {
+                pixels.push((weight / n) as u8);
+            }
             *sum = [0; 4];
             *count = 0;
         }
@@ -221,9 +265,11 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
                 [r, g, b, a] => [*r, *g, *b, *a],
                 _ => return None,
             };
-            for (s, v) in sums[tx].iter_mut().zip(rgba) {
-                *s += u64::from(v);
+            let a = u64::from(rgba[3]);
+            for (s, v) in sums[tx][..3].iter_mut().zip(rgba) {
+                *s += u64::from(v) * a;
             }
+            sums[tx][3] += a;
             counts[tx] += 1;
         }
     }
@@ -232,7 +278,11 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
     let mut encoder = png::Encoder::new(&mut bytes, out_w, out_h);
     encoder.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
     encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header().ok()?.write_image_data(&pixels).ok()?;
+    let mut writer = encoder.write_header().ok()?;
+    // Right after IHDR, so [`is_copy`] finds it at a fixed place.
+    writer.write_chunk(png::chunk::tEXt, MARK).ok()?;
+    writer.write_image_data(&pixels).ok()?;
+    writer.finish().ok()?;
     Some((bytes, out_w, out_h))
 }
 
@@ -289,6 +339,59 @@ mod tests {
         assert!(copyable(8000, 8000) && copyable(10_000, 10_000));
         assert!(!copyable(20_000, 10_000) && !copyable(100_000, 100_000));
         assert!(!copyable(0, 10) && !copyable(10, 0));
+    }
+
+    /// A 2x1 PNG of `color` from `data`, with `palette` and `trns` when given.
+    fn two_pixels(color: png::ColorType, data: &[u8], palette: Option<(&[u8], &[u8])>) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, 2, 1);
+        e.set_color(color);
+        e.set_depth(png::BitDepth::Eight);
+        if let Some((plte, trns)) = palette {
+            e.set_palette(plte.to_vec());
+            e.set_trns(trns.to_vec());
+        }
+        e.write_header().unwrap().write_image_data(data).unwrap();
+        out
+    }
+
+    #[test]
+    fn a_transparent_pixel_does_not_tint_the_opaque_one_it_is_averaged_with() {
+        // Opaque red and fully transparent blue: red, half covered (not translucent purple).
+        let rgba = two_pixels(png::ColorType::Rgba, &[255, 0, 0, 255, 0, 0, 255, 0], None);
+        // White and transparent black, as grey with alpha.
+        let grey = two_pixels(png::ColorType::GrayscaleAlpha, &[255, 255, 0, 0], None);
+        // The same red and blue from a palette whose blue is transparent (tRNS).
+        let plte: &[u8] = &[255, 0, 0, 0, 0, 255];
+        let indexed = two_pixels(png::ColorType::Indexed, &[0, 1], Some((plte, &[255, 0])));
+        for (png_bytes, want) in
+            [(rgba, [255, 0, 0, 127]), (grey, [255, 255, 255, 127]), (indexed, [255, 0, 0, 127])]
+        {
+            let (bytes, w, h) = downscale(std::io::Cursor::new(png_bytes), 1).unwrap();
+            assert_eq!((w, h), (1, 1));
+            assert_eq!(pixels(&bytes).2, want);
+        }
+    }
+
+    #[test]
+    fn a_copys_base64_is_left_out_of_the_log_in_any_shape() {
+        let (bytes, _, _) = downscale(std::io::Cursor::new(halves(4000, 3000)), 1568).unwrap();
+        let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        // Another PNG, a screenshot sent inline, is logged as it was.
+        let other = base64::engine::general_purpose::STANDARD.encode(halves(64, 64));
+        let mut acp = json!({"method": "session/prompt", "params": {"prompt": [
+            {"type": "image", "mimeType": "image/png", "data": data},
+            {"type": "image", "mimeType": "image/png", "data": other},
+        ]}});
+        let mut claude = json!({"type": "user", "message": {"content": [
+            {"type": "image", "source": {"type": "base64", "data": data}},
+        ]}});
+        scrub_logged(&mut acp);
+        scrub_logged(&mut claude);
+        assert_eq!(acp["params"]["prompt"][0]["data"], OMITTED);
+        assert_eq!(acp["params"]["prompt"][1]["data"], other);
+        assert_eq!(claude["message"]["content"][0]["source"]["data"], OMITTED);
+        assert!(!is_copy("iVBORw0KGgo") && !is_copy("not base64 at all, long enough to be read"));
     }
 
     #[test]
