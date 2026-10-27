@@ -135,6 +135,29 @@ class Run(unittest.TestCase):
         self.assertFalse((self.repo / ".git" / "modules" / "vendor").exists())
         self.assertFalse((self.repo / "vendor" / "lib").exists())
 
+    def test_a_third_level_submodule_worktree_is_removed(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / ".gitmodules").write_text('[submodule "a"]\n\tpath = a\n')
+        a, b = self.repo / "a", self.repo / "a" / "b"
+        b.mkdir(parents=True)
+        (a / ".gitmodules").write_text('[submodule "b"]\n\tpath = b\n')
+        (b / ".gitmodules").write_text('[submodule "c"]\n\tpath = c\n')
+        kept = self.repo / ".git" / "modules" / "a"
+        (kept / "modules" / "b" / "objects").mkdir(parents=True)
+        (kept / "HEAD").write_text("ref: refs/heads/main\n")
+        (kept / "modules" / "b" / "HEAD").write_text("ref: refs/heads/main\n")
+        half = kept / "modules" / "b" / "modules" / "c"
+
+        def leave() -> None:
+            (half / "objects").mkdir(parents=True, exist_ok=True)
+            (b / "c").mkdir(exist_ok=True)
+            (b / "c" / ".git").write_text("gitdir: ../../../.git/modules/a/modules/b/modules/c\n")
+
+        self.run_with([128], tries=1, leave=leave)
+        self.assertFalse(half.exists())
+        self.assertFalse((b / "c").exists())
+        self.assertTrue((kept / "modules" / "b" / "HEAD").exists())
+
     def test_a_fresh_config_lock_is_removed(self) -> None:
         git = self.repo / ".git"
         git.mkdir()

@@ -134,13 +134,15 @@ def gitmodules_paths(gitmodules: Path) -> list[str]:
     return [path for _, _, path in (line.partition(" ") for line in listing.splitlines()) if path]
 
 
-def submodule_worktrees(repo: Path) -> list[Path]:
-    """Submodule worktrees from .gitmodules, at the top level and one level down."""
+def submodule_worktrees(repo: Path, depth: int = 8) -> list[Path]:
+    """Submodule worktrees from .gitmodules, recursively (as `submodule update --recursive` makes them)."""
     paths: list[Path] = []
+    if depth <= 0:
+        return paths
     for path in gitmodules_paths(repo / ".gitmodules"):
         top = repo / path
         paths.append(top)
-        paths.extend(top / nested for nested in gitmodules_paths(top / ".gitmodules"))
+        paths.extend(submodule_worktrees(top, depth - 1))
     return paths
 
 
