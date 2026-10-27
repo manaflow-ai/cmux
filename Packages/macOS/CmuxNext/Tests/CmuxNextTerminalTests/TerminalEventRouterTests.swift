@@ -111,7 +111,9 @@ import Testing
 
     /// With the main actor held, output and `.resize` steps reach the lane in stream order, each new grid at
     /// the lane's next generation and a repeated grid not at all; the main actor's side waits in the mailbox.
-    @MainActor @Test func outputAndGridStepsReachTheLaneInOrderWithMainHeld() async {
+    /// Synchronous on purpose: the test body is the main actor's turn, and it holds that turn on the semaphore
+    /// until the detached loop is done, so the loop provably never needed the main actor.
+    @MainActor @Test func outputAndGridStepsReachTheLaneInOrderWithMainHeld() {
         let fixture = Fixture(label: "test.router-order")
         defer { fixture.lane.close() }
         let routed = DispatchSemaphore(value: 0)
