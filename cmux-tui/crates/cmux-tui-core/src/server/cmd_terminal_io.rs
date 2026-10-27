@@ -497,9 +497,10 @@ pub(super) fn set_default_colors(
 pub(super) fn snapshot_request(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
-    terminal_snapshot::handle_request(mux, client, params)
+    terminal_snapshot::handle_request(mux, client, writer, params)
 }
 
 pub(super) fn scroll_surface(

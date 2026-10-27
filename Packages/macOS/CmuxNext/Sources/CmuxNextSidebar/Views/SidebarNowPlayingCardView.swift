@@ -256,7 +256,7 @@ final class SidebarNowPlayingCardView: NSView {
         playPauseButton.needsDisplay = true
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: stores a few label and layer colors and invalidates; nothing lays out
         super.viewDidChangeEffectiveAppearance()
         applyColors()
         surface.needsDisplay = true
@@ -285,7 +285,7 @@ final class SidebarNowPlayingScrubber: NSView {
     /// The position a drag shows until the source reports again, or until ``seekWait`` passes
     /// with no report (a source that ignored the seek): then it runs on from where it plays.
     private var dragged: TimeInterval?
-    private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek")
+    private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek") // timer-class-allow: the 2 s seek hold a scrub waits on (visible); no MainDeadlineScheduler reaches the sidebar's cards yet
     /// Bumped by each press and release, so a wait that fires as a new drag starts leaves that drag.
     private var seekCount = 0
     static let seekWaitDelay: Duration = .seconds(2)
@@ -398,7 +398,7 @@ final class SidebarNowPlayingScrubber: NSView {
         update()
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { // local-monitor-allow: a person's scrub sets one layer's width per event, no layout; the card has no FrameInputCoalescers seam
         guard dragged != nil, let seconds = seconds(at: event) else { return }
         dragged = seconds
         update()

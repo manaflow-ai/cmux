@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cmux_threads::work::Lane;
 use cmux_threads::{BlockingKind, ThreadQos};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
@@ -152,12 +153,12 @@ fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
     mux.shutdown();
 }
 
-/// A clear-history request runs on its own `mux-surface-control` worker at
-/// UserInitiated. Its path makes no checked blocking call (its waits are
-/// unchecked `Condvar` waits), so the test holds the terminal lock the worker
-/// takes to see its row while it lives.
+/// A clear-history request runs as a `Mux::work` item on the system lane, not
+/// on a thread of its own (p02-threads 230): a person's request at
+/// UserBlocking, on a UserInitiated foreground worker. The test holds the
+/// terminal lock the item takes, to see it running.
 #[test]
-fn a_clear_history_worker_is_a_user_initiated_request_thread() {
+fn a_clear_history_request_is_a_work_item_not_a_thread() {
     let mux = crate::Mux::new_for_test("request-threads-clear", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let outbound = Arc::new(BoundedOutbound::default());
@@ -171,7 +172,16 @@ fn a_clear_history_worker_is_a_user_initiated_request_thread() {
     });
     let held = surface.with_terminal(|_| {
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
-        assert_declared("mux-surface-control", ThreadQos::UserInitiated);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.work.stats()[Lane::System as usize].running == 0 {
+            assert!(Instant::now() < deadline, "the clear-history item never started");
+            std::thread::yield_now();
+        }
+        assert_declared("mux-sys-fg", ThreadQos::UserInitiated);
+        assert!(
+            cmux_threads::snapshot().iter().all(|row| row.name != "mux-surface-control"),
+            "a clear-history request started its own thread"
+        );
     });
     assert!(held.is_some(), "a PTY surface");
     scheduler.finish_and_wait();

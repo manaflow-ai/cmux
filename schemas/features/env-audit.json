@@ -620,6 +620,13 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowDrawPolicy.swift:102", "kind": "via shippingDrawKey", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT": {
+      "class": "benchOnly",
+      "note": "Bench-forced WebKit renderer limit; read only under DEBUG || CMUX_BENCH_HOOKS, in development bundles, as CMUX_NEXT_BENCH_CEF_SWITCHES is.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitProcessReuse.swift:69", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BROWSER_IMPORT_HOME": {
       "class": "devGated",
       "note": "Import fixture home; ImportEnvironment.fixturesAllowed is DEBUG only.",
