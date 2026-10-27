@@ -12,7 +12,8 @@ public import Foundation
 /// don't-switch launch), so the app never comes forward.
 public nonisolated enum UpdateRelaunchBehind {
     /// The launchd job Sparkle submits for its installer (`<host bundle id>-sparkle-updater`,
-    /// SUInstallerLauncher), in the user's domain.
+    /// SUInstallerLauncher): in the user's domain, or the system domain for an install that
+    /// needed authorization.
     public static func installerJobLabel(bundleIdentifier: String) -> String {
         "\(bundleIdentifier)-sparkle-updater"
     }
@@ -25,6 +26,7 @@ public nonisolated enum UpdateRelaunchBehind {
         let script = #"""
         /usr/bin/caffeinate -w "$1"
         installer=$(/bin/launchctl list "$2" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
+        [ -n "$installer" ] || installer=$(/bin/launchctl print "system/$2" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')
         [ -n "$installer" ] && /usr/bin/caffeinate -w "$installer"
         exec /usr/bin/open -g "$0"
         """#
