@@ -315,14 +315,25 @@ fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> 
         hosts: Vec::new(),
     };
     discovery.visit(config, 0);
-    let mut names = HostNames { ssh_root, home, read: 0, chain: Vec::new(), names: HashMap::new() };
+    let mut names = HostNames {
+        ssh_root,
+        home,
+        read: 0,
+        chain: Vec::new(),
+        names: HashMap::new(),
+        every: None,
+    };
     names.read(config, &mut None, None);
-    let mut host_names = names.names;
+    let (every, mut host_names) = (names.every, names.names);
     discovery
         .hosts
         .into_iter()
         .map(|alias| {
-            let host_name = host_names.remove(&alias.to_ascii_lowercase());
+            // A HostName before the first Host line comes first, so it wins.
+            let host_name = match &every {
+                Some(name) => Some(name.replace("%h", &alias.to_ascii_lowercase())),
+                None => host_names.remove(&alias.to_ascii_lowercase()),
+            };
             SshConfigHost { alias, host_name }
         })
         .collect()
@@ -392,6 +403,9 @@ struct HostNames<'a> {
     chain: Vec<PathBuf>,
     /// By lowercased alias.
     names: HashMap<String, String>,
+    /// The first `HostName` before any `Host` line, which ssh gives every
+    /// host (`%h` not yet replaced).
+    every: Option<String>,
 }
 
 impl HostNames<'_> {
@@ -432,8 +446,13 @@ impl HostNames<'_> {
                 }
                 "match" => *block = Some(Vec::new()),
                 "hostname" => {
-                    let (Some(name), Some(aliases)) = (values.into_iter().next(), block.as_ref())
-                    else {
+                    let Some(name) = values.into_iter().next() else { continue };
+                    let Some(aliases) = block.as_ref() else {
+                        // Before any Host line, outside any Include gate:
+                        // every host's (an Include's gate is its block).
+                        if gate.is_none() {
+                            self.every.get_or_insert(name);
+                        }
                         continue;
                     };
                     for alias in aliases {
@@ -1245,6 +1264,23 @@ mod tests {
         assert!(ssh_pattern_matches("g?u*", "gpu.corp"));
         assert!(!ssh_pattern_matches("*.corp", "corp"));
         assert!(!ssh_pattern_matches("lab", "lab2"));
+    }
+
+    #[test]
+    fn a_host_name_before_any_host_line_is_every_hosts() {
+        let names = host_names_of(&[
+            (
+                "config",
+                &[
+                    "Include first",
+                    "HostName second.example",
+                    "Host jump",
+                    "  HostName jump.internal",
+                ],
+            ),
+            ("first", &["HostName %h.tail1234.ts.net"]),
+        ]);
+        assert_eq!(names, vec![named("jump", "jump.tail1234.ts.net")]);
     }
 
     #[test]

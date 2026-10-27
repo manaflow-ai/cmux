@@ -400,3 +400,12 @@ fn auto_uses_weft_only_when_this_device_is_on_it() {
     assert_eq!(Choice::parse(""), Some(Choice::Auto));
     assert_eq!(Choice::parse("zerotier"), None);
 }
+
+#[test]
+fn the_add_command_quotes_an_alias_a_shell_would_read() {
+    assert_eq!(super::shell_word("build-box.tail1234.ts.net"), "build-box.tail1234.ts.net");
+    assert_eq!(super::shell_word("leo@10.0.4.2"), "leo@10.0.4.2");
+    assert_eq!(super::shell_word("foo$(touch /tmp/x)"), "'foo$(touch /tmp/x)'");
+    assert_eq!(super::shell_word("a;b"), "'a;b'");
+    assert_eq!(super::shell_word("it's"), "'it'\\''s'");
+}

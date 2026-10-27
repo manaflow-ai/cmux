@@ -276,12 +276,26 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     if !listing.available.is_empty() {
         println!("\nNot added yet (your network and ~/.ssh/config):");
         for a in &listing.available {
-            println!("  {:<28} {:<10} cmux device add {} --yes", a.name, a.os, a.address);
+            println!(
+                "  {:<28} {:<10} cmux device add {} --yes",
+                a.name,
+                a.os,
+                shell_word(&a.address)
+            );
         }
     }
     for note in notes {
         println!("\nNote: {note}");
     }
+}
+
+/// `text` as one shell word for a command a person copies: as is when it is
+/// only letters, digits and `@%+=:,./-_`, else single-quoted (an ssh alias
+/// may hold anything ssh's config grammar allows).
+fn shell_word(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || "@%+=:,./-_".contains(c));
+    if plain { text.to_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
 }
 
 /// Who did it, for the audit: the login when known, else the OS user.
