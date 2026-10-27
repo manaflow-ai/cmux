@@ -1757,25 +1757,32 @@ class GitHub:
         since = (earliest_end - dt.timedelta(seconds=2 * RESCUE_JOB_LIFETIME_SECONDS)).astimezone(dt.timezone.utc)
         runs: list[Mapping[str, Any]] = []
         for page in range(1, RESCUE_RUN_PAGES + 1):
-            data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?status=completed&per_page=100"
+            # Every status: a rescue run re-run is in progress while its earlier attempts' finished jobs hold marks.
+            data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?per_page=100"
                                        f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
             batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             runs += batch
-            # A status-filtered page can come back short before the last one (failed_runs()): only an empty one ends.
+            # A page can come back short before the last one (failed_runs()): only an empty one ends.
             if not batch:
                 break
         else:
             raise RescueHistoryCapped(f"{RESCUE_RUN_PAGES} pages of rescue runs and no end")
         found: list[int] = []
         for run in runs:
-            if not isinstance(run, Mapping) or run.get("conclusion") == "skipped":
+            attempts = int(run.get("run_attempt") or 1)
+            if attempts <= 1 and run.get("conclusion") == "skipped":
                 continue
             began, ended = parse_time(run.get("run_started_at")), parse_time(run.get("updated_at"))
             if began is None or ended is None or ended < earliest_end:
                 continue
-            jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/jobs?per_page=20")
-            found += [int(job["id"]) for job in (jobs or {}).get("jobs") or []
-                      if isinstance(job, Mapping) and job.get("id") and job.get("conclusion") != "skipped"]
+            # Each attempt's jobs, newest first: the jobs endpoint alone answers the latest attempt's, and a re-run of
+            # the rescue workflow would hide an earlier attempt's CANCEL_SENT or CANCEL_SETTLED. Only finished jobs
+            # have a log to read; a running one has not settled anything a successor needs.
+            for attempt in range(attempts, 0, -1):
+                jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/attempts/{attempt}/jobs?per_page=20")
+                found += [int(job["id"]) for job in (jobs or {}).get("jobs") or []
+                          if isinstance(job, Mapping) and job.get("id") and job.get("status") == "completed"
+                          and job.get("conclusion") != "skipped"]
         return found
 
     def job_marks(self, job_id: int) -> dict[tuple[int, int], str] | None:
@@ -2860,6 +2867,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
+    if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
+        # This rescue sent no cancel. One someone made after the watch looked (a person, the queue janitor, a newer
+        # dispatch) is final, even beside a refusal; a job timeout names no canceller and is re-run as before.
+        by = canceller(api, read(lambda: api.jobs(target.run_id, target.attempt), sleep, log), sleep, log)
+        if by is None:
+            return "not rescued: the run was cancelled, and who cancelled it could not be read; left cancelled"
+        if by:
+            return f"not rescued: the run was cancelled by @{by} meanwhile; left cancelled"
     if run.get("status") == "completed":
         should_rerun = failed_only if refused is None else refused
         if not should_rerun:
