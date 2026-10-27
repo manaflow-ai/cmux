@@ -271,9 +271,9 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     send(["in", "agent_message_chunk", say(text, "m1")]);
     await page.locator(".acpmux-scroll", { hasText: text }).waitFor({ timeout: 10_000 });
   };
-  /// The bubble's read receipt once it is `read` (two checks) or not yet (one).
-  const receipt = (page: Page, text: string, read: boolean) =>
-    page.locator(".cv-user", { hasText: text }).locator(`.cv-user__read[data-read="${read}"]`);
+  /// Unread steers have queue controls; sent/read prompts have the normal hover footer.
+  const footer = (page: Page, text: string, read: boolean) =>
+    page.locator(".cv-user", { hasText: text }).locator(read ? ".cv-user__time" : ".cv-user__pending");
 
   describe("queued and steering prompts", () => {
     test("queued prompts sit between the pull request bar and the composer, named Queued prompts, and a long one opens whole", async () => {
@@ -405,7 +405,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" },
       ]);
-      await receipt(page, "fix the space thing first", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "fix the space thing first", true).waitFor({ state: "attached", timeout: 10_000 });
       expect(await page.locator(".cv-user__steer").count()).toBe(0);
       await page.close();
     });
@@ -430,21 +430,21 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
       ]);
-      await receipt(page, "space thing", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "space thing", true).waitFor({ state: "attached", timeout: 10_000 });
       await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });
 
-    test("a steer reads delivered while the reply it went into streams, and read once the agent reads it", async () => {
+    test("a steer keeps queue controls while its reply streams and switches to hover actions once read", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
-      await receipt(page, "use the cache dir", false).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", false).waitFor({ state: "attached", timeout: 10_000 });
       // The rest of the reply it went into still streams: not read yet.
       await caughtUp(page, "remapped paths.");
-      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
+      expect(await footer(page, "use the cache dir", false).count()).toBe(1);
       // The agent's next message answers the steer.
       send(["in", "agent_message_chunk", say("Using the cache dir now.", "m2")]);
-      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
       expect(await page.locator(".cv-user", { hasText: "use the cache dir" }).innerText()).not.toContain("Steer");
       await page.close();
     });
@@ -453,11 +453,11 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
       send(["mux", "user_message", { text: "and keep the old path", promptId: "s-2", turnId: "turn-1", steer: true }]);
-      await receipt(page, "and keep the old path", false).waitFor({ state: "attached", timeout: 10_000 });
-      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
+      await footer(page, "and keep the old path", false).waitFor({ state: "attached", timeout: 10_000 });
+      expect(await footer(page, "use the cache dir", false).count()).toBe(1);
       send(["in", "agent_message_chunk", say("Using the cache dir and the old path.", "m2")]);
-      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
-      await receipt(page, "and keep the old path", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "and keep the old path", true).waitFor({ state: "attached", timeout: 10_000 });
       await page.close();
     });
   });

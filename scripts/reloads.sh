@@ -208,6 +208,9 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# A staging app never claims http/https at Default rank (Resources/Info.plist;
+# tests/test_web_url_handler_rank.py). Every bundle id here is a staging one.
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK=Alternate)
 XCODEBUILD_ARGS+=(build)
 
 xcodebuild "${XCODEBUILD_ARGS[@]}"

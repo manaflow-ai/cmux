@@ -10,8 +10,14 @@ extension AgentPaneView {
         page.autoresizingMask = [.width, .height]
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            let modifiers = page?.externalLinkModifiers ?? []
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, modifiers) }
+            // PageWebView has already cancelled the navigation and routed it here after onNavigate
+            // returned `.openExternal`; keep the actual gesture check and pane placement on the
+            // same production seam as the legacy WKNavigationDelegate.
+            _ = AgentPaneNavigation.handle(
+                url: url, source: self.source, userClicked: true, mainFrame: true,
+                modifiers: page?.externalLinkModifiers ?? [], gestures: self.model.transport.gestures,
+                open: self.openURL
+            )
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
@@ -22,6 +28,9 @@ extension AgentPaneView {
             case .cancel: return .cancel
             }
         }
+        // A reload builds the chat again without what its page held (an open menu, the caret, an
+        // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
+        page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.

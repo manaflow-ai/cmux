@@ -16,21 +16,15 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         guard let view else { return decisionHandler(.cancel) }
-        switch Self.decision(
-            for: action.request.url,
+        decisionHandler(Self.handle(
+            url: action.request.url,
             source: view.source,
             userClicked: action.navigationType == .linkActivated,
-            mainFrame: action.targetFrame?.isMainFrame ?? true
-        ) {
-        case .allow:
-            decisionHandler(.allow)
-        case .openOutside(let url):
-            let modifiers = action.modifierFlags
-            _ = Self.openOutside(url, gestures: view.model.transport.gestures) { view.openURL($0, modifiers) }
-            decisionHandler(.cancel)
-        case .cancel:
-            decisionHandler(.cancel)
-        }
+            mainFrame: action.targetFrame?.isMainFrame ?? true,
+            modifiers: action.modifierFlags,
+            gestures: view.model.transport.gestures,
+            open: view.openURL
+        ))
     }
 
     /// A New Tab page gets its context as its document commits, so its first render draws the
@@ -67,6 +61,23 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case allow
         case openOutside(URL)
         case cancel
+    }
+
+    /// The production delegate's decision and dispatch in one seam. The WK delegate calls this
+    /// verbatim; tests can drive the same cancellation and pane-placement callback without
+    /// manufacturing a WKWebView.
+    @MainActor static func handle(url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool,
+                                  modifiers: NSEvent.ModifierFlags, gestures: AgentPaneUserGestures,
+                                  open: @escaping (URL, NSEvent.ModifierFlags) -> Void) -> WKNavigationActionPolicy {
+        switch decision(for: url, source: source, userClicked: userClicked, mainFrame: mainFrame) {
+        case .allow:
+            return .allow
+        case .openOutside(let url):
+            _ = openOutside(url, gestures: gestures) { open($0, modifiers) }
+            return .cancel
+        case .cancel:
+            return .cancel
+        }
     }
 
     static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {

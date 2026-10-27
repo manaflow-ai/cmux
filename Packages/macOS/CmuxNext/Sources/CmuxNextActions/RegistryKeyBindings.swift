@@ -79,6 +79,8 @@ public struct RegistryKeyBindings {
         // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
         if KeyBindingDefaults.homeChatScoped.contains(id) {
             when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+        } else if KeyBindingDefaults.homeScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHome].compactMap { $0 })
         }
         // The code editor's editing chords win over these defaults (R127).
         var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
