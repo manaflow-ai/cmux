@@ -217,7 +217,12 @@ describe("Freestyle fork readiness", () => {
 // attempt id, and a failed create deletes whatever Freestyle made under it.
 describe("Freestyle failed create leaves no VM behind", () => {
   const LEAKED_VM_ID = "vm-0f725dd3d5664d1d8c5e0a6f0b7c1e22";
-  function leakingClient(options: { readonly failLeakedDelete?: boolean } = {}) {
+  function leakingClient(options: {
+    readonly failLeakedDelete?: boolean;
+    readonly leakedDeleteNotFound?: boolean;
+    readonly ignoreListFilter?: boolean;
+    readonly failList?: boolean;
+  } = {}) {
     const store: Array<{ id: string; metadata: Record<string, string> }> = [];
     const creates: Array<{ metadata?: Record<string, string> }> = [];
     const lists: string[] = [];
@@ -232,12 +237,14 @@ describe("Freestyle failed create leaves no VM behind", () => {
         },
         list: async ({ metadata }: { metadata?: string }) => {
           lists.push(metadata ?? "");
+          if (options.failList) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
           const [key, value] = (metadata ?? "").split(":");
-          return { vms: store.filter((vm) => vm.metadata[key!] === value) };
+          return { vms: options.ignoreListFilter ? store : store.filter((vm) => vm.metadata[key!] === value) };
         },
         ref: (id: string) => ({
           delete: async () => {
             if (options.failLeakedDelete) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
+            if (options.leakedDeleteNotFound) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "gone" });
             deletes.push(id);
           },
         }),
@@ -266,6 +273,28 @@ describe("Freestyle failed create leaves no VM behind", () => {
     const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
     expect(isProviderCreateCleanupError(error)).toBe(true);
     expect((error as ProviderCreateCleanupError).providerVmId).toBe(LEAKED_VM_ID);
+  });
+
+  test("a list answer that ignored the filter deletes only the VM carrying this attempt's tag", async () => {
+    const fake = leakingClient({ ignoreListFilter: true });
+    await providerWith(fake).create({ image: "sh-image" }).catch(() => {});
+    expect(fake.deletes).toEqual([LEAKED_VM_ID]);
+  });
+
+  test("a leaked VM already gone counts as cleaned up", async () => {
+    const fake = leakingClient({ leakedDeleteNotFound: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+  });
+
+  test("a lookup that fails reports the create's own failure, not unconfirmed cleanup", async () => {
+    const fake = leakingClient({ failList: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+    expect(((error as ProviderError).cause as FreestyleApiError).code).toBe("VM_START_FAILED");
+    expect(fake.deletes).toEqual([]);
   });
 
   test("every create carries a fresh attempt id", async () => {

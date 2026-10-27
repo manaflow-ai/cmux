@@ -950,6 +950,11 @@ export const vmWorkflowErrorResponders = {
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
     }
+    // Unconfirmed cleanup wraps the create's own failure; the machine it left
+    // is what the caller must hear about, ahead of whatever caused it.
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
@@ -967,9 +972,6 @@ export const vmWorkflowErrorResponders = {
     }
     if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
       return vmNetworkRuleCapacityResponse(error, context.locale);
-    }
-    if (isProviderCreateCleanupError(error.cause)) {
-      return vmCreateCleanupPendingResponse(context.locale);
     }
     const guestInstall = guestCliInstallFailure(error.cause);
     if (guestInstall) {

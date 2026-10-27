@@ -185,6 +185,15 @@ const GUEST_LINUX_USER = "root";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
+const CREATE_CLEANUP_TIMEOUT_MS = 15_000;
+/** One attempt allocates one VM; the bound keeps a bad answer from fanning out. */
+const CREATE_CLEANUP_LIST_LIMIT = 3;
+/**
+ * The create call's own deadline. It ends early enough that a failed create's
+ * cleanup (one lookup and up to CREATE_CLEANUP_LIST_LIMIT deletes) still runs
+ * inside the gateway's create deadline, whose failure path records the row.
+ */
+const CREATE_CALL_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS - (CREATE_CLEANUP_LIST_LIMIT + 1) * CREATE_CLEANUP_TIMEOUT_MS - 15_000;
 const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 /** Page size and ceiling for `listSnapshots`; a machine rarely has more than a handful. */
 const SNAPSHOT_LIST_PAGE = 100;
@@ -688,9 +697,6 @@ function isFreestyleExecNoExit(err: unknown): boolean {
 
 type FreestyleCreateRequest = Parameters<Freestyle["vms"]["create"]>[0];
 type FreestyleCreated = Awaited<ReturnType<Freestyle["vms"]["create"]>>;
-const CREATE_CLEANUP_TIMEOUT_MS = 15_000;
-/** One attempt allocates one VM; the bound only keeps a bad answer from fanning out. */
-const CREATE_CLEANUP_LIST_LIMIT = 10;
 
 /**
  * `vms.create` can fail after Freestyle has already allocated the VM: a later
@@ -728,7 +734,11 @@ async function deleteFreestyleCreateAttempt(client: FreestyleClientFactory, atte
       metadata: `${FREESTYLE_CREATE_ATTEMPT_METADATA_KEY}:${attempt}`,
       limit: CREATE_CLEANUP_LIST_LIMIT,
     });
-    leaked = vms.map((vm) => vm.id);
+    // Check the tag here too: a list that dropped the filter must not turn
+    // one failed create into deleting the account's other machines.
+    leaked = vms
+      .filter((vm) => vm.metadata?.[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY] === attempt)
+      .map((vm) => vm.id);
   } catch (lookupErr) {
     console.error(`[freestyle] could not look up VMs left by failed create attempt ${attempt}`, lookupErr);
     return;
@@ -1207,12 +1217,12 @@ export class FreestyleProvider implements VMProvider {
         "cmux.vm.operation": "create",
         "cmux.vm.image": image,
         "cmux.vm.edge_rules": tlsRules?.length ?? 0,
-        "cmux.timeout_ms": CREATE_TIMEOUT_MS,
+        "cmux.timeout_ms": CREATE_CALL_TIMEOUT_MS,
       },
       async (span) => {
         try {
           const clientStartedAt = performance.now();
-          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const fs = this.deps.client(CREATE_CALL_TIMEOUT_MS);
           const clientInitMs = Math.round((performance.now() - clientStartedAt) * 100) / 100;
           setSpanAttributes(span, { "cmux.vm.provider.client_init_ms": clientInitMs });
           const networkId = options.network?.id;
@@ -1704,11 +1714,11 @@ export class FreestyleProvider implements VMProvider {
         "cmux.vm.operation": "restore",
         "cmux.snapshot.id": snapshotId,
         "cmux.vm.edge_rules": tlsRules?.length ?? 0,
-        "cmux.timeout_ms": CREATE_TIMEOUT_MS,
+        "cmux.timeout_ms": CREATE_CALL_TIMEOUT_MS,
       },
       async (span) => {
         try {
-          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const fs = this.deps.client(CREATE_CALL_TIMEOUT_MS);
           const networkId = options?.network?.id;
           const { vm, vmId, data } = await createTrackedFreestyleVm(this.deps.client, fs, {
             snapshotId,
