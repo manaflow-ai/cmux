@@ -351,7 +351,13 @@ impl Gate {
                 deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
             }));
             let mut value = match self.driver.call("net.fetch", &call) {
-                Ok(value) => value,
+                Ok(value @ (Value::Object(_) | Value::Null)) => value,
+                Ok(other) => {
+                    return Err(DriverError::invalid(format!(
+                        "fetch: the engine's answer is not an object: {}",
+                        json_kind(&other)
+                    )));
+                }
                 Err(error) => return Err(self.hop_error(error, start, url)),
             };
             // DNS rebinding (v1, after the fact): a name that resolved into
@@ -459,6 +465,19 @@ impl Gate {
                 let _ = driver.call("tab.stop", &stop);
             },
         );
+    }
+}
+
+/// The JSON type of an engine answer, for its error (never its text, which
+/// may hold page data).
+fn json_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
     }
 }
 
