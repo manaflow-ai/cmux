@@ -5622,10 +5622,23 @@ function AcpmuxPane() {
               run: true,
             }).catch(() => undefined),
         }),
+      ...(connected &&
+        snapshot.summary?.hostKind === "cloud" &&
+        snapshot.summary?.host?.startsWith("registry:") &&
+        snapshot.sessionId &&
+        (snapshot.summary?.harness === "claude" || snapshot.summary?.harness === "codex") && {
+          transferCloudCredentials: async (_rowId, _prompt) =>
+            (await callNative<boolean>("chat.cloudCredentialTransfer", {
+              provider: snapshot.summary!.harness,
+              machineID: snapshot.summary!.host!.slice("registry:".length),
+              sessionId: snapshot.sessionId,
+            }).catch(() => false)) === true,
+        }),
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
+        hostKind: snapshot.summary?.hostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -5645,6 +5658,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       snapshot.summary?.hostKind,
+      snapshot.summary?.host,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
       snapshot.summary?.model,
