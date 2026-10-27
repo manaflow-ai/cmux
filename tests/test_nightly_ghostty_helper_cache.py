@@ -7,7 +7,7 @@ Linux and never compiles. Only a miss builds on a Mac, and then:
 
 scripts/build-ghostty-cli-helper.sh reuses a helper only when the manifest it
 wrote equals the current build's inputs and the binary's sha256 equals the
-manifest's. A hosted macos-15 runner starts with an empty cache directory, so
+manifest's. A Blacksmith runner starts with an empty cache directory, so
 the job restores that directory with actions/cache. The cache key must name
 every input the script's manifest names, so a key never hides a changed input,
 and it must be exact (no restore-keys), so an entry for other inputs is never
@@ -169,8 +169,8 @@ class WorkflowTests(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
         helper = jobs["build-nightly-ghostty-cli-helper"]
         self.assertIn("resolve-nightly-ghostty-cli-helper", helper["needs"])
-        runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-15' ||", 1)[1]
-        self.assertNotIn("'macos-15'", runs_on)
+        runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
+        self.assertNotIn("macos-15", helper["runs-on"])
         self.assertNotIn("'macos-26'", runs_on)
         for name in ("Key the Ghostty CLI helper cache", "Cache the Ghostty CLI helper",
                      "Build Ghostty CLI helper", "Upload Ghostty CLI helper"):
