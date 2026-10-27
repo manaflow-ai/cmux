@@ -49,6 +49,7 @@ import CmuxNextCompat
     var current = 0
     /// Held from `open` until the first frame is sent, then dropped.
     var localAppToken: String?
+    var uploadOriginAllowed = false
     var sentFirst = false
     /// The send line (``submit(connection:frames:reply:)``), drained in order by one task at a time.
     var pending: [PendingSend] = []
@@ -206,6 +207,7 @@ import CmuxNextCompat
         current += 1
         let id = current
         localAppToken = connection.localAppToken
+        uploadOriginAllowed = connection.localAppToken != nil || connection.remote != nil
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
@@ -275,14 +277,21 @@ import CmuxNextCompat
 
     /// A host-owned upload control request. Page controls never invoke this path with file bytes.
     public func uploadControl(connection id: Int, method: String, params: [String: Any]) async throws -> [String: Any] {
-        guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
+        let socket = try uploadSocket(connection: id, sessionId: params["sessionId"] as? String)
         return try await socket.callHost(method, params: params)
     }
 
     /// Sends a chunk on the owned socket, using AMUP only when the connection advertises it.
     func uploadChunk(connection id: Int, sessionId: String, uploadId: String, offset: Int, bytes: Data) async throws -> [String: Any] {
-        guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
+        let socket = try uploadSocket(connection: id, sessionId: sessionId)
         return try await socket.uploadChunk(sessionId: sessionId, uploadId: uploadId, offset: offset, bytes: bytes)
+    }
+
+    private func uploadSocket(connection id: Int, sessionId: String?) throws -> AcpmuxPaneSocket {
+        guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
+        guard uploadOriginAllowed else { throw AgentPaneUploadError.rpc("uploads require a native app connection") }
+        guard let sessionId, sessions.contains(sessionId) else { throw AgentPaneUploadError.rpc("upload session outside pane scope") }
+        return socket
     }
 
     /// The bridge's entry: the frames join the send line in arrival order (they are in line before
@@ -348,6 +357,7 @@ import CmuxNextCompat
         socket.close(code: 1000, reason: "", error: nil)
         gestures.clearTickets(connection: id)
         localAppToken = nil
+        uploadOriginAllowed = false
         promptRelay?.ended(byDaemon: false)
     }
 
@@ -368,6 +378,7 @@ import CmuxNextCompat
             self.socket = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
+            uploadOriginAllowed = false
             // A connection the daemon closed: the page was told, so its prompts are the page's again
             // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
             promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
