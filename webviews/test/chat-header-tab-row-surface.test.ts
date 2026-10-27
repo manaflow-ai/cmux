@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PNG } from "pngjs";
 import { chromium, type Browser } from "playwright";
+import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
@@ -10,11 +11,38 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   const source = path.resolve(import.meta.dir, "../src");
   const read = (file: string) => fs.readFileSync(path.join(source, file), "utf8");
   let browser: Browser;
+  let pane: Awaited<ReturnType<typeof papercutPane>>;
 
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
+    pane = await papercutPane(() => browser, { turns: 1, running: false });
   });
-  afterAll(async () => browser?.close());
+  afterAll(async () => {
+    await pane?.close();
+    await browser?.close();
+  });
+
+  test("the normal App shell carries the offered row state", async () => {
+    const page = await pane.open({ width: 900, height: 640 });
+    try {
+      await page.evaluate(async () => {
+        const module = (await import(/* @vite-ignore */ "/header/tabRow.ts")) as {
+          setTabRow(value: { height: number; trailingInset: number }): void;
+        };
+        module.setTabRow({ height: 40, trailingInset: 12 });
+      });
+      const shell = page.locator("section.acpmux-shell").first();
+      await page.waitForFunction(() => document.querySelector("section.acpmux-shell")?.hasAttribute("data-tab-row"));
+      const rendered = await shell.evaluate((node) => ({
+        tabRow: node.hasAttribute("data-tab-row"),
+        height: getComputedStyle(node).getPropertyValue("--acpmux-tab-row-height"),
+        inset: getComputedStyle(node).getPropertyValue("--acpmux-tab-row-inset"),
+      }));
+      expect(rendered).toEqual({ tabRow: true, height: "40px", inset: "12px" });
+    } finally {
+      await page.close();
+    }
+  });
 
   test("the shipped tab-row shell leaves the native strip transparent", async () => {
     const page = await browser.newPage({ viewport: { width: 240, height: 100 } });
