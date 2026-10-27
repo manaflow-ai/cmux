@@ -13,11 +13,15 @@ import Foundation
 /// mailbox overflows and it ends the stream with `overflow` instead of the
 /// app buffering without limit; the view reattaches from a fresh replay.
 /// Replays never block (a 10 MiB replay must not wedge the attach
-/// handshake). Consecutive plain output chunks are merged on the way out:
+/// handshake). Consecutive plain output chunks are merged on the way out, so a
+/// consumer that fell behind takes up to `mergeLimit` bytes in one step:
 /// decoded JSON chunks by a copy, attach-frame output (``TerminalOutputSpan``)
-/// only by range, when the slices lie next to each other in one read buffer,
-/// so frame output reaches the view without a copy. Nothing merges across a
-/// grid replacement or any other event.
+/// that continues in the PTY stream by range when the slices lie next to each
+/// other in one read buffer, else by one copy. A consumer that keeps up finds
+/// one span queued and gets it as a slice of its read buffer, never copied.
+/// Blink coalesces queued input only while its main thread is behind the same
+/// way (third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc).
+/// Nothing merges across a grid replacement or any other event.
 final class TerminalEventQueue: Sendable {
     let highWater: Int
     let lowWater: Int
@@ -83,15 +87,24 @@ final class TerminalEventQueue: Sendable {
             head += 1
             let event: TerminalChannelEvent
             switch item {
-            case .span(var span):
-                // Only a slice that continues this one in the same read buffer joins it: one wider slice, no copy.
-                while span.bytes.count < mergeLimit, case .span(let next)? = items[checked: head],
-                      let joined = span.joined(with: next) {
-                    span = joined
+            case .span(let first):
+                let start = head - 1
+                var end = first.end
+                var count = first.bytes.count
+                // Nil once a span does not lie right after the one before it in the same read buffer.
+                var joined: TerminalOutputSpan? = first
+                while count < mergeLimit, case .span(let next)? = items[checked: head], next.offset == end {
+                    joined = joined?.joined(with: next)
+                    end = next.end
+                    count += next.bytes.count
                     head += 1
                 }
-                event = .output(span.bytes.data, colors: nil)
-                outputBytes -= span.bytes.count
+                if let joined {
+                    event = .output(joined.bytes.data, colors: nil)  // one wider slice, no copy
+                } else {
+                    event = .output(Self.copiedOutput(items[start ..< head], count: count, recorder: recorder), colors: nil)
+                }
+                outputBytes -= count
             case .event(.output(var data, nil)):
                 var merged = false
                 while data.count < mergeLimit, case .event(.output(let more, nil))? = items[checked: head] {
@@ -112,6 +125,14 @@ final class TerminalEventQueue: Sendable {
                 head = 0
             }
             return event
+        }
+
+        /// The spans of `run` in one new buffer: a merge that writes every byte of the result.
+        private static func copiedOutput(_ run: ArraySlice<Item>, count: Int, recorder: DaemonWireStats.Recorder?) -> Data {
+            var data = Data(capacity: count)
+            for case .span(let span) in run { data.append(span.bytes.data) }
+            recorder?.outputCopied(data.count)
+            return data
         }
     }
 

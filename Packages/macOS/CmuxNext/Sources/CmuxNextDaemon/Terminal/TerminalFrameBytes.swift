@@ -1,9 +1,8 @@
 import Foundation
 
 /// One region of bytes the connection's reader filled (attach-frames-v1, p05-ipc-097): the frame payloads
-/// cut from it are slices that share its storage, never copies. The queue joins two output slices only
-/// when they lie next to each other in the same region, which takes no copy either. Chrome hands large
-/// IPC payloads on the same way, as a `mojo_base::BigBuffer` (mojo/public/cpp/base/big_buffer.h).
+/// cut from it are slices that share its storage, never copies. Chrome hands large IPC payloads on the
+/// same way, as a `mojo_base::BigBuffer` (mojo/public/cpp/base/big_buffer.h).
 final class TerminalReadBuffer: Sendable {
     let bytes: Data
 

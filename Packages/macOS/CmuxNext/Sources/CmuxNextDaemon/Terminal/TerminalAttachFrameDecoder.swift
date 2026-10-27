@@ -14,17 +14,21 @@ import Foundation
 /// - OUTPUT, a GRID or an event past that offset means bytes were lost. A snapshot stream asks for a
 ///   fresh READY (``TerminalFrameAdmission/resync(_:)``, once) and drops screen bytes until it comes; a
 ///   byte-replay stream cannot, so its view reattaches from a fresh replay, as on the daemon's `overflow`.
+///   A repair that fails (the READY is refused, the stream breaks again before it, or the request fails)
+///   also ends the stream with `overflow`, so a view never waits on a READY that will not come.
 /// - SNAPSHOT/SNAPSHOT_MORE and REPLAY chunks are put back together by the lengths in their meta; an event
 ///   whose raw bytes all came in one frame is a slice too.
 ///
-/// JSON lines of the same stream go through ``admit(line:)``, so one ``TerminalSnapshotSequencer`` orders both.
+/// JSON lines of the same stream go through ``admit(line:named:decoder:)``, so one ``TerminalSnapshotSequencer``
+/// orders both and one surface scopes both.
 struct TerminalAttachFrameDecoder: Sendable {
     /// Largest snapshot or replay event put together from chunks (a JSON line replay is at most 32 MiB).
     static let maxBulkBytes = 64 << 20
     /// Bytes of the little-endian `meta_len` that opens GRID, SNAPSHOT and REPLAY payloads.
     static let metaLengthBytes = 4
 
-    /// The stream's surface; ``TerminalAttachment/unresolvedSurface`` until a REPLAY or READY names it.
+    /// The stream's surface; ``TerminalAttachment/unresolvedSurface`` until a `vt-state` or READY, frame or
+    /// line, names it.
     private(set) var surface: SurfaceID
     /// Offset of the next output byte; nil until the stream names one.
     private(set) var nextOffset: UInt64?
@@ -66,12 +70,32 @@ struct TerminalAttachFrameDecoder: Sendable {
         }
     }
 
-    /// A JSON line of the same stream (an event the daemon sent as a line). A READY sets the offset output
-    /// continues from, as its frame does.
-    mutating func admit(line: DecodedAttachLine) -> TerminalChannelEvent? {
-        guard let event = sequencer.admit(line) else { return nil }
-        if case .snapshot(let frame) = event, frame.phase == .ready { restored(at: frame.offset, snapshot: true) }
-        return event
+    /// A JSON line `name` of the same stream: an event the daemon sent as a line, such as a `vt-state` or
+    /// READY too large for a frame (cmux-tui `snapshot_frames.rs`, `BulkFrameError`). It does what its frame
+    /// does: an unresolved stream takes the surface it names, a READY sets the offset output continues from,
+    /// and a `vt-state` (which names no offset) lets the next OUTPUT name it. A `snapshot` line it cannot use
+    /// ends a resync, as a refused READY frame does.
+    mutating func admit(line: Data, named name: String, decoder: WireDecoder) -> TerminalFrameAdmission {
+        outputRun = nil
+        if surface == TerminalAttachment.unresolvedSurface,
+           let named = TerminalAttachment.initialSurface(name: name, line: line, decoder: decoder) {
+            surface = named
+        }
+        guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface,
+                                                                decoder: decoder)
+        else { return name == "snapshot" ? refusedReady() : .nothing }
+        switch decoded.event {
+        case .replay:
+            restored(at: nil, snapshot: false)
+        case .snapshot(let frame) where frame.phase == .ready:
+            restored(at: frame.offset, snapshot: true)
+        case .output, .resized:
+            guard !resyncing else { return .nothing }  // screen bytes of the screen being replaced
+        default:
+            break
+        }
+        guard let event = sequencer.admit(decoded) else { return .nothing }
+        return .event(event, flow: decoded.flow)
     }
 
     /// The writer cuts one output into OUTPUT frames of at most BULK_FRAME_MAX, each with the offset of its
@@ -193,9 +217,14 @@ struct TerminalAttachFrameDecoder: Sendable {
             restored(at: offset, snapshot: false)
             return .event(.replay(state.terminalReplay(data: replay, pending: pending)), flow: nil)
         case .snapshot(let snapshot):
-            guard let frame = snapshot.frame(data: raw) else { return .nothing }
-            if frame.phase == .ready {
-                guard adopt(snapshot.surface) else { return .nothing }
+            let ready = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase) == .ready
+            guard let frame = snapshot.frame(data: raw) else {
+                guard ready else { return .nothing }  // a phase this view does not know
+                TerminalAttachment.noteUndecodable("snapshot frame")
+                return refusedReady()
+            }
+            if ready {
+                guard adopt(snapshot.surface) else { return refusedReady() }
                 restored(at: offset, snapshot: true)
             } else if !scoped(snapshot.surface) {
                 return .nothing
@@ -205,22 +234,32 @@ struct TerminalAttachFrameDecoder: Sendable {
         }
     }
 
-    /// The screen is the one at `offset`: output continues from there, and a resync is over.
-    private mutating func restored(at offset: UInt64, snapshot: Bool) {
+    /// The screen is the one at `offset` (nil: the next OUTPUT names it): output continues from there, and a
+    /// resync is over.
+    private mutating func restored(at offset: UInt64?, snapshot: Bool) {
         nextOffset = offset
         outputRun?.deliveredEnd = nil  // output before the cut is on the restored screen
         resyncing = false
         snapshots = snapshot
     }
 
-    /// Bytes were lost: a snapshot stream asks for a fresh READY once; a byte-replay stream reattaches.
+    /// Bytes were lost: a snapshot stream asks for a fresh READY once. A byte-replay stream cannot be repaired
+    /// in place, and a loss while the fresh READY is due means the repair broke too: the view reattaches.
     private mutating func lost() -> TerminalFrameAdmission {
         bulk = nil
-        guard snapshots else { return .event(.closed(.overflow), flow: nil) }
-        guard !resyncing else { return .nothing }
+        guard snapshots, !resyncing else { return Self.reattach }
         resyncing = true
         return .resync(.gap)
     }
+
+    /// A READY that does not decode or names another surface: the screen it should restore stays unknown.
+    /// It ends a resync, which no later READY is due to end; otherwise the screen before it stays.
+    private func refusedReady() -> TerminalFrameAdmission {
+        resyncing ? Self.reattach : .nothing
+    }
+
+    /// The view reattaches from a fresh screen, as on the daemon's `overflow`.
+    private static let reattach = TerminalFrameAdmission.event(.closed(.overflow), flow: nil)
 
     private func scoped(_ id: SurfaceID?) -> Bool {
         id == nil || id == surface
@@ -255,15 +294,17 @@ extension TerminalAttachFrameDecoder {
     struct Delivery: Sendable {
         /// A `size-state` and this view's participant in it (the attachment orders them by generation).
         var sizeState: @Sendable (TerminalSizeState, String?) -> Void
-        /// Sends `snapshot-request` for this stream.
-        var requestSnapshot: @Sendable (SnapshotRequestReason) -> Void
+        /// Sends `snapshot-request` for this stream, and calls the second argument (once, on any thread) when
+        /// the request cannot be sent or the host refuses it (`LineTransport.sendNoReply`'s `onError`).
+        var requestSnapshot: @Sendable (SnapshotRequestReason, _ failed: @escaping @Sendable () -> Void) -> Void
         /// The typing probe's decode mark for output, and for the key press it echoes when known.
         var outputDecoded: @Sendable (UInt64?) -> Void
     }
 
     /// Reader thread. Hands one admission to the view's queue in stream order, as a decoded attach line is:
     /// output stays a slice of its read buffer, a key press's echo rides behind its chunk, `closed` ends the
-    /// stream, and a gap asks the host for a fresh READY.
+    /// stream, and a gap asks the host for a fresh READY; when that request fails no READY is due, so the
+    /// stream ends with `overflow` and the view reattaches.
     static func deliver(_ admission: TerminalFrameAdmission, to queue: TerminalEventQueue, delivery: Delivery) {
         switch admission {
         case .nothing:
@@ -278,13 +319,18 @@ extension TerminalAttachFrameDecoder {
         case .event(.inputEcho(let flow), _):
             delivery.outputDecoded(flow)
             queue.pushWithoutWaiting(.inputEcho(flow: flow))
+        case .event(.output(let data, let colors), let flow):  // an `output` line
+            delivery.outputDecoded(flow)
+            queue.push(.output(data, colors: colors))
+            guard let flow else { return }
+            queue.pushWithoutWaiting(.inputEcho(flow: flow))
         case .event(let event, let flow):
             queue.push(event)
             guard let flow else { return }
             delivery.outputDecoded(flow)
             queue.pushWithoutWaiting(.inputEcho(flow: flow))
         case .resync(let reason):
-            delivery.requestSnapshot(reason)
+            delivery.requestSnapshot(reason) { queue.finish(.closed(.overflow)) }
         }
     }
 }
