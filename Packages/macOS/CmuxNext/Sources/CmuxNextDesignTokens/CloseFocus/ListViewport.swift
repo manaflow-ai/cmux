@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// One-axis scroll rules for a list viewport (the sidebar's workspace
 /// list; plans/cmux-next/close-focus.md). Offsets are the content-space

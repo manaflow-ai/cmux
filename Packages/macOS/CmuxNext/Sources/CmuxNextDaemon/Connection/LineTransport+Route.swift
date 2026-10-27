@@ -65,6 +65,14 @@ extension LineTransport {
             recorder?.lineRead(.ignored)
             return
         }
+        resolveReply(envelope, line: line, parsed: decoded, decoder: decoder)
+    }
+
+    /// Hands a reply to its waiter: a line's, or a REPLY or ERROR frame's body (LineTransport+Frames.swift).
+    /// `envelope` holds its routing fields; `parsed` says it was decoded whole already, so an error's fields
+    /// are not parsed a second time. An envelope without `id` answers the oldest pending request (the id-less
+    /// `bad request` line).
+    func resolveReply(_ envelope: Envelope, line: Data, parsed decoded: Bool, decoder: WireDecoder) {
         let routed: (UInt64, PendingRequest)? = state.withLock { state in
             guard let id = envelope.id ?? state.pending.oldestID(), let entry = state.pending.remove(id: id) else { return nil }
             removeDeadline(&state, id: id)

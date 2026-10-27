@@ -251,23 +251,22 @@ pub(super) fn start_resource_wait(
     let worker_mux = mux.clone();
     let worker_canceled = canceled.clone();
     let worker_id = id.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
-            let _registration = ResourceWaitWorkerGuard {
-                mux: worker_mux.clone(),
-                client,
-                request_id: worker_id.clone(),
-                canceled: worker_canceled.clone(),
-            };
-            let _worker_permit = worker_permit;
-            if let Some(result) =
-                run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
-                && _registration.claim_completion()
-            {
-                let _ = send_resource_response(&worker_writer, worker_id, operation, result);
-                _registration.finish_response_attempt();
-            }
-        });
+    let spawn = mux.request_qos().spawn_helper("mux-resource-terminal-wait", None, move || {
+        let _registration = ResourceWaitWorkerGuard {
+            mux: worker_mux.clone(),
+            client,
+            request_id: worker_id.clone(),
+            canceled: worker_canceled.clone(),
+        };
+        let _worker_permit = worker_permit;
+        if let Some(result) =
+            run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
+            && _registration.claim_completion()
+        {
+            let _ = send_resource_response(&worker_writer, worker_id, operation, result);
+            _registration.finish_response_attempt();
+        }
+    });
     match spawn {
         Ok(_) => true,
         Err(error) => {

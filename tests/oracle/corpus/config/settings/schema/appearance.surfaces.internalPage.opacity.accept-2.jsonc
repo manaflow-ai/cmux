@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "internalPage": {
+        "opacity": 0.5
+      }
+    }
+  }
+}

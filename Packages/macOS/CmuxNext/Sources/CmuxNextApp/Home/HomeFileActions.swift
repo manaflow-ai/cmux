@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextWakeups
 import MessagesLabHome
 
 /// Home's file host (``HomeFileHost``): a click on an attachment opens it in cmux on the right of
@@ -11,16 +12,18 @@ import MessagesLabHome
 @MainActor
 final class HomeFileActions: HomeFileHost {
     private weak var services: AppServices?
-    private lazy var menu = FileActionsMenu(apps: fileApps, actions: .init(openInCmux: { [weak self] in self?.open($0) },
+    private lazy var menu = FileActionsMenu(apps: fileApps, mainWork: mainWork, actions: .init(openInCmux: { [weak self] in self?.open($0) },
                                                            revealInFiles: { [weak self] in self?.reveal($0) },
                                                            openAsText: { [weak self] in self?.openAsText($0) }))
 
     /// Open With's apps, from the app's Launch Services answers (asked on the system lane).
     private let fileApps: WorkspaceFileApps
+    private let mainWork: MainWorkScheduler // the menu's late Open With fill posts on it
 
     init(services: AppServices) {
         self.services = services
         fileApps = WorkspaceFileApps(queries: services.workspaceQueries)
+        mainWork = services.mainWork
     }
 
     func open(_ file: URL) {

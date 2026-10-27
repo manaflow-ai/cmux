@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextSettings
+import CmuxNextWakeups
 import Testing
 
 /// The Chromium Host app follows the feature `cefHelperHost`, and Debug Settings
@@ -89,7 +90,7 @@ import Testing
         let store = Self.tunables()
         let features = Self.features(channel)
         let hostSwitch = Self.hostSwitch(features, store)
-        let report = FeatureFlagsPage.report(features, tunables: store)
+        let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
         for toggle in [true, false, nil] as [Bool?] {
             store.set(BrowserHostTunables.helper.key, toggle.map(TunableValue.bool))
             let resolution = report.resolution(of: .cefHelperHost)
@@ -107,10 +108,30 @@ import Testing
     /// Policy and the environment keep their source in the report with the toggle set.
     @Test func theReportKeepsPolicyAndTheEnvironment() {
         let store = Self.tunables(helper: true)
-        let disabled = FeatureFlagsPage.report(Self.features(disabled: ["cefHelperHost"]), tunables: store)
+        let disabled = FeatureFlagsPage.report(Self.features(disabled: ["cefHelperHost"]), tunables: store, daemon: nil)
         #expect(disabled.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .environment))
-        let policy = FeatureFlagsPage.report(Self.features(policyDisabled: ["cefHelperHost"]), tunables: store)
+        let policy = FeatureFlagsPage.report(Self.features(policyDisabled: ["cefHelperHost"]), tunables: store, daemon: nil)
         #expect(policy.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .policy))
+    }
+
+    /// The host on alone keeps Chromium tabs in cmux (`debug.chromium_host` beside in-process tabs, as
+    /// chromium-host-bench.py's inproc rows need); with `chromiumHostTabs` too, AppServices builds the one
+    /// supervisor every tab attaches through (p01-process-080).
+    @Test func tabsMoveToTheHostOnlyWithChromiumHostTabs() {
+        let work = BackgroundWork(label: "test.chromium-host-switch")
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let helperOnly = Self.features(enabled: ["cefHelperHost"])
+        #expect(AppServices.chromiumHostSupervisor(work: work, mainWork: mainWork, features: helperOnly) == nil)
+        let tabsOnly = Self.features(enabled: ["chromiumHostTabs"])
+        #expect(AppServices.chromiumHostSupervisor(work: work, mainWork: mainWork, features: tabsOnly) == nil)
+        let both = Self.features(enabled: ["cefHelperHost", "chromiumHostTabs"])
+        let supervisor = AppServices.chromiumHostSupervisor(work: work, mainWork: mainWork, features: both)
+        #if DEBUG
+        #expect(supervisor is ChromiumHostSupervisor)
+        #else
+        // A bench build measures the host but never moves a tab to it.
+        #expect(supervisor == nil)
+        #endif
     }
 
     /// Release takes no local override, even from an active store.

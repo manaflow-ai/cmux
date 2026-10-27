@@ -66,9 +66,9 @@ extension TerminalAttachment {
                                         localHistory: localHistory, images: images, stream: nil)
         let handle = try transport.reserveAttachStream()
         let attachment = TerminalAttachment(transport: transport, surface: target.surface, stream: handle)
-        let delivery = attachment.delivery
+        let sink = attachment.sink
         let owner = StreamOwner(transport: transport, handle: handle, logger: attachment.logger)
-        guard transport.bindAttachStream(handle, { delivery.deliver($0, owner: owner) }) else {
+        guard transport.bindAttachStream(handle, { sink.deliver($0, owner: owner) }) else {
             transport.releaseAttachStream(handle)
             throw DaemonError.connectionClosed(reason: "lost before the attach")
         }
@@ -119,7 +119,7 @@ extension TerminalAttachment {
     /// the id. The view sees `closed(detachedByClient)` after what it has queued.
     nonisolated func cancelStream(_ handle: AttachStreamHandle) {
         StreamOwner(transport: transport, handle: handle, logger: logger).cancel()
-        delivery.close(.closedByClient)
+        sink.close(.closedByClient)
     }
 
     /// The connection-side half of one view's stream: what ends it, never waiting.
@@ -153,18 +153,20 @@ extension TerminalAttachment {
     }
 
     /// What the reader thread does with one view's items, on its own connection or on a stream: names an
-    /// unplaced target's surface, keeps snapshot order, passes size states in generation order, and ends
-    /// the view's channel. Holds no reference to the attachment, so a transport that outlives it keeps
-    /// nothing alive.
-    final class Delivery: Sendable {
+    /// unplaced target's surface, hands each line to the view's ``TerminalEchoRouter`` (snapshot order, live
+    /// output to the lane), passes size states in generation order, and ends the view's channel. Holds no
+    /// reference to the attachment, so a transport that outlives it keeps nothing alive.
+    final class ViewSink: Sendable {
         let queue: TerminalEventQueue
+        let router: TerminalEchoRouter
         let control: ControlBox
         let resolvedSurface: SurfaceBox
         let decoder: WireDecoder
-        private let sequencer = Mutex(TerminalSnapshotSequencer())
 
-        init(queue: TerminalEventQueue, control: ControlBox, resolvedSurface: SurfaceBox, decoder: WireDecoder) {
+        init(queue: TerminalEventQueue, router: TerminalEchoRouter, control: ControlBox, resolvedSurface: SurfaceBox,
+             decoder: WireDecoder) {
             self.queue = queue
+            self.router = router
             self.control = control
             self.resolvedSurface = resolvedSurface
             self.decoder = decoder
@@ -178,38 +180,27 @@ extension TerminalAttachment {
                 resolvedSurface.value.withLock { $0 = named }
                 surface = named
             }
-            guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
-                  let event = sequencer.withLock({ $0.admit(decoded) })
+            guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
-            if case .sizeState(let state, let selfParticipant) = event {
+            router.receive(decoded) { state, selfParticipant in
                 // Pushed under the same lock that orders generations (see admitSizeState).
-                admitSizeState(state, selfParticipant: selfParticipant)
-                return
-            }
-            if case .closed = event {
-                queue.finish(event)
-            } else {
-                if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                queue.push(event)
-                if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
+                self.admitSizeState(state, selfParticipant: selfParticipant)
             }
         }
 
-        /// Reader thread: one item of the view's stream. A stream never blocks the shared reader: a consumer
-        /// over the queue's high water of live output loses the stream (`overflow`), and the view reattaches as
-        /// it does when the daemon drops a slow connection. A snapshot's history and images do not count: the
-        /// daemon sends them right after each READY, before the view can read, and the terminal's scrollback and
-        /// `SNAPSHOT_IMAGES_MAX_BYTES` (terminal_snapshot.rs) bound them.
+        /// Reader thread: one item of the view's stream. The stream's queue never holds the shared reader at its
+        /// high water (``TerminalAttachment/Delivery/sharedStream(stream:)``): a snapshot view that falls behind
+        /// drops its live output and asks for a fresh READY on its stream, and a byte view loses the stream
+        /// (`overflow`), which the daemon is told with `cancel-stream`, and reattaches as it does when the daemon
+        /// drops a slow connection. A snapshot's history and images do not count toward the bound: the daemon
+        /// sends them right after each READY, before the view can read.
         func deliver(_ item: AttachStreamDelivery, owner: StreamOwner) {
             switch item {
             case .event(let name, let line):
                 deliver(name: name, line: line)
-                if queue.bufferedLiveOutputBytes > queue.highWater {
-                    owner.cancel()
-                    queue.finish(.closed(.overflow))
-                }
+                if queue.endedAfterOverflow { owner.cancel() }
             case .end(let line):
-                queue.finish(.closed(Self.endReason(line, decoder: decoder)))
+                router.finish(.closed(Self.endReason(line, decoder: decoder)))
             case .lost(.closedByClient):
                 // The app closed the control connection, not this view: it reattaches on the next one.
                 close(.lost("control connection closed"))
@@ -221,9 +212,9 @@ extension TerminalAttachment {
         /// The view's connection or stream ended.
         func close(_ reason: TransportCloseReason) {
             switch reason {
-            case .closedByClient: queue.finish(.closed(.detachedByClient))
-            case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-            case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+            case .closedByClient: router.finish(.closed(.detachedByClient))
+            case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
+            case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
             }
         }
 
