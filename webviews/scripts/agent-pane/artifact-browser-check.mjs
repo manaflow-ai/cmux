@@ -32,12 +32,26 @@ try {
     }).toString();
     await page.goto(url.href);
     const frame = page.frameLocator(".acpmux-artifact-frame");
-    if (variant === "svg") await frame.locator("circle").waitFor();
-    else {
+    const iframe = page.locator(".acpmux-artifact-frame");
+    if (variant === "svg") {
+      await frame.locator("circle").waitFor();
+      assert.equal(await iframe.getAttribute("sandbox"), "");
+      const child = await (await iframe.elementHandle()).contentFrame();
+      const loaded = new Promise((resolve) => child.once("load", resolve));
+      await iframe.evaluate((element) => {
+        element.srcdoc +=
+          '<svg/onload="window.__artifactAutoRan=1"></svg>' +
+          '<a href="java&#x09;script:window.__artifactAutoRan=1">probe</a>';
+      });
+      await loaded;
+      await frame.locator("a").click();
+      assert.equal(await child.evaluate(() => window.__artifactAutoRan), undefined);
+    } else {
       await frame.locator("button").click();
       const expected = variant === "jsx" ? "Count 1" : variant.startsWith("interactive") ? variant.slice(-1) : "1";
       await frame.locator("button").filter({ hasText: expected }).waitFor();
       assert.equal(await frame.locator("button").textContent(), expected);
+      assert.equal(await iframe.getAttribute("sandbox"), "allow-scripts");
     }
     if (out) await page.screenshot({ path: `${out}/${variant}.png` });
     console.log(`PASS ${variant}: ${url}`);

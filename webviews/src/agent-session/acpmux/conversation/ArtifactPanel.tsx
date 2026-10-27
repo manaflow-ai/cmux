@@ -1,12 +1,13 @@
 // The side panel beside the chat (cx-ncc.63, Claude parity): a document a reply carries in a fence
 // (artifactPreview.ts) drawn as it renders, with its source on the Code tab. HTML and SVG draw in the
 // offline artifact frame, an origin of its own that allows no connection, so a document cannot
-// reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
-// gallery runs public fixtures in srcdoc; other dev pages show their source only.
+// reach the pane, its bridge, acpmux or the network; passive markup draws in a scriptless srcdoc and
+// waits for Run before the native frame grants scripts. Markdown draws as the transcript draws it.
+// The gallery runs public fixtures in srcdoc; other dev pages show their source only.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
-import { ARTIFACT_FRAME_URL, artifactGallery, galleryArtifactDocument } from "./artifactSandbox";
+import { ARTIFACT_FRAME_URL, artifactGallery, artifactNeedsRun, galleryArtifactDocument } from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
@@ -214,14 +215,12 @@ export function ArtifactPanel({
   );
 }
 
-/// A document that can run script waits for Run, as a render card does: the frame shares the pane's
-/// web process, so a busy loop would freeze the pane. Markup without script draws at once.
-const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.test(code);
-
 function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx: boolean }) {
   const t = useT();
-  const [running, setRunning] = useState(() => ranRenders.has(html) || (!jsx && !runsScript(html)));
-  if (!running)
+  const requiresRun = jsx || artifactNeedsRun(html);
+  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  if (!requiresRun) return <PassiveFrame html={html} title={title} />;
+  if (!allowed)
     return (
       <div className="acpmux-artifact-run">
         <button
@@ -229,7 +228,7 @@ function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx:
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setRunning(true);
+            setAllowed(true);
           }}
         >
           {t("render.run")}
@@ -237,6 +236,18 @@ function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx:
       </div>
     );
   return jsx ? <JsxFrame code={html} title={title} /> : <RunningFrame html={html} title={title} />;
+}
+
+function PassiveFrame({ html, title }: { html: string; title: string }) {
+  return (
+    <iframe
+      className="acpmux-artifact-frame"
+      srcDoc={galleryArtifactDocument(html, renderFrameCSS())}
+      title={title}
+      sandbox=""
+      referrerPolicy="no-referrer"
+    />
+  );
 }
 
 function JsxFrame({ code, title }: { code: string; title: string }) {

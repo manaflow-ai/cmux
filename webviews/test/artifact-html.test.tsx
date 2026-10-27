@@ -42,6 +42,7 @@ test("artifact script consent conservatively catches parsed handlers and encoded
     '<svg/onload="for(;;){}"></svg>',
     '<a href="java&#x09;script:alert(1)">link</a>',
     '<a href="&#x6a;ava&#x73;cript&#x3a;alert(1)">link</a>',
+    '<a href="java&Tab;script&colon;alert(1)">link</a>',
   ]) {
     expect(artifactNeedsRun(code)).toBe(true);
   }

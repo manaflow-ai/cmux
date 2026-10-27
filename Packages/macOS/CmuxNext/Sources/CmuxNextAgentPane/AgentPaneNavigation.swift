@@ -78,6 +78,14 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         if AgentPaneRenderFrame.isArtifact(sourceFrameURL) || AgentPaneRenderFrame.isArtifact(targetFrameURL) {
             return .cancel
         }
+        // A passive artifact is a sandboxed srcdoc frame. Its initial about:srcdoc load is allowed,
+        // but a navigation originating there must not reach an allowed loopback preview or the pane.
+        if sourceFrameURL?.absoluteString == "about:srcdoc" {
+            return .cancel
+        }
+        if targetFrameURL?.absoluteString == "about:srcdoc", url?.absoluteString != "about:srcdoc" {
+            return .cancel
+        }
         guard let url else { return .cancel }
         if mainFrame, source.isPageDocument(url) { return .allow }
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It

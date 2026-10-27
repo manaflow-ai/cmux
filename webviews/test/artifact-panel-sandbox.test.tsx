@@ -30,6 +30,8 @@ const replacements: Record<string, unknown> = {
     disconnect() {}
   },
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  addEventListener: dom.window.addEventListener.bind(dom.window),
+  removeEventListener: dom.window.removeEventListener.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -71,7 +73,7 @@ test("plain artifact markup previews with scripts disabled, while Run upgrades s
   act(() =>
     root!.render(
       <ArtifactPanel
-        artifact={{ kind: "html", lang: "html", code: '<button onclick="this.textContent=\'done\'">run</button>' }}
+        artifact={{ kind: "html", lang: "html", code: "<button onclick=\"this.textContent='done'\">run</button>" }}
         onClose={() => {}}
       />,
     ),
@@ -86,13 +88,8 @@ test("plain artifact markup previews with scripts disabled, while Run upgrades s
 
 test("malformed handlers and encoded javascript URLs never receive automatic script capability", async () => {
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
-  for (const code of [
-    '<svg/onload="for(;;){}"></svg>',
-    '<a href="java&#x09;script:alert(1)">link</a>',
-  ]) {
-    act(() =>
-      root!.render(<ArtifactPanel artifact={{ kind: "html", lang: "html", code }} onClose={() => {}} />),
-    );
+  for (const code of ['<svg/onload="for(;;){}"></svg>', '<a href="java&#x09;script:alert(1)">link</a>']) {
+    act(() => root!.render(<ArtifactPanel artifact={{ kind: "html", lang: "html", code }} onClose={() => {}} />));
     expect(button("Run")).toBeDefined();
     expect(host.querySelector("iframe")).toBeNull();
   }
