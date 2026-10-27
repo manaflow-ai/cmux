@@ -96,8 +96,7 @@ final class CEFTabNodeVisibility {
             done = setFrozen(browser, frozen ? 1 : 0) == 1
         } else {
             // No one waits for the reply (the runtime drops a reply without a waiter).
-            let state = CEFDevToolsResult.params(["state": frozen ? "frozen" : "active"])
-            done = shim.devToolsCall(browser, "Page.setWebLifecycleState", state) != 0
+            done = tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"]) != nil
         }
         if done { isPageFrozen = frozen }
         return done
@@ -110,10 +109,9 @@ final class CEFTabNodeVisibility {
     /// ``setFrozen(_:of:)`` with `false`, sent now, so an agent call after it reaches a live page.
     func freezeShown(of tab: CEFTab) -> Bool {
         guard node == nil else { return setFrozen(true, of: tab) }
-        guard let browser = tab.browserID, !tab.isClosed, let shim = tab.runtime.shim else { return false }
+        guard let browser = tab.browserID, !tab.isClosed else { return false }
         if isPageFrozen { return true }
-        let state = CEFDevToolsResult.params(["state": "frozen"])
-        if shim.devToolsCall(browser, "Page.setWebLifecycleState", state) != 0 { isPageFrozen = true }
+        if tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"]) != nil { isPageFrozen = true }
         return isPageFrozen
     }
 
@@ -133,6 +131,6 @@ final class CEFTabNodeVisibility {
             _ = freeze(browser, 1)
             return
         }
-        _ = shim.devToolsCall(browser, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": "frozen"]))
+        runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
 }
