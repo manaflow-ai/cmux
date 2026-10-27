@@ -4,13 +4,14 @@ import Foundation
 public nonisolated struct ComputerUsePreviewCard: Equatable, Sendable {
     /// The Computer Use session.
     public var session: String
-    /// The app's name ("" when the driver named none).
+    /// The app's name: the driver's, else the app's display name, else its window's title; "" when
+    /// none is known (the card then shows no title).
     public var app: String
     /// The session ended: the last frame, dimmed, with the app's icon and a check.
     public var done: Bool
     /// The newest frame, a `data:image/...` URL.
     public var frame: String
-    /// The app's icon, a `data:image/png` URL, when known.
+    /// The app's icon, a `data:image/png` URL: sent with the done state only, when known.
     public var icon: String?
 
     public init(session: String, app: String, done: Bool, frame: String, icon: String? = nil) {
@@ -169,14 +170,17 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     }
 
     /// The card chat `chat` shows: its newest running session's, else its newest ended one's;
-    /// only once a frame has loaded. `icons` maps bundle ids to icon URLs.
-    func card(for chat: String, icons: [String: String] = [:]) -> ComputerUsePreviewCard? {
+    /// only once a frame has loaded. `apps` holds the apps looked up so far (``appKeys``).
+    func card(for chat: String, apps: [ComputerUsePreviewApp.Key: ComputerUsePreviewApp] = [:]) -> ComputerUsePreviewCard? {
         guard enabled else { return nil }
         let shown = entries.values.filter { $0.chat == chat && !$0.dismissed && $0.frame != nil }
         guard let entry = shown.max(by: { Self.older($0, than: $1) }), let frame = entry.frame else { return nil }
         let session = entry.session
-        return ComputerUsePreviewCard(session: session.id, app: session.app ?? "", done: entry.done, frame: frame.url,
-                                      icon: session.bundleID.flatMap { icons[$0] })
+        let app = session.appKey.flatMap { apps[$0] }
+        let name = [session.app, app?.name, session.windowTitle].lazy.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: entry.done, frame: frame.url,
+                                      icon: entry.done ? app?.icon : nil)
     }
 
     /// The next frame to load: of the newest session whose card can show and whose wanted frame
@@ -195,9 +199,9 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         Set(entries.values.filter { !$0.done && !$0.dismissed }.map(\.session.id))
     }
 
-    /// Bundle ids of the apps the kept sessions use, for their icons.
-    var bundleIDs: Set<String> {
-        Set(entries.values.compactMap(\.session.bundleID))
+    /// The apps the kept sessions use, to look up for their names and icons.
+    var appKeys: Set<ComputerUsePreviewApp.Key> {
+        Set(entries.values.compactMap(\.session.appKey))
     }
 
     /// Running before ended, then by last action, then by id.

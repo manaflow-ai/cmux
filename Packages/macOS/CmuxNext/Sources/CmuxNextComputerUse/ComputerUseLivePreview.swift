@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextAgentActivity
 import CmuxNextCompat
 public import CmuxNextSettings
@@ -37,9 +36,11 @@ public final class ComputerUseLivePreview {
     private var observation: Task<Void, Never>?
     /// The one frame load in flight, and its session and frame.
     private var loading: (session: String, frame: String, task: Task<Void, Never>)?
-    /// App icons by bundle id (`nil`: the app has none); a few apps per launch.
-    private var icons: [String: String?] = [:]
-    private var iconLoads: Set<String> = []
+    /// Looks up the apps the sessions drive (their names and icons), off the main thread.
+    private let resolver: any ComputerUsePreviewAppResolving
+    /// The apps looked up (`nil`: no app answered); a few per launch, bounded.
+    private var apps: [ComputerUsePreviewApp.Key: ComputerUsePreviewApp?] = [:]
+    private var appLoads: Set<ComputerUsePreviewApp.Key> = []
     /// Chats that were given a card, so a card that goes is taken off.
     private var shown: Set<String> = []
     /// Follows the turn state of the acpmux sessions whose chats have a card (``AgentLaneStore``'s
@@ -47,15 +48,18 @@ public final class ComputerUseLivePreview {
     private var turnObservation: Task<Void, Never>?
     private var turnSessions: [String] = []
 
-    /// The most app icons kept.
-    private static let maximumIcons = 32
+    /// The most apps kept.
+    static let maximumApps = 32
 
     /// - Parameters:
     ///   - host: The App's chats and Agent Activity.
     ///   - makeSource: The data source, made when the setting turns on; by default the legacy
     ///     helper's activity socket while the helper runs.
-    public init(host: any ComputerUseLivePreviewHost, makeSource: (@MainActor () -> any ComputerUseLivePreviewSource)? = nil) {
+    ///   - resolver: Looks up an app's name and icon; by default AppKit's running apps and Launch Services.
+    public init(host: any ComputerUseLivePreviewHost, makeSource: (@MainActor () -> any ComputerUseLivePreviewSource)? = nil,
+                resolver: any ComputerUsePreviewAppResolving = ComputerUseWorkspaceAppResolver()) {
         self.host = host
+        self.resolver = resolver
         self.makeSource = makeSource ?? {
             ComputerUseActivityPreviewSource(configuration: { ComputerUseHelperDaemon.shared.configuration })
         }
@@ -132,7 +136,7 @@ public final class ComputerUseLivePreview {
         push()
     }
 
-    // MARK: Frames and icons
+    // MARK: Frames and apps
 
     /// Starts the next frame load when none runs; a newer frame waits for the one in flight.
     private func loadNext() {
@@ -150,39 +154,23 @@ public final class ComputerUseLivePreview {
         loading = (next.session, frame, task)
     }
 
-    /// Renders the icons of apps a card names, off the main thread, once per app.
-    private func loadIcons() {
-        let wanted = board.bundleIDs.subtracting(icons.keys).subtracting(iconLoads)
+    /// Looks up the apps the cards name (display name and icon), off the main thread, once per app.
+    private func loadApps() {
+        let wanted = board.appKeys.subtracting(apps.keys).subtracting(appLoads)
         guard !wanted.isEmpty else { return }
-        iconLoads.formUnion(wanted)
-        // task-owner: one render per app, at most once per launch; results land on the main actor.
+        appLoads.formUnion(wanted)
+        let resolver = resolver
+        // task-owner: one lookup per app, at most once per launch; results land on the main actor.
         Task { [weak self] in
-            for bundleID in wanted.sorted() {
-                let url = await Self.iconURL(bundleID)
+            for key in wanted {
+                let app = await resolver.resolve(key)
                 guard let self else { return }
-                iconLoads.remove(bundleID)
-                if icons.count >= Self.maximumIcons { icons.removeAll() }
-                icons[bundleID] = .some(url)
+                appLoads.remove(key)
+                if apps.count >= Self.maximumApps { apps = apps.filter { board.appKeys.contains($0.key) } }
+                apps[key] = .some(app)
             }
             self?.push()
         }
-    }
-
-    /// Launch Services' icon of the app, drawn into a bitmap of its own (no shared graphics state), as PNG.
-    @concurrent nonisolated private static func iconURL(_ bundleID: String) async -> String? {
-        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        let image = NSWorkspace.shared.icon(forFile: app.path)
-        let pixels = 96
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
-                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                            bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = context
-        image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels), from: .zero, operation: .copy, fraction: 1)
-        context.flushGraphics()
-        return bitmap.representation(using: .png, properties: [:]).map { "data:image/png;base64," + $0.base64EncodedString() }
     }
 
     // MARK: Chats
@@ -191,10 +179,10 @@ public final class ComputerUseLivePreview {
     /// chat whose page was made again gets its card back.
     private func push() {
         guard let host else { return }
-        loadIcons()
-        let icons = icons.compactMapValues { $0 }
+        loadApps()
+        let apps = apps.compactMapValues { $0 }
         for chat in Set(host.computerUsePreviewChats().map(\.key)).union(shown) {
-            let card = board.card(for: chat, icons: icons)
+            let card = board.card(for: chat, apps: apps)
             guard card != nil || shown.contains(chat) else { continue }
             if card == nil { shown.remove(chat) } else { shown.insert(chat) }
             host.computerUsePreviewShow(card, in: chat) { [weak self] session, click in self?.respond(session: session, click: click) }

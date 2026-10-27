@@ -1,12 +1,12 @@
 // The live preview card of computer use (B6, as the Codex app draws it): a small glass card at the
-// chat's top right with the newest frame of the app the agent drives and the app's name. When the
-// session ends, the last frame dims under the app's icon with a green check. A click opens Agent
-// Activity on the session; the close button hides the card for that session. The host owns the
-// card (computerUsePreview.ts); a close hides it here at once, before the host's next push.
-import { useState } from "react";
+// chat's top right with the newest frame of the app the agent drives and the app's name. The
+// column keeps the card's room, so it covers no message (computerUsePreview.ts). When the session
+// ends, the last frame dims under the app's icon with a green check on the icon's corner. A click
+// opens Agent Activity on the session; the close button hides the card for that session. The host
+// owns the card; a close hides it here at once, before the host's next push.
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
-import type { ComputerUsePreview } from "./computerUsePreview";
+import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
 import "./computerUsePreview.css";
 
 export function ComputerUsePreviewCard({
@@ -19,29 +19,39 @@ export function ComputerUsePreviewCard({
   onClose(session: string): void;
 }) {
   const t = useT();
-  // The session the person closed here: the host's push that takes the card away comes after.
-  const [closed, setClosed] = useState<string | undefined>();
-  if (!preview || preview.session === closed) return null;
-  const app = preview.app || t("computerUse.preview.unknownApp");
+  if (!preview) return null;
+  // No name and no window title: no title row (never "Unknown app").
+  const title = computerUsePreviewTitle(preview);
+  const label = title
+    ? t(preview.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app: title })
+    : t(preview.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
   return (
-    <div className="ui-glass ui-glass-floats acpmux-cu-preview" data-done={preview.done ? "" : undefined}>
+    <div
+      className="ui-glass ui-glass-floats acpmux-cu-preview"
+      data-done={preview.done ? "" : undefined}
+      data-untitled={title ? undefined : ""}
+    >
       <button
         type="button"
         className="acpmux-cu-preview__open"
-        aria-label={t(preview.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app })}
+        aria-label={label}
         onClick={() => onOpen(preview.session)}
       >
-        <span className="acpmux-cu-preview__title">
-          {!preview.done && <span className="acpmux-cu-preview__live" aria-hidden="true" />}
-          <span className="acpmux-cu-preview__app">{app}</span>
-        </span>
+        {title && (
+          <span className="acpmux-cu-preview__title">
+            {!preview.done && <span className="acpmux-cu-preview__live" aria-hidden="true" />}
+            <span className="acpmux-cu-preview__app">{title}</span>
+          </span>
+        )}
         <span className="acpmux-cu-preview__frame">
           <img src={preview.frame} alt="" draggable={false} />
           {preview.done && (
             <span className="acpmux-cu-preview__badge" aria-hidden="true">
-              {preview.icon ? <img src={preview.icon} alt="" draggable={false} /> : null}
-              <span className="acpmux-cu-preview__check">
-                <Check size={10} strokeWidth={2} />
+              <span className="acpmux-cu-preview__mark" data-icon={preview.icon ? "" : undefined}>
+                {preview.icon && <img src={preview.icon} alt="" draggable={false} />}
+                <span className="acpmux-cu-preview__check">
+                  <Check size={10} strokeWidth={2.5} />
+                </span>
               </span>
             </span>
           )}
@@ -52,7 +62,7 @@ export function ComputerUsePreviewCard({
         className="acpmux-cu-preview__close"
         aria-label={t("computerUse.preview.close")}
         onClick={() => {
-          setClosed(preview.session);
+          closeComputerUsePreview(preview.session);
           onClose(preview.session);
         }}
       >

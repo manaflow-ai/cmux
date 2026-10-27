@@ -6,9 +6,12 @@ public import Foundation
 public nonisolated struct ComputerUsePreviewSession: Equatable, Sendable {
     public var id: String
     public var live: Bool
-    /// The app it last acted on, and its bundle id (for the icon).
+    /// The app it last acted on: its name, bundle id and process, as the driver named them (the
+    /// legacy helper names only the process), and its window's title.
     public var app: String?
     public var bundleID: String?
+    public var pid: Int32?
+    public var windowTitle: String?
     /// The agent as the driver stamped it (`claude`, `codex`, `acp:<harness>`, `unknown`, ...).
     public var agentKind: String
     /// Ids that name the chat, when the driver attributed the session (computer-use.md section 3).
@@ -19,19 +22,27 @@ public nonisolated struct ComputerUsePreviewSession: Equatable, Sendable {
     /// Grows with each act or observe, so a list says when the session did something.
     public var steps: Int
 
-    public init(id: String, live: Bool, app: String? = nil, bundleID: String? = nil, agentKind: String = "unknown",
-                acpSession: String? = nil, harnessSessionID: String? = nil, workspaceID: String? = nil,
-                lastActionAt: Date, steps: Int = 0) {
+    public init(id: String, live: Bool, app: String? = nil, bundleID: String? = nil, pid: Int32? = nil,
+                windowTitle: String? = nil, agentKind: String = "unknown", acpSession: String? = nil,
+                harnessSessionID: String? = nil, workspaceID: String? = nil, lastActionAt: Date, steps: Int = 0) {
         self.id = id
         self.live = live
         self.app = app
         self.bundleID = bundleID
+        self.pid = pid
+        self.windowTitle = windowTitle
         self.agentKind = agentKind
         self.acpSession = acpSession
         self.harnessSessionID = harnessSessionID
         self.workspaceID = workspaceID
         self.lastActionAt = lastActionAt
         self.steps = steps
+    }
+
+    /// Which app to look up for its display name and icon; nil when the driver named none.
+    public var appKey: ComputerUsePreviewApp.Key? {
+        guard bundleID != nil || pid != nil else { return nil }
+        return ComputerUsePreviewApp.Key(bundleID: bundleID, pid: pid)
     }
 }
 
@@ -104,7 +115,8 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
 
     nonisolated static func session(_ value: AgentActivitySession) -> ComputerUsePreviewSession {
         ComputerUsePreviewSession(id: value.id, live: value.status.isLive, app: value.targetApp ?? value.targetApps.last,
-                                  bundleID: value.targetBundleID, agentKind: value.agentKind, acpSession: value.acpSession,
+                                  bundleID: value.targetBundleID, pid: value.targetPID, windowTitle: value.targetWindowTitle,
+                                  agentKind: value.agentKind, acpSession: value.acpSession,
                                   harnessSessionID: value.harnessSessionID, workspaceID: value.workspaceID,
                                   lastActionAt: value.lastActionAt, steps: value.acts + value.observes)
     }

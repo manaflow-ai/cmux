@@ -3,9 +3,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
-import type { ComputerUsePreview } from "./computerUsePreview";
-
-type Props = { preview: ComputerUsePreview };
+import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";
 
 /// A drawn stand-in for the helper's thumbnail of a calculator window (320 px wide, as the helper's are).
 const frame = `data:image/svg+xml,${encodeURIComponent(
@@ -35,12 +33,30 @@ const icon = `data:image/svg+xml,${encodeURIComponent(
 const running: ComputerUsePreview = { session: "cua_native_1", app: "Calculator", done: false, frame };
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
-function GalleryComputerUsePreview({ preview }: Props) {
-  const [shown, setShown] = useState<ComputerUsePreview | null>(preview);
+type Props = { preview: ComputerUsePreview; chat?: boolean };
+
+/// A prompt long enough to reach the card's side: with the column's room kept, it wraps before the card.
+const prompt =
+  "Use cmux Computer Use to open the Calculator app and compute 128 x 46 by clicking its buttons. Do not use the shell. When done, say the result.";
+
+function GalleryComputerUsePreview({ preview, chat }: Props) {
+  const [closed, setClosed] = useState(false);
+  // As the pane does (App.tsx): no card in a pane too narrow to keep its room.
+  const room = useComputerUsePreviewRoom();
+  const shown = room && !closed ? preview : null;
   return (
     <div className="acpmux-shell" data-cu-preview-fixture style={{ position: "relative", height: "100%" }}>
-      <div className="acpmux-stage" style={{ height: "100%" }}>
-        <ComputerUsePreviewCard preview={shown} onOpen={() => {}} onClose={() => setShown(null)} />
+      <div className="acpmux-main" data-cu-preview={shown ? "" : undefined}>
+        <div className="acpmux-stage" style={{ height: "100%" }}>
+          <ComputerUsePreviewCard preview={shown} onOpen={() => {}} onClose={() => setClosed(true)} />
+          {chat && (
+            <div style={{ position: "relative", flex: 1, marginTop: 52 }}>
+              <div className="acpmux-row acpmux-user" style={{ top: 0 }}>
+                <div className="acpmux-user-bubble">{prompt}</div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -56,18 +72,34 @@ export default componentEntry<Props>({
   title: "Computer use live preview",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 360, normal: 640, wide: 900 },
   anchors: [{ selector: "[data-cu-preview-fixture]" }],
   covers: ["agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx#ComputerUsePreviewCard"],
-  styles: () => import("../styles.css"),
+  styles: () =>
+    Promise.all([
+      import("../../../ui/glass/glass.css"),
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+    ]),
   load: async () => GalleryComputerUsePreview,
   variants: {
     running: { note: "While the agent uses the app: its newest frame and its name.", props: { preview: running } },
     done: {
-      note: "After the session ended: the last frame dimmed, the app's icon and a check.",
+      note: "After the session ended: the last frame dimmed, the app's icon centered, a check on its corner.",
       props: { preview: done },
     },
-    "no-app-name": { props: { preview: { ...running, app: "" } } },
+    "done-no-icon": {
+      note: "Done, with no icon found: the check alone.",
+      props: { preview: { ...done, icon: undefined } },
+    },
+    "no-app-name": {
+      note: "No name and no window title: no title row, never Unknown app.",
+      props: { preview: { ...running, app: "" } },
+    },
+    "beside-chat": {
+      note: "The column keeps the card's room: the prompt wraps before the card, nothing runs under it. Narrow panes show no card.",
+      props: { preview: running, chat: true },
+    },
     close: { props: { preview: running }, play: close },
   },
 });

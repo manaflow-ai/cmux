@@ -1,8 +1,19 @@
 /* The live preview card of computer use (ComputerUsePreviewCard.tsx): a 180px glass card at the
-   chat's top right, under the header, over the transcript. The liquid glass (.ui-glass,
-   ui/glass/glass.css) with the floating elevation; the app's name on top, the frame under it. Done,
-   the frame dims under the app's icon and a green check. It fades in with the pane's motion tokens,
-   and not at all when motion is off or reduced. */
+   chat's top right, under the header, beside the column: while it shows, the column's end keeps its
+   room (--cv-inset-end below), so no message runs under it. The liquid glass (.ui-glass,
+   ui/glass/glass.css) with the floating elevation; the app's name on top (none when unknown), the
+   frame under it. Done, the frame dims under the app's icon with a green check on the icon's
+   corner. It fades in with the pane's motion tokens, and not at all when motion is off or reduced. */
+/* The column's end while the card shows (App.tsx sets data-cu-preview on .acpmux-main, only in a pane
+   wide enough): the card's 180px, 12px from the edge and a 12px gap, or the column's own inset when
+   that is wider. The transcript's rows, the composer and the dock's bands read it; model.ts
+   transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
+.acpmux-main[data-cu-preview] {
+  --cv-inset-end: max(var(--cv-inset), 204px);
+}
+.acpmux-main[data-cu-preview] .acpmux-composer {
+  padding-right: var(--cv-inset-end);
+}
 .acpmux-cu-preview {
   position: absolute;
   top: calc(var(--acpmux-header-height, 44px) + 8px);
@@ -33,6 +44,9 @@
   font: inherit;
   text-align: start;
   cursor: default;
+}
+.acpmux-cu-preview[data-untitled] .acpmux-cu-preview__open {
+  padding-top: 8px;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -83,28 +97,40 @@
   opacity: 0.4;
 }
 
-/* Done: the app's icon over the dimmed frame, a green check at its lower right. */
+/* Done: the app's icon centered over the dimmed frame, a green check on the icon's lower right
+   corner (the Codex app's done preview). With no icon, the check alone, a little larger. */
 .acpmux-cu-preview__badge {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
 }
-.acpmux-cu-preview__badge > img {
-  width: 48px;
-  aspect-ratio: 1;
-}
-.acpmux-cu-preview__check {
-  position: absolute;
-  left: calc(50% + 12px);
-  top: calc(50% + 12px);
+.acpmux-cu-preview__mark {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 16px;
+}
+.acpmux-cu-preview__mark > img {
+  display: block;
+  width: 40px;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+}
+.acpmux-cu-preview__check {
+  display: grid;
+  place-items: center;
+  width: 20px;
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--agent-status-success);
   color: #fff;
+}
+.acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg);
 }
 
 /* Close: at the title row's end, shown on hover and keyboard focus. */

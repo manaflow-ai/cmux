@@ -4,22 +4,35 @@
 // host owns the card; the page draws it and sends a click back as `chat.computerUsePreview
 // {action}` (`open`: Agent Activity on the session, `close`: hide it). A module store, so a push
 // that arrives before the chat mounts is kept.
+//
+// The card never covers the chat: while it shows, the column's end moves in by its room
+// (`COMPUTER_USE_PREVIEW_RESERVE`, `--cv-inset-end`), as the Codex app narrows its chat beside the
+// preview. A pane too narrow to give that room shows no card.
 import { useSyncExternalStore } from "react";
+
+/// The card's room at the chat's right: its 180px, 12px from the pane's edge, a 12px gap to the
+/// column (computerUsePreview.css).
+export const COMPUTER_USE_PREVIEW_RESERVE = 204;
+/// The narrowest pane that shows the card: narrower, the column it leaves is too narrow to read.
+export const COMPUTER_USE_PREVIEW_MIN_PANE = 600;
 
 export type ComputerUsePreview = {
   /// The Computer Use session the card shows.
   session: string;
-  /// The app's name, as the helper reports it ("" when it named none).
+  /// The app's name ("Calculator"), or its window's title; "" when the host knows neither, and
+  /// then the card shows no title.
   app: string;
   /// The session ended: the last frame, dimmed, with the app's icon and a check.
   done: boolean;
   /// The newest frame, a `data:image/...` URL.
   frame: string;
-  /// The app's icon, a `data:image/png` URL, when the host found one.
+  /// The app's icon, a `data:image/png` URL, sent with the done state when the host found one.
   icon?: string;
 };
 
 let current: ComputerUsePreview | null = null;
+/// The session the person closed here: hidden at once, before the host's push that takes it away.
+let closed: string | undefined;
 const listeners = new Set<() => void>();
 
 /// Only an image `data:` URL draws: the page's CSP allows `img-src data:`, and nothing else is
@@ -56,7 +69,32 @@ export function setComputerUsePreview(value: unknown): void {
 }
 
 export function currentComputerUsePreview(): ComputerUsePreview | null {
-  return current;
+  return current && current.session !== closed ? current : null;
+}
+
+/// Hides the card of `session` here at once (the close button); the host's next push agrees.
+export function closeComputerUsePreview(session: string): void {
+  if (closed === session) return;
+  closed = session;
+  for (const listener of listeners) listener();
+}
+
+/// The title the card shows: the app's name with its spaces trimmed, or none.
+export const computerUsePreviewTitle = (preview: ComputerUsePreview): string | undefined =>
+  preview.app.trim() || undefined;
+
+const roomQuery = `(min-width: ${COMPUTER_USE_PREVIEW_MIN_PANE}px)`;
+const subscribeRoom = (listener: () => void) => {
+  if (typeof window === "undefined" || !window.matchMedia) return () => undefined;
+  const query = window.matchMedia(roomQuery);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+};
+const hasRoom = () => typeof window === "undefined" || !window.matchMedia || window.matchMedia(roomQuery).matches;
+
+/// Whether the pane is wide enough to show the card beside the column (the page is the pane).
+export function useComputerUsePreviewRoom(): boolean {
+  return useSyncExternalStore(subscribeRoom, hasRoom, hasRoom);
 }
 
 function subscribe(listener: () => void): () => void {

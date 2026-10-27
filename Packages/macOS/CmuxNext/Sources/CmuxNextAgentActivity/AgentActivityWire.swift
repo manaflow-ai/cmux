@@ -26,7 +26,9 @@ nonisolated enum AgentActivityWire {
             foregroundOnly: json["delivery"] as? String == "foreground_only",
             acpSession: nonEmpty(agent["acp_session"]), harnessSessionID: nonEmpty(agent["harness_session_id"]),
             workspaceID: nonEmpty(agent["workspace_id"]), targetApp: targets.last.flatMap { nonEmpty($0["app_name"]) },
-            targetBundleID: targets.last.flatMap { nonEmpty($0["app_bundle_id"]) })
+            targetBundleID: targets.last.flatMap { nonEmpty($0["app_bundle_id"]) },
+            targetPID: targets.last.flatMap { ($0["pid"] as? NSNumber)?.int32Value }.flatMap { $0 > 0 ? $0 : nil },
+            targetWindowTitle: targets.last.flatMap { nonEmpty($0["title_redacted"]) })
     }
 
     static func status(_ json: [String: Any]) -> AgentActivityStatus {

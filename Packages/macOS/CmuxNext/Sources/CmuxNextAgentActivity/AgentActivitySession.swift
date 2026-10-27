@@ -34,9 +34,12 @@ public nonisolated struct AgentActivitySession: Sendable, Hashable, Identifiable
     public var acpSession: String?
     public var harnessSessionID: String?
     public var workspaceID: String?
-    /// Name and bundle id of the app the session last acted on (its newest target).
+    /// Name, bundle id, process and window title of the app the session last acted on (its newest
+    /// target). The legacy helper's targets name only the process.
     public var targetApp: String?
     public var targetBundleID: String?
+    public var targetPID: Int32?
+    public var targetWindowTitle: String?
 
     public init(
         id: String, machine: String, machineName: String, label: String, agentKind: String, agentName: String,
@@ -44,7 +47,8 @@ public nonisolated struct AgentActivitySession: Sendable, Hashable, Identifiable
         colorHex: String, targetApps: [String] = [], status: AgentActivityStatus, startedAt: Date,
         lastActionAt: Date, endedAt: Date? = nil, acts: Int = 0, observes: Int = 0, errors: Int = 0,
         foregroundOnly: Bool = false, acpSession: String? = nil, harnessSessionID: String? = nil,
-        workspaceID: String? = nil, targetApp: String? = nil, targetBundleID: String? = nil
+        workspaceID: String? = nil, targetApp: String? = nil, targetBundleID: String? = nil, targetPID: Int32? = nil,
+        targetWindowTitle: String? = nil
     ) {
         self.id = id
         self.machine = machine
@@ -70,5 +74,7 @@ public nonisolated struct AgentActivitySession: Sendable, Hashable, Identifiable
         self.workspaceID = workspaceID
         self.targetApp = targetApp
         self.targetBundleID = targetBundleID
+        self.targetPID = targetPID
+        self.targetWindowTitle = targetWindowTitle
     }
 }

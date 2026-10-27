@@ -113,9 +113,11 @@ struct ComputerUsePreviewBoardTests {
         #expect(board.nextLoad()?.frame == "b3")
         board.loaded(.init(id: "b3", url: "data:image/jpeg;base64,AA=="), session: "s")
         #expect(board.nextLoad() == nil)
-        let card = board.card(for: "a", icons: ["com.apple.calculator": "data:image/png;base64,AA=="])
+        let apps = [ComputerUsePreviewApp.Key(bundleID: "com.apple.calculator", pid: nil):
+            ComputerUsePreviewApp(name: "Calculator", icon: "data:image/png;base64,AA==")]
+        let card = board.card(for: "a", apps: apps)
         #expect(card == ComputerUsePreviewCard(session: "s", app: "Calculator", done: false,
-                                               frame: "data:image/jpeg;base64,AA==", icon: "data:image/png;base64,AA=="))
+                                               frame: "data:image/jpeg;base64,AA=="), "running: no icon is sent")
     }
 
     @Test func anEndedSessionKeepsItsLastFrameAndTurnsDone() {
@@ -265,9 +267,11 @@ struct ComputerUsePreviewBoardTests {
             id: "cua_1", machine: "local", machineName: "This Mac", label: "calc", agentKind: "codex", agentName: "Codex",
             attribution: .none, colorHex: "#888888", targetApps: ["Notes", "Calculator"], status: .ended(.agentEnd),
             startedAt: Date(timeIntervalSince1970: 1), lastActionAt: Date(timeIntervalSince1970: 5), acts: 2, observes: 3,
-            acpSession: "acp-1", workspaceID: "w-1", targetApp: "Calculator", targetBundleID: "com.apple.calculator")
+            acpSession: "acp-1", workspaceID: "w-1", targetApp: "Calculator", targetBundleID: "com.apple.calculator",
+            targetPID: 40846, targetWindowTitle: "Calculator")
         let session = ComputerUseActivityPreviewSource.session(record)
         #expect(session == ComputerUsePreviewSession(id: "cua_1", live: false, app: "Calculator", bundleID: "com.apple.calculator",
+                                                     pid: 40846, windowTitle: "Calculator",
                                                      agentKind: "codex", acpSession: "acp-1", workspaceID: "w-1",
                                                      lastActionAt: Date(timeIntervalSince1970: 5), steps: 5))
     }
