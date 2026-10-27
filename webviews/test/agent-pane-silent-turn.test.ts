@@ -110,6 +110,9 @@ test("a turn whose model said nothing says so until acpmux hears the model", asy
   try {
     await until(() => snapshot?.connection === "connected", "the attach");
     expect(snapshot.isWorking).toBe(true);
+    // A resumed session can expose an old prompt before its new turn_started event. The live clock
+    // must use that event's timestamp, rather than the prompt's history timestamp.
+    expect(snapshot.turnStartedAtMs).toBe(START + 2_000);
     expect(snapshot.silentTurn).toBeUndefined();
     daemon.push(record([silent], 3));
     await until(() => snapshot.silentTurn === true, "the silent turn");
@@ -125,6 +128,7 @@ test("a turn whose model said nothing says so until acpmux hears the model", asy
     await until(() => snapshot.silentTurn === true, "the second silence");
     daemon.push(record([["mux", "turn_result", { status: "cancelled" }]], 8));
     await until(() => snapshot.silentTurn === undefined, "the turn's end");
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
   } finally {
     client.close();
   }
