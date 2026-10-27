@@ -87,6 +87,46 @@ import WebKit
         withExtendedLifetime(driver) {}
         rig.stop()
     }
+
+    /// p06-scheduler-345: a load wait's timeout is an automation-class MainDeadline on the driver's scheduler (it
+    /// was a DemandTimer whose fire started an unclassed main-actor Task): when it comes while the person has input
+    /// pending, the agent's timeout waits behind it, then fails the wait once.
+    @Test func aLoadWaitsTimeoutIsAnAutomationTaskBehindThePersonsInput() async throws {
+        let rig = ObserverRig()
+        let tab = rig.tab()
+        let driver = WebKitDriver(provider: ObserverTabs(), mainWork: rig.work)
+        let session = TabSession(tabID: tab.id, driver: driver)
+        let waits = session.waits
+        let ticket = waits.beginNavigation { BrowserNavigationID(rawValue: 7) }
+        rig.input.pending = true
+        let wait = Task { () async -> DriverError? in
+            do throws(DriverError) {
+                try await waits.reach(.load, for: ticket, timeout: .milliseconds(20), what: "page.goto")
+                return nil
+            } catch {
+                return error
+            }
+        }
+        await Task.yield()
+        try #require(waits.pendingCount == 1)
+
+        // The deadline's wake is the main thread's wake-up queue (real uptime); its action is an automation post.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while rig.work.postedCount(.automation) == 0, ContinuousClock.now < deadline {
+            // wakeup-allow: a test's bounded wait for the 20 ms deadline's wake on the main run loop
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(rig.work.postedCount(.automation) == 1, "the timeout was not posted in the automation class")
+        rig.frame()
+        #expect(waits.pendingCount == 1, "the agent's timeout ran ahead of the person's pending input")
+
+        rig.input.pending = false
+        rig.frame()
+        #expect(waits.pendingCount == 0)
+        #expect(await wait.value?.code == .timeout)
+        withExtendedLifetime(driver) {}
+        rig.stop()
+    }
 }
 
 /// A scheduler on a fake link kept up, with fake input, a clock and run loop turns the test moves,

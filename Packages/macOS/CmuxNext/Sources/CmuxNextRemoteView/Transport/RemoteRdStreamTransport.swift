@@ -24,6 +24,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     let nowMicros: @Sendable () -> UInt64
     // internal for the +Service extension file
     let queue = DispatchQueue(label: "cmux.remote-view.rd-transport", qos: .userInitiated)
+    // timer-class-allow: off main: the core's next retransmit or input-redundancy deadline; its fire only queues pump() on the transport's serial queue and never wakes the main thread
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
     // internal for the +Service extension file
     let state: Mutex<Continuations>

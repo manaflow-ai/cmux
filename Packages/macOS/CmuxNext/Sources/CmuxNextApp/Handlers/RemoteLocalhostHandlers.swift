@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Set Workspace Localhost (`ActionRegistry.setWorkspaceLocalhost`): the App resolves the
@@ -31,7 +32,7 @@ extension RemoteLocalhostService {
     /// machine's connection), never in init (p08-startup-021). It takes the current settings in
     /// the turn it is made, so its first route follows them.
     static func made(for services: AppServices) -> RemoteLocalhostService {
-        let made = services.machines.makeRemoteLocalhost(following: services.settings)
+        let made = services.machines.makeRemoteLocalhost(following: services.settings, mainWork: services.mainWork)
         services.madeRemoteLocalhost = made
         return made
     }
@@ -40,8 +41,8 @@ extension RemoteLocalhostService {
 extension MachineRegistry: RemoteLocalhostMachines {
     /// The remote localhost service of these machines (`AppServices.remoteLocalhost`), following
     /// `browser.remoteLocalhost*` when the settings exist (`AppServices.settings` follows a later one).
-    func makeRemoteLocalhost(following settings: SettingsController?) -> RemoteLocalhostService {
-        let service = RemoteLocalhostService(machines: self)
+    func makeRemoteLocalhost(following settings: SettingsController?, mainWork: MainWorkScheduler) -> RemoteLocalhostService {
+        let service = RemoteLocalhostService(machines: self, mainWork: mainWork)
         if let settings { service.follow(settings) }
         return service
     }

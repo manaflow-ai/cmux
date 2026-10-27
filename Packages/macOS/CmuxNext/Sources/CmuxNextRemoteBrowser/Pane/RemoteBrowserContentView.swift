@@ -89,11 +89,13 @@ public final class RemoteBrowserContentView: NSView {
         onPlacementChange?()
     }
 
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): the page's popup panels order out with it, and back in on unhide
     public override func viewDidHide() {
         super.viewDidHide()
         onPlacementChange?()
     }
 
+    // visibility-walk-allow: as viewDidHide: the popup panels come back with the page in the unhide's turn
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         onPlacementChange?()
@@ -205,7 +207,9 @@ public final class RemoteBrowserContentView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) { discrete(event) }
+    // local-monitor-allow: continuous posts to the window's FrameInputCoalescer (pointerFrameRemoteInput) and forwards each event at once without it; a discrete event flushes what waits first, so the page gets every event in order
     public override func mouseDragged(with event: NSEvent) { continuous(event) }
+    // local-monitor-allow: as mouseDragged: the window's FrameInputCoalescer, the page's events kept in order
     public override func mouseMoved(with event: NSEvent) { continuous(event) }
     public override func mouseEntered(with event: NSEvent) { discrete(event) }
     public override func mouseExited(with event: NSEvent) { discrete(event) }
@@ -214,6 +218,7 @@ public final class RemoteBrowserContentView: NSView {
     /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included: a scroll in
     /// the middle of its gesture, or a wheel notch, waits for the frame; a phase edge goes at once
     /// after what waits.
+    // local-monitor-allow: a mid-gesture scroll goes through the window's FrameInputCoalescer (continuous), a phase edge flushes it and goes at once: the page's wheel events keep their order
     public override func scrollWheel(with event: NSEvent) {
         if event.isMergeableScroll { continuous(event) } else { discrete(event) }
     }

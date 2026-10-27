@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CmuxNextWakeups
 import CoreMedia
 
 /// Variant C: `AVSampleBufferDisplayLayer` with display-immediately samples
@@ -16,8 +17,12 @@ final class SampleBufferPresenter: RemoteFramePresenter {
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private var frameSize: CGSize = .zero
     private(set) var shownFrame: RemoteDecodedFrame?
+    private nonisolated let mainWork: MainWorkScheduler
+    private nonisolated let showOwner: MainTaskOwner
 
-    init() {
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+        showOwner = mainWork.board.owner(RemoteFramePresenters.showOwner)
         displayLayer.videoGravity = .resize
         displayLayer.isOpaque = true
         displayLayer.actions = RemoteLayerActions.none
@@ -25,7 +30,8 @@ final class SampleBufferPresenter: RemoteFramePresenter {
 
     nonisolated func present(_ frame: RemoteDecodedFrame) {
         guard mailbox.post(frame) else { return }
-        Task { @MainActor [weak self] in self?.drain() }
+        // node-free: the pane's frame gate closes when it hides, so a hidden pane posts nothing.
+        mainWork.postFromAnyThread(.visible, owner: showOwner) { [weak self] in self?.drain() }
     }
 
     nonisolated var discardedFrames: Int { mailbox.discardedCount }

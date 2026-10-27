@@ -28,6 +28,8 @@ public final class RemoteBrowserSurfaces {
     private let page: RemoteBrowserContentView
     private let source: @MainActor (UInt16) -> any RemoteViewStreamSource
     private let send: @MainActor (RemoteRdJSON, Bool) -> Void
+    /// The app's scheduler, for each surface's presenter.
+    private let mainWork: MainWorkScheduler
     private var open: [UInt32: Surface] = [:]
     /// The page shows: surfaces decode only then (a hidden page's popups decode nothing).
     private var visible = true
@@ -49,11 +51,12 @@ public final class RemoteBrowserSurfaces {
     /// event (`mustDeliver` second).
     public init(
         page: RemoteBrowserContentView, source: @escaping @MainActor (UInt16) -> any RemoteViewStreamSource,
-        send: @escaping @MainActor (RemoteRdJSON, Bool) -> Void
+        send: @escaping @MainActor (RemoteRdJSON, Bool) -> Void, mainWork: MainWorkScheduler
     ) {
         self.page = page
         self.source = source
         self.send = send
+        self.mainWork = mainWork
         page.onPlacementChange = { [weak self] in self?.placeAll() }
     }
 
@@ -65,7 +68,7 @@ public final class RemoteBrowserSurfaces {
         case let .show(surface, stream, kind, anchor, _, _):
             // A show of an open surface (a new size) replaces it: its stream changed.
             remove(surface)
-            let pane = RemoteBrowserPane(source: source(stream))
+            let pane = RemoteBrowserPane(source: source(stream), mainWork: mainWork)
             let input = SurfaceInput(owner: self, page: page, surface: surface)
             input.view = pane.view
             pane.view.isSurface = true
@@ -185,6 +188,7 @@ public final class RemoteBrowserSurfaces {
         // Observe the window while it is the page's, also while it is not
         // visible (minimized, ordered out): its return places the panel.
         observeWindow(page.window)
+        // visibility-walk-allow: a child panel follows its page view's own AppKit state (hidden in a parked or covered pane), the geometry it is placed over; a node would place it over a hidden view
         guard let window = page.window, window.isVisible, !page.isHiddenOrHasHiddenAncestor else {
             detach(panel)
             return
@@ -220,13 +224,15 @@ public final class RemoteBrowserSurfaces {
         observedWindow = window
         guard let window else { return }
         let events = WindowEvents.of(window)
-        for name in [NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
-                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
-            windowObservers.append(events.subscribe(name, owner: "RemoteBrowserSurfaces") { [weak self] in
-                self?.placeAll()
-            })
-        }
+        let place: @MainActor () -> Void = { [weak self] in self?.placeAll() }
+        windowObservers = [
+            events.subscribe(NSWindow.didResizeNotification, owner: "RemoteBrowserSurfaces", place),
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "RemoteBrowserSurfaces", place),
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "RemoteBrowserSurfaces", place),
+            events.subscribe(NSWindow.didChangeScreenNotification, owner: "RemoteBrowserSurfaces", place),
+            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: "RemoteBrowserSurfaces", place),
+            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: "RemoteBrowserSurfaces", place),
+        ]
         layoutPassWatch = (window as? any WindowLayoutPassHosting)?.layoutPasses.observe(owner: "RemoteBrowserSurfaces") { [weak self] in
             self?.windowDidLayout()
         }

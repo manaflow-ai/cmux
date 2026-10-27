@@ -36,7 +36,8 @@ import Testing
             window.contentView = root
             window.orderFrontRegardless()
             let host = MockRemoteStreamSource(width: 160, height: 100)
-            surfaces = RemoteBrowserSurfaces(page: page, source: { _ in host }, send: { _, _ in })
+            surfaces = RemoteBrowserSurfaces(page: page, source: { _ in host }, send: { _, _ in },
+                                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // The page shows. The mock host paints only on damage or a keyframe request, and with no
             // VideoToolbox encoder it sends nothing: placement needs no frame.
             surfaces.apply(.show(surface: 1, stream: 2, kind: "page_popup", anchor: CGRect(x: 10, y: 10, width: 160, height: 100),

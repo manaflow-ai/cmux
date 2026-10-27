@@ -68,6 +68,7 @@ public final class RemoteDesktopPaneView: NSView {
 
     // MARK: Theme
 
+    // visibility-walk-allow: refreshColors resolves the pane's few colors and redraws only when they changed (a theme flip, not a frame); a stopped, hidden pane has no node to defer to
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshColors()

@@ -201,7 +201,7 @@ extension TabContentCache {
             let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
             let page = RemoteViewPageTab(
                 id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
-                closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
+                mainWork: services.mainWork, closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
                 connect: { [weak self] confirmedURL in
                     // The Connect button: a person confirmed this record (view mode).
                     pages.confirm(key, url: confirmedURL)

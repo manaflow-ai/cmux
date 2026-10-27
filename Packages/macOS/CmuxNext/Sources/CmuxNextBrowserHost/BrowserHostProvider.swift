@@ -29,7 +29,7 @@ import os
 /// and encoded on the link's write queue, off the main actor. The tab list is
 /// read in automation-class tasks only. When the link drops,
 /// the provider reconnects when the credentials source reports new
-/// credentials, or after a `Backoff` delay on the injected clock. It never
+/// credentials, or after a `Backoff` delay (an automation-class, flexible ``MainDeadline``). It never
 /// polls; with no credentials (before step c2) it stays idle.
 @MainActor
 @Observable
@@ -71,14 +71,15 @@ public final class BrowserHostProvider {
     @ObservationIgnored let driver: (any DriverCallHandler)?
     /// The app's main-thread scheduler: frame tasks and the tab observation run in its automation class.
     @ObservationIgnored let mainWork: MainWorkScheduler
-    @ObservationIgnored let clock: any Clock<Duration>
+    /// Where the retry and the relays' prepare deadlines are placed (on ``mainWork``'s queue).
+    @ObservationIgnored let deadlines: MainDeadlineScheduler
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
     /// How long `cdp.attach` may take to make a page ready (the host waits 10 s).
     @ObservationIgnored let prepareDeadline: Duration
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host-provider")
 
     @ObservationIgnored var backoff: Backoff
-    @ObservationIgnored let retryTimer: DemandTimer
+    @ObservationIgnored let retryTimer: MainDeadline
     @ObservationIgnored var generation = 0
     @ObservationIgnored var cycle: Task<Void, Never>?
     @ObservationIgnored var credentialCheck: Task<Void, Never>?
@@ -119,7 +120,7 @@ public final class BrowserHostProvider {
                 mainWork: MainWorkScheduler,
                 opener: (any ProviderTabOpening)? = nil,
                 capture: (any ProviderCaptureVoting)? = nil,
-                clock: any Clock<Duration> = ContinuousClock(),
+                deadlines: MainDeadlineScheduler? = nil,
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
                 dial: @escaping @Sendable (ProviderCredentials) async throws -> ProviderConnection = { try await ProviderConnection.dial(path: $0.socketPath) }) {
@@ -135,20 +136,21 @@ public final class BrowserHostProvider {
         self.mainWork = mainWork
         tabsTaskOwner = mainWork.board.owner("browser-host.tabs")
         captureTaskOwner = mainWork.board.owner("browser-host.capture")
-        self.clock = clock
+        let deadlines = deadlines ?? MainDeadlineScheduler(work: mainWork)
+        self.deadlines = deadlines
         self.backoff = backoff
-        retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
+        retryTimer = MainDeadline(owner: "browser-host.provider-retry", workClass: .automation, scheduler: deadlines)
         self.prepareDeadline = prepareDeadline
         self.dial = dial
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Sendable cleanup only, so it runs on whatever thread releases the provider.
+    // Sendable cleanup only, so it runs on whatever thread releases the provider. The retry deadline needs no cancel:
+    // a released MainDeadline never runs.
     nonisolated deinit {
         cycle?.cancel()
         credentialCheck?.cancel()
         eventsTask?.cancel()
-        retryTimer.cancel()
         connection?.close()
     }
 
@@ -158,6 +160,7 @@ public final class BrowserHostProvider {
         started = true
         if let driver {
             let events = driver.events
+            // main-hop-allow: the driver emits its events on main; the loop only hands each to the link's write queue (send encodes off main), in emit order with the call replies the same actor sends
             eventsTask = Task { [weak self] in
                 for await event in events { self?.send(.event(name: event.name, payload: event.payload)) }
             }
@@ -188,6 +191,7 @@ public final class BrowserHostProvider {
         }
         let gen = generation
         credentialCheck?.cancel()
+        // main-hop-allow: providerCredentials is the app's main-actor async source (the daemon's answer); the task only compares it and reconnects
         credentialCheck = Task { [weak self] in
             let fresh = await self?.credentials?.providerCredentials()
             guard let self, gen == self.generation, fresh != self.currentCredentials else { return }
@@ -221,6 +225,7 @@ public final class BrowserHostProvider {
         retryTimer.cancel()
         dropConnection(reason: "reconnecting")
         status = .connecting
+        // main-hop-allow: the link's life: it awaits the main-actor credential source and the link's frames, and each frame it reads becomes one automation task (post)
         cycle = Task { [weak self] in await self?.run(gen) }
     }
 
@@ -291,7 +296,7 @@ public final class BrowserHostProvider {
     private func scheduleRetry(_ gen: Int) {
         status = .waitingToRetry
         let delay = backoff.next()
-        retryTimer.scheduleOnMain(after: delay) { [weak self] in
+        retryTimer.schedule(after: delay) { [weak self] in
             guard let self, gen == self.generation else { return }
             self.connect()
         }

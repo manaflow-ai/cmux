@@ -40,7 +40,7 @@ public final class RemoteViewPageTab: BrowserTab {
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
-         closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
+         mainWork: MainWorkScheduler, closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -55,7 +55,7 @@ public final class RemoteViewPageTab: BrowserTab {
         self.state = state
         switch decision {
         case let .connect(record):
-            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab)
+            let session = RemoteViewPageSession.make(record: record, mainWork: mainWork, closeTab: closeTab)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):

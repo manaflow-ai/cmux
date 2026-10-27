@@ -124,42 +124,24 @@ public final class LocalRemoteBrowserHost {
         try? output.fileHandleForWriting.close()
         try? errorLog?.close()
         try? input.fileHandleForWriting.write(contentsOf: Data((secret + "\n").utf8))
-        // The start deadline: when it fires first, stopping the host ends its
-        // stdout, which ends the read below. Cancelled once the host listens.
-        let deadline = StartDeadline()
-        let deadlineTask = Task {
-            do {
-                // wakeup-allow: deadline of the host's start, raced against the read of its listening line in this call
-                // (which cancels it), not a DemandTimer; injected clock
-                try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
-            } catch {
-                return
-            }
-            // A sleep can end at the moment `start` cancels it (the host
-            // listened). Both run on the main actor, so a cancelled task here
-            // means the host listened or exited: never stop it then.
-            guard !Task.isCancelled else { return }
-            deadline.fired = true
-            try? input.fileHandleForWriting.close()
-            process.terminate()
-        }
-        defer { deadlineTask.cancel() }
-        var listening: RemoteBrowserHostListening?
+        // The start deadline is a Deadline race with the read of the host's listening line: when it wins, the host is
+        // stopped (its lifeline closed and SIGTERM). The read ends at the first listening line, or at end of file (the
+        // host exited).
+        let lines = output.fileHandleForReading
+        let lifelineEnd = input.fileHandleForWriting
+        let listening: RemoteBrowserHostListening?
         do {
-            // Ends at the first listening line, or at end of file (the host exited).
-            for try await line in output.fileHandleForReading.bytes.lines {
-                listening = RemoteBrowserHostListening(line: line)
-                if listening != nil { break }
-            }
+            listening = try await Deadline(timeout, clock: clock).run("remote-browser-host.start", onTimeout: {
+                try? lifelineEnd.close()
+                process.terminate()
+            }) { await Self.firstListening(lines) }
+        } catch is Deadline.Exceeded {
+            throw Failure.timedOut(seconds: Int(timeout.components.seconds), log: log)
         } catch {
             listening = nil
         }
-        deadlineTask.cancel()
-        guard let listening, !deadline.fired else {
+        guard let listening else {
             try? input.fileHandleForWriting.close()
-            if deadline.fired {
-                throw Failure.timedOut(seconds: Int(timeout.components.seconds), log: log)
-            }
             throw Failure.exitedBeforeListening(log: log)
         }
         return LocalRemoteBrowserHost(endpoint: listening.endpoint, secret: secret, process: process, lifeline: input.fileHandleForWriting,
@@ -176,6 +158,18 @@ public final class LocalRemoteBrowserHost {
         self.output = output
         self.exits = exits
         self.logURL = logURL
+    }
+
+    /// The host's first listening line on `lines` (its stdout), or nil at end of file. Off main: it reads a pipe.
+    @concurrent private nonisolated static func firstListening(_ lines: FileHandle) async -> RemoteBrowserHostListening? {
+        do {
+            for try await line in lines.bytes.lines {
+                if let listening = RemoteBrowserHostListening(line: line) { return listening }
+            }
+        } catch {
+            return nil
+        }
+        return nil
     }
 
     /// 32 bytes from `SecRandomCopyBytes` as 64 lowercase hex characters
@@ -199,10 +193,4 @@ public final class LocalRemoteBrowserHost {
         for await status in exits { return status }
         return nil
     }
-}
-
-/// Whether a host's start deadline fired (main actor).
-@MainActor
-private final class StartDeadline {
-    var fired = false
 }

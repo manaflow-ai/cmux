@@ -43,10 +43,12 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             state.generation += 1
             return (state.client, state.generation)
         }
-        if let previous { Task { await previous.disconnect() } }
+        // task-owner: the old session's disconnect, off main; ends when the client closed.
+        if let previous { Task { @concurrent in await previous.disconnect() } }
         setStatus(RemoteViewStatus(path: .compatibility, state: .connecting), generation: generation)
         let hadCredentials = credentials.password != nil
-        let events = Task { [weak self] in
+        // task-owner: the session's events, off main; ends at the next connect or when the client finishes them.
+        let events = Task { @concurrent [weak self] in
             for await event in client.events {
                 switch event {
                 case let .connected(info):
@@ -61,7 +63,8 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
                 }
             }
         }
-        let frames = Task { [weak self] in
+        // task-owner: the session's pictures, off main, into the pane's latest-wins stream; ends with the session.
+        let frames = Task { @concurrent [weak self] in
             for await frame in client.frames {
                 let decoded = RemoteDecodedFrame(pixelBuffer: frame.pixelBuffer, frame: UInt32(truncatingIfNeeded: frame.sequence),
                                                  tCaptureMicros: 0, decodedAtNanos: DispatchTime.now().uptimeNanoseconds)
@@ -69,7 +72,8 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             }
         }
         state.withLock { $0.pumps = [events, frames] }
-        Task { await client.connect() }
+        // task-owner: the RFB handshake, off main; ends when the client connected or failed.
+        Task { @concurrent in await client.connect() }
     }
 
     /// Ends the session (Stop, a hidden tab, a closed tab).
@@ -79,7 +83,8 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             return state.client
         }
         guard let client else { return }
-        Task { await client.disconnect() }
+        // task-owner: one disconnect, off main; ends when the client closed.
+        Task { @concurrent in await client.disconnect() }
     }
 
     /// How an RFB failure reads in the pane.
@@ -145,7 +150,8 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     /// A full refresh: RFB has no keyframes, but this repaints everything.
     public func requestKeyframe() {
         guard let client else { return }
-        Task { await client.refresh() }
+        // task-owner: one full refresh request, off main.
+        Task { @concurrent in await client.refresh() }
     }
 }
 
