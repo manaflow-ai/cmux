@@ -530,3 +530,7 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
     };
     Ok(Rgb { r: hex(0)?, g: hex(2)?, b: hex(4)? })
 }
+
+#[cfg(test)]
+#[path = "pty_input_order_tests.rs"]
+mod pty_input_order_tests;
