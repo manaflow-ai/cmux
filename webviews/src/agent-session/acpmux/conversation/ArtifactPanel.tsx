@@ -5,7 +5,7 @@
 // gallery runs public fixtures in srcdoc; other dev pages show their source only.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
-import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
+import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { ARTIFACT_FRAME_URL, artifactGallery, galleryArtifactDocument } from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
@@ -174,7 +174,7 @@ export function ArtifactPanel({
                         renderFrameCSS(),
                       )
                     : artifact.code;
-                  return onSave(text, documentName(artifact), artifact.kind);
+                  return onSave(text, artifactFileName(artifact), artifact.kind);
                 })()
                   // A host that failed to save is as good as none: copy the document instead.
                   .catch(() => "unavailable" as const)
