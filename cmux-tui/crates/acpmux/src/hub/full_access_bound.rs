@@ -507,7 +507,7 @@ impl Hub {
     fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
-        let own = own.as_deref().filter(|s| !s.trim().is_empty());
+        let own = known_id(own.as_deref());
         let mut modes: Option<Value> = None;
         let mut mode: Option<String> = None;
         let mut options: Option<Value> = None;
@@ -563,7 +563,8 @@ impl Hub {
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || own.is_some_and(|own| {
-                        e.msg.pointer("/params/sessionId").and_then(Value::as_str) == Some(own)
+                        known_id(e.msg.pointer("/params/sessionId").and_then(Value::as_str))
+                            == Some(own)
                     })
             };
             let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
@@ -1139,6 +1140,30 @@ mod tests {
     /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
         two_chats_on(&[], true).await
+    }
+
+    /// Reviews 70 and 74 of #23322 (`known_id`): the read-back of a host a restart left
+    /// (`reported_by_left_host`) takes a blank agent session id, the chat's or a report's, for no
+    /// session, so a subagent's report of full access under one is not the chat's own. Under the
+    /// chat's own id it is.
+    #[tokio::test]
+    async fn a_left_hosts_read_back_takes_a_blank_session_id_for_no_session() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let own_reports = |sid: &str| {
+            chat.meta.lock().unwrap().agent_session_id = Some(sid.to_owned());
+            let update = json!({"sessionUpdate": "current_mode_update",
+                                "currentModeId": "bypassPermissions"});
+            let meta = json!({"acpmux": {"subagent": {"id": "fake-subagent"}}});
+            let params = json!({"sessionId": sid, "update": update, "_meta": meta});
+            hub.append(&chat, "in", "current_mode_update", json!({"params": params}));
+            let view = hub.reported_by_left_host(&chat).expect("the log reads back");
+            view.mode.as_deref() == Some("bypassPermissions")
+        };
+        for blank in ["", " ", "\t\n"] {
+            assert!(!own_reports(blank), "{blank:?} named the chat's own session");
+        }
+        assert!(own_reports("fake-own"), "the chat's own report did not count");
     }
 
     /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code),
