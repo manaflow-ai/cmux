@@ -9045,11 +9045,17 @@ function AcpmuxPane() {
             offered here. */}
         {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
             run the tab last knew stays in view. With nothing known, Labs only (without it there is no
-            Sandboxed send to lose); a failure card has its own Check again. */}
+            Sandboxed send to lose); a card in the chat view (failed, or running) has its own Check again. */}
         <Notice
           id="sandbox-unchecked"
           tier="status"
-          when={sandbox.unread && (preview || sandboxView !== undefined) && sandboxView?.state !== "failed"}
+          when={
+            sandbox.unread &&
+            !sandboxHoldsChat &&
+            !viewedSandbox &&
+            (preview || sandboxView !== undefined) &&
+            sandboxView?.state !== "failed"
+          }
         >
           <output className="acpmux-switch-notice acpmux-folder-choice">
             <span>{t("sandbox.unchecked")}</span>{" "}
@@ -9941,6 +9947,7 @@ function AcpmuxPane() {
                   <SandboxRunView
                     run={viewedSandbox}
                     onCheckAgain={() => void sandbox.read()}
+                    unread={sandbox.unread}
                     onBack={() => {
                       pendingWake.current = sandboxWake.current ?? pendingWake.current;
                       sandboxWake.current = undefined;
@@ -9978,6 +9985,7 @@ function AcpmuxPane() {
                   <SandboxRunView
                     run={sandboxView}
                     onCheckAgain={() => void sandbox.read()}
+                    unread={sandbox.unread}
                     // Sandboxed can't run here now: the person says how the message goes instead.
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />

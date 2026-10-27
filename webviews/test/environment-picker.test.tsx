@@ -151,11 +151,11 @@ const machineRows = () => rows().filter((row) => row.querySelector(".acpmux-env-
 const newRows = () => rows().filter((row) => row.querySelector(".acpmux-env-new"));
 const rowText = (row: HTMLElement) => row.textContent?.replace(/\s+/g, " ").trim() ?? "";
 
-async function openPicker() {
+async function openPicker(init: { altKey?: boolean } = {}) {
   const button = computerButton();
   expect(button, "no computer control").toBeTruthy();
   await act(async () => {
-    button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, ...init }));
     button!.click();
   });
 }
@@ -862,6 +862,10 @@ test("Labs: Sandboxed is New Cloud Machine's other face, shown while ⌥ is held
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
   // It is a match: no "no environment" line over it.
   expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
+  await press(doc().body, { key: "Escape" });
+  // ⌥ already held as the control is pressed shows it too.
+  await openPicker({ altKey: true });
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
 });
 
 test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
@@ -875,4 +879,12 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
   await act(async () => machineRows()[1]!.click());
   expect(calls).toEqual([["mode", "persistent"]]);
   expect(picks.at(-1)?.[0]).toBe("project");
+  // ⌥ shows New Cloud Machine again while Sandboxed is the pick; picking it is Persistent too.
+  calls.length = 0;
+  await openPicker();
+  await press(doc().body, { key: "Alt", altKey: true });
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
+  const cloud = rows().find((row) => row.querySelector('[data-kind="cloud"]'))!;
+  await act(async () => cloud.click());
+  expect(calls).toEqual([["mode", "persistent"]]);
 });
