@@ -350,8 +350,10 @@ const openPhase =
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
   };
 
-/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+/// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
+/// project (chatFolders.ts).
 const PROJECTS = "/Users/you/Projects";
+const SCRATCHPAD = "/private/tmp/agent-501/-Users-you-Projects/7f3e/scratchpad";
 const touched = (path: string) =>
   tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
 const projectRows = [
@@ -367,6 +369,14 @@ const projectRows = [
     6,
   ),
 ];
+
+const environmentProps = (): Props => ({
+  ...full,
+  summary: { ...summary, cwd: `${PROJECTS}/checkouts/cmux/next-env-folders`, branch: "you/next-env-folders" },
+  rows: projectRows,
+  onOpenFolder: () => undefined,
+  remoteControl: undefined,
+});
 
 /// What a chat produced, as Claude Code desktop's Outputs lists it: a ledger page it rendered and a
 /// Markdown plan its reply drew, each opening in the side panel.
@@ -562,13 +572,23 @@ export default componentEntry<Props>({
       props: { ...full, closable: true, chrome: "compact-close" },
     },
     "environment-folders": {
-      note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
+      note: "Shipped (Leo, 2026-10-27: \"why are these files being shown to me in the first place\"): a chat in a lane checkout of cmux that worked across six folders. Environment lists only its project, by its repository's name (cmux, not the checkout's folder name), the full path only on hover; then the repository and the branch, each a link to GitHub. No folder its tool calls touched. The project opens in Files as a tab right of the chat.",
+      props: environmentProps(),
+    },
+    "environment-branch-chip": {
+      note: "Alternative (not shipped): the branch as a quiet chip at the end of the project's row, with no branch row. One row shorter, but the branch is no longer a link to GitHub and a long branch name crowds the project's name.",
+      props: { ...environmentProps(), projectRowLook: "branch" },
+    },
+    "environment-parent": {
+      note: "Alternative (not shipped): the project's name with its parent folder after it, as the Environment drew every folder before. The path text is what Leo asked not to see; the tooltip carries it in the shipped row.",
+      props: { ...environmentProps(), projectRowLook: "parent" },
+    },
+    "environment-scratchpad": {
+      note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",
       props: {
-        ...full,
-        summary: { ...summary, cwd: `${PROJECTS}/cmux`, branch: "leo/next-backgrounds-batch" },
-        rows: projectRows,
-        onOpenFolder: () => undefined,
-        remoteControl: undefined,
+        ...environmentProps(),
+        summary: { ...summary, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
+        repository: undefined,
       },
     },
     "context-connectors-open": {

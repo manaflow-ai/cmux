@@ -224,7 +224,7 @@
             "text": "A downloaded update installs as cmux quits. Terminals keep running."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "install",

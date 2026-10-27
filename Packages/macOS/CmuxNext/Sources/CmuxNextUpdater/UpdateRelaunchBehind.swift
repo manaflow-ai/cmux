@@ -65,7 +65,7 @@ public import Foundation
     /// helper stops and `inFront` runs (Sparkle relaunches, activating). `declined` runs instead
     /// when the helper cannot start or finds no installer (nothing ran, the app keeps running), or
     /// later from ``quitRefused()``: the update is staged again.
-    public func start(willQuit: @escaping @MainActor () -> Bool, declined: @escaping @MainActor () -> Void,
+    public func start(willQuit: @escaping @MainActor () async -> Bool, declined: @escaping @MainActor () -> Void,
                       inFront: @escaping @MainActor () -> Void) {
         let arguments = arguments
         // task-owner: one spawn and its lookup answer (off main: a fork and exec, then a bounded
@@ -82,7 +82,7 @@ public import Foundation
                 Self.stop(started.pid, started.writeEnd)
                 return declined()
             }
-            guard willQuit() else {
+            guard await willQuit() else {
                 Self.stop(started.pid, started.writeEnd)
                 return inFront()
             }

@@ -20,6 +20,7 @@
     "CmuxNextDaemon": {"layer": "service"},
     "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge, Layout: lift the shared types to Core or a protocol seam"},
     "CmuxNextCloud": {"layer": "service"},
+    "CmuxNextCloudCredentials": {"layer": "domain"},
     "CmuxNextRemote": {"layer": "service"},
     "CmuxNextCodeRouter": {"layer": "service"},
     "CmuxNextMobile": {"layer": "service"},

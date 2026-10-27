@@ -1002,6 +1002,23 @@
             }
           },
           {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
+            }
+          },
+          {
             "key" : "settings.group.dismissal",
             "rows" : [
               "notifications.dismissal",
@@ -4295,7 +4312,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -31250,8 +31267,11 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "moderate",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.neverDiscard",
+        "text" : "Never Discard"
+      },
       "group" : {
         "key" : "settings.group.memory",
         "text" : "Memory"
@@ -31265,7 +31285,9 @@
       "keywords" : [
         "memory saver",
         "sleep",
-        "discard"
+        "discard",
+        "freeze",
+        "reload"
       ],
       "kind" : "choice_or_number",
       "page_hidden" : false,
