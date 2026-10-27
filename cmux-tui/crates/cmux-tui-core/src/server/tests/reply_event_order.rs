@@ -82,7 +82,6 @@ fn run_under_flood(mux: &Arc<Mux>, mut request: Value, echo: &str) -> (usize, us
 /// `tree-changed` (the request emits no `layout-changed`; set-split-ratio
 /// below is the `layout-changed` case).
 #[test]
-#[ignore = "red until p05-ipc-120: the subscriber mailbox hop writes the reply first"]
 fn reply_event_order_new_tab_under_stream_flood_writes_its_tree_event_before_reply() {
     let mux = test_mux();
     let workspace = mux.new_workspace(None, Some((80, 24))).unwrap().id;
@@ -93,7 +92,6 @@ fn reply_event_order_new_tab_under_stream_flood_writes_its_tree_event_before_rep
 }
 
 #[test]
-#[ignore = "red until p05-ipc-120: the subscriber mailbox hop writes the reply first"]
 fn reply_event_order_split_ratio_under_stream_flood_writes_layout_changed_before_reply() {
     let mux = test_mux();
     let workspace = mux.new_workspace(None, Some((80, 24))).unwrap().id;
