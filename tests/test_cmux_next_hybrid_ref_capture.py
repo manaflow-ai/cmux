@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -233,6 +234,21 @@ class Snapshot(unittest.TestCase):
         self.assertIn('"${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1', text[snapshot - 400:snapshot + 400])
 
 
+def shortest_minutes(timeout: int | str) -> int:
+    """The shortest limit a job's timeout-minutes can resolve to.
+
+    A plain number is itself. An expression (`${{ cond && 90 || 60 }}`, the
+    hosted-runner branch of cmux-scheme-compile) is bounded by its smallest
+    numeric branch, so a check against it holds on every runner.
+    """
+    if isinstance(timeout, int):
+        return timeout
+    branches = [int(n) for n in re.findall(r"(?:&&|\|\|)\s*(\d+)\b", timeout)]
+    if not branches:
+        raise AssertionError(f"timeout-minutes {timeout!r} has no numeric branch")
+    return min(branches)
+
+
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -256,7 +272,7 @@ class Workflow(unittest.TestCase):
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
         self.assertLessEqual(decide["timeout-minutes"], 1)
         self.assertTrue(upload["continue-on-error"])
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], shortest_minutes(self.job["timeout-minutes"]) - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
