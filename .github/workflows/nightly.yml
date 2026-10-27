@@ -1807,7 +1807,8 @@ jobs:
 
   # The route for build-nightly-app on nightly-next, read right before it queues
   # (scripts/ci/nightly_build_runner.py): `owned`, the owned label while one of its
-  # runners is idle now, and `blacksmith`, the Blacksmith macOS 26 label whose queue
+  # runners is idle now (or online, while every Blacksmith macOS label is stalled),
+  # and `blacksmith`, the Blacksmith macOS 26 label whose queue
   # moves. Owned Macs first, Blacksmith last (Leo, 2026-10-24); never one label with no
   # fallback. Until 2026-10-27 the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone for
   # every attempt: runs 40446901975 and 40448164753 died at "Set up runner" on it, and a
@@ -1949,10 +1950,12 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Native nightlies use the same controller-managed owned-Mac pool as dev builds.
     # On nightly-next, pick-nightly-build-runner gives attempt 1 the dedicated builder
-    # (glaeda-trusted-next-nightly) while it is free, else an owned label only
-    # while one of its runners is idle now, and every other case (a busy fleet, a
-    # refused or stuck attempt the rescue re-runs) the moving Blacksmith label: the
-    # build never waits on one label with no fallback.
+    # (glaeda-trusted-next-nightly) while it is free, else an owned label while one
+    # of its runners is idle now, or while every Blacksmith macOS label is stalled
+    # (glaeda admits it first on a mini; the rescue moves it once Blacksmith has
+    # room), and every other case (a busy fleet with Blacksmith moving, a refused or
+    # stuck attempt the rescue re-runs) the moving Blacksmith label: the build never
+    # waits on one label with no fallback.
     # Main's ci-cache-writer environment never follows NEXT onto that worker:
     # NEXT retains only its own local Release state, without shared restores.
     # Rescue watches both refs. Signing, notarization and GUI checks follow the
@@ -4004,9 +4007,9 @@ jobs:
       # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
       # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
       alternate: ${{ steps.sign-runner.outputs.alternate }}
-      # An owned label (glaeda-...) with a machine free now, or empty: the verify jobs then
-      # take `runner`. Only attempt 1 reads it; a re-run verifies on Blacksmith.
-      owned: ${{ steps.owned.outputs.label }}
+      # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. Only attempt 1
+      # reads it; a re-run verifies on Blacksmith.
+      owned: ${{ steps.owned.outputs.owned }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4032,7 +4035,7 @@ jobs:
       # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -4053,39 +4056,28 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      # An owned Mac only when one is free now (simple_pool_picker: idle runners less the
-      # queued jobs of the label family); anything else, a failure included, is empty.
+      # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
+      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder: an idle runner
+      # now, or, while every Blacksmith macOS label is stalled, one online (nightly_build_runner.py
+      # verify). glaeda admits a nightly job on a mini ahead of every PR, DEV and side job.
+      # Anything else, a failure included, is empty, and the verify jobs take `runner`.
       # Only nightly-next push runs, the scope ci-owned-pool-rescue.yml watches (owned_pool_rescue.py
-      # nightly_target): a stuck owned verify there is cancelled and re-run on Blacksmith. RC, main
-      # and manual runs keep Blacksmith.
-      - name: Pick a free owned Mac for the verify jobs
+      # nightly_target): a stuck owned verify there is held while Blacksmith is stalled and moved to
+      # Blacksmith once it has room. RC, main and manual runs keep Blacksmith. Until 2026-10-27 this
+      # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
+      # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
+      - name: Pick an owned Mac for the verify jobs
         id: owned
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         env:
-          GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          GH_REPO: ${{ github.repository }}
-          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
-          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
-        run: |
-          set -uo pipefail
-          label="$(python3 .publish-tooling/scripts/ci/e2e_runner_pool.py \
-            --requested auto \
-            --order "$POOL_ORDER" \
-            --max-queued "$POOL_MAX_QUEUED" \
-            --owned "$POOL_OWNED" \
-            --owned-slots "$OWNED_SLOTS" \
-            --pr-xcode-app "$PR_XCODE_APP")" || label=""
-          case "$label" in
-            glaeda-*) echo "Verify jobs: $label (a re-run verifies on Blacksmith)" ;;
-            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith verifies."; label="" ;;
-          esac
-          echo "label=$label" >> "$GITHUB_OUTPUT"
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          # In order; only labels ci-owned-pool-rescue.yml watches are offered.
+          OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the

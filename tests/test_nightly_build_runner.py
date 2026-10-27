@@ -95,6 +95,42 @@ class OwnedRoute(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [SIDE]}), SIDE)
 
 
+class QueueOnOwned(unittest.TestCase):
+    """While every Blacksmith macOS label is stalled, an online owned runner is the route even when busy.
+
+    Run 40515681971 (2026-10-27) put its build, sign and verify on a stalled blacksmith-6vcpu-macos-26 and
+    queued about 5 h of its 6 h there. glaeda admits a nightly job ahead of every PR, DEV and side job on a
+    mini, and the rescue holds an owned nightly job while its Blacksmith label is stalled and moves it once
+    that label has room, so the owned queue is the faster one and Blacksmith stays the timed fallback.
+    """
+
+    SLOT = "glaeda-nightly-std-xcode-26.6"
+
+    def test_a_busy_owned_label_takes_the_job_only_while_blacksmith_is_stalled(self) -> None:
+        busy = [runner(self.SLOT, busy=True), runner(SIDE, busy=True)]
+        labels = f"{self.SLOT} {SIDE}"
+        self.assertEqual(picker.owned_route(labels, busy)[0], "")
+        self.assertEqual(picker.owned_route(labels, busy, queue=True)[0], self.SLOT)
+        # An idle runner still wins over the first label's queue.
+        self.assertEqual(picker.owned_route(labels, [runner(self.SLOT, busy=True), runner(SIDE)], queue=True)[0], SIDE)
+        # Offline, unread, or no watched label: nothing to queue on.
+        self.assertEqual(picker.owned_route(labels, [runner(self.SLOT, status="offline")], queue=True)[0], "")
+        self.assertEqual(picker.owned_route(labels, None, queue=True)[0], "")
+        self.assertEqual(picker.owned_route(DEV, [runner(DEV, busy=True)], queue=True)[0], "")
+
+    def test_stalled_means_every_blacksmith_label_and_a_fresh_snapshot(self) -> None:
+        self.assertTrue(picker.blacksmith_stalled(LARGE, snapshot({LARGE: 90, SMALL: 90}), NOW))
+        self.assertFalse(picker.blacksmith_stalled(LARGE, snapshot({LARGE: 90}), NOW))
+        self.assertFalse(picker.blacksmith_stalled(LARGE, snapshot({}), NOW))
+        self.assertFalse(picker.blacksmith_stalled(LARGE, None, NOW))
+
+    def test_the_rescue_watches_the_side_label_queued_on(self) -> None:
+        # The nightly slot is watched by main's rescue (owned_pool_rescue.LANE_LABEL, the copy
+        # ci-owned-pool-rescue.yml runs); this branch's copy may lag it.
+        import owned_pool_rescue as rescue
+        self.assertEqual(rescue.job_pool({"labels": [SIDE]}), SIDE)
+
+
 class Clock:
     """A fake monotonic clock that sleep() advances."""
 
@@ -251,6 +287,24 @@ class Main(unittest.TestCase):
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("dedicated",),
                             read_runners=lambda t, r: [runner(*BUILDER)])
         self.assertEqual(out, {"dedicated": DEDICATED})
+
+    def test_busy_owned_takes_the_build_while_blacksmith_is_stalled(self) -> None:
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        self.assertTrue(out["blacksmith"].startswith("blacksmith-"))
+
+    def test_the_verify_mode_prints_owned_only_and_never_the_dedicated_builder(self) -> None:
+        fleet = [runner(*BUILDER), runner(SIDE)]
+        out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("verify",), read_runners=lambda t, r: fleet,
+                            read_snapshot=lambda t, r: snapshot({}))
+        self.assertEqual(out, {"owned": SIDE})
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual(out, {"owned": ""})
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
+        self.assertEqual(out, {"owned": SIDE})
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
