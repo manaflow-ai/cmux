@@ -41,6 +41,7 @@ public final class SidebarSessionTreeFeed {
                       tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
         let pullRequests = pullRequests
+        let fixture = SidebarPullRequestFixture.enabled
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
@@ -48,7 +49,8 @@ public final class SidebarSessionTreeFeed {
                 guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
-                let chats = Self.chats(workspaces())
+                let models = workspaces()
+                let chats = Self.chats(models)
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
                     for ref in refs where ref.host == localHost {
@@ -58,10 +60,12 @@ public final class SidebarSessionTreeFeed {
                 var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
+                // Captures: sample pull requests on every row, and no GitHub reads.
+                if fixture { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
