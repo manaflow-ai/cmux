@@ -95,9 +95,36 @@ class Pick(unittest.TestCase):
                     snap = snapshot(waits)
                     label = picker.pick(variable, snap, NOW)[0]
                     other = picker.alternate(variable, label, snap, NOW)
-                    self.assertNotEqual(other, label)
                     self.assertIn(other, (SMALL, LARGE))
+                    stalled_others = {SMALL, LARGE} - {label} <= set(waits)
+                    self.assertEqual(other == label, stalled_others)
         self.assertEqual(picker.alternate(LARGE, LARGE, None, NOW), SMALL)
+
+    def test_a_stalled_alternate_is_never_offered(self) -> None:
+        # Both sizes stalled at the pick: a re-run of failed jobs keeps the pick instead of
+        # moving to a size the snapshot already saw stalled (12 vCPU, 2026-10-27 13:01Z on).
+        snap = snapshot({SMALL: 90, LARGE: 90})
+        self.assertEqual(picker.alternate("", SMALL, snap, NOW), SMALL)
+        self.assertEqual(picker.alternate("", SMALL, snapshot({LARGE: 90}), NOW), SMALL)
+        self.assertEqual(picker.alternate("", SMALL, snapshot({SMALL: 90}), NOW), LARGE)
+
+    def test_a_failed_jobs_rerun_reads_attempt_ones_alternate(self) -> None:
+        # Attempt 1's picker writes the other size; a re-run of failed jobs keeps that output.
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
+                   "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
+            self.assertEqual(picker.main(env, read=lambda t, r: snapshot({SMALL: 3}), now=NOW), 0)
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\n")
+
+    def test_a_pick_made_on_a_rerun_is_its_own_alternate(self) -> None:
+        # A full re-run runs the picker again; its fresh pick must win over the other size.
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
+                   "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "2"}
+            self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
 
     def test_main_writes_the_output_and_never_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -110,7 +137,8 @@ class Pick(unittest.TestCase):
             self.assertEqual(output.read_text(), f"runner={LARGE}\nalternate={SMALL}\n")
             output.write_text("")
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\n")
+            # 12 vCPU is stalled, so a re-run keeps 6 vCPU rather than moving onto it.
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
 
 
 class Workflow(unittest.TestCase):

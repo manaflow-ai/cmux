@@ -7,6 +7,8 @@
 pub mod beads;
 pub mod chats;
 pub mod cli_agent;
+#[cfg(unix)]
+pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod entry;

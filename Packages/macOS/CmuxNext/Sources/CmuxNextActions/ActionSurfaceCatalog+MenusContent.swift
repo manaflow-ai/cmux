@@ -179,6 +179,8 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudFirewallCreate": [p(.cloudMachine, .create, 15, folder: .tools)],
         "cloudFirewallDelete": [p(.cloudMachine, .create, 16, folder: .tools)],
         "cloudEnrollMachine": [p(.cloudMachine, .create, 17, folder: .tools)],
+        "cloudApplyMachineConfig": [p(.cloudMachine, .create, 18, folder: .tools)],
+        "cloudDeliverSecrets": [p(.cloudMachine, .create, 19, folder: .tools)],
         "cloudNewTerminal": [p(.cloudMachine, .create, 0)],
         "cloudOpenMachine": [p(.cloudMachine, .create, 1)],
         "cloudSSH": [p(.cloudMachine, .create, 2)],

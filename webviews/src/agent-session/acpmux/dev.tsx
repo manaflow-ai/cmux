@@ -18,6 +18,7 @@ import "../../ui/ghost.css";
 import "../../ui/findPill.css";
 import "../../theme/messages.css";
 import "./styles.css";
+import "./diffTokens.css";
 import "./conversation/conversation.css";
 import "./chips/chips.css";
 import "./chips/linkCard.css";
