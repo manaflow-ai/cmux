@@ -87,6 +87,13 @@ enum AgentHandlers {
             context.services.onboarding.computerUseSetup.recheck()
             context.services.onboarding.show(step: .computerUse)
         })
+        registry.bindEffect("palette.computerUse.restart", effect: { _ in
+            guard let restart = context.services.onboarding.computerUseSetup.prepareRestart() else { return .done }
+            return .applied(ActionConfirmation(send: {
+                await restart()
+                return nil
+            }))
+        })
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in

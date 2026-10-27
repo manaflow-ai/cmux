@@ -95,11 +95,14 @@ public actor DaemonUpdatePolicy {
         return await bundledBuild(of: acpmux.executable)
     }
 
-    /// The build `executable --version` names; nil when it does not answer within `bound` (it is
-    /// stopped then: SIGTERM, SIGKILL 2 s later) or names none. Bounded, since the queue waits on
-    /// it before its first target.
-    nonisolated static func bundledBuild(of executable: URL, within bound: Duration = .seconds(10)) async -> String? {
-        guard let outcome = try? await AsyncProcess().run(ProcessRequest(executable, ["--version"], timeout: bound)) else { return nil }
+    /// The build `executable --version` names; nil when it does not answer within `bound` on
+    /// `clock` (it is stopped then: SIGTERM, SIGKILL 2 s later) or names none. Bounded, since the
+    /// queue waits on it before its first target. Tests pass a manual `clock`.
+    nonisolated static func bundledBuild(of executable: URL, within bound: Duration = .seconds(10),
+                                         clock: any Clock<Duration> = ContinuousClock()) async -> String? {
+        guard let outcome = try? await AsyncProcess(clock: clock).run(ProcessRequest(executable, ["--version"], timeout: bound)) else {
+            return nil
+        }
         return AcpmuxVersionHandoff.build(fromVersion: outcome.text)
     }
 
