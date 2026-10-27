@@ -7516,6 +7516,29 @@ jobs:
           echo "tested_sha256=$tested" >> "$GITHUB_OUTPUT"
           echo "### cmux NIGHTLY-identity build $NIGHTLY_BUILD: DMG $tested statically verified" >> "$GITHUB_STEP_SUMMARY"
 
+      # publish-nightly-identity-legacy runs on Linux, which cannot mount the
+      # DMG: it writes the appcast item (scripts/ci/tip_appcast_linux.py) from
+      # the Info.plist of the app in the DMG this job tested. Read-only data.
+      - name: Hand the tested app's Info.plist to publish
+        run: |
+          set -euo pipefail
+          dmg="legacy-signed/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          [ "$(shasum -a 256 "$dmg" | awk '{print $1}')" = "${{ steps.verify.outputs.tested_sha256 }}" ] || { echo "the DMG changed after its verification" >&2; exit 1; }
+          mnt="$(mktemp -d "$RUNNER_TEMP/legacy-plist.XXXXXX")"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null
+          mkdir -p tested-plist
+          cp "$mnt/cmux NIGHTLY.app/Contents/Info.plist" tested-plist/Info.plist
+          hdiutil detach "$mnt" >/dev/null || hdiutil detach -force "$mnt" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" tested-plist/Info.plist | grep -Fxq "$NIGHTLY_BUILD"
+
+      - name: Upload the tested app's Info.plist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-tested-plist
+          path: tested-plist/Info.plist
+          if-no-files-found: error
+          retention-days: 3
+
   publish-nightly-identity-legacy:
     needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]
     # A signing job that a newer run's concurrency slot cancelled tried
@@ -7551,12 +7574,12 @@ jobs:
       published: ${{ steps.publish.outcome == 'success' && 'true' || 'false' }}
     # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
     # then resolves the attempt (retire, keep or mark the submission; count a
-    # failure) for the whole sign, verify and publish chain. Runs no bundle code.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # failure) for the whole sign, verify and publish chain. Runs no bundle code
+    # and needs no Apple tool: Linux, on Blacksmith (trusted with release
+    # secrets), never vars.LINUX_RUNNER, which may name an owned host.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       # new: sign and submit this build; continue: ask Apple about the pending
       # submission of run PENDING_RUN (the same signed DMG, no new upload).
@@ -7619,16 +7642,20 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Select Xcode
-        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
-        run: ./scripts/select-ci-xcode.sh
-
       - name: Download the stapled cmux NIGHTLY DMG
         if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-identity-signed
           path: legacy-out
+
+      # The Info.plist of the app in the tested DMG (verify-nightly-identity-legacy).
+      - name: Download the tested app's Info.plist
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-identity-tested-plist
+          path: tested-plist
 
       # Only the bytes the verify job statically verified are published.
       - name: Refuse a DMG that is not the tested one
@@ -7654,9 +7681,30 @@ jobs:
           # Read from the signed app by the signing job.
           [[ "$SPARKLE_MINIMUM_SYSTEM_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "no minimum system version from the signing job" >&2; exit 1; }
           # One full archive, no deltas: the old feed only has to move its
-          # installs to the newest build.
-          ./scripts/sparkle_generate_appcast.sh \
-            "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg" "$CHANNEL_RELEASE_TAG" "legacy-out/$LEGACY_APPCAST"
+          # installs to the newest build. tip_appcast_linux.py writes the item
+          # generate_appcast writes for this DMG alone (Ed25519 is
+          # deterministic: the same signature as Sparkle's sign_update) from
+          # the tested app's Info.plist, and refuses an app whose build or
+          # SUPublicEDKey does not match. Then the macOS floor and the Sparkle
+          # channel, which the Mac appcast script added the same way.
+          dmg="legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          mkdir -p "$RUNNER_TEMP/plist-archive/cmux NIGHTLY.app/Contents"
+          cp tested-plist/Info.plist "$RUNNER_TEMP/plist-archive/cmux NIGHTLY.app/Contents/Info.plist"
+          (cd "$RUNNER_TEMP/plist-archive" && python3 -I -m zipfile -c "$RUNNER_TEMP/plist.zip" "cmux NIGHTLY.app")
+          python3 -I scripts/ci/tip_appcast_linux.py SPARKLE_PRIVATE_KEY "$dmg" "$RUNNER_TEMP/plist.zip" "cmux NIGHTLY" \
+            "https://github.com/manaflow-ai/cmux/releases/download/$CHANNEL_RELEASE_TAG/" \
+            "https://github.com/manaflow-ai/cmux/releases/tag/$CHANNEL_RELEASE_TAG" "$NIGHTLY_BUILD" "legacy-out/$LEGACY_APPCAST"
+          python3 scripts/ci/appcast_minimum_system_version.py enforce "legacy-out/$LEGACY_APPCAST" \
+            --archive "$(basename "$dmg")" --minimum "$SPARKLE_MINIMUM_SYSTEM_VERSION"
+          python3 -I - "legacy-out/$LEGACY_APPCAST" "$SPARKLE_CHANNEL" <<'PY'
+          import re, sys
+          path, channel = sys.argv[1:]
+          xml = open(path, encoding="utf-8").read()
+          xml, count = re.subn(r"<item>", f"<item>\n            <sparkle:channel>{channel}</sparkle:channel>", xml)
+          if count != 1:
+              sys.exit(f"expected one appcast item, found {count}")
+          open(path, "w", encoding="utf-8").write(xml)
+          PY
           # Carry the change summary of cmux NEXT's item for this build.
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/next-appcast.xml" "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}" || true
           python3 -I - "legacy-out/$LEGACY_APPCAST" "$RUNNER_TEMP/next-appcast.xml" "$NIGHTLY_BUILD" <<'PY'
