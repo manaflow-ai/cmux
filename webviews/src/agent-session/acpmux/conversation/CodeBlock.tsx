@@ -38,6 +38,9 @@ export type CodeBlockProps = {
   lang?: string;
   /** Header label; defaults to the language's display name. */
   label?: string;
+  /** Stable identity and source revision for an artifact in a streaming assistant row. */
+  artifactIdentity?: string;
+  artifactRevision?: number;
 };
 
 /// Loads the highlighted card; the page starts it once it has painted (App.tsx).
@@ -49,7 +52,15 @@ const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ def
  * monospace text; any other is highlighted (`HighlightedCode`), plain until its chunk has loaded.
  */
 export function CodeBlock(props: CodeBlockProps) {
-  const plain = <PlainCode code={props.code} lang={props.lang ?? "text"} actions={props.actions} />;
+  const plain = (
+    <PlainCode
+      code={props.code}
+      lang={props.lang ?? "text"}
+      actions={props.actions}
+      artifactIdentity={props.artifactIdentity}
+      artifactRevision={props.artifactRevision}
+    />
+  );
   return highlightsCode(props.code) ? (
     <Suspense fallback={plain}>
       <HighlightedCode {...props} />

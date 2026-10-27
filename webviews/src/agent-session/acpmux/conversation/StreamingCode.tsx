@@ -22,11 +22,15 @@ export function PlainCode({
   lang,
   open = false,
   actions,
+  artifactIdentity,
+  artifactRevision,
 }: {
   code: string;
   lang: string;
   open?: boolean;
   actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const t = useT();
   const lines = code.split("\n");
@@ -39,7 +43,7 @@ export function PlainCode({
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
-          {!open && <OpenPreview code={code} lang={lang} />}
+          <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
           <CopyButton text={code} label={t("code.copy")} />
           {actions}
         </span>
@@ -61,7 +65,19 @@ export function PlainCode({
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
+export function CodeHandoff({
+  code,
+  lang,
+  actions,
+  artifactIdentity,
+  artifactRevision,
+}: {
+  code: string;
+  lang: string;
+  actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+}) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -106,9 +122,23 @@ export function CodeHandoff({ code, lang, actions }: { code: string; lang: strin
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} actions={actions} />}
+      {stage !== "done" && (
+        <PlainCode
+          code={code}
+          lang={lang}
+          actions={actions}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      )}
       <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} actions={stage === "done" ? actions : undefined} />
+        <CodeBlock
+          code={code}
+          lang={lang}
+          actions={stage === "done" ? actions : undefined}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
       </div>
     </div>
   );
