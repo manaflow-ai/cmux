@@ -2722,3 +2722,31 @@ async fn a_mode_a_reattached_host_replays_is_judged_before_its_agent_is_reached_
         "the full-access agent a reattached host replayed answered a prompt under the managed off"
     );
 }
+
+/// Review 64 of #23322: a host whose link broke (an entry could not be logged; the debug seam
+/// `ACPMUX_TEST_UNLOGGED_ONCE`) may hold a full-access report this daemon never saw. When MDM
+/// then turns full access off, that agent ends by the push, without waiting for a request to
+/// reattach it.
+#[tokio::test]
+async fn a_host_whose_link_broke_ends_when_mdm_turns_full_access_off() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbroken", fake, &env).await;
+    let session = new_session(&daemon).await;
+    // An asking mode: only the report this daemon never logs puts the agent in full access.
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // The harness moves into full access; that entry is not logged and the link breaks.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link broke ran on after MDM turned full access off"
+    );
+}
