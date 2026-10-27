@@ -18,7 +18,11 @@ animation in the code that runs while the app is idle:
                 Report-only: the work list goes to ghostty-next's owner (PL-ghostty), `--strict` never fails on it
 
 The Swift rules are check-concurrency.sh's WAKEUP_RULES (read from that file, one definition), plus
-TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`. The cxx rules are
+TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`. The Rust rules are timed
+receives, sleeps (`sleep_until`, an injected `clock.sleep`), timed condvar and child waits (`wait_timeout_while`),
+`park_timeout`, read timeouts, `try_wait`, intervals (`interval_at`), libc `poll` / `epoll_wait` with a timeout
+other than -1 or 0 and `kevent` with a timespec, and a `timeout(d, f)` whose future is a receive or wait inside a
+loop; a libc fd wait with no timeout and `park()` are untimed waits. The cxx rules are
 dispatch_after, NSTimer, CFRunLoopTimer, dispatch timer sources, performSelector afterDelay:, PostDelayedTask /
 CefPostDelayedTask, sleeps, timed condition waits and `for (;;)` / `while (true)`; such a loop whose own braced
 body (or `do { }` body) blocks on its looping path has status `blocking`: reported, never open. Blocking is an
@@ -63,6 +67,7 @@ import os
 import re
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -104,6 +109,8 @@ class Rule:
     literal: str = ""
     # Matches inside string literals count (an inline style's `animation: "spin 1s infinite"`).
     in_strings: bool = False
+    # accept(code, at, blocks): the match at `at` is a hit (a poll's timeout is finite, a timeout is in a loop).
+    accept: Callable[[str, int, list[Block]], bool] | None = None
 
 
 @dataclass
@@ -146,6 +153,42 @@ def swift_wakeup_rules(repo: Path) -> list[Rule]:
 
 # Rust: definitions (`fn wait_timeout(`) are not calls.
 _NOT_DEF = r"(?<!fn )"
+# libc's fd waits, called as `libc::poll(` or imported (`use libc::poll;`), not `Pin::poll(` or `.poll(cx)`.
+_FD_WAIT = re.compile(_NOT_DEF + r"(?:\blibc::|(?<![\w:.]))(poll|kevent|epoll_wait)\(")
+_NULL_PTR = re.compile(r"(?:(?:std|core)::)?(?:ptr::)?null(?:_mut)?\(\)")
+_FOREVER = re.compile(r"-1(?:_?i32)?(?:\s+as\s+[\w:]+)?")
+_NO_WAIT = re.compile(r"0(?:_?(?:i32|usize))?(?:\s+as\s+[\w:]+)?")
+# The future a `timeout(d, f)` gives up on: a receive, a wait, a stream's next item, a read or an accept.
+_WAIT_FUTURE = re.compile(r"\.(?:recv\w*|wait\w*|changed|notified|next\w*|read\w*|accept|readable|cancelled)\(")
+
+
+def fd_wait(code: str, paren: int, name: str) -> str:
+    """How the libc `poll`, `kevent` or `epoll_wait` call whose `(` is at PAREN waits: `forever` (timeout -1, or
+    kevent's NULL timespec with events to wait for), `timed` (any other timeout) or `` (no wait: timeout 0, a
+    kevent that only registers changes, or another function's arity). Chromium's pumps wait the same way: the
+    timeout is the next delayed task's, else none (base/message_loop/message_pump_kqueue.cc, message_pump_epoll.cc)."""
+    args = call_args(code, paren)
+    if name == "kevent":
+        if len(args) != 6 or _NO_WAIT.fullmatch(args[4]):
+            return ""
+        return "forever" if _NULL_PTR.fullmatch(args[5]) else "timed"
+    if len(args) != (3 if name == "poll" else 4):
+        return ""
+    return "forever" if _FOREVER.fullmatch(args[-1]) else "" if _NO_WAIT.fullmatch(args[-1]) else "timed"
+
+
+def _timed_fd_wait(code: str, at: int, tree: list[Block]) -> bool:
+    m = _FD_WAIT.match(code, at)
+    return bool(m) and fd_wait(code, m.end() - 1, m.group(1)) == "timed"
+
+
+def _timeout_of_a_wait_in_a_loop(code: str, at: int, tree: list[Block]) -> bool:
+    """`timeout(d, rx.recv())` in a loop: each turn arms the timer again, so the idle loop wakes on its period.
+    One timeout around a single wait is a deadline, not a hit."""
+    args = call_args(code, code.find("(", at))
+    return len(args) == 2 and bool(_WAIT_FUTURE.search(args[1])) and enclosing_loop(at, code, tree) is not None
+
+
 RUST_RULES = [
     Rule("recv-timeout", "timed channel receive (wait for the message; a deadline only for a one-shot timeout)",
          re.compile(r"\.recv_timeout\("), literal="recv_timeout("),
@@ -162,6 +205,27 @@ RUST_RULES = [
     Rule("tokio-interval", "tokio interval (an event, or MaintenanceClock for maintenance)",
          re.compile(_NOT_DEF + r"(?:\btokio::time::|\btime::|(?<![\w:.]))interval\("), repeating=True,
          literal="interval("),
+    Rule("park-timeout", "thread park with a timeout (park until the waker unparks; a deadline for a one-shot timeout)",
+         re.compile(_NOT_DEF + r"\bpark_timeout(?:_ms)?\("), literal="park_timeout"),
+    Rule("poll-timeout", "poll(2) with a finite timeout (poll with -1 until the fd or a waker pipe is ready)",
+         re.compile(_NOT_DEF + r"(?:\blibc::|(?<![\w:.]))poll\("), literal="poll(", accept=_timed_fd_wait),
+    Rule("kevent-timeout", "kevent with a timespec (a NULL timeout until the event; a deadline only once)",
+         re.compile(_NOT_DEF + r"(?:\blibc::|(?<![\w:.]))kevent\("), literal="kevent(", accept=_timed_fd_wait),
+    Rule("epoll-timeout", "epoll_wait with a finite timeout (wait with -1 until the fd or an eventfd is ready)",
+         re.compile(_NOT_DEF + r"(?:\blibc::|(?<![\w:.]))epoll_wait\("), literal="epoll_wait(",
+         accept=_timed_fd_wait),
+    Rule("sleep-until", "async sleep to an instant (await the event; wake::deadline or MaintenanceClock for time)",
+         re.compile(_NOT_DEF + r"(?:\btokio::time::|\btime::|(?<![\w:.]))sleep_until\("), literal="sleep_until("),
+    Rule("clock-sleep", "sleep on an injected clock (await the event; MaintenanceClock for maintenance)",
+         re.compile(r"\bclock(?:\(\))?\s*\.\s*sleep(?:_until)?\("), literal="sleep"),
+    Rule("interval-at", "tokio interval from an instant (an event, or MaintenanceClock for maintenance)",
+         re.compile(_NOT_DEF + r"(?:\btokio::time::|\btime::|(?<![\w:.]))interval_at\("), repeating=True,
+         literal="interval_at("),
+    Rule("wait-timeout-while", "timed condvar wait on a predicate (wait for the notify; a deadline only once)",
+         re.compile(_NOT_DEF + r"\bwait_timeout_while\("), literal="wait_timeout_while("),
+    Rule("timeout-in-loop", "timeout around a receive or wait in a loop (wait for the event; one deadline for all)",
+         re.compile(_NOT_DEF + r"(?:\btokio::time::|\btime::|(?<![\w:.]))timeout\("), literal="timeout(",
+         accept=_timeout_of_a_wait_in_a_loop),
 ]
 
 WEB_RULES = [
@@ -216,7 +280,8 @@ _ZIG_STRUCT = re.compile(r"\bconst\s+(\w+)\s*=\s*(?:extern\s+|packed\s+)?struct\
 RUST_EVENT = re.compile(
     r"\.recv\(\)|\.accept\(\)|\.read(?:_exact|_line|_to_end|_to_string)?\((?=\s*(?:&\s*mut\b|\w+\s*\)))"
     r"|\.next\(\)\s*\.await|\.changed\(\)(?=\s*(?:\.await|=>|,|\)))"
-    r"|\.cancelled\(\)(?=\s*(?:\.await|=>|,|\)))|\.notified\(\)|\.wait\(\s*\w*\s*\)|\.join\(\)|\.incoming\(\)|\.recv_many\(")
+    r"|\.cancelled\(\)(?=\s*(?:\.await|=>|,|\)))|\.notified\(\)|\.wait\(\s*\w*\s*\)|\.join\(\)|\.incoming\(\)|\.recv_many\("
+    r"|\bpark\(\)|" + _FD_WAIT.pattern)
 SWIFT_EVENT = re.compile(r"\bfor\s+(try\s+)?await\b|\bawait\b[^\n]*\.(next|value|receive|read|accept)\(|"
                          r"\bwith(Checked|Unsafe)(Throwing)?Continuation\b")
 # A blocking read or wait in C/C++/ObjC; cxx_events() adds the functions of the same file that make one.
@@ -725,9 +790,12 @@ def _cxx_untimed_call(m: re.Match[str], code: str) -> bool:
 
 def blocks_untimed(m: re.Match[str], code: str, all_blocks: list[Block], lang: str) -> bool:
     """The event match `m` waits for its event: not a read of a stream its function makes non-blocking or gives
-    a read timeout, and not a C wait given a timeout or WNOHANG."""
+    a read timeout, and not a C wait given a timeout or WNOHANG (in Rust: a libc poll, kevent or epoll_wait waits
+    forever)."""
     if lang in READS and READS[lang].search(m.group()) and _timed_read(m.start(), code, all_blocks, lang):
         return False
+    if lang == "rust" and (fd := _FD_WAIT.search(m.group())):
+        return fd_wait(code, m.end() - 1, fd.group(1)) == "forever"
     return lang != "cxx" or _cxx_untimed_call(m, code)
 
 
@@ -737,7 +805,12 @@ def loop_shape(at: int, code: str, loop: Block, all_blocks: list[Block], lang: s
     hit = race(at, code, loop, inside, all_blocks) if lang == "rust" else NO_RACE
     if hit.leaves or _leaves_from(at, code, loop, inside, lang):
         return "oneshot"
+    # A Rust hit is a call: the wait in its own arguments (`timeout(d, rx.recv())`) is the one it times.
+    paren = code.find("(", at) if lang == "rust" else -1
+    args = (paren, matching_brace(code, paren, _PAREN)) if paren >= 0 else (at, at)
     for m in event.finditer(code, loop.header_start, loop.close):
+        if args[0] < m.start() < args[1]:
+            continue
         if blocks_untimed(m, code, all_blocks, lang) and _on_looping_path(m.start(), at, code, loop, inside, lang, hit):
             return "oneshot"
     return "loop"
@@ -752,17 +825,23 @@ def _repeat_before(at: int, code: str, all_blocks: list[Block]) -> list[Block]:
     return [b for b in all_blocks if b.repeat and b.close < at and not code[b.close + 1:at].strip()]
 
 
-def shape(at: int, code: str, all_blocks: list[Block], lang: str, event: re.Pattern[str] | None = None) -> str:
-    """`loop` when the innermost loop around `at`, inside the same function or closure, has no untimed wait on
-    the path that loops again (EVENT: the language's untimed waits by default)."""
+def enclosing_loop(at: int, code: str, all_blocks: list[Block]) -> Block | None:
+    """The innermost loop around `at` inside the same function or closure, or None."""
     enclosing = _repeat_before(at, code, all_blocks) + sorted(
         (b for b in all_blocks if b.header_start <= at <= b.close), key=lambda b: -b.open)
     for b in enclosing:
         if b.kind == "boundary" and at > b.open:
-            return "oneshot"
+            return None
         if b.kind == "loop":
-            return loop_shape(at, code, b, all_blocks, lang, event or _default_event(lang))
-    return "oneshot"
+            return b
+    return None
+
+
+def shape(at: int, code: str, all_blocks: list[Block], lang: str, event: re.Pattern[str] | None = None) -> str:
+    """`loop` when the innermost loop around `at`, inside the same function or closure, has no untimed wait on
+    the path that loops again (EVENT: the language's untimed waits by default)."""
+    loop = enclosing_loop(at, code, all_blocks)
+    return loop_shape(at, code, loop, all_blocks, lang, event or _default_event(lang)) if loop else "oneshot"
 
 
 def spin_shape(at: int, code: str, all_blocks: list[Block], lang: str, event: re.Pattern[str]) -> str:
@@ -1122,7 +1201,8 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
             continue
         for m in rule.pattern.finditer(text):
             index = bisect.bisect_right(starts, m.start()) - 1
-            if (index, rule.id) not in found and not any(a <= m.start() < b for a, b in skip):
+            if (index, rule.id) not in found and not any(a <= m.start() < b for a, b in skip) and \
+                    (rule.accept is None or rule.accept(code, m.start(), tree)):
                 found[(index, rule.id)] = m.start()
     event = cxx_events(code, tree) if lang == "cxx" and found else None
     timers = [r for r in rules if r.id not in WAITS] if lang in ("cxx", "zig") else []
@@ -1172,7 +1252,7 @@ _NS_REPEATS = re.compile(r"\brepeats:\s*(?:YES|true)\b")
 
 
 def call_args(code: str, paren: int) -> list[str]:
-    """The top-level arguments of the call whose `(` is at PAREN."""
+    """The top-level arguments of the call whose `(` is at PAREN (a trailing comma adds none)."""
     inner = code[paren + 1:matching_brace(code, paren, _PAREN)]
     out, depth, start = [], 0, 0
     for i, c in enumerate(inner):
@@ -1180,7 +1260,8 @@ def call_args(code: str, paren: int) -> list[str]:
         if c == "," and depth == 0:
             out.append(inner[start:i].strip())
             start = i + 1
-    return out + [inner[start:].strip()]
+    last = inner[start:].strip()
+    return out + [last] if last or not out else out
 
 
 def names(function: Block, text: str, call: bool = False) -> bool:

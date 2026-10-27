@@ -232,6 +232,29 @@ class WakeupExtTests(unittest.TestCase):
         hits = self.wakeups(**{"scripts/cmux-next/idle-budget.json": '{"allowed_periodic": []}\n'})
         self.assertRefused(hits, f"{WEB}/sampler.ts", 2)
 
+    def test_added_park_timeout_and_finite_poll_in_a_crate_src_are_refused(self):
+        hits = self.wakeups(**{f"{CRATE}/helpers.rs": RUST_BASE.replace("pub fn quiet() {}", (
+            "pub fn quiet(fds: &mut [libc::pollfd]) {\n"
+            "    std::thread::park_timeout(Duration::from_millis(1));\n"
+            "    unsafe { libc::poll(fds.as_mut_ptr(), 1, 100) };\n"
+            "    unsafe { libc::poll(fds.as_mut_ptr(), 1, -1) };\n"
+            "}"))})
+        self.assertEqual(sorted((h.number, h.cause.split(",")[0]) for h in hits),
+                         [(8, "wakeup-audit park-timeout"), (9, "wakeup-audit poll-timeout")])
+
+    def test_a_loop_put_around_a_timeout_of_a_receive_is_refused(self):
+        once = RUST_BASE.replace("pub fn quiet() {}", (
+            "pub async fn quiet(mut rx: Receiver<u8>) {\n"
+            "    let _ = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;\n"
+            "}"))
+        self.write(f"{CRATE}/helpers.rs", once)
+        self.base = self.commit("one-shot timeout base")
+        hits = self.wakeups(**{f"{CRATE}/helpers.rs": once.replace(
+            "    let _ = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;\n",
+            "    loop {\n        let _ = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;\n    }\n")})
+        self.assertRefused(hits, f"{CRATE}/helpers.rs", 9)
+        self.assertIn("timeout-in-loop, loop", hits[0].cause)
+
     def test_a_removed_sleep_does_not_pay_for_a_timed_receive(self):
         hits = self.wakeups(**{f"{CRATE}/helpers.rs": RUST_BASE.replace(
             "std::thread::sleep(Duration::from_millis(5));", "let _ = rx.recv_timeout(Duration::from_millis(5));")})

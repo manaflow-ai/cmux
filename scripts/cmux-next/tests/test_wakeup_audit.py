@@ -715,6 +715,121 @@ class FocusedFixtureTests(unittest.TestCase):
             (6, "thread-sleep"): "loop", (14, "tokio-sleep"): "loop", (23, "tokio-sleep"): "oneshot",
         })
 
+    # p14-energy-111: park_timeout, finite poll / kevent / epoll_wait, sleep_until, clock.sleep, interval_at,
+    # wait_timeout_while and a timeout around a wait in a loop -------------------------------------------------
+
+    RUST_TIMED_CALLS = {
+        "park-timeout": "std::thread::park_timeout(d);",
+        "poll-timeout": "unsafe { libc::poll(fds.as_mut_ptr(), 1, 250) };",
+        "kevent-timeout": "unsafe { libc::kevent(kq, std::ptr::null(), 0, &mut ev, 1, &ts) };",
+        "epoll-timeout": "unsafe { libc::epoll_wait(ep, evs.as_mut_ptr(), 16, 500) };",
+        "sleep-until": "tokio::time::sleep_until(at).await;",
+        "clock-sleep": "self.clock.sleep_until(at).await;",
+        "interval-at": "let mut every = tokio::time::interval_at(at, d);",
+        "wait-timeout-while": "let _ = cv.wait_timeout_while(guard, d, |s| !*s);",
+        "timeout-in-loop": "let _ = tokio::time::timeout(d, rx.recv()).await;",
+    }
+
+    def test_each_timed_rust_wait_is_a_hit_escaped_or_test_only(self) -> None:
+        for rule, call in self.RUST_TIMED_CALLS.items():
+            with self.subTest(rule=rule):
+                hits = self.rust(f"""\
+                    fn open() {{
+                        loop {{
+                            {call}
+                        }}
+                    }}
+                    fn allowed() {{
+                        loop {{
+                            // wakeup-allow: deadline the fixture's one timeout
+                            {call}
+                        }}
+                    }}
+                    #[cfg(test)]
+                    fn only_in_tests() {{
+                        loop {{
+                            {call}
+                        }}
+                    }}
+                    """)
+                self.assertEqual([(h["line"], h["rule"], h["status"], h["shape"]) for h in hits],
+                                 [(3, rule, "hit", "loop"), (9, rule, "escaped", "loop")])
+
+    def test_untimed_and_non_blocking_fd_waits_and_a_lone_timeout_are_not_hits(self) -> None:
+        hits = self.rust("""\
+            fn waits(fds: &mut [libc::pollfd], kq: i32, ep: i32, cx: &mut Context<'_>) {
+                unsafe { libc::poll(fds.as_mut_ptr(), 1, -1) };
+                unsafe { libc::poll(fds.as_mut_ptr(), 1, 0) };
+                unsafe { libc::kevent(kq, &change, 1, std::ptr::null_mut(), 0, &ts) };
+                unsafe { libc::kevent(kq, std::ptr::null(), 0, &mut ev, 1, std::ptr::null()) };
+                unsafe { libc::epoll_wait(ep, evs.as_mut_ptr(), 16, -1) };
+                let _ = Pin::new(&mut f).poll(cx);
+                let _ = Future::poll(f, cx);
+                let _ = poll(remaining);
+            }
+            fn poll(d: Duration) -> bool { false }
+            async fn deadline(mut rx: Receiver<u8>) {
+                let _ = tokio::time::timeout(d, rx.recv()).await;
+            }
+            async fn connects() {
+                loop {
+                    let _ = tokio::time::timeout(d, connect()).await;
+                }
+            }
+            """)
+        self.assertEqual(hits, [])
+
+    def test_a_kevent_timespec_after_a_trailing_comma_is_a_hit(self) -> None:
+        hits = self.rust("""\
+            fn exit_of(queue: i32) {
+                loop {
+                    let n = unsafe {
+                        libc::kevent(
+                            queue,
+                            &change,
+                            1,
+                            &mut event,
+                            1,
+                            &timeout,
+                        )
+                    };
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(4, "kevent-timeout"): "loop"})
+
+    def test_an_untimed_fd_wait_or_park_makes_the_loop_evented(self) -> None:
+        hits = self.rust("""\
+            fn polled(rx: Receiver<u8>, fds: &mut [libc::pollfd]) {
+                loop {
+                    unsafe { libc::poll(fds.as_mut_ptr(), 1, -1) };
+                    let _ = rx.recv_timeout(d);
+                }
+            }
+            fn parked(rx: Receiver<u8>) {
+                loop {
+                    std::thread::park();
+                    let _ = rx.recv_timeout(d);
+                }
+            }
+            fn timed(rx: Receiver<u8>, fds: &mut [libc::pollfd]) {
+                loop {
+                    unsafe { libc::poll(fds.as_mut_ptr(), 1, 100) };
+                    let _ = rx.recv_timeout(d);
+                }
+            }
+            async fn stopped(mut rx: Receiver<u8>, mut stop: Receiver<()>) {
+                loop {
+                    stop.recv().await;
+                    let _ = tokio::time::timeout(d, rx.recv()).await;
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (4, "recv-timeout"): "oneshot", (10, "recv-timeout"): "oneshot", (15, "poll-timeout"): "loop",
+            (16, "recv-timeout"): "loop", (22, "timeout-in-loop"): "oneshot",
+        })
+
     def test_swift_loop_after_a_statement_is_a_loop(self) -> None:
         hits = self.swift("""\
             func poll() async {

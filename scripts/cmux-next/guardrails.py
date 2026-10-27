@@ -3242,7 +3242,8 @@ class ChecksRoot:
 
 @functools.cache
 def wakeup_rules(lang: str) -> tuple:
-    """wakeup-audit's rules for LANG (cxx: none until wakeup-audit has CXX_RULES, p14-energy-113)."""
+    """wakeup-audit's rules for LANG, the ones its full-tree run reads (swift-shared: check-concurrency.sh's, from
+    the snapshot beside this file)."""
     wa = wakeup_audit()
     if lang == "swift-shared":
         return tuple(wa.swift_wakeup_rules(ChecksRoot()))
@@ -3506,12 +3507,14 @@ def wakeup_debt(path: str, hits: list, lines: list[str]) -> list[WakeupHit]:
 
 
 RULES += (
-    Rule("wakeup-ext", "An idle wakeup (timer, sleep, timed wait, spin loop, interval, infinite animation) in an "
-         "app-linked Shared package, CmuxUpdater, a cmux-tui crate's src, webviews/src or the CEF shim",
+    Rule("wakeup-ext", "An idle wakeup (timer, sleep, timed wait, park_timeout, poll / kevent / epoll_wait with a "
+         "timeout, a timeout around a wait in a loop, spin loop, interval, infinite animation) in an app-linked "
+         "Shared package, CmuxUpdater, a cmux-tui crate's src, webviews/src or the CEF shim",
          "a timer or a poll wakes the process while the person does nothing: idle wakeups cost battery and keep cmux "
          "above Chrome's (perf-lead.md item 6, plans/cmux-next/chrome-parity/p14-energy.md); the rules and the "
          "escape vocabulary are scripts/cmux-next/wakeup-audit.py's",
-         "wait for the event (a read, a channel recv, NOTE_EXIT / pidfd, FSEvents, a push from the host, visibility), "
+         "wait for the event (a read, a channel recv, poll / kevent / epoll_wait with no timeout, park until unpark, "
+         "NOTE_EXIT / pidfd, FSEvents, a push from the host, visibility), "
          "a one-shot deadline for a timeout, Backoff after a failure, MaintenanceClock for maintenance; bound an "
          "animation or gate it on visibility and the motion setting; test-only code (`#[cfg(test)]`, *.test.ts) is "
          "not judged",
