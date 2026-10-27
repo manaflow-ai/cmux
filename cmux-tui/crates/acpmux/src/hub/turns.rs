@@ -1162,7 +1162,9 @@ impl Hub {
             #[cfg(unix)]
             {
                 let id = session.id.clone();
-                tokio::task::spawn_blocking(move || crate::agent::session_tmp::remove_session(&id));
+                crate::daemon::spawn_blocking(move || {
+                    crate::agent::session_tmp::remove_session(&id)
+                });
             }
             self.git_branch_forget(&session.id);
             // Tell watchers (peers, TUIs) the session is gone.
@@ -1188,7 +1190,7 @@ impl Hub {
             // delete removes the session's folder.
             let (store, id) = (self.store.clone(), session.id.clone());
             let forget = self.meta_writer.forget_handle();
-            tokio::task::spawn_blocking(move || {
+            crate::daemon::spawn_blocking(move || {
                 forget.forget(&id);
                 store.delete(&id)
             })
@@ -1200,7 +1202,7 @@ impl Hub {
             if !replaced {
                 let id = session.id.clone();
                 let _ =
-                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
+                    crate::daemon::spawn_blocking(move || super::file_uploads::remove_session(&id))
                         .await;
             }
         }

@@ -363,7 +363,7 @@ pub fn read_range(
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, RpcError> + Send + 'static,
 ) -> Result<T, RpcError> {
-    tokio::task::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))?
+    crate::daemon::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// `_acpmux/media_open` or `_acpmux/media_range` for one of this daemon's chats.

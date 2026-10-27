@@ -510,7 +510,9 @@ impl Hub {
         let mine = tokio::fs::canonicalize(&pm.cwd).await.ok();
         let full = self.caller_access(pm) == Access::Full;
         let allowed = move || folder_allowed(&paths, &folder, mine.as_deref(), full, walk);
-        tokio::task::spawn_blocking(allowed).await.map_err(|e| RpcError::internal(e.to_string()))?
+        crate::daemon::spawn_blocking(allowed)
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
     }
 
     /// Before anything starts: harness `harness` in `cwd`, for a caller with

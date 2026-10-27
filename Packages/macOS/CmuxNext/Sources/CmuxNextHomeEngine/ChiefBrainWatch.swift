@@ -47,8 +47,9 @@ public final class ChiefBrainWatch {
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
         source.setEventHandler {
-            // task-owner: one hop to the main actor per exit event
-            Task { @MainActor in weakSelf?.exited(pid) }
+            // The exit is handled in the source's own callout, with no second hop.
+            // main-proof: the source's queue is DispatchQueue.main, whose handlers run on the main thread.
+            MainActor.assumeIsolated { weakSelf?.exited(pid) }
         }
         self.source = source
         source.resume()
@@ -96,6 +97,7 @@ public final class ChiefBrainWatch {
         logger.info("chief brain \(pid, privacy: .public) exited; starting it again")
         restarting = true
         // task-owner: one restart; ends when the host is started
+        // main-hop-allow: `restart` is the keeper's main-actor async launch (its endpoint read and token mint run off main); this task only starts it and watches the new pid in its one resume
         Task { [weak self] in
             guard let self else { return }
             let next = await restart()

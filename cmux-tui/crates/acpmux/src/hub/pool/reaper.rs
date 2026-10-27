@@ -20,6 +20,7 @@ pub(super) fn signal_harness(record: &HostRecord, signal: i32) {
 
 /// Resident memory of `root` and every descendant, in bytes (one `ps`).
 pub fn tree_rss_bytes(root: u32) -> u64 {
+    crate::daemon::hang_watch::will_block();
     let mut ps = std::process::Command::new("ps");
     ps.args(["-A", "-o", "pid=,ppid=,rss="]);
     let Ok(out) = cmux_blocking::process::output(&mut ps) else {
