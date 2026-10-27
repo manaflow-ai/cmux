@@ -57,7 +57,7 @@ struct WorkspaceAutoNameWiring {
             })
         Task { [weak settings] in
             await settings?.waitForLoad(atLeast: 1)
-            await namer.run()
+            services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
         }
     }
 }
