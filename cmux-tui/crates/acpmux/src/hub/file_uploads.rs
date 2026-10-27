@@ -112,7 +112,7 @@ impl super::Hub {
     async fn sweep_uploads(self: Arc<Self>) {
         let Some(max_age) = self.config.read().await.uploads_max_age() else { return };
         let now = crate::store::now_ms();
-        match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+        match crate::daemon::spawn_blocking(move || sweep(&root(), now, max_age)).await {
             Ok(0) => {}
             Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
             Err(e) => tracing::warn!("the upload sweep failed: {e}"),
@@ -372,7 +372,7 @@ fn decoded_len(data: &str) -> usize {
 pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || put(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || put(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))??;
     reject_purged(&session).await?;
@@ -382,7 +382,7 @@ pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> 
 pub async fn handle_begin(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || begin(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || begin(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -394,7 +394,7 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
     if params.get("sessionId").and_then(Value::as_str) != Some(session.id.as_str()) {
         return Err(RpcError::invalid_params("sessionId is required"));
     }
-    let answer = tokio::task::spawn_blocking(move || chunk(&params))
+    let answer = crate::daemon::spawn_blocking(move || chunk(&params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -404,7 +404,7 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
 pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || finish(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || finish(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -414,7 +414,7 @@ pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, Rpc
 pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || cancel(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || cancel(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -429,7 +429,7 @@ async fn reject_purged(session: &std::sync::Arc<super::Session>) -> Result<(), R
         return Ok(());
     }
     let id = session.id.clone();
-    let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
+    let _ = crate::daemon::spawn_blocking(move || remove_session(&id)).await;
     Err(RpcError::invalid_params("no such chat"))
 }
 

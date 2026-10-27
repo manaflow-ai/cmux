@@ -75,6 +75,32 @@ public struct LaunchSnapshot: Sendable {
         return try read(data, session: session)
     }
 
+    /// What looking for a session's snapshot found (``find(session:stateDirectory:location:)``).
+    public enum Found: Sendable {
+        /// No path remembered and none in the state directory.
+        case missing
+        /// A file that could not be used, and why.
+        case skipped(Skip)
+        case snapshot(LaunchSnapshot)
+
+        /// The snapshot, when one was read.
+        public var snapshot: LaunchSnapshot? {
+            if case .snapshot(let snapshot) = self { snapshot } else { nil }
+        }
+    }
+
+    /// Finds `session`'s snapshot (the path the last handshake reported, else the newest in the daemon's state
+    /// directory, so cleared defaults do not lose it) and reads it. It lists a directory and reads and decodes up to
+    /// ``maximumBytes`` of JSON: call it off the main thread (the app: on the files lane from `main`,
+    /// ``LaunchSnapshotPrefetch``).
+    public static func find(session: String, stateDirectory: URL?,
+                            location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> Found {
+        guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else {
+            return .missing
+        }
+        do { return try .snapshot(load(path: path, session: session)) } catch { return .skipped(error) }
+    }
+
     private struct File: Decodable {
         var schemaVersion: Int
         var session: String
@@ -139,4 +165,29 @@ public struct LaunchSnapshotLocation: Sendable {
         guard defaults().string(forKey: key) != path else { return }
         defaults().set(path, forKey: key)
     }
+}
+
+/// The launch snapshot's read, begun in `main` on the files lane before AppKit starts (the app: a `LaunchRead`), which
+/// `DaemonService.start` takes over: it applies the snapshot in its own turn when the read has ended, else on the
+/// read's end, so the main thread never reads or decodes the file (p08-startup-074).
+public struct LaunchSnapshotPrefetch: Sendable {
+    /// The session whose snapshot it reads; a start for another session reads its own.
+    public let session: String
+    private let ended: @Sendable () -> LaunchSnapshot.Found?
+    private let finished: @Sendable () async -> LaunchSnapshot.Found
+
+    /// - Parameters:
+    ///   - session: The session whose snapshot it reads.
+    ///   - ended: What the read found, from any thread and never waiting; nil while it runs.
+    ///   - finished: What the read found, once it has ended (the caller suspends; no thread waits).
+    public init(session: String, ended: @escaping @Sendable () -> LaunchSnapshot.Found?,
+                finished: @escaping @Sendable () async -> LaunchSnapshot.Found) {
+        (self.session, self.ended, self.finished) = (session, ended, finished)
+    }
+
+    /// What the read found, never waiting; nil while it runs.
+    public var found: LaunchSnapshot.Found? { ended() }
+
+    /// What the read found, once it has ended.
+    public func result() async -> LaunchSnapshot.Found { await finished() }
 }
