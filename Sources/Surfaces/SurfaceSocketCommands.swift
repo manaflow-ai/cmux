@@ -125,12 +125,12 @@ extension TerminalController {
             }
             let destination = options.open ? surfaceNewDisplayDestination(params) : nil
             if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
-            return v2VmCall(id: id, timeoutSeconds: 240) {
-                do {
-                    return try await Self.surfaceNewDisplay(options, destination: destination)
-                } catch is SurfaceDisplayCreationBusy {
-                    return Self.surfaceNewDisplayBusyError(id: id)
-                }
+            return v2VmCall(
+                id: id,
+                timeoutSeconds: 240,
+                mapError: { $0 is SurfaceDisplayCreationBusy ? self.surfaceNewDisplayBusyError(id: id) : nil }
+            ) {
+                try await Self.surfaceNewDisplay(options, destination: destination)
             }
 
         default:
@@ -168,7 +168,7 @@ extension TerminalController {
                 id: request.id, method: request.method, isV2: true, error: timeout
             )
         } catch is SurfaceDisplayCreationBusy {
-            return Self.surfaceNewDisplayBusyError(id: id)
+            return surfaceNewDisplayBusyError(id: id)
         } catch is CancellationError {
             return v2Error(
                 id: id,
@@ -256,12 +256,9 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func surfaceNewDisplayBusyError(id: Any?) -> String {
-        guard let idValue = JSONValue(foundationObject: id) else {
-            return ControlResponseEncoder.encodeFailureResponse
-        }
-        return Self.v2Encoder.error(
-            id: idValue,
+    private nonisolated func surfaceNewDisplayBusyError(id: Any?) -> String {
+        v2Error(
+            id: id,
             code: "busy",
             message: String(
                 localized: "socket.surface.newDisplay.busy",

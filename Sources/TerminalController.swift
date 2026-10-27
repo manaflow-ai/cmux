@@ -4329,6 +4329,7 @@ class TerminalController {
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         daemonUnavailableMessage: String? = nil,
+        mapError: (Error) -> String? = { _ in nil },
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4361,6 +4362,8 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            // A caller's own error codes come first; the timeout above never reaches them.
+            if let mapped = mapError(error) { return mapped }
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
