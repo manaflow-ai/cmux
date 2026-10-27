@@ -187,8 +187,8 @@ struct CloudMachineUpdateTargetTests {
     }
 
     /// A machine that serves every capability this app uses but runs an older build is updated
-    /// too (tidy-yellow-tern, 2026-10-27: on 8b3b1891 it served everything, so no app update ever
-    /// reached it and its ledger had no `cloud:` entry). The CLI's `--if-older` decides older.
+    /// too (2026-10-27: a VM on 8b3b1891 served everything, so no app update ever reached it and
+    /// the app's ledger had no `cloud:` entry). The CLI's `--if-older` decides older.
     @Test func aMachineThatServesEverythingOnAnOlderBuildIsUpdated() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .current,
                                        answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])

@@ -587,8 +587,8 @@ fn machine_update_to_bundled_updates_a_machine_of_another_build_that_serves_ever
 /// The app's automatic update (`--to-bundled --if-older`): a machine of
 /// another build that serves every verb is updated when its build time is
 /// older than this client's, and left alone, not restarted, when it is newer
-/// (2026-10-27: no app update reached tidy-yellow-tern, which served every
-/// verb this app uses, because the app could not tell older from newer).
+/// (2026-10-27: no app update reached a VM on 8b3b1891 that served every
+/// verb the app uses, because the app could not tell older from newer).
 #[test]
 fn machine_update_if_older_updates_only_an_older_machine() {
     let shipped = fs::read(bin()).unwrap();

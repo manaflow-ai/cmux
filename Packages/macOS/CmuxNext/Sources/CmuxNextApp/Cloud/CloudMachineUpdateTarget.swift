@@ -67,7 +67,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// cmux-tui both report): a machine on a newer build answers `not_older` and is left alone
     /// (``DaemonUpdateOutcome/handledElsewhere``). Until 2026-10-27 a machine that served every
     /// capability this app uses was never updated automatically, so it stayed on its image's
-    /// build after every app update (tidy-yellow-tern on 8b3b1891).
+    /// build after every app update (a VM on 8b3b1891 under an app on 52b77ef2f).
     func currentBuild() async -> String? {
         guard enabled(), let daemon = await source.daemon(), daemon.level != .incompatible,
               let build = daemon.build, !build.isEmpty else { return nil }
