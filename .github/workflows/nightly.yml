@@ -1948,16 +1948,10 @@ jobs:
               ;;
           esac
 
-      # cmux NEXT Nightly takes its compiled, unsigned app from an earlier nightly-next build when
-      # nothing it is built from changed (scripts/ci/nightly_release_product_reuse.py). The key is
-      # job_input_fingerprint.py nightly-release-product: the tree minus docs, tests and other
-      # products, this workflow, decide's outputs below, Xcode, the SDK and the cmux-tui tree; never
-      # a branch, commit or run. A record is taken only from this repository's own push run of this
-      # workflow on nightly-next whose build-nightly-app succeeded, with its archive's SHA-256
-      # checked; DEV records are another namespace and are never read. A hit unpacks the app and its
-      # dSYMs and skips every step that only feeds xcodebuild; the version, build number and
-      # CMUXCommit are stamped later, and signing, notarization and publication always run.
-      # vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE=0 switches the lookup off.
+      # Reuse the unsigned app of an earlier nightly-next build on the same inputs
+      # (scripts/ci/nightly_release_product_reuse.py has the key and trust rules). A hit skips the
+      # steps that only feed xcodebuild; stamping, signing and notarization always run.
+      # vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE=0 switches the lookup and the record off.
       - name: Look up the nightly app compiled on the same inputs
         id: nightly-product
         if: inputs.nightly_next_unsigned_run == '' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true'
@@ -2758,13 +2752,10 @@ jobs:
           [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
 
       # A failed or cancelled job leaves no background helper build running.
-      # The record a later nightly-next build on the same inputs looks up (Look up the nightly app
-      # compiled on the same inputs): the products as this job hands them on, their SHA-256 and
-      # where they were compiled. A build without the Chromium engine or the remote browser host
-      # (unreadable optional inputs) is never recorded.
+      # The record a later build looks up; record=true only on a fresh VM that started clean.
       - name: Pack the nightly app for reuse
         id: nightly-product-pack
-        if: success() && steps.nightly-product.outputs.key != ''
+        if: success() && steps.nightly-product.outputs.record == 'true'
         continue-on-error: true
         env:
           KEY: ${{ steps.nightly-product.outputs.key }}
