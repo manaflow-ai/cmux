@@ -62,14 +62,17 @@ struct TerminalAttachmentFrameTests {
         queue.finish()
         let events = await Self.drain(queue)
 
-        #expect(events == [
-            .output(bytes[0 ..< 200], colors: nil),
+        var copiedRun = Data(bytes[0 ..< 50])
+        copiedRun.append(bytes[250 ..< 300])
+        let expected: [TerminalChannelEvent] = [
+            .output(Data(bytes[0 ..< 200]), colors: nil),
             .output(Data("decoded".utf8), colors: nil),
-            .output(bytes[0 ..< 50] + bytes[250 ..< 300], colors: nil),
-            .output(bytes[100 ..< 120], colors: nil),
+            .output(copiedRun, colors: nil),
+            .output(Data(bytes[100 ..< 120]), colors: nil),
             .resized(TerminalReplay(cols: 80, rows: 24, data: Data())),
-            .output(bytes[120 ..< 140], colors: nil),
-        ])
+            .output(Data(bytes[120 ..< 140]), colors: nil),
+        ]
+        #expect(events == expected)
         #expect(stats.snapshot().outputBytesCopiedApp == 100)  // only the merge across buffer regions copied
         guard case .output(let joined, _) = events.first else { return }
         #expect(Self.address(joined) == Self.address(buffer.bytes))  // the joined slice starts in the buffer
@@ -92,12 +95,15 @@ struct TerminalAttachmentFrameTests {
         queue.finish()
         let events = await Self.drain(queue)
 
-        let chunks = (0 ..< 8).map { Data(Self.bytes(0x61 + UInt8($0), count: 4096)) }
-        #expect(events == [
+        let chunks: [Data] = (0 ..< 8).map { Data(Self.bytes(0x61 + UInt8($0), count: 4096)) }
+        let firstHalf = Data(chunks[0 ..< 4].joined())
+        let secondHalf = Data(chunks[4 ..< 8].joined())
+        let expected: [TerminalChannelEvent] = [
             .replay(TerminalReplay(cols: 80, rows: 24, data: Data("replayed-screen-bytes".utf8))),
-            .output(Data(chunks[0 ..< 4].joined()), colors: nil),
-            .output(Data(chunks[4 ..< 8].joined()), colors: nil),
-        ])
+            .output(firstHalf, colors: nil),
+            .output(secondHalf, colors: nil),
+        ]
+        #expect(events == expected)
         #expect(stats.snapshot().outputBytesCopiedApp == 8 * 4096)
     }
 
