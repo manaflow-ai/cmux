@@ -138,6 +138,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
     /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
     var engineVisible = false
+    /// The served web files changed while the page was hidden or frozen (``WebUIHost/webBundleDidChange()``):
+    /// it reloads as it shows (``setEngineVisible(_:)``).
+    var bundleStale = false
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {

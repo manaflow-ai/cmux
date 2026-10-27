@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
-import CmuxNextPages
+package import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
 public import CmuxNextWakeups
@@ -12,10 +12,12 @@ import Observation
 /// bundled web output sits in an update, starts the launch check of the kept update before a
 /// page loads, follows `updates.web`, and makes a ready update the served one at a safe point
 /// (``WebSwapGate``, WebUpdates+SafePoint.swift): at once while no page shows, else once nobody has
-/// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
-/// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
-/// open pages keep the files they started with, so a page never mixes two builds' chunks.
-/// The App starts it with ``prepare(_:bundle:files:energy:shown:)`` and calls ``follow(_:bundle:)`` with each `updates.*` read.
+/// touched cmux for a while (or it has been behind other apps for a moment) and every shown page
+/// answers that a reload keeps what it holds. The swap goes through the page host
+/// (``WebBundleHost/webBundleDidChange()``): shown pages reload in place, hidden and frozen ones reload
+/// when they show, and the preload is made again. Until then a page keeps the files it started with
+/// (``WebBundleOverlay/Pin``), so it never mixes two builds' chunks.
+/// The App starts it with ``prepare(_:bundle:files:energy:shown:pages:)`` and calls ``follow(_:bundle:)`` with each `updates.*` read.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
 @Observable
 public final class WebUpdates {
@@ -48,9 +50,17 @@ public final class WebUpdates {
     @ObservationIgnored private var started = false
     /// The lanes the updater reads its trusted keys on (``WebUpdater/KeySource/bundled(_:)``), the
     /// app's Energy Saver policy and its shown windows (nil: checks whether or not one shows), from
-    /// ``prepare(_:bundle:files:energy:shown:)``; web updates start only once they are known.
+    /// ``prepare(_:bundle:files:energy:shown:pages:)``; web updates start only once they are known.
     @ObservationIgnored private var inputs: (files: BackgroundWork, energy: EnergyPolicySource, shown: ShownWindows?)?
     @ObservationIgnored private var shownObservation: ShownWindowsObservation?
+    /// The page host a swap goes through (the app's `WebUIHost`), read only once an update is ready;
+    /// nil in a build with no pages: no page shows, and a swap reloads none.
+    @ObservationIgnored var pages: @MainActor () -> (any WebBundleHost)? = { nil }
+    /// The served web update the pages read (tests pass their own).
+    @ObservationIgnored var overlay: WebBundleOverlay = .shared
+    /// In place of the app's state at a look (focus, input, a sheet; ``WebSwapGate/app(pagesShown:active:idle:blocked:away:)``):
+    /// tests decide it. Takes whether a page shows.
+    @ObservationIgnored var appGate: (@MainActor (Bool) -> WebSwapGate.Decision)?
 
     /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
     static func isAvailable(_ bundle: Bundle) -> Bool {
@@ -61,10 +71,13 @@ public final class WebUpdates {
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
     /// bundled web even while the settings observer is still starting. `files` is the app's
     /// blocking-work lanes (its one `BackgroundWork`). Checks wait `energy`'s poll stretch, and
-    /// with `shown`, none is booked while no cmux window shows (p14-energy-032).
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, files: BackgroundWork,
-                        energy: EnergyPolicySource, shown: ShownWindows?) {
+    /// with `shown`, none is booked while no cmux window shows (p14-energy-032). `pages` gives the
+    /// app's page host once it exists: a swap reloads its shown pages and marks the others.
+    package func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, files: BackgroundWork,
+                        energy: EnergyPolicySource, shown: ShownWindows?,
+                        pages: @escaping @MainActor () -> (any WebBundleHost)?) {
         inputs = (files, energy, shown)
+        self.pages = pages
         start(bundle: bundle, settings: settings)
     }
 
@@ -78,7 +91,7 @@ public final class WebUpdates {
               let app = WebUpdater.App.bundled(pages: pages, infoPlist: bundle.bundleURL.appending(path: "Contents/Info.plist")),
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
         else { return }
-        let overlay = WebBundleOverlay.shared
+        let overlay = self.overlay
         if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
             overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
         }
@@ -90,7 +103,8 @@ public final class WebUpdates {
             self?.handedOver = true
             self?.ready(tree, version: pointer)
         }
-        updater.served = { WebBundleOverlay.shared.activeTree }
+        // The active folder and each one a kept document still loads from: none is pruned.
+        updater.served = { overlay.liveTrees }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         if let shown = inputs.shown {
@@ -99,7 +113,7 @@ public final class WebUpdates {
         }
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
-        if WebBundleServedViews.shared.isEmpty {
+        if !overlay.hasServedDocument {
             launchServed = true
             overlay.load { await updater.launchTree() }
         } else {
@@ -130,7 +144,7 @@ public final class WebUpdates {
         })
     }
 
-    /// `updates.*`: the channel and what downloads may use. Starts web updates once ``prepare(_:bundle:files:energy:shown:)`` gave the lanes.
+    /// `updates.*`: the channel and what downloads may use. Starts web updates once ``prepare(_:bundle:files:energy:shown:pages:)`` gave the lanes.
     public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
         start(bundle: bundle)
         guard let updater else { return }
@@ -162,7 +176,8 @@ public final class WebUpdates {
         scheduleSafePoint()
     }
 
-    /// Serves the pending folder now and reloads the pages; returns how many reloaded.
+    /// Serves the pending folder now; the shown pages reload and the others reload when they show.
+    /// Returns how many reloaded now.
     @discardableResult
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
@@ -171,10 +186,10 @@ public final class WebUpdates {
         safePoint.cancel()
         let version = pendingVersion
         swapped = .some(version)
-        guard WebBundleOverlay.shared.activate(tree) else { return 0 }
+        guard overlay.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        let reloaded = WebBundleServedViews.shared.reloadServed()
+        let reloaded = pages()?.webBundleDidChange() ?? 0
         // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
         if reloaded > 0 { unseenNote = nil }
         if reloaded > 0, let version { note(version.updatedNote) }

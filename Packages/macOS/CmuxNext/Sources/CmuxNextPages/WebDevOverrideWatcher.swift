@@ -1,29 +1,27 @@
 import CmuxNextSettings
 public import Foundation
-public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
-/// ``WebDevOverride/current`` and reloads every web view the page and agent pane scheme handlers
-/// served on a change (``WebBundleServedViews``, the one list a web UI update also reloads). Does
-/// nothing unless ``WebDevOverride/isEnabled``.
+/// ``WebDevOverride/current`` and, on a change, calls ``onChange``: its ``WebUIHost`` reloads the
+/// pages that show and marks the others to reload when they show (``WebUIHost/webBundleDidChange()``),
+/// the same path a web UI update takes. Does nothing unless ``WebDevOverride/isEnabled``.
+///
+/// The host owns the one watcher (``WebUIHost/devOverride``) and starts it at its first page open,
+/// so a launch that shows no page reads nothing (the first page loads bundled and reloads once the
+/// file is read).
 public final class WebDevOverrideWatcher {
-    public static let shared = WebDevOverrideWatcher()
-
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?
     private var file: URL?
     private let home = FileManager.default.homeDirectoryForCurrentUser
     private var readTask: Task<Void, Never>?
     private var readRequested = false
+    /// The override changed: the served pages take it.
+    var onChange: @MainActor () -> Void
 
-    /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
-    /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
-    /// first one starts the watch, so a launch that shows no page reads nothing (the first page
-    /// loads bundled and reloads once the file is read).
-    public func served(_ webView: WKWebView) {
-        guard WebDevOverride.isEnabled else { return }
-        WebBundleServedViews.shared.add(webView)
-        start()
+    /// - Parameter onChange: Called after each change of ``WebDevOverride/current``.
+    public init(onChange: @escaping @MainActor () -> Void = {}) {
+        self.onChange = onChange
     }
 
     /// Arms the watch on `web-dev.json` in `configDirectory` (nil: next to `cmux-next.json`) and
@@ -68,7 +66,7 @@ public final class WebDevOverrideWatcher {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
         // The same URL again: the scheme handler answers it from where the override now says.
-        WebBundleServedViews.shared.reloadServed()
+        onChange()
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.

@@ -1,6 +1,5 @@
 import CmuxNextCompat
 public import Foundation
-public import WebKit
 
 /// The verified web update the app serves ahead of the web bundles it shipped with
 /// (plans/cmux-next/web-ota.md).
@@ -22,6 +21,14 @@ public import WebKit
 /// Only the app's web updater activates a folder, after it checked the folder against a
 /// signed pointer (``load(_:)`` at launch, ``activate(_:)`` for a new update); nothing a page
 /// or a file says can point the app at other files.
+///
+/// A swap does not move a running document to the new files. Each document holds a ``Pin`` on the
+/// tree it loaded from (the scheme handler takes one per main document load), and every later
+/// request of that document, its lazy page chunks and `cmux.shared` chunks included, comes from
+/// that tree (``root(for:pin:)``); ``liveTrees`` keeps the updater from pruning a pinned tree. A
+/// hidden or frozen page that keeps its old document after a swap therefore never mixes two
+/// builds' chunks, as Chrome keeps a renderer on the resources its document committed with until it
+/// navigates (content/browser/renderer_host/navigation_controller_impl.cc, `SetNeedsReload`).
 public nonisolated final class WebBundleOverlay: Sendable {
     public static let shared = WebBundleOverlay()
 
@@ -44,6 +51,34 @@ public nonisolated final class WebBundleOverlay: Sendable {
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
+        /// How many live documents loaded from each update folder (``Pin``).
+        var pins: [URL: Int] = [:]
+        /// A document was served (it took a pin), bundled or from an update.
+        var servedDocument = false
+    }
+
+    /// A live document's hold on the update folder it loaded from (nil: the bundle). While the
+    /// document lives its requests are served from ``tree`` (``root(for:pin:)``) and the folder stays
+    /// in ``liveTrees``; the hold ends when the pin is freed (the document's next load replaces it, or
+    /// its web view goes).
+    public nonisolated final class Pin: Sendable {
+        /// The update folder the document loaded from; nil for the bundled web.
+        public let tree: URL?
+        private let overlay: WebBundleOverlay
+
+        fileprivate init(tree: URL?, overlay: WebBundleOverlay) {
+            self.tree = tree
+            self.overlay = overlay
+            if let tree { overlay.state.withLock { $0.pins[tree, default: 0] += 1 } }
+        }
+
+        deinit {
+            guard let tree else { return }
+            overlay.state.withLock { held in
+                let left = (held.pins[tree] ?? 1) - 1
+                held.pins[tree] = left > 0 ? left : nil
+            }
+        }
     }
 
     private let state: Mutex<State>
@@ -100,13 +135,42 @@ public nonisolated final class WebBundleOverlay: Sendable {
     /// The update folder served now, nil for the bundle (or while the launch check runs).
     public var activeTree: URL? { state.withLock { $0.tree } }
 
-    /// The folder to serve a request for the bundled root `bundled` from.
-    public func root(for bundled: URL) async -> URL {
-        let (pending, tree, bases) = state.withLock { ($0.pending, $0.tree, $0.bases) }
-        var active = tree
-        if let pending { active = await pending.value }
+    /// The update folders the app serves now: the active one and each one a live document still
+    /// loads from (``Pin``). The updater never prunes them.
+    public var liveTrees: [URL] {
+        state.withLock { held in
+            var trees = held.pins.keys.sorted { $0.path < $1.path }
+            if let tree = held.tree, !trees.contains(tree) { trees.insert(tree, at: 0) }
+            return trees
+        }
+    }
+
+    /// Pins the folder a document that starts loading now is served from (after the launch check).
+    public func pin() async -> Pin {
+        let tree = await currentTree()
+        state.withLock { $0.servedDocument = true }
+        return Pin(tree: tree, overlay: self)
+    }
+
+    /// Whether a document already loaded its files (a launch that shows no page yet has none): a kept
+    /// update found after that waits for a safe point.
+    public var hasServedDocument: Bool { state.withLock { $0.servedDocument } }
+
+    /// The folder to serve a request for the bundled root `bundled` from: inside `pin`'s folder for
+    /// a request of a pinned document, else inside the folder served now.
+    public func root(for bundled: URL, pin: Pin? = nil) async -> URL {
+        let active: URL?
+        if let pin { active = pin.tree } else { active = await currentTree() }
         guard let active else { return bundled }
+        let bases = state.withLock { $0.bases }
         return Self.mapped(bundled, tree: active, bases: bases) ?? bundled
+    }
+
+    /// The folder served now, once the launch check settled.
+    private func currentTree() async -> URL? {
+        let (pending, tree) = state.withLock { ($0.pending, $0.tree) }
+        if let pending { return await pending.value }
+        return tree
     }
 
     /// `bundled` inside `tree` when one of `bases` holds it, else nil.
@@ -121,33 +185,5 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     static func realPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-}
-
-/// The web views the page and agent pane scheme handlers served, so an update that becomes
-/// active reloads them in place (``reloadServed()``).
-public final class WebBundleServedViews {
-    public static let shared = WebBundleServedViews()
-
-    private let webViews = NSHashTable<WKWebView>.weakObjects()
-
-    /// Whether no handler served a view yet (a launch that shows no page).
-    public var isEmpty: Bool { webViews.allObjects.isEmpty }
-
-    /// Adds `webView`, which a bundled page scheme handler is serving.
-    public func add(_ webView: WKWebView) {
-        webViews.add(webView)
-    }
-
-    /// The served views that show a document.
-    public var shown: [WKWebView] { webViews.allObjects.filter { $0.url != nil } }
-
-    /// Reloads every served view that shows a document; the scheme handler answers the same URLs
-    /// from the folder now active. Returns how many it reloaded.
-    @discardableResult
-    public func reloadServed() -> Int {
-        let shown = shown
-        for webView in shown { webView.reload() }
-        return shown.count
     }
 }

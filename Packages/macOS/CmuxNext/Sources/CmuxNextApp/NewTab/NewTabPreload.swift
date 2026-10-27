@@ -113,6 +113,8 @@ final class NewTabPreload {
         // New Tab is the slot's default preload: when another page leaves the slot, it arms its own
         // (its own take arms the next one; its own drop arms none, so `drop_spare` leaves it cold).
         slot.onEmptied = { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
+        // A web update dropped its own page: it makes one again from the new files.
+        slot.onStaleDropped = { [weak self] key in if key == NewTabPreload.key { self?.scheduleWarm() } }
     }
 
     // MARK: Reading

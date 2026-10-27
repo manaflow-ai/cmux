@@ -29,14 +29,14 @@ extension PageWebView {
     /// - Returns: Chromium, or WebKit and why.
     public static func engineDecision(for descriptor: PageDescriptor, options: PageEngineOptions,
                                       hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting) -> PageEngineDecision {
-        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
-        // whose first page is a Chromium one still reads web-dev.json.
-        if hosting != nil { WebDevOverrideWatcher.shared.start() }
+        // A live web override reaches only WebKit pages. Its watch is armed by the page's host at its
+        // first open in either engine (``WebUIHost/devOverride``), so a launch whose first page is a
+        // Chromium one still reads web-dev.json.
         return engineDecisionNow(for: descriptor, options: options, hosting: hosting)
     }
 
-    /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
-    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    /// ``engineDecision(for:options:hosting:)`` with the Chromium host given: for a caller that only asks
+    /// where a page would show (``PageHostPool/servesOpens(hosting:)``).
     ///
     /// - Parameters:
     ///   - descriptor: The page.
@@ -71,7 +71,9 @@ extension PageWebView {
     /// page thaws before it shows, whichever path showed it (``thawPage()``, which runs its held
     /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
     /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
-    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
+    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``); a page
+    /// whose web files changed while it was hidden reloads as it shows (``bundleStale``), unless its
+    /// crash reload already loads it.
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
@@ -79,7 +81,10 @@ extension PageWebView {
         chromiumSession?.page.setVisible(visible)
         chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
+        let reloadsStale = visible && bundleStale && !crash.needsReload
+        if visible { bundleStale = false }
         crash.engineVisibilityChanged(visible, page: self)
+        if reloadsStale { reloadPage() }
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif

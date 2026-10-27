@@ -77,15 +77,19 @@ server and overlay (#22664) stay ahead of an update, and an update stays ahead o
 Pages hosted in Chromium keep their bundled files for now.
 
 A new update never changes what an open page loads: a page's lazy chunks must come from the build
-its document came from. `WebUpdates` holds a ready tree as pending and swaps it in at a safe point,
-then reloads every page and agent pane the handlers served (`WebBundleServedViews`). The safe
+its document came from. `WebUpdates` holds a ready tree as pending and swaps it in at a safe point
+through the page host (`WebUIHost.webBundleDidChange`, chrome-parity task p13-webui-071): the shown
+pages reload, hidden and frozen pages are marked and reload when they show, and the preload slot
+drops its page and makes it again. Each document pins the tree it loaded from
+(`WebBundleOverlay.Pin`), so a kept document loads its lazy chunks and `cmux.shared` files from its
+own tree, and the updater prunes no pinned tree. A `web-dev.json` change takes the same path. The safe
 point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what someone is doing:
 
 - no page shows: at once;
 - the app has a modal window or sheet open, or is tracking a menu: look again in 15 seconds;
 - cmux is in the front: no keyboard, pointer, scroll or click input for 30 seconds (the session's
   `CGEventSource` idle time; no event monitor); behind other apps: 3 seconds after it left;
-- then every served page answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
+- then every shown page answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
   installed with the desktop layer) within a second, null when a reload keeps everything it holds.
   It says why not while a component holds it (a prompt the host has not taken, a screenshot being
   read, dictation, shell mode, a new chat's prompt with no chat to keep it, chips the host does not
@@ -93,7 +97,7 @@ point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what
   yet), while an input method composes, while text is selected, while a field has the keyboard that
   does not take it back (the composer does) or its caret is before the end, while a menu, popover
   or dialog is open, or while a scroller other than the transcript is away from its start. A page
-  that does not answer is busy.
+  that does not answer is busy. A hidden or frozen page is never asked, so it never holds the swap.
 
 Any wait looks again in 15 seconds (one DemandTimer, `web-updates.safe-point`, which stops once
 nothing is pending); `updates.web.status` `waiting_for` names the last reason. A reload keeps a

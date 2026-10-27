@@ -318,12 +318,12 @@ import Testing
         server.etag = "\"2\""
         await updater.check()
         // Pages still load the second update's files when it is rolled back.
-        var served: URL? = store.tree(for: second.key).root
+        var served = [store.tree(for: second.key).root]
         updater.served = { served }
         try await updater.rollBack()
         #expect(FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
         // The safe point swapped the first one in: now the second goes.
-        served = store.tree(for: first.key).root
+        served = [store.tree(for: first.key).root]
         await updater.pruneUnused()
         #expect(!FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
         #expect(FileManager.default.fileExists(atPath: store.tree(for: first.key).root.path))

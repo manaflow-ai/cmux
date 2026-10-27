@@ -69,6 +69,10 @@ public final class WebUIHost {
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
+    /// Follows `web-dev.json` (``WebDevOverride``): a change reaches the pages as a web update does
+    /// (``webBundleDidChange()``). Armed at the first page open, so a launch that shows no page reads
+    /// nothing; the first page loads bundled and reloads once the file is read.
+    public let devOverride = WebDevOverrideWatcher()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
@@ -106,6 +110,7 @@ public final class WebUIHost {
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
+        devOverride.onChange = { [weak self] in _ = self?.webBundleDidChange() }
         preloadMemory = SpareMemoryConsumer(
             name: "webui-preload", registry: memory, spares: { [weak self] in self?.preload?.count ?? 0 },
             drop: { [weak self] in self?.preloadLevelDidChange() }, refill: { [weak self] in self?.preloadLevelDidChange() })
@@ -127,6 +132,7 @@ public final class WebUIHost {
     /// - Returns: The view, or nil when the page has no root it may be served from (missing from
     ///   the bundle, or a first-party page asked for at another root).
     public func open(_ request: PageOpenRequest) -> PageWebView? {
+        devOverride.start() // once; nothing unless the override is available
         guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel, registry: registry,
                                      processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
@@ -183,5 +189,27 @@ public final class WebUIHost {
     /// The pages this host opened and has not closed, oldest first.
     public var openPages: [PageWebView] {
         opened.allObjects.sorted { registry.instance(of: $0) < registry.instance(of: $1) }
+    }
+}
+
+// The served web files change (a web UI update at its safe point, a `web-dev.json` change): only the
+// pages a person sees are asked and reloaded (p13-webui.md 3.C, task 071).
+extension WebUIHost: WebBundleHost {
+    /// Every live page of the host's registry, which lists the pages it opened and, in the app, the
+    /// views made outside it while the static forwarders remain (p13-webui-010); not the preloaded
+    /// page, which nobody sees and the swap makes again.
+    package var webBundlePages: [any WebBundlePage] {
+        let preloaded = preload?.page?.preloadView
+        return registry.pages().filter { page in preloaded.map { !page.isDescendant(of: $0) } ?? true }
+    }
+
+    /// Shown pages reload now; hidden and frozen ones are marked and reload when they show
+    /// (``PageWebView/bundleStale``), so a frozen page is never woken. The preloaded page is dropped
+    /// and made again from the new files. A document kept meanwhile keeps loading its lazy chunks
+    /// from the files it started with (``WebBundleOverlay/Pin``).
+    @discardableResult
+    package func webBundleDidChange() -> Int {
+        preload?.dropStale()
+        return reloadShownMarkingOthers(webBundlePages)
     }
 }

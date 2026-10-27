@@ -84,9 +84,11 @@ public final class WebUpdater {
     /// Whether downloads may use Low Data Mode and expensive links (`updates.meteredNetwork`).
     @ObservationIgnored public var allowsConstrained = false
     @ObservationIgnored public var allowsExpensive = true
-    /// The folder the app serves now; it is never pruned, even after a newer update or a roll
-    /// back, until the next safe point swaps it out (``pruneUnused()``).
-    @ObservationIgnored public var served: () -> URL? = { nil }
+    /// The folders the app serves now: the active one and each one a live document still loads its
+    /// files from (a hidden or frozen page kept across a swap). None is pruned, even after a newer
+    /// update or a roll back, until the safe point swapped it out and its last document went
+    /// (``pruneUnused()``).
+    @ObservationIgnored public var served: () -> [URL] = { [] }
     /// Whether cmux is in the front: checks come every ``interval`` there and every
     /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
     @ObservationIgnored public var foreground = true
@@ -398,9 +400,9 @@ public final class WebUpdater {
         onReady(pointer.map { store.tree(for: $0.key).root }, pointer)
     }
 
-    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: URL? = nil) async throws {
+    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: [URL] = []) async throws {
         try store.write(state)
-        store.prune(keeping: state.keptKeys.union([served?.lastPathComponent].compactMap { $0 }))
+        store.prune(keeping: state.keptKeys.union(served.map(\.lastPathComponent)))
     }
 
     /// Removes the kept trees nothing serves or may serve; the app calls it after a safe point.
@@ -408,7 +410,7 @@ public final class WebUpdater {
         // A check in flight may be unpacking into staging or keeping a tree it has not saved
         // yet; its own save prunes.
         guard phase != .checking, phase != .downloading else { return }
-        let store = store, keys = state.keptKeys.union([served()?.lastPathComponent].compactMap { $0 })
+        let store = store, keys = state.keptKeys.union(served().map(\.lastPathComponent))
         await Self.prune(store, keeping: keys)
     }
 

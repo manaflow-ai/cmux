@@ -133,6 +133,9 @@ public final class PagePreloadSlot {
     /// Chrome's preload manager preloads again once its contents are taken
     /// (webui_contents_preload_manager.cc, `Request`).
     public var onEmptied: (@MainActor (Key) -> Void)?
+    /// Called with the key of a page ``dropStale()`` dropped, after ``onEmptied``: its owner makes it
+    /// again, from the web files served now.
+    public var onStaleDropped: (@MainActor (Key) -> Void)?
     private let trace: @MainActor (Move, UInt64) -> Void
     /// Where the refit's quiet deadline and each cover's limit go (the app's `mainDeadlines`).
     private let deadlines: MainDeadlineScheduler
@@ -282,6 +285,14 @@ public final class PagePreloadSlot {
         held.page.preloadView.removeFromSuperview()
         held.page.close()
         onEmptied?(held.key)
+    }
+
+    /// The served web files changed (``WebUIHost/webBundleDidChange()``): the held page, loaded from
+    /// the old files, is dropped, and its owner makes it again (``onStaleDropped``).
+    public func dropStale() {
+        guard let key else { return }
+        drop()
+        onStaleDropped?(key)
     }
 
     /// The memory pressure changed (``WebUIHost``'s memory registration): anything but normal drops

@@ -324,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(
             launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
-            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil, pages: { [weak services] in services?.webUI })
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
