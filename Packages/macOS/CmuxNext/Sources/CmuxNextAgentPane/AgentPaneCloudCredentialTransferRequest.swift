@@ -7,17 +7,20 @@ public nonisolated struct AgentPaneCloudCredentialTransferRequest: Equatable, Se
     public let provider: Provider
     public let machineID: String
     public let sessionID: String
+    public let retryPromptID: String
 
     public static let method = "chat.cloudCredentialTransfer"
 
     @MainActor init?(params: [String: Any]?) {
-        guard let params, Set(params.keys) == ["provider", "machineID", "sessionId"],
+        guard let params, Set(params.keys) == ["provider", "machineID", "sessionId", "retryPromptId"],
               let raw = params["provider"] as? String, let provider = Provider(rawValue: raw),
               let machineID = AgentPaneCloudMachineRequest.machineID(params["machineID"]),
-              let sessionID = params["sessionId"] as? String, AgentPaneProcessViewer.isToken(sessionID)
+              let sessionID = params["sessionId"] as? String, AgentPaneProcessViewer.isToken(sessionID),
+              let retryPromptID = params["retryPromptId"] as? String, AgentPaneProcessViewer.isToken(retryPromptID)
         else { return nil }
         self.provider = provider
         self.machineID = machineID
         self.sessionID = sessionID
+        self.retryPromptID = retryPromptID
     }
 }

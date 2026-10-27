@@ -361,11 +361,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               type="button"
               className="cv-turn-auth-action"
               onClick={() => {
-                void transferCloudCredentials(row.retryRowId!, prompt)
-                  .then((transferred) => {
-                    if (transferred) retry?.(row.retryRowId!, prompt);
-                  })
-                  .catch(() => undefined);
+                void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
               }}
             >
               {t("turn.transferCredentials", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })}

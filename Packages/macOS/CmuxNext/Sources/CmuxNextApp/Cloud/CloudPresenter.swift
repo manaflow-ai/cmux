@@ -110,7 +110,7 @@ enum CloudPresenter {
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
             openTerminal: { [weak services] line in
-                services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false
+                await services?.openLocalProviderLogin(line) ?? false
             })
         do {
             try await transfer.run(api: services.cloud.api,
