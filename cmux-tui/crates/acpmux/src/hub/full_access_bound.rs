@@ -466,10 +466,14 @@ impl Hub {
     /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
     /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
-    /// #23322), or because the host records cannot be read while this daemon hears no agent of it
+    /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
+    /// or because the host records cannot be read while this daemon hears no agent of it
     /// (`host_unknown`).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        if Self::host_replaying(session).await {
             return true;
         }
         let records = Self::read_host_records();
@@ -489,6 +493,23 @@ impl Hub {
         match child {
             Some(child) => !child.is_alive().await,
             None => true,
+        }
+    }
+
+    /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:
+    /// what it kept while its link was down is unknown until then, so under MDM's off it counts as
+    /// full access, and its log is not read back (nor `left_host_read` kept) before the replay is
+    /// in it (review 1 of #26057).
+    ///
+    /// The wait for the agent slot is bounded, as an end's is (review 81 of #23322): a slot held
+    /// past it (a stop waiting on its host) keeps no push waiting. The replay is then not known,
+    /// so the agent counts as in full access; the end that follows marks itself pending while the
+    /// slot stays held (`end_managed_full_access`).
+    async fn host_replaying(session: &Session) -> bool {
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        match tokio::time::timeout(wait, session.child.lock()).await {
+            Ok(slot) => slot.as_ref().is_some_and(|c| c.replay_pending()),
+            Err(_) => true,
         }
     }
 
@@ -1425,6 +1446,23 @@ mod tests {
             crate::web_modes::mode_of(&chat.meta()).as_deref(),
             Some("strict"),
             "with MDM unset a stopped agent's queued report was dropped"
+        );
+    }
+
+    /// Review 3 of #26057: under MDM's off, `child_for`'s fast path does not hand out an agent
+    /// whose reattached host's replay is not all in the log (`ChildAgent::replay_pending`), though
+    /// what the chat holds of it asks: the start judges it, as the off's teardown does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_replaying_agent_is_not_handed_out_under_mdm_off() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        crate::agent::TEST_REPLAYING.store(first.generation, Ordering::SeqCst);
+        let next = hub.child_for(&chat).await;
+        crate::agent::TEST_REPLAYING.store(0, Ordering::SeqCst);
+        assert!(
+            next.as_ref().map_or(true, |next| next.generation != first.generation),
+            "an agent whose replay is not all in the log was handed out under MDM's off"
         );
     }
 
