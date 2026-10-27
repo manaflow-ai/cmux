@@ -1233,11 +1233,11 @@ class Soak:
         quit = self.setup.get("quit")
         code = quit["returncode"] if quit else 0
         if code != 0:
-            how = (f"did not take its quit request ({quit['error']})" if quit.get("error")
-                   else f"did not exit within {QUIT_WAIT_S} s" if code is None
+            how = (f"did not exit within {QUIT_WAIT_S} s" if code is None
                    else f"exited with signal {-code}" if code < 0 else f"exited with status {code}")
+            request = f"; the request itself got no reply: {quit['error']}" if quit.get("error") else ""
             (failures if self.args.blocking_checks else warnings).append(
-                f"quit: the app {how} after its quit request (it awaits work.shutdown() before it exits)")
+                f"quit: the app {how} after its quit request (it awaits work.shutdown() before it exits{request})")
         if any(e["kind"] == "chromium-loaded" for e in self.events):
             failures.append(f"invalid {self.args.app_config} run: Chromium loaded (its PartitionAlloc zone hides "
                             "allocations from the sanitizer)")
@@ -1362,16 +1362,20 @@ class Soak:
         """The app's own quit with end-everything, then BenchApp.stop for an app that is still up (debug.quit, then
         TERM and KILL of the PID it started); the tag's daemons are the soak's TagTeardown's. setup's `quit` is how an
         app still up at the end took its quit request: its return code (None: still running after QUIT_WAIT_S) and
-        the seconds it took."""
+        the seconds it took. The app's exit is the answer to the request: it may close its socket before it replies,
+        or reply late at the end of STRESS, so a failed request is kept as context and the exit wait still runs."""
         asked, failed = None, None
         try:
             self.write_config("end-everything")
             time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
             asked = time.monotonic()
-            Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
-            wait(lambda: self.bench.process.poll() is not None, QUIT_WAIT_S)
+            try:
+                Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
+            except (OSError, ValueError, KeyError) as error:
+                failed = f"{type(error).__name__}: {error}"
+                say(f"quit: the request got no reply ({failed}); waiting for the app to exit")
+            wait(lambda: self.bench.process.poll() is not None, QUIT_WAIT_S - (time.monotonic() - asked))
         except (OSError, ValueError, KeyError) as error:
-            failed = f"{type(error).__name__}: {error}"
             say(f"quit: {error}")
         finally:
             if asked is not None and self.app_exit is None:

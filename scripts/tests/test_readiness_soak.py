@@ -777,6 +777,52 @@ class NightlyReadoutTests(unittest.TestCase):
         clean = report_soak(args={"blocking_checks": True}, setup={"quit": {"returncode": 0, "seconds": 2, "error": None}})
         self.assertEqual(clean.report()["failures"], [])
 
+    def run_quit(self, request_error, exits_after_polls):
+        """Soak.quit() on a fake app: its quit request raises request_error (None: it replies) and its process exits 0
+        on poll number exits_after_polls (None: never). Returns the soak and the order of what happened."""
+        happened = []
+        soak = report_soak(args={"blocking_checks": True})
+        soak.socket, soak.app_exit = "/tmp/soak.sock", None
+        soak.write_config = lambda behavior: happened.append(("config", behavior))
+        polls = []
+
+        def poll():
+            polls.append(1)
+            return 0 if exits_after_polls is not None and len(polls) >= exits_after_polls else None
+        soak.bench = types.SimpleNamespace(process=types.SimpleNamespace(poll=poll),
+                                           stop=lambda: happened.append(("stop", poll())))
+
+        class FakeClient:
+            def __init__(self, path, timeout):
+                pass
+
+            def call(self, method, params):
+                happened.append((method, params["action"]))
+                if request_error is not None:
+                    raise request_error
+                return {"ok": True}
+        with mock.patch.object(soak_module, "Client", FakeClient), \
+                mock.patch.object(soak_module.time, "sleep", lambda seconds: None), \
+                mock.patch.object(soak_module, "say", lambda line: None):
+            soak.quit()
+        return soak, happened
+
+    def test_a_quit_whose_socket_closes_before_the_reply_still_waits_for_the_exit(self):
+        soak, happened = self.run_quit(ConnectionError("socket closed"), exits_after_polls=4)
+        self.assertEqual(soak.setup["quit"]["returncode"], 0)
+        self.assertEqual(soak.setup["quit"]["error"], "ConnectionError: socket closed")
+        self.assertEqual(happened, [("config", "end-everything"), ("action.run", "quit"), ("stop", 0)])
+        self.assertEqual(soak.report()["failures"], [])
+
+    def test_a_quit_that_never_exits_fails_with_the_request_error_as_context(self):
+        with mock.patch.object(soak_module, "QUIT_WAIT_S", 0.05):
+            soak, happened = self.run_quit(TimeoutError("timed out"), exits_after_polls=None)
+        self.assertIsNone(soak.setup["quit"]["returncode"])
+        self.assertEqual(happened[-1], ("stop", None))
+        self.assertIn("quit: the app did not exit within 90 s after its quit request (it awaits work.shutdown() "
+                      "before it exits; the request itself got no reply: TimeoutError: timed out)",
+                      soak.report()["failures"])
+
     def test_the_build_must_be_bench_checks_with_the_detectors_symbols(self):
         with tempfile.TemporaryDirectory() as app:
             os.makedirs(os.path.join(app, "Contents"))
