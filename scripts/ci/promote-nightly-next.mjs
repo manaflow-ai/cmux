@@ -531,17 +531,32 @@ export async function decide({
     if (error.status !== 404) throw error;
   }
   if (current === sha) return { action: 'skip', reason: `${TARGET} is already at ${sha}.`, sha, current };
+  const compare = comparer(github, owner, repo);
+  const supersededBy = async () => {
+    if (!current) return null;
+    const { status } = await compare(`${current}...${sha}`);
+    if (status !== 'behind') return { status };
+    return { status, decision: { action: 'skip', reason: `superseded by newer target: ${TARGET} is already at ${current}, which contains ${sha}; nothing promoted`, sha, current } };
+  };
   if (trainFirstParent !== null && trainFirstParent !== current) {
+    // A train already contained by a later nightly-next (a delayed or
+    // duplicate request) is a no-op like any other contained commit.
+    const contained = await supersededBy();
+    if (contained?.decision) return contained.decision;
     return refuse(`train commit ${sha} was made on ${trainFirstParent}, but ${TARGET} is at ${current || 'nothing'}; the next train starts from the new head`, { sha, current });
   }
 
   // The current nightly-next must be an ancestor of the target: compare
-  // status "ahead". "identical" was handled above; anything else refuses.
-  const compare = comparer(github, owner, repo);
+  // status "ahead". "identical" was handled above. "behind" means nightly-next
+  // already contains the target: a request that arrived after a newer one
+  // promoted (2026-10-27: requests for 00:30Z landings dispatched at 04:41Z
+  // failed with "is not an ancestor"). It is a no-op, not a failure. Anything
+  // else ("diverged") refuses.
   if (current) {
-    const data = await compare(`${current}...${sha}`);
-    if (data.status !== 'ahead') {
-      return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${data.status}); nothing promoted`, { sha, current });
+    const contained = await supersededBy();
+    if (contained.decision) return contained.decision;
+    if (contained.status !== 'ahead') {
+      return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${contained.status}); nothing promoted`, { sha, current });
     }
   }
 

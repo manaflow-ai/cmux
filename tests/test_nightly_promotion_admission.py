@@ -653,11 +653,20 @@ def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:
     assert "did not list them all" in out["decision"]["reason"]
 
 
-def test_a_diverged_or_behind_range_is_refused() -> None:
-    for status in ("diverged", "behind"):
-        out = run(scenario(rangeStatus=status))
-        assert out["decision"]["action"] == "refuse", (status, out["decision"])
-        assert "is not an ancestor" in out["decision"]["reason"]
+def test_a_diverged_range_is_refused() -> None:
+    out = run(scenario(rangeStatus="diverged"))
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "is not an ancestor" in out["decision"]["reason"]
+
+
+def test_a_request_nightly_next_already_contains_is_a_superseded_no_op() -> None:
+    # 2026-10-27: requests for 00:30Z landings, dispatched at 04:41Z after a
+    # newer commit was promoted, failed with "is not an ancestor". nightly-next
+    # already containing the commit is a quiet success that moves nothing.
+    out = run(scenario(rangeStatus="behind"))
+    assert out["decision"]["action"] == "skip", out["decision"]
+    assert "superseded by newer target" in out["decision"]["reason"], out["decision"]
+    assert out["ack"]["ok"] and not out["ack"].get("move"), out["ack"]
 
 
 def test_a_truncated_surface_tree_is_refused() -> None:
@@ -1019,6 +1028,14 @@ def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
     case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
     decision = run(case)["decision"]
     assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
+
+
+def test_a_train_commit_a_later_nightly_head_contains_is_a_superseded_no_op() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    case["rangeStatus"] = "behind"
+    decision = run(case)["decision"]
+    assert decision["action"] == "skip" and "superseded by newer target" in decision["reason"], decision
 
 
 def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
