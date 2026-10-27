@@ -215,3 +215,130 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
         assert!(skill.contains(phrase), "acpmux skill lacks {phrase}");
     }
 }
+
+/// The app's Computer Use Setup with both grants on, or not set up.
+fn setup_status(ready: bool) -> Value {
+    if ready {
+        json!({"phase": "ready", "accessibility": true, "screen_recording": true,
+               "helper": "cmux Computer Use", "driver": "legacy"})
+    } else {
+        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null,
+               "driver": "legacy"})
+    }
+}
+
+/// The `permissions.request` params among the app caller's requests.
+fn card_requests(fake_calls: &std::sync::Arc<std::sync::Mutex<Vec<Value>>>) -> Vec<Value> {
+    let calls = fake_calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c["method"] == "permissions.request")
+        .map(|c| c["params"].clone())
+        .collect()
+}
+
+fn computer_use_server(fake: Fake) -> Server<Fake> {
+    let mut server = Server::new(fake, None);
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    server
+}
+
+/// A computer use call made before setup used to wait 55 s inside the helper
+/// proxy with nothing on screen, then fail. Now it shows the app's card and
+/// runs once the person finished setup.
+#[test]
+fn a_computer_use_call_before_setup_shows_the_card_then_runs() {
+    let fake = Fake {
+        computer_use: Some(setup_status(false)),
+        setup_outcome: Some(json!({"kind": "computer_use", "outcome": "granted"})),
+        ..Fake::default()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = computer_use_server(fake);
+    let result = call(&mut server, "cua_look", json!({"x": 1}));
+    assert_ne!(result["isError"], true, "{result}");
+    assert_eq!(result["content"][0]["text"], "saw {\"x\": 1}", "{result}");
+    let requests = card_requests(&calls);
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert_eq!(requests[0]["kind"], "computer_use");
+    assert_eq!(requests[0]["reason"], "It wants to use apps on this Mac.", "{requests:?}");
+    let timeout = requests[0]["timeout_seconds"].as_u64().unwrap();
+    assert!((1..=300).contains(&timeout), "{timeout}");
+}
+
+#[test]
+fn a_ready_setup_runs_the_call_without_a_card() {
+    let fake = Fake {
+        computer_use: Some(setup_status(true)),
+        setup_outcome: Some(json!({"outcome": "denied"})),
+        ..Fake::default()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = computer_use_server(fake);
+    let result = call(&mut server, "cua_look", json!({}));
+    assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
+    assert!(card_requests(&calls).is_empty());
+    assert!(calls.lock().unwrap().iter().any(|c| c["method"] == "computer_use.status"));
+    // The read runs with the call, never on the server's dispatch thread.
+    let sent = server.backend.sent.borrow().clone();
+    assert!(!sent.iter().any(|sent| sent["method"] == "computer_use.status"), "{sent:?}");
+}
+
+/// Deny and an unfinished setup end the call with what to do next; the
+/// helper never runs.
+#[test]
+fn a_denied_or_unfinished_setup_answers_without_running_the_helper() {
+    for (outcome, code) in [
+        ("denied", "computer_use.denied"),
+        ("timed_out", "computer_use.setup_pending"),
+        ("unavailable", "computer_use.unavailable"),
+    ] {
+        let fake = Fake {
+            computer_use: Some(setup_status(false)),
+            setup_outcome: Some(json!({"outcome": outcome})),
+            ..Fake::default()
+        };
+        let mut server = computer_use_server(fake);
+        let result = call(&mut server, "cua_look", json!({}));
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["error"]["code"], code, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{result}");
+        assert!(!result.to_string().contains("saw"), "the helper ran: {result}");
+    }
+}
+
+/// Inside a script the card waits too, and the script goes on after it.
+#[test]
+fn a_script_waits_for_setup_and_goes_on() {
+    let fake = Fake {
+        computer_use: Some(setup_status(false)),
+        setup_outcome: Some(json!({"outcome": "granted"})),
+        ..Fake::with_actions()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = code_mode_server(fake);
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let ran =
+        call(&mut server, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["result"]["content"][0]["text"], "saw {\"x\": 2}", "{ran}");
+    // The script's own limit bounds the wait.
+    let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
+    assert!(timeout <= 300, "{timeout}");
+}
+
+/// Another chat server's tools never read the setup.
+#[test]
+fn other_servers_never_wait_for_computer_use_setup() {
+    let fake = Fake {
+        computer_use: Some(setup_status(false)),
+        setup_outcome: Some(json!({"outcome": "denied"})),
+        ..Fake::default()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = Server::new(fake, None);
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
+    let result = call(&mut server, "secrets_look", json!({}));
+    assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
+    assert!(calls.lock().unwrap().is_empty(), "another server read the setup");
+}
