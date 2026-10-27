@@ -577,6 +577,8 @@ impl Hub {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(mut p) => {
+                    #[cfg(debug_assertions)]
+                    self.claim_gap_report(&p);
                     // A dead or wedged host is ended; the session starts on
                     // a fresh host (`spawn_hosted_child`).
                     let asked = std::time::Instant::now();
@@ -920,10 +922,31 @@ pub(super) async fn end_pooled(p: Pooled) {
 #[cfg(debug_assertions)]
 fn adopt_report(p: &Pooled) {
     let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE") else { return };
-    let Ok(mode) = std::fs::read_to_string(file) else { return };
+    if let Ok(mode) = std::fs::read_to_string(file) {
+        hold_mode_report(p, mode.trim());
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Hub {
+    /// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_CLAIM_REPORT_FILE` names is held as
+    /// a report of `p`'s harness that came while a chat claimed it, out of both the ready and the
+    /// claimed entries, as the tap reports one; then MDM's off is unset (review 76 of #23322).
+    fn claim_gap_report(&self, p: &Pooled) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE") else { return };
+        let Ok(mode) = std::fs::read_to_string(file) else { return };
+        hold_mode_report(p, mode.trim());
+        self.pool_end_reported(&p.session_id);
+        self.update_start_mode_state(None, |s| s.full_access_managed = None);
+    }
+}
+
+/// Holds `mode` as a `current_mode_update` of `p`'s harness session (the seams above).
+#[cfg(debug_assertions)]
+fn hold_mode_report(p: &Pooled, mode: &str) {
     let sid = p.new_result.as_ref().and_then(|r| r["sessionId"].as_str()).unwrap_or_default();
     let update = json!({"sessionId": sid, "update": {"sessionUpdate": "current_mode_update",
-                                                     "currentModeId": mode.trim()}});
+                                                     "currentModeId": mode}});
     let msg = Message::Notification {
         method: crate::rpc::method::SESSION_UPDATE.to_owned(),
         params: Some(update),

@@ -101,6 +101,8 @@ impl Daemon {
             // A mode in this file is reported by the next pooled agent a chat takes, after the
             // take's check (debug builds' seam): `adopt_report`.
             .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
+            // The same while a chat claims it, and then MDM's off is unset: `claim-report`.
+            .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -784,6 +786,29 @@ async fn under_an_mdm_off_a_report_held_past_the_take_keeps_the_agent_from_the_c
     let refused = created["error"]["message"].as_str().is_some_and(|m| m.contains("full-access"));
     assert!(
         refused,
+        "a chat took a pooled agent that reported full access under the off: {created}"
+    );
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 76): a pooled agent that reports full
+/// access while a chat claims it, out of both the ready and the claimed entries, is not handed to
+/// the chat, though MDM's off is unset before the chat takes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_report_while_claimed_keeps_the_agent_from_the_chat_after_an_unset() {
+    let env = [("FAKE_NO_MODES", "1")];
+    let (daemon, mut rpc, kept) = prewarmed_under_an_off("faclaim", &env).await;
+    assert!(kept, "fakeb reports nothing before it is claimed, so it is kept");
+    std::fs::write(daemon.home.join("claim-report"), "bypassPermissions").unwrap();
+    let home = daemon.home.clone();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_default().to_owned();
+    assert!(
+        id.is_empty() || !taken(&daemon, &id),
         "a chat took a pooled agent that reported full access under the off: {created}"
     );
 }
