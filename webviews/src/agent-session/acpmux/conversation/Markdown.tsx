@@ -1049,6 +1049,8 @@ export function Markdown({
   }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
+  // A later token must not invalidate every completed code block's memoized props.
+  const artifactRevisions = useRef(new WeakMap<MdBlock, number | undefined>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
   // Only a revealed reply (RevealedMarkdown passes `fresh`) fades its newest text in.
   const freshTail: FreshTail | undefined =
@@ -1060,6 +1062,7 @@ export function Markdown({
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
   const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock, index: number) => {
+    if (!artifactRevisions.current.has(entry.block)) artifactRevisions.current.set(entry.block, artifactRevision);
     const live = !atMount.current!.has(entry.key);
     if (live && away) awayBlocks.current.add(entry.key);
     // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
@@ -1078,7 +1081,7 @@ export function Markdown({
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
         artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
-        artifactRevision={artifactRevision}
+        artifactRevision={artifactRevisions.current.get(entry.block)}
       />
     );
   };
