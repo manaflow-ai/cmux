@@ -75,7 +75,7 @@ import CmuxNextDesign
 /// The strip's public rename surface (`TabInlineRename`).
 extension TabStripView {
     /// Double-clicking a tab starts inline rename (the screen bar). Off by
-    /// default, so pane tab strips do not rename on double-click.
+    /// default: a pane tab strip's double-click zooms the pane (`toggleZoom`).
     public var renamesOnDoubleClick: Bool {
         get { inlineRename.enabledOnDoubleClick }
         set { inlineRename.enabledOnDoubleClick = newValue }

@@ -24,7 +24,7 @@ import {
   type VmIdleProbe,
 } from "../services/vms/idlePause";
 import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
-import { parseIdlePauseBody } from "../services/vms/idlePauseRoute";
+import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, vmRepositoryLiveShape, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { execVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
@@ -559,6 +559,20 @@ describe("pause reason and the per-machine setting", () => {
       }
     }
   });
+
+  test("a create takes the same choices as idlePauseMinutes, and none keeps the default", async () => {
+    expect(parseCreateIdlePause({})).toEqual({ ok: true, minutes: undefined });
+    expect(parseCreateIdlePause({ idlePauseMinutes: "off" })).toEqual({ ok: true, minutes: 0 });
+    for (const minutes of [0, 15, 30, 60, 120]) expect(parseCreateIdlePause({ idlePauseMinutes: minutes })).toEqual({ ok: true, minutes });
+    for (const idlePauseMinutes of [45, "30", null, true, [0]]) {
+      const parsed = parseCreateIdlePause({ idlePauseMinutes });
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.response.status).toBe(400);
+        expect(await parsed.response.json()).toMatchObject({ error: "invalid_idle_pause", details: { field: "idlePauseMinutes" } });
+      }
+    }
+  });
 });
 
 describe("CPU work with no terminal", () => {
@@ -795,6 +809,30 @@ describe("idle pause SQL", () => {
   };
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
   const repo = vmRepositoryLiveShape;
+
+  dbTest("a create stores its idle pause with the row, and a same-key retry keeps the first one", async () => {
+    const create = (idlePauseMinutes: 0 | 120 | undefined) => run(repo.beginCreate({
+      userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
+      maxActiveVms: null, idempotencyKey: `idle-create-${rowId}`, ...(idlePauseMinutes === undefined ? {} : { idlePauseMinutes }),
+    }));
+    const first = await create(0);
+    expect(first.inserted).toBe(true);
+    expect(first.vm.providerMetadata?.cmuxIdlePauseMinutes).toBe(0);
+    const retry = await create(120);
+    expect(retry.inserted).toBe(false);
+    expect(retry.vm.id).toBe(first.vm.id);
+    expect(retry.vm.providerMetadata?.cmuxIdlePauseMinutes).toBe(0);
+    const thirty = await run(repo.beginCreate({
+      userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
+      maxActiveVms: null, idempotencyKey: `idle-thirty-${rowId}`, idlePauseMinutes: 30,
+    }));
+    expect(thirty.vm.providerMetadata?.cmuxIdlePauseMinutes).toBe(30);
+    const plain = await run(repo.beginCreate({
+      userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
+      maxActiveVms: null, idempotencyKey: `idle-plain-${rowId}`,
+    }));
+    expect(plain.vm.providerMetadata?.cmuxIdlePauseMinutes).toBeUndefined();
+  });
 
   dbTest("the cron's writes skip updated_at; a pause and a resume drop the observation; candidates rotate", async () => {
     const start = await read();

@@ -46,6 +46,16 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+#[cfg(target_os = "linux")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "linux")]
+/// Enables the Linux sandbox for tests only; persistence write-opens, renames
+/// and creators are enforced. Production stays refused until G2.
+static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
 
 /// The checked-in Seatbelt profile.
 pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
@@ -53,8 +63,88 @@ pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
+    platform_profile_id(cfg!(target_os = "linux"))
+}
+
+fn platform_profile_id(linux: bool) -> String {
     const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
-    crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
+    let identity = format!("{PROFILE}\n{ENV_POLICY}");
+    #[cfg(target_os = "linux")]
+    let identity = if linux {
+        // Hash the implemented policy and protocol, including the bwrap argv shape.
+        let sources = linux_identity_sources();
+        let source_text = sources.iter().map(|(_, source)| *source).collect::<Vec<_>>().join("\n");
+        format!("{identity}\nlinux-keeper-v1; loader-env-v2\n{source_text}")
+    } else {
+        identity
+    };
+    let _ = linux;
+    crate::sha256::sha256_hex(identity.as_bytes())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("bwrap.rs", include_str!("../linux_sandbox/bwrap.rs")),
+        ("bwrap/aliases.rs", include_str!("../linux_sandbox/bwrap/aliases.rs")),
+        ("bwrap/home.rs", include_str!("../linux_sandbox/bwrap/home.rs")),
+        ("keeper.rs", include_str!("../linux_sandbox/keeper.rs")),
+        ("init.rs", include_str!("../linux_sandbox/init.rs")),
+        ("seccomp.rs", include_str!("../linux_sandbox/seccomp.rs")),
+        ("proxy.rs", include_str!("../linux_sandbox/proxy.rs")),
+        ("supervisor.rs", include_str!("../linux_sandbox/supervisor.rs")),
+        ("supervisor/mutations.rs", include_str!("../linux_sandbox/supervisor/mutations.rs")),
+        ("supervisor/locking.rs", include_str!("../linux_sandbox/supervisor/locking.rs")),
+        ("lookup.rs", include_str!("../linux_sandbox/lookup.rs")),
+        ("rules.rs", include_str!("../linux_sandbox/rules.rs")),
+    ]
+}
+
+/// glibc sysdeps/generic/unsecvars.h (including legacy MALLOC_CHECK_) plus
+/// every LD_* control: none may reach an unsandboxed Linux exec.
+#[cfg(target_os = "linux")]
+pub(crate) fn loader_env_key(key: &str) -> bool {
+    key.starts_with("LD_")
+        || matches!(
+            key,
+            "GCONV_PATH"
+                | "GETCONF_DIR"
+                | "GLIBC_TUNABLES"
+                | "HOSTALIASES"
+                | "LOCALDOMAIN"
+                | "LOCPATH"
+                | "MALLOC_ARENA_MAX"
+                | "MALLOC_ARENA_TEST"
+                | "MALLOC_CHECK_"
+                | "MALLOC_TCACHE_COUNT"
+                | "MALLOC_TCACHE_MAX"
+                | "MALLOC_TCACHE_UNSORTED_LIMIT"
+                | "MALLOC_PERTURB_"
+                | "MALLOC_TOP_PAD_"
+                | "MALLOC_TRACE"
+                | "MALLOC_MMAP_MAX_"
+                | "MALLOC_MMAP_THRESHOLD_"
+                | "MALLOC_TRIM_THRESHOLD_"
+                | "NIS_PATH"
+                | "NLSPATH"
+                | "RESOLV_HOST_CONF"
+                | "RES_OPTIONS"
+                | "TMPDIR"
+                | "TZDIR"
+        )
+}
+
+/// Finite scan of inherited and explicitly merged keys; never mutates the daemon env.
+#[cfg(target_os = "linux")]
+pub(crate) fn scrub_loader_env(command: &mut tokio::process::Command) {
+    let keys: Vec<_> = std::env::vars_os()
+        .map(|(k, _)| k)
+        .chain(command.as_std().get_envs().map(|(k, _)| k.to_owned()))
+        .filter(|k| crate::linux_sandbox::keeper::loader_env_key(&k.to_string_lossy()))
+        .collect();
+    for key in keys {
+        command.env_remove(key);
+    }
 }
 
 /// The system `sandbox-exec`.
@@ -201,6 +291,13 @@ async fn claude_credential(
         }
     }
     if !cfg!(target_os = "macos") || !keychain_login_allowed() {
+        #[cfg(target_os = "linux")]
+        if keychain_login_allowed()
+            && let Some(token) =
+                linux_credential_file(&dirs::home_dir().ok_or("no home directory")?)?
+        {
+            return Ok(Some(("CLAUDE_CODE_OAUTH_TOKEN", token)));
+        }
         return Ok(None);
     }
     let read = tokio::process::Command::new("/usr/bin/security")
@@ -381,6 +478,33 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_secure_path(
+    path: &Path,
+    boundary: &Path,
+    uid: u32,
+    sticky_boundary: bool,
+) -> Result<(), String> {
+    let mut reached = false;
+    for ancestor in path.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor)
+            .map_err(|e| format!("{}: {e}", ancestor.display()))?;
+        let sticky_exception =
+            sticky_boundary && ancestor == boundary && metadata.mode() & 0o1000 != 0;
+        if metadata.uid() != uid && metadata.mode() & 0o022 != 0 && !sticky_exception {
+            return Err(format!("{} is writable by another user", ancestor.display()));
+        }
+        if metadata.mode() & 0o022 != 0 && !sticky_exception {
+            return Err(format!("{} is group- or world-writable", ancestor.display()));
+        }
+        if ancestor == boundary {
+            reached = true;
+            break;
+        }
+    }
+    reached.then_some(()).ok_or_else(|| format!("{} is outside its trusted root", path.display()))
+}
+
 impl Bound {
     /// The bound for a session folder, its own temporary folder created
     /// (named for `session_id`); refused off macOS and for a folder that is
@@ -391,7 +515,11 @@ impl Bound {
         session_id: &str,
         endpoint: Option<Endpoint>,
     ) -> Result<Self, String> {
-        if !cfg!(target_os = "macos") {
+        #[cfg(target_os = "linux")]
+        let linux = LINUX_REMOTE_SANDBOX.load(Ordering::SeqCst);
+        #[cfg(not(target_os = "linux"))]
+        let linux = false;
+        if !cfg!(target_os = "macos") && !linux {
             return Err(
                 "a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into(),
             );
@@ -400,6 +528,11 @@ impl Bound {
             |p: &Path| std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()));
         let home = canon(&dirs::home_dir().ok_or("no home directory")?)?;
         let shared_tmp = canon(&std::env::temp_dir())?;
+        #[cfg(target_os = "linux")]
+        if linux {
+            crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap"))
+                .map_err(|e| format!("bwrap unavailable: {e}"))?;
+        }
         let cwd = canon(cwd)?;
         let path_dirs: Vec<PathBuf> = crate::chats::login_var("PATH")
             .unwrap_or_default()
@@ -429,11 +562,28 @@ impl Bound {
         let name = claude_project_name(&cwd);
         // Made here, so the profile never lets the sandbox make (or rename)
         // the shared scratch root.
-        let root = PathBuf::from(format!("/private/tmp/claude-{uid}"));
+        let root = if linux {
+            PathBuf::from(format!("/tmp/claude-{uid}"))
+        } else {
+            PathBuf::from(format!("/private/tmp/claude-{uid}"))
+        };
         let claude_tmp_project = root.join(&name);
         own_dir(&root, uid)?;
         own_dir(&claude_tmp_project, uid)?;
         let claude_project = home.join(".claude/projects").join(&name);
+        #[cfg(target_os = "linux")]
+        if linux {
+            let projects = home.join(".claude/projects");
+            own_dir(&home.join(".claude"), uid)?;
+            own_dir(&projects, uid)?;
+            own_dir(&claude_project, uid)?;
+            own_dir(&claude_project.join("memory"), uid)?;
+            let cwd_boundary = if cwd.starts_with(&home) { &home } else { &shared_tmp };
+            linux_secure_path(&cwd, cwd_boundary, uid, cwd_boundary == &shared_tmp)?;
+            linux_secure_path(&tmp, &shared_tmp, uid, true)?;
+            linux_secure_path(&claude_tmp_project, &shared_tmp, uid, true)?;
+            linux_secure_path(&claude_project, &home, uid, false)?;
+        }
         Ok(Bound {
             cwd,
             tmp,
@@ -489,6 +639,50 @@ impl Bound {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
+    use std::io::Read;
+    let path = home.join(".claude/.credentials.json");
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot open {}: {error}", path.display())),
+    };
+    let metadata = file.metadata().map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    if metadata.len() > 1024 * 1024 {
+        return Err(format!("{} exceeds the 1 MiB credential limit", path.display()));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(format!("{} exceeds the 1 MiB credential limit", path.display()));
+    }
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("invalid Claude credentials: {e}"))?;
+    let token = value
+        .pointer("/claudeAiOauth/accessToken")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty());
+    let Some(token) = token else { return Ok(None) };
+    if value
+        .pointer("/claudeAiOauth/expiresAt")
+        .and_then(Value::as_u64)
+        .is_some_and(|ms| ms < now_ms() + 10 * 60 * 1000)
+    {
+        return Err("Claude's Linux login expires within 10 minutes (or has expired), and a remote chain cannot refresh it; run `claude setup-token` or refresh Claude Code".into());
+    }
+    Ok(Some(token.to_owned()))
+}
+
 /// The remote chain's Claude command line: its own settings and no MCP
 /// servers, then the whole command inside `exec` with the profile and this
 /// spawn's `TMPDIR`. Refuses a profile argv or env that already shapes them.
@@ -497,13 +691,36 @@ pub(super) fn wrap(
     bound: &Bound,
     profile: &HarnessProfile,
     program: String,
-    mut args: Vec<String>,
+    args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
+    let args = claude_args(bound, profile, args)?;
+    let mut out = bound.sandbox_args();
+    out.push("/usr/bin/env".into());
+    for k in REFUSED_ENV {
+        out.push("-u".into());
+        out.push((*k).into());
+    }
+    out.push(format!("TMPDIR={}", bound.tmp.display()));
+    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
+    out.push(program);
+    out.extend(args);
+    Ok((exec.to_string_lossy().into_owned(), out))
+}
+
+fn claude_args(
+    bound: &Bound,
+    profile: &HarnessProfile,
+    mut args: Vec<String>,
+) -> Result<Vec<String>, String> {
     let refused = |a: &String| {
         REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
     };
     if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(bad) = profile.env.keys().find(|k| k.as_str() != "TMPDIR" && loader_env_key(k)) {
+        return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     if let Some(bad) = REFUSED_ENV.iter().find(|k| profile.env.contains_key(**k)) {
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
@@ -517,36 +734,150 @@ pub(super) fn wrap(
     args.push("--strict-mcp-config".into());
     args.push("--mcp-config".into());
     args.push(r#"{"mcpServers":{}}"#.into());
-    let mut out = bound.sandbox_args();
-    // The login environment the child gets may carry them too.
-    out.push("/usr/bin/env".into());
-    for k in REFUSED_ENV {
-        out.push("-u".into());
-        out.push((*k).into());
+    Ok(args)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_keeper_args(
+    bound: &Bound,
+    program: String,
+    args: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    let exe = std::fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("cannot resolve acpmux executable: {e}"))?;
+    linux_keeper_args_with_exe(bound, program, args, &exe)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_keeper_args_with_exe(
+    bound: &Bound,
+    program: String,
+    args: Vec<String>,
+    exe: &Path,
+) -> Result<(String, Vec<String>), String> {
+    let mut out: Vec<String> =
+        crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+    out.push("__remote-sandbox-keeper".into());
+    for (key, value) in [
+        ("--cwd", &bound.cwd),
+        ("--tmpdir", &bound.tmp),
+        ("--home", &bound.home),
+        ("--claude-tmp-project", &bound.claude_tmp_project),
+        ("--claude-project", &bound.claude_project),
+    ] {
+        out.push(key.into());
+        out.push(value.to_string_lossy().into_owned());
     }
-    out.push(format!("TMPDIR={}", bound.tmp.display()));
-    // Claude Code keeps its own temporary files (the Bash tool's working
-    // directory file `claude-<id>-cwd`, task output) under CLAUDE_CODE_TMPDIR,
-    // else the shared /tmp, which the profile never lets it write: every Bash
-    // command then failed with "operation not permitted: /tmp/claude-…-cwd".
-    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
-    out.push(program);
+    out.extend(["--proxy-port".into(), "8118".into()]);
+    if let Some((port, true)) = bound.api_port {
+        let host = bound
+            .endpoint
+            .as_ref()
+            .and_then(|e| e.url.split("//").nth(1))
+            .and_then(|authority| authority.split(['/', '?', '#']).next())
+            .unwrap_or_default();
+        if host.starts_with('[') || host == "::1" {
+            return Err("IPv6 loopback API routes are unavailable until the keeper handshake carries the family".into());
+        }
+        out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
+    }
+    out.push("--".into());
+    out.push("/usr/bin/env".into());
+    for key in REFUSED_ENV {
+        out.extend(["-u".into(), (*key).into()]);
+    }
+    out.extend([
+        format!("TMPDIR={}", bound.tmp.display()),
+        format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()),
+        program,
+    ]);
     out.extend(args);
-    Ok((exec.to_string_lossy().into_owned(), out))
+    Ok((exe.to_string_lossy().into_owned(), out))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_wrap(
+    bound: &Bound,
+    profile: &HarnessProfile,
+    program: String,
+    args: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    linux_keeper_args(bound, program, claude_args(bound, profile, args)?)
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
-/// port, $3 the temporary folder, $4 a ::1 port (0: none).
+/// port, $3 the temporary folder, $4 a ::1 port (0: none), $5 a Unix socket,
+/// $6 the pinned acpmux path, remaining arguments its multicall prefix.
 const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
-echo "acpmux-canary outside=$o loopback=$l tmp=$i""#;
+g=unknown; c=unknown
+if [ -n "$5" ]; then
+  printf x > "$5/.git/hooks/pre-commit" 2>/dev/null; g=$?
+  printf x > "$5/CLAUDE.md" 2>/dev/null; c=$?
+fi
+persistence="$5"
+u=unknown
+if [ -n "$6" ]; then
+  socket=$6; helper=$7; shift 7
+  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket"); then
+    case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
+  fi
+fi
+if [ -n "$persistence" ]; then
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c unix=$u"
+else
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i"
+fi"#;
+
+fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PathBuf>, String> {
+    if !linux {
+        return Ok(None);
+    }
+    let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(probe.join(".git/hooks"))
+        .map_err(|e| format!("canary setup persistence probe: {e}"))?;
+    Ok(Some(probe))
+}
+
+type CanaryFields = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+
+fn parse_canary_report(text: &str) -> Result<CanaryFields, String> {
+    let mut reports = text.lines().filter_map(|line| line.strip_prefix("acpmux-canary "));
+    let line = reports.next().ok_or("canary did not report a result")?;
+    if reports.next().is_some() {
+        return Err("canary reported more than one result".into());
+    }
+    let field = |key: &str| {
+        line.split_whitespace()
+            .find_map(|word| word.strip_prefix(&format!("{key}=")))
+            .and_then(|value| value.parse::<i32>().ok())
+    };
+    Ok((
+        field("outside"),
+        field("loopback"),
+        field("tmp"),
+        field("unix"),
+        field("git"),
+        field("claude"),
+    ))
+}
+
+fn canary_verdict(
+    success: bool,
+    fields: CanaryFields,
+    linux: bool,
+    probe_paths_absent: bool,
+) -> bool {
+    let (o, l, t, u, _, _) = fields;
+    canary_report_held(success, (o, l, t, u), linux) && probe_paths_absent
+}
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
-/// the sandbox held: the outside write failed and left no file, the loopback
-/// connection failed and never arrived, and the temporary write worked.
-pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
+/// the sandbox held: outside and persistence write-opens failed, loopback
+/// connections never arrived, and the temporary write worked.
+pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
@@ -557,24 +888,99 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
+    let git_canary = persistence_probe.as_ref().map(|path| path.join(".git/hooks/pre-commit"));
+    let claude_canary = persistence_probe.as_ref().map(|path| path.join("CLAUDE.md"));
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
-    let mut cmd = tokio::process::Command::new(exec);
-    cmd.args(bound.sandbox_args())
-        .args(["/bin/bash", "-c", CANARY, "acpmux-canary"])
-        .arg(&outside)
-        .arg(port.to_string())
-        .arg(&bound.tmp)
-        .arg(port6.to_string())
-        .current_dir(&bound.cwd)
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
+    #[cfg(unix)]
+    let socket_path = bound
+        .tmp
+        .parent()
+        .unwrap_or(Path::new("/tmp"))
+        .join(format!("acpmux-sandbox-canary-{}.sock", uuid::Uuid::now_v7()));
+    #[cfg(unix)]
+    let unix_listener = if linux {
+        Some(
+            std::os::unix::net::UnixListener::bind(&socket_path)
+                .map_err(|e| format!("listen unix: {e}"))?,
+        )
+    } else {
+        None
+    };
+    #[cfg(unix)]
+    if let Some(listener) = &unix_listener {
+        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    }
+    #[cfg(unix)]
+    let socket_arg = if linux { socket_path.to_string_lossy().into_owned() } else { String::new() };
+    #[cfg(not(unix))]
+    let socket_arg = String::new();
+    let persistence_arg = persistence_probe
+        .as_ref()
+        .filter(|_| linux)
+        .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
+    let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain([
+            outside.to_string_lossy().into_owned(),
+            port.to_string(),
+            bound.tmp.to_string_lossy().into_owned(),
+            port6.to_string(),
+            persistence_arg,
+        ])
+        .chain([socket_arg, exec.to_string_lossy().into_owned()])
+        .chain(crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()))
+        .collect::<Vec<_>>();
+    #[cfg(target_os = "linux")]
+    let (program, args): (String, Vec<String>) = if linux {
+        linux_keeper_args_with_exe(
+            bound,
+            "/bin/bash".into(),
+            canary_args.into_iter().skip(1).collect(),
+            exec,
+        )?
+    } else {
+        (
+            exec.to_string_lossy().into_owned(),
+            bound.sandbox_args().into_iter().chain(canary_args).collect(),
+        )
+    };
+    #[cfg(not(target_os = "linux"))]
+    let (program, args): (String, Vec<String>) = (
+        exec.to_string_lossy().into_owned(),
+        bound.sandbox_args().into_iter().chain(canary_args).collect(),
+    );
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).current_dir(&bound.cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    #[cfg(target_os = "linux")]
+    if linux {
+        scrub_loader_env(&mut cmd);
+    }
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
+    let absent = |path: &Path| {
+        matches!(
+            std::fs::symlink_metadata(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+    };
+    let probe_paths_absent = git_canary.as_ref().is_none_or(|path| absent(path))
+        && claude_canary.as_ref().is_none_or(|path| absent(path));
+    if let Some(path) = &persistence_probe {
+        let _ = std::fs::remove_dir_all(path);
+    }
+    #[cfg(unix)]
+    let _ = std::fs::remove_file(&socket_path);
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());
+    #[cfg(unix)]
+    let arrived_unix = unix_listener.as_ref().is_some_and(|l| l.accept().is_ok());
+    #[cfg(not(unix))]
+    let arrived_unix = false;
     let out = match run {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => {
@@ -583,32 +989,48 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
         Err(_) => return Err("the sandbox canary did not finish in 20 s".into()),
     };
     let text = String::from_utf8_lossy(&out.stdout);
-    let field = |k: &str| {
-        text.lines()
-            .find_map(|l| l.strip_prefix("acpmux-canary "))
-            .and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix(&format!("{k}="))))
-            .and_then(|v| v.parse::<i32>().ok())
-    };
-    let (o, l, t) = (field("outside"), field("loopback"), field("tmp"));
-    let held = matches!(o, Some(c) if c != 0)
-        && matches!(l, Some(c) if c != 0)
-        && t == Some(0)
+    let fields = parse_canary_report(&text).ok();
+    let (o, l, t, u, g, c) = fields.unwrap_or((None, None, None, None, None, None));
+    let held = canary_verdict(out.status.success(), (o, l, t, u, g, c), linux, probe_paths_absent)
+        && (!linux
+            || (matches!(g, Some(code) if code != 0) && matches!(c, Some(code) if code != 0)))
         && !landed
-        && !arrived;
+        && !arrived
+        && (!linux || !arrived_unix);
     if held {
         return Ok(());
     }
     Err(format!(
-        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, file landed {landed}, connection arrived {arrived}; status {}, stderr {:?})",
+        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, file landed {landed}, connection arrived {arrived}/{arrived_unix}; status {}, stderr {:?})",
         o.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         l.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
+        u.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         out.status,
-        String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
+        String::from_utf8_lossy(&out.stderr).chars().take(1200).collect::<String>(),
     ))
 }
 
+fn canary_report_held(
+    success: bool,
+    (o, l, t, u): (Option<i32>, Option<i32>, Option<i32>, Option<i32>),
+    linux: bool,
+) -> bool {
+    success
+        && matches!(o, Some(c) if c != 0)
+        && matches!(l, Some(c) if c != 0)
+        && t == Some(0)
+        && (!linux || matches!(u, Some(c) if c != 0))
+}
+
 impl Hub {
+    /// Integration-test probe only; does not enable the Linux spawn path.
+    #[doc(hidden)]
+    #[cfg(target_os = "linux")]
+    pub fn linux_sandbox_probe_for_tests() -> Result<(), String> {
+        crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap")).map_err(|e| e.to_string())
+    }
+
     /// Whether `session` is a remote chain's Claude Code session (remote
     /// origin, a claude-stdio profile): one that runs in the sandbox. A
     /// profile that cannot be read now counts as one (fail closed).
@@ -627,6 +1049,36 @@ impl Hub {
     #[doc(hidden)]
     pub fn set_remote_sandbox_exec(&self, path: PathBuf) {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
+    }
+
+    /// Enables the Linux sandbox for tests only; production remains refused
+    /// until G2. Persistence write-opens, renames and creators are enforced.
+    #[doc(hidden)]
+    pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
+        #[cfg(target_os = "linux")]
+        LINUX_REMOTE_SANDBOX.store(enabled, Ordering::SeqCst);
+        let _ = enabled;
+    }
+
+    /// Integration-test hook: accepts the separately built acpmux test binary.
+    /// Never used by production spawns, which pin current_exe through the keeper.
+    /// Enables no spawn policy and does not replace the production executable.
+    #[doc(hidden)]
+    pub async fn linux_sandbox_canary_for_tests(
+        &self,
+        cwd: PathBuf,
+        exec: PathBuf,
+    ) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        {
+            let bound = Bound::for_session(&cwd, "integration-canary", None)?;
+            return canary(&exec, &bound, true).await;
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (cwd, exec);
+            Err("Linux sandbox canary is unavailable on this platform".into())
+        }
     }
 
     /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
@@ -702,7 +1154,7 @@ impl Hub {
         // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
         // Bypass mode stays off (above); the session's permission policy
         // answers Claude's prompts.
-        let vm_host = self.config.read().await.vm_host;
+        let vm_host = self.vm_host().await;
         if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
             self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
             return Ok((plan, std::borrow::Cow::Owned(profile)));
@@ -730,10 +1182,36 @@ impl Hub {
             user_settings.as_deref(),
             remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
         );
+        #[cfg(target_os = "linux")]
+        let linux = LINUX_REMOTE_SANDBOX.load(Ordering::SeqCst);
+        #[cfg(not(target_os = "linux"))]
+        let linux = false;
         let result = async {
             let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
-            let plan = wrap(&exec, &bound, profile, program, args)?;
-            canary(&exec, &bound).await?;
+            let plan = if linux {
+                #[cfg(target_os = "linux")]
+                {
+                    linux_wrap(&bound, profile, program, args)?
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    return Err("the Linux sandbox is unavailable on this platform".into());
+                }
+            } else {
+                wrap(&exec, &bound, profile, program, args)?
+            };
+            #[cfg(target_os = "linux")]
+            let canary_exec = if linux {
+                // Never use the configurable sandbox-exec test hook on Linux.
+                std::env::current_exe()
+                    .and_then(std::fs::canonicalize)
+                    .map_err(|e| e.to_string())?
+            } else {
+                exec.clone()
+            };
+            #[cfg(not(target_os = "linux"))]
+            let canary_exec = exec.clone();
+            canary(&canary_exec, &bound, linux).await?;
             Ok::<_, String>(plan)
         }
         .await;
@@ -769,10 +1247,16 @@ pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
 }
 
 /// Whether a new session with no asked policy runs approve-all: only on a
-/// `vmHost` machine that is not a Mac, and only for the owner's peer daemon
-/// (`Origin::Peer`, proven by the peer token over ssh); a Web client never.
-pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> bool {
-    vm_host_unsandboxed(vm_host, macos) && from_peer
+/// `vmHost` machine that is not a Mac, only for the owner's peer daemon
+/// (`Origin::Peer`, proven by the peer token over ssh), and only while
+/// MDM leaves approve-all allowed (`Hub::approve_all_allowed`); a Web client never.
+pub fn vm_host_peer_approves(
+    vm_host: bool,
+    macos: bool,
+    from_peer: bool,
+    approve_all_allowed: bool,
+) -> bool {
+    vm_host_unsandboxed(vm_host, macos) && from_peer && approve_all_allowed
 }
 
 #[cfg(test)]
@@ -809,10 +1293,14 @@ mod vm_host_tests {
 
     #[test]
     fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {
-        assert!(vm_host_peer_approves(true, false, true));
-        assert!(!vm_host_peer_approves(true, false, false), "a Web client still asks");
-        assert!(!vm_host_peer_approves(true, true, true), "never on a Mac");
-        assert!(!vm_host_peer_approves(false, false, true), "off by default");
+        assert!(vm_host_peer_approves(true, false, true, true));
+        assert!(!vm_host_peer_approves(true, false, false, true), "a Web client still asks");
+        assert!(!vm_host_peer_approves(true, true, true, true), "never on a Mac");
+        assert!(!vm_host_peer_approves(false, false, true, true), "off by default");
+        assert!(
+            !vm_host_peer_approves(true, false, true, false),
+            "never while MDM forces full access off"
+        );
     }
 
     #[test]
@@ -827,6 +1315,121 @@ mod vm_host_tests {
 #[cfg(test)]
 mod endpoint_tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    const LOADER_KEYS: &str = "GCONV_PATH GETCONF_DIR GLIBC_TUNABLES HOSTALIASES LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_DYNAMIC_WEAK LD_HWCAP_MASK LD_LIBRARY_PATH LD_ORIGIN_PATH LD_PRELOAD LD_PROFILE LD_SHOW_AUXV LD_USE_LOAD_BIAS LD_UNKNOWN LOCALDOMAIN LOCPATH MALLOC_ARENA_MAX MALLOC_ARENA_TEST MALLOC_CHECK_ MALLOC_MMAP_MAX_ MALLOC_MMAP_THRESHOLD_ MALLOC_PERTURB_ MALLOC_TCACHE_COUNT MALLOC_TCACHE_MAX MALLOC_TCACHE_UNSORTED_LIMIT MALLOC_TOP_PAD_ MALLOC_TRACE MALLOC_TRIM_THRESHOLD_ NIS_PATH NLSPATH RESOLV_HOST_CONF RES_OPTIONS TMPDIR TZDIR";
+
+    #[test]
+    fn macos_profile_identity_stays_at_base() {
+        assert_eq!(
+            platform_profile_id(false),
+            "dfe0fa2509e4121cda90d0e4fb84e961ba886c72a73385954dcbb48774058054"
+        );
+    }
+
+    #[test]
+    fn canary_requires_success_and_every_field() {
+        let fields = (Some(1), Some(1), Some(0), Some(1));
+        assert!(canary_report_held(true, fields, true));
+        assert!(!canary_report_held(false, fields, true));
+        for fields in [
+            (None, Some(1), Some(0), Some(1)),
+            (Some(1), None, Some(0), Some(1)),
+            (Some(1), Some(1), None, Some(1)),
+            (Some(1), Some(1), Some(0), None),
+        ] {
+            assert!(!canary_report_held(true, fields, true));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_refuses_loader_profile_env() {
+        for key in LOADER_KEYS.split_whitespace() {
+            let p = profile(&["claude"], &[(key, "injected")]);
+            assert_eq!(claude_args(&bound(None), &p, vec![]).is_err(), key != "TMPDIR", "{key}");
+            assert!(loader_env_key(key), "{key} must be scrubbed");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_profile_tmpdir_is_replaced_inside_the_sandbox() {
+        let bound = bound(None);
+        let p = profile(&["claude"], &[("TMPDIR", "/injected")]);
+        let (_, args) = linux_wrap(&bound, &p, "claude".into(), vec![]).unwrap();
+        assert!(args.contains(&format!("TMPDIR={}", bound.tmp.display())));
+        assert!(!args.iter().any(|a| a.contains("/injected")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_canary_checks_write_open_persistence_paths() {
+        assert!(CANARY.contains(".git/hooks/pre-commit"));
+        assert!(CANARY.contains("CLAUDE.md"));
+        assert!(CANARY.contains("printf"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn canary_missing_unix_helper_is_unknown() {
+        let out = std::process::Command::new("/bin/bash")
+            .args([
+                "-c",
+                CANARY,
+                "canary",
+                "/nonexistent/outside",
+                "0",
+                "/nonexistent/tmp",
+                "0",
+                "/nonexistent/socket",
+                "/nonexistent/acpmux",
+            ])
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("unix=unknown"));
+    }
+
+    #[test]
+    fn mac_canary_setup_does_not_touch_a_worktree_git_file() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-canary-setup-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".git"), b"gitdir: elsewhere").unwrap();
+        let result = canary_persistence_probe(&root, false).unwrap();
+        assert!(result.is_none());
+        assert!(root.join(".git").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canary_rejects_a_denied_report_when_probe_file_landed() {
+        let fields = (Some(1), Some(1), Some(0), Some(1), Some(1), Some(1));
+        assert!(!canary_verdict(true, fields, true, false));
+    }
+
+    #[test]
+    fn canary_rejects_duplicate_report_lines() {
+        let report = "acpmux-canary outside=1 loopback=1 tmp=0 unix=1\nacpmux-canary outside=1 loopback=1 tmp=0 unix=1\n";
+        assert!(parse_canary_report(report).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_identity_covers_every_enforcement_source() {
+        let names: Vec<_> = linux_identity_sources().into_iter().map(|(name, _)| name).collect();
+        for name in [
+            "supervisor.rs",
+            "supervisor/locking.rs",
+            "lookup.rs",
+            "rules.rs",
+            "bwrap/home.rs",
+            "bwrap/aliases.rs",
+            "supervisor/mutations.rs",
+        ] {
+            assert!(names.contains(&name), "missing {name} from Linux profile identity");
+        }
+    }
 
     fn profile(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {
         serde_json::from_value(json!({
@@ -972,5 +1575,71 @@ mod endpoint_tests {
         assert!(subrouter_plan(&sr, args.clone(), None, Some("http://r:1".into())).is_err());
         let extra = profile(&["/u/sr", "claude", "proxy", "--account"], &[]);
         assert!(subrouter_plan(&extra, args, Some("c".into()), Some("http://r:1".into())).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrap_uses_keeper_and_fixed_proxy_shape() {
+        let bound = bound(Some(Endpoint { url: "http://127.0.0.1:41234".into(), own: true }));
+        let (_, args) =
+            linux_wrap(&bound, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        let text = args.join(" ");
+        assert!(text.contains("__remote-sandbox-keeper"));
+        assert!(text.contains("--proxy-port 8118"));
+        assert!(text.contains("--api-port 41234 --api-loopback-v4"));
+        assert!(text.contains("-- /usr/bin/env -u CLAUDE_CONFIG_DIR"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_credentials_are_bounded_and_parsed_from_home() {
+        let home = std::env::temp_dir().join(format!("acpmux-linux-cred-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/.credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"linux-token","expiresAt":4102444800000}}"#,
+        )
+        .unwrap();
+        assert_eq!(linux_credential_file(&home).unwrap().as_deref(), Some("linux-token"));
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_switch_off_keeps_the_platform_refusal() {
+        LINUX_REMOTE_SANDBOX.store(false, Ordering::SeqCst);
+        let error = Bound::for_session(Path::new("/"), "wire-off", None).unwrap_err();
+        assert!(error.contains("platform has none"), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("acpmux-linux-safe-{}", std::process::id()));
+        let child = root.join("project");
+        std::fs::create_dir_all(&child).unwrap();
+        let original = std::fs::metadata(&root).unwrap().permissions().mode();
+        let mut mode = std::fs::metadata(&root).unwrap().permissions();
+        mode.set_mode(original | 0o020);
+        std::fs::set_permissions(&root, mode).unwrap();
+        let uid = unsafe { libc::getuid() };
+        assert!(linux_secure_path(&child, &root, uid, false).is_err());
+        let mut restore = std::fs::metadata(&root).unwrap().permissions();
+        restore.set_mode(original);
+        let _ = std::fs::set_permissions(&root, restore);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_probe_failure_has_a_sandbox_refusal_reason() {
+        let error = crate::linux_sandbox::bwrap::probe(Path::new("/definitely/missing/bwrap"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("bwrap not installed") || error.contains("probe did not start"),
+            "{error}"
+        );
     }
 }

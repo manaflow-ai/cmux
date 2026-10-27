@@ -22,6 +22,7 @@ final class CloudService {
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
@@ -33,7 +34,8 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
-    @ObservationIgnored private let binary: URL?
+    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
+    @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -76,6 +78,12 @@ final class CloudService {
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
+    /// Agents' asks to start a session on a Cloud machine (``CloudStartSessionAsks``).
+    @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
+    /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
+    @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// When the loaded list landed (``hasCurrentList(within:)``).
+    @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
@@ -91,6 +99,7 @@ final class CloudService {
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
+        self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -148,6 +157,7 @@ final class CloudService {
         CloudMovedChats.app = movedChats
         link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
         link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
+        startSessionAsks.toolCards = toolCards
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
@@ -238,6 +248,17 @@ final class CloudService {
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 await self?.refresh(ifOlderThan: .seconds(30))
+            }
+        })
+        // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
+        // runs: none goes on in the account signed in after.
+        observers.append(Task { [weak self] in
+            guard let self else { return }
+            var last = account
+            for await account in ObservationStream({ self.account }) where account != last {
+                last = account
+                startSessionRuns.forgetAll()
+                startSessionAsks.endAll()
             }
         })
     }
@@ -347,6 +368,8 @@ final class CloudService {
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
+            listLoadedAt = .now
+            await startHubForSSHRoutes()
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
@@ -363,6 +386,21 @@ final class CloudService {
     /// Whom a machine list is for: the signed-in user and the team the API
     /// client sends (``CloudAuth/teamID``).
     private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
+
+    /// The user and team signed in now (observable: ``CloudAuth``). Start-session asks and runs
+    /// belong to the one they were asked in.
+    var account: [String?] { listAccount }
+
+    /// Whether the store holds a list the server answered, within `age`, for the user and team
+    /// signed in now: a failed or superseded refresh, or another team's list, is not one.
+    func hasCurrentList(within age: Duration) -> Bool {
+        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+    }
+
+    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+        guard let loadedAt, loadedFor == account else { return false }
+        return loadedAt.duration(to: now) < age
+    }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
@@ -424,6 +462,7 @@ final class CloudService {
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
         hasLoadedMachines = false
+        listLoadedAt = nil
     }
 
     // MARK: Mutations
@@ -432,22 +471,91 @@ final class CloudService {
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
     /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
+    /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
+    /// `/api/vm` create only; the app server's create refuses them for now). A server that did
+    /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
+    /// `proceed` runs once the server answered, before anything else about the new machine (its
+    /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
+    /// longer signed in) leaves it out.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+                       request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
+        let name = name ?? request.name
+        // The app server's create takes none of them yet, and its machines have no `/api/vm` file
+        // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
+        if configuration.linkSource == .appServer, !request.isDefault {
+            throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
+        }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let machine = configuration.linkSource == .appServer
+        let idlePause = request.persistent ? 0 : nil
+        var machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
+                                                      // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
+                                                      gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
+                                                      confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
+                                                      create: { [api, weak creation] in
+                                                          // The first send's team, for every later call about this machine.
+                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          creation?.markRequestSent(team: team)
+                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                      })
         logger.info("created machine \(machine.id, privacy: .public)")
+        try proceed()
+        // The machine exists either way: a failed write leaves its idle pause as the server says,
+        // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
+        if let idlePause, machine.idlePauseMinutes != idlePause {
+            do {
+                try await api.pinningTeam(creation?.request.team ?? request.team).setIdlePause(machine.id, minutes: idlePause)
+                machine.idlePauseMinutes = idlePause
+                // A refresh may have listed the machine meanwhile: its session holds the record, and a
+                // list read before the PUT must not put the old value back.
+                machines.session(machine.id)?.machine.idlePauseMinutes = idlePause
+                listGeneration += 1
+            } catch {
+                logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
+            }
+            // The write waited: the account is checked again before the machine joins the list.
+            try proceed()
+        }
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
     }
+
+    /// `POST /api/vm` with the request's one idempotency key. The server answers
+    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
+    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
+    /// machine: the same key is sent again (the server answers the machine once it exists), up
+    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
+    /// ends with its machine and its bootstrap.
+    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
+                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
+        // switched in the app meanwhile must not make the same key a new machine in the other team.
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
+        for _ in 0..<inProgressRetries {
+            do {
+                return try await send()
+            } catch let CloudAPIError.http(status, code, _, _, _)
+                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
+                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
+                try await ContinuousClock().sleep(for: inProgressDelay)
+            }
+        }
+        return try await send()
+    }
+
+    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
+    /// `create`), with each try's own answer time on top.
+    static let inProgressRetries = 70
+    static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
@@ -478,6 +586,19 @@ final class CloudService {
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
+    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
+    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
+    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
+    /// that failed to start (offline at launch) or to restart gets another try; a running hub
+    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
+    func startHubForSSHRoutes() async {
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
+        // Cloud may have been turned off while the check waited: then no hub starts.
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
+    }
+
     func renameMachine(_ machineID: String, to name: String) async throws {
         try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
@@ -488,6 +609,9 @@ final class CloudService {
     var willSignOut: [@MainActor () -> Void] = []
 
     func signOut() async {
+        // Start-session asks and runs end now, not after the link and install cleanup below.
+        startSessionRuns.forgetAll()
+        startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the

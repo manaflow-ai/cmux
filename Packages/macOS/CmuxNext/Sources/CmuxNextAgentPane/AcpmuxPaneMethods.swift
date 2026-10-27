@@ -21,7 +21,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
@@ -100,6 +100,12 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
+        // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
+        // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
+        // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
+        "_acpmux/subsession/limits",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
         // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
@@ -210,7 +216,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
-        "_acpmux/mcp/reconnect",
+        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New

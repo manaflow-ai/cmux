@@ -18,8 +18,8 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// Brings the target to `build`. Without `whileBusy`, only while it is idle: it does not
     /// interrupt a turn, a waiting permission or a sub-session's turn; it answers
     /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` it updates mid-turn too:
-    /// the restarted daemon resumes what it interrupted. The policy asks so once the target stayed
-    /// busy for ``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` (10 minutes). It also answers
+    /// the restarted daemon resumes what it interrupted. The policy asks so from the first ask
+    /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero by default). It also answers
     /// `busy` when it cannot update now, such as an unreachable machine or another update running.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
@@ -54,6 +54,11 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// Another path updates it (a cmux Cloud VM reached as an ssh peer goes through
     /// `cmux link machine update --to-bundled`); nothing changed and nothing shows.
     case handledElsewhere
+    /// The machine cannot take any new build in place (a Cloud machine whose cmux predates in-place
+    /// updates); nothing changed, and it keeps working on what it runs. Not a failure: no toast,
+    /// one grouped line in Settings > Updates, and not tried again while it reports the same build,
+    /// whatever the app's build (``DaemonUpdateLedger/cannotUpdate``). `reason` says what still works.
+    case unsupported(reason: String)
     case failed(reason: String)
 }
 
@@ -132,6 +137,9 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)
+        /// The target cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``):
+        /// never a toast; `reason` names it and says what still works.
+        case cannotUpdate(reason: String)
         /// No update state: the board forgets the target.
         case cleared
     }

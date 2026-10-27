@@ -105,7 +105,7 @@ final class AgentActivityPageService {
     /// of the active window.
     private func openInFocusedPane(_ session: String) {
         do {
-            try DeepLinkNavigator(services: services).open(DeepLink(.session(session, turn: nil)), background: false)
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(session, turn: nil)), background: false, asking: false)
         } catch {
             services.registry.refuse(String(describing: error))
         }

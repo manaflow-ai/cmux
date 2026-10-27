@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use cmux_git::run::{GitFailure, Override, run_git_within};
+use cmux_git::run::{GitFailure, Override, run_git_scratch_objects_within, run_git_within};
 use cmux_git::write_run::{Bound, WriteGit};
 
 /// The longest one read takes (`cmux-git`'s own ceiling).
@@ -27,6 +27,41 @@ pub(crate) fn read(dir: &Path, overrides: &[Override], args: &[&str]) -> Result<
         return Err(format!("git {} printed more than {MAX_OUTPUT} bytes", args.join(" ")));
     }
     Ok(output.stdout)
+}
+
+/// [`read`] whose new objects go to a scratch folder, removed after, and
+/// never into `objects` (the repository's object folder, read as an
+/// alternate): `git merge-tree --write-tree` must write the trees it
+/// prints, and in the shared object folder they piled up as loose objects.
+/// `Ok(None)` when git exited unsuccessfully and said nothing on stderr
+/// (merge-tree's conflict, with `--no-messages`); an error when it could
+/// not run or finish, or said why it failed (a missing object, a full
+/// disk): no answer, so asked again next time.
+pub(crate) fn read_scratch_objects(
+    dir: &Path,
+    overrides: &[Override],
+    objects: &Path,
+    args: &[&str],
+) -> Result<Option<Vec<u8>>, String> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch =
+        std::env::temp_dir().join(format!("cmux-care-objects-{}-{n}", std::process::id()));
+    // A crashed run's folder under a reused pid starts empty again.
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let output =
+        run_git_scratch_objects_within(dir, overrides, args, MAX_OUTPUT, READ, objects, &scratch);
+    let _ = std::fs::remove_dir_all(&scratch);
+    let output = match output {
+        Ok(output) => output,
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(None),
+        Err(failure) => return Err(reason(failure)),
+    };
+    if output.truncated {
+        return Err(format!("git {} printed more than {MAX_OUTPUT} bytes", args.join(" ")));
+    }
+    Ok(Some(output.stdout))
 }
 
 /// [`read`] as one trimmed line.
@@ -95,6 +130,7 @@ pub(crate) fn run_within(
     limit: Duration,
 ) -> Result<std::process::Output, String> {
     let child = command.spawn().map_err(|error| format!("could not run: {error}"))?;
+    cmux_git::run::lower_if_background(child.id());
     let (sender, receiver) = std::sync::mpsc::channel();
     let id = child.id();
     std::thread::spawn(move || {

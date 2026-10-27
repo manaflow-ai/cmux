@@ -23,6 +23,10 @@ function roundRate(usd: number): number {
   return Math.round(usd * 10_000) / 10_000;
 }
 
+/** Approximate on-demand e2-standard list price; billing remains authoritative. */
+const GCP_E2_VCPU_HOURLY_USD = 0.0335;
+const GCP_E2_MEMORY_GIB_HOURLY_USD = 0.0045;
+
 /**
  * The hourly rate for a machine of this shape on this provider, or null when
  * the shape is unknown (a legacy row without a reservation marker, whose pool
@@ -32,8 +36,12 @@ export function vmHourlyRateUsd(
   provider: string,
   shape: VmComputeResources | null | undefined,
 ): number | null {
-  if (provider !== "freestyle" || !shape) return null;
+  if (!shape) return null;
   if (!(shape.vcpus > 0) || !(shape.memoryMb > 0)) return null;
+  if (provider === "gcp") {
+    return roundRate(shape.vcpus * GCP_E2_VCPU_HOURLY_USD + (shape.memoryMb / 1024) * GCP_E2_MEMORY_GIB_HOURLY_USD);
+  }
+  if (provider !== "freestyle") return null;
   return roundRate(sandboxHourUsd({ vcpu: shape.vcpus, gib: shape.memoryMb / 1024 }, FREESTYLE_COST_USD));
 }
 

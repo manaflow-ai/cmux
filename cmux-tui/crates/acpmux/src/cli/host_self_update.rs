@@ -334,7 +334,12 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         Step::Current(build) => (&plan.dir, build.as_deref()),
         Step::Install(dir) => (dir, None),
     };
-    let opts = UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: Some(dir.clone()),
+        if_idle: false,
+        keep_newer: false,
+        caller: None,
+    };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
     if up.outcome == Outcome::Current && up.build.is_none() {

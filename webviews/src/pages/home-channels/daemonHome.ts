@@ -72,6 +72,9 @@ const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
 /** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
  *  echoes this. */
 const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
+/** `cloud-conversation-presence {conversation, viewing}`, and the `cloud-conversation-presence`
+ *  event the daemon passes only to a connection that echoes this. */
+export const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -527,6 +530,7 @@ export class DaemonHomeClient implements PageClient {
             AVATARS_CAPABILITY,
             LIVE_CAPABILITY,
             CLOUD_TYPING_CAPABILITY,
+            CLOUD_PRESENCE_CAPABILITY,
           ],
         });
         await socket.request("subscribe");
@@ -730,6 +734,13 @@ export class DaemonHomeClient implements PageClient {
             } satisfies HomeMessage,
           })),
         };
+      }
+      case HomeOps.view: {
+        const id = str(params, "conversation");
+        // Only the Cloud owner has viewing presence; an older daemon has no command for it.
+        if (!this.cloud.owns(id) || !(await this.capable(CLOUD_PRESENCE_CAPABILITY, this.daemon)))
+          return { sent: false };
+        return { sent: await this.cloud.presence(id, params.viewing === true) };
       }
       case HomeOps.read:
         return this.submit(str(params, "conversation"), this.key(params, options), {

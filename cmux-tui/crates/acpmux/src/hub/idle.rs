@@ -45,6 +45,8 @@ impl Hub {
             // A process still running in the background (a dev server, a
             // watcher) ends with the harness: never reap it for idleness.
             && !self.any_process_running(session)
+            // Nor a background subagent, which the harness's exit would end too.
+            && session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() == 0
     }
 
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then

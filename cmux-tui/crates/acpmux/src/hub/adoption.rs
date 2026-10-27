@@ -143,7 +143,9 @@ impl Hub {
         // This acpmux's own Claude Code session runs the chat: it opens, as for an adopt of
         // the id it records (one chat, one session).
         if let Some(existing) = own
-            .and_then(|own| self.sessions.lock().unwrap().get(&own).cloned())
+            .and_then(|own| {
+                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
+            })
             .filter(|s| s.meta().family.as_deref() == Some("claude"))
         {
             return Ok(Adoption::Existing(existing));

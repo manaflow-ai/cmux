@@ -19,6 +19,10 @@ export const HomeOps = {
   updateThread: "cmux.home.updateThread",
   pin: "cmux.home.pin",
   markUnread: "cmux.home.markUnread",
+  /** The person views a conversation or stopped (`{conversation, viewing}`): the Cloud owner's
+   * viewing presence (`cloud-conversation-presence-v1`). A local conversation, or a daemon
+   * without the capability, sends nothing; the answer is `{sent}`. */
+  view: "cmux.home.view",
   /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
   attachmentSupport: "cmux.home.attachmentSupport",
   /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */

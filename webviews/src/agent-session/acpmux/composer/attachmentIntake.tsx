@@ -31,13 +31,13 @@ import { useScrollEdges } from "../summary/scrollEdges";
 import { callChipHost } from "../chips/host";
 import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
+import { FileAttachment } from "../FileAttachment";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
   openAttachment: "composer.openAttachment",
   sentAsFileForCodex: "composer.sentAsFileForCodex",
-  sentAsPath: "composer.sentAsPath",
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
@@ -561,11 +561,11 @@ export function AttachmentStrip({
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
       {onReorder && attachments.length > 1 && (
-        <span id={hint} className="visually-hidden">
+        <span id={hint} className="visually-hidden acpmux-attachment-voiceover-only">
           {t(ATTACHMENT_LABELS.reorderHint)}
         </span>
       )}
-      <output className="visually-hidden" aria-live="polite">
+      <output className="visually-hidden acpmux-attachment-voiceover-only" aria-live="polite">
         {announced}
       </output>
     </fieldset>
@@ -798,26 +798,22 @@ function AttachmentChip({
       t("media.play"),
     );
   }
-  // A file that goes as its path (a saved copy, or a file or folder the panel chose) says so, with
-  // the path on hover: the agent reads it there instead of getting its bytes.
-  if (attachment.kind === "link")
-    return menu(
-      undefined,
-      <div
-        className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
-        data-saved={attachment.saved || undefined}
-        /* tooltip-allow: the chip shows a file's name; its path is where the agent reads it */ title={attachment.path}
-      >
-        <span className="acpmux-attachment-link-name">{attachment.name}</span>
-        {attachment.saved && <span className="acpmux-attachment-link-note">{t(ATTACHMENT_LABELS.sentAsPath)}</span>}
-        {remove}
-      </div>,
-    );
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file">
-      <span>{attachment.name}</span>
-      {remove}
+    <div
+      className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
+      data-saved={attachment.saved || undefined}
+      /* tooltip-allow: the full path is secondary detail for the file chip */
+      title={attachment.path}
+    >
+      <FileAttachment
+        file={{
+          ...attachment,
+          // Native path-only choices have no byte count; do not invent a zero-byte file.
+          size: attachment.mimeType || attachment.size > 0 ? attachment.size : undefined,
+        }}
+        remove={remove}
+      />
     </div>,
   );
 }
@@ -876,7 +872,7 @@ function PdfAttachmentChip({
         open={pdfOpen}
         onOpenChange={setPdfOpen}
         label={t(ATTACHMENT_LABELS.openAttachment, { name: attachment.name })}
-        className="acpmux-pdf-viewer"
+        className="ui-glass ui-glass-floats acpmux-pdf-viewer"
         initialFocus={close}
       >
         <div className="acpmux-pdf-viewer-bar">

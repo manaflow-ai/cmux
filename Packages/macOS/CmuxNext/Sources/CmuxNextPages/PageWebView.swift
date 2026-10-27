@@ -73,6 +73,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
     var loaded = false
+    /// The tab closed (``close()``): its web view is retired and never loads again.
+    var isClosed = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -224,8 +226,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
                        debugRoot(for: descriptor)].compactMap { $0 }
+        #if DEBUG
+        allowed += PageID.fixtureRoots(for: descriptor.id)
+        #endif
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 
