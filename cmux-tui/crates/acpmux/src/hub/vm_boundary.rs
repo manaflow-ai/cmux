@@ -60,7 +60,7 @@ pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) ->
 /// said it came from a paired machine (`via: device`, [`VIA_DEVICE`]). Only
 /// such a request starts, controls, forks or re-enables a session at the
 /// boundary; any other is held to the Web's rules for one
-/// ([`Hub::hold_at_vm_boundary`]).
+/// ([`Hub::refuse_at_vm_boundary`]).
 pub fn owner(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
     forwards(auth, control)
         && params.pointer("/_meta/acpmux/via").and_then(Value::as_str) != Some(VIA_DEVICE)
@@ -109,51 +109,44 @@ impl Hub {
         cfg!(target_os = "linux") && self.config.read().await.vm_host != Some(false)
     }
 
-    /// Holds a request that is not the person's own ([`owner`] false, from a
-    /// connection served as a peer: a paired machine's `client` credential, or
-    /// a peer forwarding for one) to the Web's rules (`via: web`) when it names
-    /// a session here at the VM boundary. The Web's rules give it no control of
-    /// that session, nor a fork of it (`Hub::web_control_verdict`).
-    pub fn hold_at_vm_boundary(
-        &self,
-        auth: crate::server::ConnAuth,
-        control: Control,
-        params: &mut Value,
-    ) {
-        if control != Control::Peer || owner(auth, control, params) {
-            return;
-        }
-        let at_boundary = crate::server::session_key(params)
-            .ok()
-            .and_then(|key| self.resolve(key).ok())
-            .is_some_and(|s| s.meta().vm_boundary);
-        if at_boundary {
-            super::merge_mux_meta(params, json!({"via": "web"}));
-        }
-    }
-
-    /// Refuses a request that is not the person's own ([`owner`] false: a Web
-    /// client, a paired machine, or a peer forwarding for either) when it names
-    /// a session here at the VM boundary, unless it only reads (the read-only
-    /// role's closed allow list, `pairing::read_only_allows`). So no such caller
-    /// prompts, steers, cancels, answers for, restarts, re-models, forks, kills
-    /// or reconfigures one, including any method added later. `_acpmux/warm`,
-    /// which names its sessions in a list, skips them instead (`warm.rs`).
+    /// Admits a request that is not the person's own ([`owner`] false: a Web
+    /// client, a paired machine's `client` credential, or a peer forwarding for
+    /// either) against the VM boundary, before anything else runs. It resolves
+    /// the session the request names once, and pins the request to that
+    /// session's exact id (`sessionId`), so a rename or a new session that
+    /// shadows the name while the request waits cannot move it onto another
+    /// session. If that session is at the VM boundary, the request is refused
+    /// unless it only reads (the read-only role's closed allow list,
+    /// `pairing::read_only_allows`), so no such caller prompts, steers,
+    /// cancels, answers for, restarts, re-models, forks, kills or reconfigures
+    /// one, including any method added later; a read runs under the Web's rules
+    /// (`via: web`). `_acpmux/warm` and `_acpmux/shutdown`, which name no one
+    /// session, check their own (`warm.rs`, `requests.rs`).
     pub fn refuse_at_vm_boundary(
         &self,
         auth: crate::server::ConnAuth,
         control: Control,
         m: &str,
-        params: &Value,
+        params: &mut Value,
     ) -> Result<(), RpcError> {
-        if owner(auth, control, params) || crate::pairing::read_only_allows(m) {
+        if owner(auth, control, params) {
             return Ok(());
         }
-        let at_boundary = crate::server::session_key(params)
-            .ok()
-            .and_then(|key| self.resolve(key).ok())
-            .is_some_and(|s| s.meta().vm_boundary);
-        if !at_boundary {
+        let Some(session) =
+            crate::server::session_key(params).ok().and_then(|key| self.resolve(key).ok())
+        else {
+            return Ok(());
+        };
+        if !crate::no_panic::JsonExt::set(params, "sessionId", Value::String(session.id.clone())) {
+            return Err(RpcError::invalid_params("params must be an object"));
+        }
+        if !session.meta().vm_boundary {
+            return Ok(());
+        }
+        if crate::pairing::read_only_allows(m) {
+            if control == Control::Peer {
+                super::merge_mux_meta(params, json!({"via": "web"}));
+            }
             return Ok(());
         }
         Err(RpcError::new(
@@ -163,6 +156,12 @@ impl Hub {
             ),
         )
         .with_data(json!({"reason": "remote.unsandboxed_agent", "method": m})))
+    }
+
+    /// Whether any session here is at its owner's VM boundary: what a caller
+    /// that is not the owner may not shut down (`_acpmux/shutdown`).
+    pub fn any_at_vm_boundary(&self) -> bool {
+        self.sessions().iter().any(|s| s.meta().vm_boundary)
     }
 
     /// Whether `meta`'s remote chain runs its Claude Code without the

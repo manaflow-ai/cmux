@@ -125,11 +125,10 @@ pub(super) async fn handle_notification(
             // the same origin/ownership boundary as request-form cancels,
             // the VM boundary's owner rule included (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &params) {
+            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
             }
-            hub.hold_at_vm_boundary(conn.auth, control, &mut params);
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
                 && let Err(e) = super::remote_guard::check(
@@ -563,8 +562,7 @@ pub(super) async fn handle_request(
     // A request that is not the person's own, naming a session here at the VM
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-    hub.refuse_at_vm_boundary(conn.auth, control, m, &params)?;
-    hub.hold_at_vm_boundary(conn.auth, control, &mut params);
+    hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -1910,6 +1908,18 @@ async fn dispatch_request(
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
+            // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
+            // (`hub/vm_boundary.rs`).
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            if !crate::hub::vm_boundary::owner(conn.auth, control, &params)
+                && hub.any_at_vm_boundary()
+            {
+                return Err(RpcError::new(
+                    -32000,
+                    "a chat here runs without the sandbox on its owner's own VM; only the owner's own devices stop this daemon",
+                )
+                .with_data(json!({"reason": "remote.unsandboxed_agent"})));
+            }
             // The person's own daemon is never stopped by a test runner or a client from a
             // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
             // own environment can allow those; nothing a client sends does.

@@ -392,7 +392,7 @@ async fn only_the_callers_vm_boundary_over_its_peer_link_skips_the_linux_sandbox
 
 /// Only the person's own clients control a session at the VM boundary. A paired machine's
 /// `client` credential (served as a peer, `ConnAuth::Device`), and a peer forwarding for one
-/// (`via: device`), are held to the Web's rules for it (`Hub::hold_at_vm_boundary`): no prompt
+/// (`via: device`), are held to the Web's rules for it (`Hub::refuse_at_vm_boundary`): no prompt
 /// and no fork, model change, cancel or warm start; reads stay. A Web client likewise. A
 /// paired machine never turns vmHost back on either.
 #[cfg(target_os = "linux")]
@@ -456,6 +456,47 @@ async fn a_paired_machine_or_web_client_only_reads_a_session_at_the_vm_boundary(
     assert!(device_read.get("error").is_none(), "a read stays: {device_read}");
     assert!(device_on.to_string().contains("vmHost.remote"), "{device_on}");
     assert!(owner_on.get("error").is_none(), "{owner_on}");
+}
+
+/// A request that is not the owner's is pinned to the session its name named when it was
+/// admitted (`Hub::refuse_at_vm_boundary`): a rename that makes the name a boundary session's
+/// while it waits never moves it there. And it never shuts down a daemon that runs one.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_non_owner_request_keeps_its_session_and_never_stops_the_boundary() {
+    use acpmux::hub::Control;
+    let d = dir("vmb-pin");
+    let hub = hub_with(&d, None);
+    let new = |name: &str, vm_boundary: bool| {
+        let mut p = vm_boundary_new(&d, vm_boundary.then_some(json!(true)), None);
+        p["_meta"]["acpmux"]["harness"] = json!("fakeacp");
+        p["_meta"]["acpmux"]["name"] = json!(name);
+        p
+    };
+    let mut owner = Client::new(&hub, Origin::Peer);
+    let r = owner.call("session/new", new("boundary-one", true)).await;
+    let boundary = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let r = owner.call("session/new", new("plain", false)).await;
+    let plain = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let mut params = json!({"session": "plain", "modelId": "other"});
+    let admitted = hub.refuse_at_vm_boundary(
+        ConnAuth::Device,
+        Control::Peer,
+        "session/set_model",
+        &mut params,
+    );
+    let mut local = Client::new(&hub, Origin::Local);
+    for (id, to) in [(&plain, "plain-old"), (&boundary, "plain")] {
+        let r = local.call("_acpmux/rename", json!({"sessionId": id, "newName": to})).await;
+        assert!(r.get("error").is_none(), "{r}");
+    }
+    let mut device = Client::authed(&hub, Origin::Peer, ConnAuth::Device);
+    let shutdown = device.call("_acpmux/shutdown", json!({"endAgents": true})).await;
+    let _ = std::fs::remove_dir_all(&d);
+    assert!(admitted.is_ok(), "{admitted:?}");
+    assert_eq!(params["sessionId"], json!(plain), "not pinned: {params}");
+    assert!(boundary != plain);
+    assert!(shutdown.to_string().contains("remote.unsandboxed_agent"), "{shutdown}");
 }
 
 /// Approve-all follows the caller's VM boundary under vmHost's old rule: the

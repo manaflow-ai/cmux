@@ -446,7 +446,7 @@ impl Hub {
 /// sandbox: no Web control until the chat restarts. A session at its owner's
 /// VM boundary (`vm_boundary.rs`) gets none ever, spawned yet or not: only
 /// the owner's own clients control it, and a request held to the Web's rules
-/// (a paired machine's included, `Hub::hold_at_vm_boundary`) does not.
+/// (a paired machine's included, `Hub::refuse_at_vm_boundary`) does not.
 fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
     if meta.vm_boundary {
         return Some(
