@@ -834,7 +834,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the COLOR_CHOOSER_OPEN, _SET_COLOR and _END events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the COLOR_CHOOSER_OPEN, _SET_COLOR and _END events of the host's CMUX_SHIM_COLOR_CHOOSER pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_color_chooser_choose",
@@ -894,7 +894,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DEVICE_CHOOSER_UPDATE and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the DEVICE_CHOOSER_UPDATE and _CLOSE events of the host's CMUX_SHIM_DEVICE_CHOOSER pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_device_chooser_answer",
@@ -945,7 +945,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DESKTOP_MEDIA_OPEN and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the DESKTOP_MEDIA_OPEN and _CLOSE events of the host's CMUX_SHIM_DESKTOP_MEDIA pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_desktop_media_answer",
@@ -4475,6 +4475,27 @@
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
       "reason": "Answered by CMUX_SHIM_REPLY with the caller's reply id once the fork installed the extension and its background page finished its first load (p13-webui-055); the profile's first browser tab waits for it. The host's wire:REPLY under the op's token carries the start result: a start other than 1 ends that load at once instead of at its deadline (CEFBuiltInExtensionLoader awaits it, as profileWrite does, task 021)."
+    },
+    {
+      "name": "cmux_shim_tab_page_push",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A page's host events and replies as data (p13-webui-079), one-way and in call order on the control channel, which also carries the page's scripts (tab_evaluate), so a push never overtakes a script sent before it. The app reads no answer: it pushes only while CEFForkFeatures.pagePush says the fork and the shim have the channel."
     }
   ],
   "events": [
@@ -4806,6 +4827,30 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_COLOR_CHOOSER",
+      "value": 61,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork color chooser handler, installed while cmux's client has cmux_shim_set_color_chooser_handler set. request = CMUX_SHIM_COLOR_CHOOSER_OPEN, _SET_COLOR or _END, a = token, b = the color (0xAARRGGBB), s1 = OPEN's suggestions as bytes (HOST/src/host_choosers.h). The remote shim (HOST/client/remote_shim_choosers.mm) calls the app's fn with the fork's cmux_color_chooser_t rebuilt from it; the app's event fn never sees it."
+    },
+    {
+      "kind": "CMUX_SHIM_DEVICE_CHOOSER",
+      "value": 62,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork device chooser handler (Web Bluetooth, WebUSB, WebHID, Web Serial), installed while cmux's client has cmux_shim_set_device_chooser_handler set. request = CMUX_SHIM_DEVICE_CHOOSER_UPDATE or _CLOSE, a = token, s1 = UPDATE's whole chooser state as bytes (HOST/src/host_choosers.h); the remote shim calls the app's fn with the fork's cmux_device_chooser_t rebuilt from it."
+    },
+    {
+      "kind": "CMUX_SHIM_DESKTOP_MEDIA",
+      "value": 63,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork screen-share picker handler (getDisplayMedia, chrome.desktopCapture), installed while cmux's client has cmux_shim_set_desktop_media_handler set. request = CMUX_SHIM_DESKTOP_MEDIA_OPEN or _CLOSE, a = token, s1 = OPEN's request as bytes (HOST/src/host_choosers.h); the remote shim calls the app's fn with the fork's cmux_desktop_media_request_t rebuilt from it."
+    },
+    {
+      "kind": "CMUX_SHIM_SUBFRAME_RENDERER",
+      "value": 64,
+      "refreshes": [],
+      "reason": "A frame other than the main one gained (a = 1) or lost (a = 0) its renderer, request = its renderer client id, s1 = its frame identifier (CefFrameHandler, task p07-memory-106): the app's child monitor names the pages a renderer's crash leaves a sad frame in. The host's renderers are not the app's children, so in host mode the app reads none of them."
     }
   ],
   "optional_exports": [
@@ -5271,6 +5316,78 @@
       "reply_event": null,
       "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeCancelComposition with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
       "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_tab_copy_surface",
+      "class": "async",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "reply",
+          "type": "int"
+        },
+        {
+          "name": "max_width",
+          "type": "int"
+        },
+        {
+          "name": "max_height",
+          "type": "int"
+        },
+        {
+          "name": "format",
+          "type": "int"
+        },
+        {
+          "name": "jpeg_quality",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+SurfaceCopy.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "CMUX_SHIM_REPLY",
+      "reason": "The fork's cmux_browser_capture (p13-webui-077): the page as it last drew, fitted inside max_width x max_height and encoded on Chromium's thread pool (format 0 PNG with alpha, 1 JPEG), with no DevTools agent. Answered as cmux_shim_download_favicon is: CMUX_SHIM_REPLY under the caller's reply id, value = width | height << 32 in pixels (0: no picture), json = the encoded image in base64. 1 when started (p13-webui-078).",
+      "fork_api": 38
+    },
+    {
+      "name": "cmux_shim_tab_send_mouse_move",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "double"
+        },
+        {
+          "name": "y",
+          "type": "double"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+Click.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "CefBrowserHost::SendMouseMoveEvent with no button held (p13-webui-077 and 078): a scripted hover with no DevTools agent, in call order with other input as cmux_shim_tab_send_click.",
+      "fork_api": 38
     }
   ],
   "optional_events": [
@@ -5296,7 +5413,7 @@
       "kind": "CMUX_SHIM_WIDGET_CONTEXT",
       "value": 52,
       "refreshes": [],
-      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup): browser = owner, request = widget id, a = CAContext id | kind << 32, s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
+      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup; fork API 31: video and document picture-in-picture, task 228): browser = owner, request = widget id, a = CAContext id | kind << 32 (ChromiumHostWidgetKind: 1 extension popup, 2 side panel, 3 DevTools, 4 DevTools window, 5 popup window, 6 page popup, 7 video picture-in-picture for the fork's CMUX_HOSTED_WIDGET_VIDEO_PIP, 8 document picture-in-picture for its CMUX_HOSTED_WIDGET_DOCUMENT_PIP), s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
     },
     {
       "kind": "CMUX_SHIM_WIDGET_GONE",
@@ -5312,7 +5429,7 @@
     },
     {
       "kind": "CMUX_SHIM_PAGE_PRINT",
-      "value": 61,
+      "value": 65,
       "refreshes": [],
       "reason": "Host mode only (task 065), after cmux_remote_shim_set_page_prints(1): a print the page started (window.print(), Chromium's print command on the page) that the fork's cmux_set_print_request_handler stopped before Chromium's print preview opened. browser_id = the page, a = the request. cmux prints the page through kOpPrintToPdf and its print panel, then ends the request with kOpPagePrintEnd, which lets the page's window.print() return (HOST/src/host_print.h; ChromiumHostPagePrints)."
     }
@@ -5383,13 +5500,14 @@
       "task": "p01-process-015"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFPageSchemes.swift: CEFPageSchemes.add(_:to:), from CEFRuntime.initialize, added != 1",
+      "site": "CmuxNextBrowser/CEF/CEFPageSchemes.swift: CEFPageSchemes.add(_:through:refused:), from CEFRuntime.initialize",
       "exports": [
         "cmux_shim_page_scheme_add_first_party",
-        "cmux_shim_page_scheme_add_first_party_dynamic"
+        "cmux_shim_page_scheme_add_first_party_dynamic",
+        "cmux_shim_page_scheme_set_group"
       ],
       "needs": "reply",
-      "change": "The immediate return is the client's check; the host's refusal arrives as the reply off main and is logged there.",
+      "change": "Each call is in the token form (sendAsync, whenSettled): a refusal reaches the caller in the call in process and in the turn of the host's REPLY in host mode; the client's own check refusing it sends nothing (unsent), a refusal too.",
       "task": "p01-process-070"
     },
     {

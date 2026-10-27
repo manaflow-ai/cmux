@@ -49,21 +49,23 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case prefGet = 169, prefSetBool = 170, prefWatch = 171, bookmarksSync = 172, pageSchemeAdd = 173
     case pageSchemeAddFirstParty = 174, pageSchemeAddFirstPartyDynamic = 175, pageResourceRespond = 176
     case memoryPressureVote = 177, setCursorEvents = 178, tabSetVisibility = 179, extLoadLaterSupported = 180
-    case extLoadCommandLine = 181, setPopupMenus = 182, browserPopupMenuReply = 183, addDocumentScript = 184
-    case addPageChannel = 185, tabEvaluate = 186, tabSetFrozen = 187, tabSendClick = 188, tabSetColorScheme = 189
-    case pageSchemeSetGroup = 190, tabDiscard = 191, widgetSetGeometry = 192, widgetDismiss = 193
-    case widgetSendInput = 194, browserImeSetComposition = 195, browserImeCommitText = 196
-    case browserImeFinishComposing = 197, browserImeCancelComposition = 198
+    case extLoadCommandLine = 181, tabPagePush = 182, setPopupMenus = 183, browserPopupMenuReply = 184
+    case addDocumentScript = 185, addPageChannel = 186, tabEvaluate = 187, tabSetFrozen = 188, tabSendClick = 189
+    case tabSetColorScheme = 190, pageSchemeSetGroup = 191, tabDiscard = 192, widgetSetGeometry = 193
+    case widgetDismiss = 194, widgetSendInput = 195, browserImeSetComposition = 196, browserImeCommitText = 197
+    case browserImeFinishComposing = 198, browserImeCancelComposition = 199, tabCopySurface = 200
+    case tabSendMouseMove = 201
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9"
+    static let abiIdentity = "d86f222f3c74fd93a1311294f9d1be89f084c37e73f769c6878980d0ca40d59a"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "9ff87c50d8361cc1074e7deb2ae9cc2116f753db212efe20dd1c2c7e24b20468"
+    static let wireIdentity = "702355a80cd427ebb23d70c9f4c662e355223a9701222722e0287bae764c4b31"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
         .pageSchemeSetGroup, .tabDiscard, .widgetSetGeometry, .widgetDismiss, .widgetSendInput,
         .browserImeSetComposition, .browserImeCommitText, .browserImeFinishComposing, .browserImeCancelComposition,
+        .tabCopySurface, .tabSendMouseMove,
     ]
     /// Host -> cmux control ops: a shim event, an async result, a mirror value, an ack.
     static let eventOp: UInt16 = 0x8001, replyOp: UInt16 = 0x8002
@@ -379,6 +381,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .int32], [.int32]),
         Row(.mirror, [], [.int32]),
         Row(.async, [.string, .int32, .string], [.int32]),
+        Row(.post, [.int32, .string], [.int32]),
         Row(.preinit, [.int32], []),
         Row(.post, [.int32, .int64, .int32], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
@@ -396,6 +399,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .bytes, .int32, .int32], []),
         Row(.post, [.int32], []),
         Row(.post, [.int32], []),
+        Row(.async, [.int32, .int32, .int32, .int32, .int32, .int32], [.int32]),
+        Row(.post, [.int32, .double, .double, .int32], [.int32]),
     ]
 
     private var row: Row { Self.rows[Int(rawValue) - 1] }
@@ -518,8 +523,9 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
-    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56, pagePrint = 61
+    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, colorChooser = 61, deviceChooser = 62
+    case desktopMedia = 63, subframeRenderer = 64, pageMessage = 49, evaluateResult = 50, createFailed = 51
+    case widgetContext = 52, widgetGone = 53, wheelAck = 56, pagePrint = 65
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

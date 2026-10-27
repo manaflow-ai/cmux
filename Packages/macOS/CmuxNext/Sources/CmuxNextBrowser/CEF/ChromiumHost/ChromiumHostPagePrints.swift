@@ -117,11 +117,11 @@ final class ChromiumHostPagePrints {
         let hostStart = runtime.hostStart
         let calls = hostStart.flatMap { boundCalls($0) }
         // The host the request came from: one attached later hands out the same ids again.
-        let from = hostStart?.hostEnds
+        let from = hostStart?.generation
         let end: @MainActor () -> Void = { [weak self, weak hostStart] in
             self?.pageEnded += 1
             // Not sent when the host it came from is gone: the request went with it.
-            guard let hostStart, hostStart.hostEnds == from else { return }
+            guard let hostStart, hostStart.generation == from else { return }
             _ = calls?.endPagePrint(request)
         }
         guard let window, self.print(browser, on: window, runtime: runtime, ended: end) else { return end() }

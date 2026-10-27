@@ -941,13 +941,18 @@ void PageVisibilityAppliesAtTheDetach() {
          "a malformed op is bad");
 }
 
+// PageShowActivity's hold as the task 128 tests read it: held or not, per change of level.
+PageShowActivity::Hold Recorder(std::vector<bool>& holds) {
+  return [&holds](const ActivityState& state) { holds.push_back(state.level != ActivityLevel::kNone); };
+}
+
 // Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
 // lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
 // start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
 void PageShowActivityHoldsWhileAPageShows() {
   {
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     Check(activity.held() && holds == std::vector<bool>{true}, "the activity begins at the start");
     activity.SetShownPages(1);
     activity.SetShownPages(2);
@@ -971,7 +976,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // Through the dispatcher: the count is cmux's visibility posts, per browser.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Start();
     Check(!activity.held() && holds == (std::vector<bool>{true, false}),
@@ -1004,7 +1009,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // carries on into the page's, with no end between.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Initialize();
     visibility(f, 5, CMUX_SHIM_PAGE_VISIBLE);
@@ -1013,6 +1018,56 @@ void PageShowActivityHoldsWhileAPageShows() {
     Check(f.host.shown_pages() == 1 && activity.held() && holds == std::vector<bool>{true},
           "held from the start through the shown page");
   }
+}
+
+// Task p01-process-222: while cmux is the active app the host holds the activity at kActive
+// (latency critical), with or without a shown page; a shown page with another app active holds
+// kShown; cmux hidden lets App Nap apply. Each change of level is one hold and one log line.
+void ActivityFollowsCmuxActiveAndHidden() {
+  std::vector<ActivityState> states;
+  PageShowActivity activity([&states](const ActivityState& state) { states.push_back(state); });
+  auto levels = [&states] {
+    std::vector<ActivityLevel> out;
+    for (const ActivityState& state : states) out.push_back(state.level);
+    return out;
+  };
+  using L = ActivityLevel;
+  Check(levels() == std::vector<L>{L::kShown} && states.back().starting, "the start holds kShown");
+  activity.SetApp(true, false);
+  Check(levels() == (std::vector<L>{L::kShown, L::kActive}), "cmux active during the start: kActive");
+  activity.SetShownPages(0);
+  Check(activity.level() == L::kActive && states.size() == 2,
+        "the start's end with no page shown keeps kActive while cmux is active");
+  activity.SetApp(true, false);
+  Check(states.size() == 2, "the same app state again changes nothing");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kNone && !activity.held() && states.size() == 3,
+        "another app active and no page shown: App Nap may apply");
+  activity.SetShownPages(1);
+  Check(activity.level() == L::kShown && states.size() == 4, "a shown page with another app active: kShown");
+  activity.SetApp(true, false);
+  Check(activity.level() == L::kActive && states.size() == 5, "cmux active again: kActive");
+  activity.SetShownPages(2);
+  Check(states.size() == 5, "a second page while active does not churn");
+  activity.SetApp(false, true);
+  Check(activity.level() == L::kNone && states.size() == 6, "cmux hidden ends it, pages posted shown or not");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kShown && states.size() == 7, "unhidden with its pages shown: kShown");
+  Check(activity.edges() == 7, "one edge per change of level");
+  Check(ActivityLogLine(states.back()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 2)\n",
+        "the log line names the level and what it follows");
+  Check(ActivityLogLine(states.front()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 0, starting)\n",
+        "the start's line says it is starting");
+
+  // Hidden during the start: the start's hold stays until the first count.
+  std::vector<bool> holds;
+  PageShowActivity starting(Recorder(holds));
+  starting.SetApp(false, true);
+  Check(starting.level() == L::kShown && holds.size() == 1, "hidden while starting keeps the start's hold");
+  starting.SetShownPages(1);
+  Check(!starting.held() && holds == (std::vector<bool>{true, false}), "and hidden ends it after the start");
 }
 
 // The fork applies a page visibility post to the browser's Chromium window, every tab of it, and
@@ -1036,7 +1091,7 @@ void PageShowActivityFollowsTheWindow() {
 
   Fixture f;
   std::vector<bool> holds;
-  PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+  PageShowActivity activity(Recorder(holds));
   f.host.SetPageShowActivity(&activity);
   f.Start();
   auto created = [&f](int browser, int64_t window) {
@@ -1389,6 +1444,7 @@ int main() {
   PageVisibilityAppliesAtTheDetach();
   PageShowActivityHoldsWhileAPageShows();
   PageShowActivityFollowsTheWindow();
+  ActivityFollowsCmuxActiveAndHidden();
   GeometryOnlyOnChange();
   GeometryStatsReply();
   WipeZeroes();

@@ -23,7 +23,7 @@ enum PaletteSourcesBridge {
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
-            return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+            return Dictionary(assigned.map { (PaletteScopeID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
         }
         // cmux.json `palette.aliases` and `palette.pins`, read on every open.
         sources.rankSettings = { [weak services] in

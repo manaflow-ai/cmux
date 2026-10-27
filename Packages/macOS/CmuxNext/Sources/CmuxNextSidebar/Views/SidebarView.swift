@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextResources
+public import CmuxNextWakeups
 import CmuxNextCompat
 import CmuxNextIcons
 import Observation
@@ -88,8 +89,13 @@ public final class SidebarView: NSView {
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
-    var observation: Task<Void, Never>?
-    private var clipObservers: [any NSObjectProtocol] = []
+    /// The list's draw (`render`), only while ``visibility`` renders (p06-scheduler.md rule 4).
+    var observation: VisibleObservation<ObservationTrigger<RenderState>>?
+    /// The list settings and the selection's reveal reach the model while the sidebar is hidden too (rule 3).
+    var listSettingsWatch: ServiceObservation<ListSettings>?
+    var selectionWatch: ServiceObservation<Set<WorkspaceID>>?
+    /// The sidebar's place in the visibility tree: its window's node, hidden with the sidebar (a collapsed panel).
+    let visibility = ViewVisibility("sidebar")
     /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
     var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
@@ -130,8 +136,9 @@ public final class SidebarView: NSView {
     /// - Parameters:
     ///   - model: What the sidebar shows.
     ///   - design: The `sidebar.*` settings it draws from.
+    ///   - mainWork: The app's main-thread scheduler: the list draws through it while the sidebar shows.
     ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
-    public init(model: SidebarModel, design: DesignSettings = .shared, newRows: SidebarNewRowTimer? = nil) {
+    public init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
@@ -141,7 +148,7 @@ public final class SidebarView: NSView {
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
-        observe()
+        observe(on: mainWork)
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -152,10 +159,24 @@ public final class SidebarView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
-            for token in clipObservers { NotificationCenter.default.removeObserver(token) }
+            listSettingsWatch?.cancel()
+            selectionWatch?.cancel()
         }
     }
     nonisolated override public var isFlipped: Bool { true }
+    // R-hide: AppKit's moves, hides and unhides only reach the node; its observation follows the node.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
+    }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
@@ -224,7 +245,7 @@ public final class SidebarView: NSView {
     /// The Search button while it is on screen (shown, in a window, not inside a collapsed
     /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
     public var searchAnchor: NSView? {
-        let button = searchButton
+        let button = searchButton // visibility-walk-allow: a popover anchor read once per Search open, as a hit test
         guard button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty else { return nil }
         return button
     }
@@ -275,9 +296,8 @@ public final class SidebarView: NSView {
         ScrollGeometryClipView.install(in: scrollView).addClient(self)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
-        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
-            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
-        ]
+        // The app's one scroll-bar setting observer: it restyles the scroller (followThin), then the list fits the clip.
+        SystemScrollers.observe(self) { [weak self] _ in self?.syncListSize() }
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -295,11 +315,6 @@ public final class SidebarView: NSView {
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
-    }
-
-    private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.nativeStyle
-        syncListSize()
     }
 
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
