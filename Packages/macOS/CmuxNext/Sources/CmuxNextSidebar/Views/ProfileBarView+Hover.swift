@@ -8,11 +8,11 @@ import CmuxNextWakeups
 extension ProfileBarView {
     /// The windows' frame-aligned pointer input; nil: each move hovers at once.
     var hoverFrameInput: FrameInputCoalescers? {
-        get { hoverMoves.frames }
-        set { hoverMoves.frames = newValue }
+        get { frameInputHover.frames }
+        set { frameInputHover.frames = newValue }
     }
 
-    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
 
     /// Hovers the space under `windowPoint`, hit-tested where the slots are now.
     func hover(atWindowPoint windowPoint: NSPoint) { setHovered(index(at: convert(windowPoint, from: nil))) }

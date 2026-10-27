@@ -31,6 +31,7 @@ final class SidebarDecorationView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // visibility-walk-allow: sets the gap layer's fill and corner only (no layout, no measure)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
