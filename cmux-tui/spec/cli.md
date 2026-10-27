@@ -708,9 +708,10 @@ and password fields; `--submit` then submits the form. It is a write verb (on `r
 agent's own tab or a handed-over one). The answer is `{filled, site, username_filled,
 password_filled, submitted}` and never contains the username or password; with no saved login
 it is `{filled: false, site: null, reason: "no_saved_login"}`. It fills only an agent-profile tab
-over https, only a document no agent script (`eval`, `wait --function`) ran on (else `reason:
-"scripted_page"`), and afterwards those scripts are refused on that document (error code
-`login_filled`) until it navigates.
+over https, only on a site (origin, per browser profile) no agent script (`eval`, `wait
+--function`) ever ran on (else `reason: "scripted_origin"`); once a site's sign-in is filled,
+those scripts are refused on that site in every tab (error code `login_filled`). Both marks
+persist across app restarts. Never eval on a site you will sign into.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never

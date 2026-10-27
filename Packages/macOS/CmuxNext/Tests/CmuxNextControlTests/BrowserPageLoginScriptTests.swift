@@ -59,9 +59,9 @@ import WebKit
             return JSONValue(foundation: object) ?? .null
         }
 
-        /// The document's name as the probe gives it.
-        func document() async throws -> String {
-            try #require(try await readIsolated(BrowserPageScripts.documentProbe)["document"]?.stringValue)
+        /// The page's origin as the probe gives it.
+        func origin() async throws -> String {
+            try #require(try await readIsolated(BrowserPageScripts.originProbe)["origin"]?.stringValue)
         }
     }
 
@@ -72,7 +72,7 @@ import WebKit
     }
 
     private func fill(_ page: Page, host: String = host) async throws -> JSONValue {
-        let script = BrowserPageScripts.fillLogin(host: host, document: try await page.document(), username: Self.username, password: Self.password)
+        let script = BrowserPageScripts.fillLogin(host: host, origin: try await page.origin(), username: Self.username, password: Self.password)
         let answer = try await page.readIsolated(script)
         let text = String(describing: answer)
         #expect(!text.contains(Self.username) && !text.contains(Self.password), "the answer names no value")
@@ -96,7 +96,7 @@ import WebKit
         #expect(try await page.value("p") == Self.password)
         #expect(try await page.value("search") == "")
         #expect(try await page.value("q") == "")
-        let submitted = try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, document: try await page.document()))
+        let submitted = try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, origin: try await page.origin()))
         #expect(submitted["value"] == true)
         #expect(try await page.read("window.sent") == ["u": .string(Self.username), "p": .string(Self.password)])
     }
@@ -114,7 +114,7 @@ import WebKit
         #expect(answer["value"]?["password"] == false)
         #expect(try await page.value("id") == Self.username)
         #expect(try await page.value("hiddenpw") == "", "a hidden password field is never filled")
-        #expect(try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, document: try await page.document()))["value"] == true)
+        #expect(try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, origin: try await page.origin()))["value"] == true)
         #expect(try await page.read("window.sent") == true)
     }
 
@@ -175,9 +175,9 @@ import WebKit
         #expect(try await page.value("p") == "")
     }
 
-    @Test func anotherDocumentNameGetsNothing() async throws {
+    @Test func anotherOriginGetsNothing() async throws {
         let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>")
-        let script = BrowserPageScripts.fillLogin(host: Self.host, document: "12.5", username: Self.username, password: Self.password)
+        let script = BrowserPageScripts.fillLogin(host: Self.host, origin: "https://elsewhere.test", username: Self.username, password: Self.password)
         #expect(try await page.readIsolated(script)["value"]?["reason"] == "navigated")
         #expect(try await page.value("p") == "")
     }
@@ -200,15 +200,44 @@ import WebKit
         #expect(try await page.value("p") == Self.password, "the page itself still reads the field")
     }
 
-    @Test func theProbeNamesTheDocumentAndANavigationRenamesIt() async throws {
-        let first = await page("<p>one</p>")
-        let name = try await first.document()
-        #expect(Double(name) != nil)
-        #expect(try await first.document() == name, "the same document keeps its name")
-        // A page-world override of the time origin does not reach the isolated world.
-        _ = try await first.read("(() => { Object.defineProperty(Performance.prototype, 'timeOrigin', { get() { return 42; } }); return 1; })()")
-        #expect(try await first.document() == name)
-        let second = await page("<p>two</p>")
-        #expect(try await second.document() != name)
+    @Test func theProbeReadsTheOriginAPageCannotFake() async throws {
+        let page = await page("<p>one</p>")
+        #expect(try await page.origin() == "https://\(Self.host)")
+        #expect(try await page.readIsolated(BrowserPageScripts.originProbe)["opener"] == false)
+    }
+
+    /// F5: an agent's script is pinned to the origin the guard checked; on another origin (the
+    /// page navigated in between) it throws before running.
+    @Test func thePinnedAgentScriptThrowsOnAnotherOrigin() async throws {
+        let page = await page("<p>one</p>")
+        let moved = try await page.read(BrowserPageScripts.jsonSafe("window.ran = true", first: BrowserPageScripts.originPin("https://www.example.com")))
+        #expect(moved[BrowserPageScripts.thrownKey]?.stringValue?.contains("moved") == true)
+        #expect(try await page.read("window.ran === true") == false, "the script did not run")
+        let here = try await page.read(BrowserPageScripts.jsonSafe("40 + 2", first: BrowserPageScripts.originPin("https://\(Self.host)")))
+        #expect(here == 42)
+        // The pinned `wait --function` condition throws the same way.
+        let condition = BrowserPageScripts.WaitCondition.function("true").pinned(to: "https://www.example.com")
+        guard case .function(let expression) = condition else { Issue.record("not a function condition"); return }
+        let thrown = try await page.read("(() => { try { return \(expression); } catch (e) { return String(e); } })()")
+        #expect(thrown.stringValue?.contains("moved") == true)
+    }
+
+    /// F2: a "show password" toggle on a filled field empties it before anything can read it.
+    @Test func revealingAFilledPasswordEmptiesIt() async throws {
+        let page = await page("""
+        <form><input id="u" type="email" autocomplete="username"><input id="p" type="password">
+        <button type="button" id="show" onclick="document.getElementById('p').type = 'text'">Show</button></form>
+        """)
+        _ = try await fill(page)
+        #expect(try await page.value("p") == Self.password)
+        // The value script never answers a filled password field, even once its type changes.
+        #expect(try await page.read(BrowserPageScripts.value("#p", nil))["value"] == .null)
+        _ = try await page.read("(() => { document.getElementById('show').click(); return 1; })()")
+        #expect(try await page.read("document.getElementById('p').type") == "text")
+        #expect(try await page.value("p") == "", "the revealed field was emptied")
+        #expect(try await page.read(BrowserPageScripts.value("#p", nil))["value"] == .null)
+        let outline = try #require(try await page.read(BrowserPageScripts.snapshot(selector: nil, maxDepth: 12, interactiveOnly: false))["snapshot"]?.stringValue)
+        #expect(!outline.contains(Self.password))
+        #expect(try await page.value("u") == Self.username, "the username stays")
     }
 }

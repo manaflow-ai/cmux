@@ -1,65 +1,105 @@
-/// Which documents an agent has scripted and which hold a filled Secure Store login, per tab
-/// (cmux https://github.com/manaflow-ai/cmux/issues/25830). A document is named by its time origin
-/// read in cmux's isolated script world (``BrowserPageScripts/documentProbe``), which page and agent
-/// scripts cannot reach or fake, so both marks end with the document: a navigation gives a fresh,
-/// clean one.
+import Foundation
+
+/// Sites (origins) an agent scripted and sites holding a filled Secure Store login, per browser
+/// profile, kept across app restarts (cmux https://github.com/manaflow-ai/cmux/issues/25830). The
+/// two exclude each other for good:
 ///
-/// - An agent script (`eval`, `wait --function`) on a document holding a filled login is refused,
-///   so it cannot read the password back.
-/// - `fill_login` on a document an agent scripted is refused, so a hooked setter, listener or
-///   rewritten form action cannot catch it.
+/// - An agent script (`eval`, `wait --function`) on an origin whose sign-in was filled is refused,
+///   so no script of that site's origin (in any tab, popup or frame) can read the password back.
+/// - `fill_login` on an origin an agent ever scripted is refused: that script could have left a
+///   hook behind in another tab of the origin, an opener handle or a service worker.
 ///
-/// Check and mark happen in one actor step, so an eval and a fill racing on one document cannot
-/// both pass.
+/// An origin is `scheme://host[:port]` as `location.origin` gives it, keyed with the tab's
+/// profile (each profile has its own storage and service workers). Check and mark happen in one
+/// actor step, so a script and a fill racing on one origin cannot both pass. The file is read
+/// once, on first use, and written on each change, all on this actor, never the main thread.
 actor BrowserLoginGuards {
-    /// Documents remembered per tab and kind; the oldest drop out first.
-    static let remembered = 64
+    private struct Saved: Codable {
+        var scripted: [String]
+        var filled: [String]
+    }
 
-    private var scripted: [String: [String]] = [:]
-    private var filled: [String: [String]] = [:]
-    /// Tabs where an agent script ran on a document the probe could not name: no fill there.
-    private var unnamed: Set<String> = []
+    private let file: URL?
+    private var scripted: Set<String> = []
+    private var filled: Set<String> = []
+    private var loaded = false
 
-    /// An agent script is about to run on `document` (nil: unnamed). False when that document
-    /// holds a filled login; else it is marked scripted.
-    func beginScript(tab: String, document: String?) -> Bool {
-        guard let document else {
-            unnamed.insert(tab)
-            return true
+    /// - Parameter file: where the marks persist; nil keeps them in memory only.
+    init(file: URL?) {
+        self.file = file
+    }
+
+    /// An agent script is about to run on a page of `origins` (nil: the origin could not be
+    /// read; empty: an opaque page, no site). False when one of them holds a filled login, or
+    /// when the origin is unknown and this profile holds any; else each is marked scripted.
+    func beginScript(profile: String?, origins: [String]?) -> Bool {
+        load()
+        guard let origins else {
+            let prefix = Self.key(profile: profile, origin: "")
+            return !filled.contains { $0.hasPrefix(prefix) }
         }
-        if filled[tab]?.contains(document) == true { return false }
-        Self.remember(document, in: &scripted, tab: tab)
+        let keys = origins.map { Self.key(profile: profile, origin: $0) }
+        if keys.contains(where: filled.contains) { return false }
+        insertScripted(keys)
         return true
     }
 
-    /// Marks `document` scripted after a script ran (it may have moved to a new document).
-    func markScripted(tab: String, document: String?) {
-        guard let document else {
-            unnamed.insert(tab)
-            return
-        }
-        Self.remember(document, in: &scripted, tab: tab)
+    /// Marks `origins` scripted after a script ran (it may have moved to another site).
+    func markScripted(profile: String?, origins: [String]?) {
+        load()
+        insertScripted((origins ?? []).map { Self.key(profile: profile, origin: $0) })
     }
 
-    /// A login is about to be filled into `document`. False when an agent scripted it (or a
-    /// document of this tab the probe could not name); else it is marked filled.
-    func beginFill(tab: String, document: String) -> Bool {
-        if unnamed.contains(tab) || scripted[tab]?.contains(document) == true { return false }
-        Self.remember(document, in: &filled, tab: tab)
+    /// A login is about to be filled into a page of `origins`. False when an agent scripted one
+    /// of them; else each is marked filled.
+    func beginFill(profile: String?, origins: [String]) -> Bool {
+        load()
+        let keys = origins.map { Self.key(profile: profile, origin: $0) }
+        if keys.contains(where: scripted.contains) { return false }
+        insertFilled(keys)
         return true
     }
 
-    /// The fill set nothing on `document` (no login field, or the page moved first): scripts may
-    /// run there again.
-    func forgetFill(tab: String, document: String) {
-        filled[tab]?.removeAll { $0 == document }
+    /// The fill set nothing on `origins` (no login field, or the page moved first).
+    func forgetFill(profile: String?, origins: [String]) {
+        load()
+        let keys = Set(origins.map { Self.key(profile: profile, origin: $0) })
+        guard !filled.isDisjoint(with: keys) else { return }
+        filled.subtract(keys)
+        save()
     }
 
-    private static func remember(_ document: String, in table: inout [String: [String]], tab: String) {
-        var list = table[tab] ?? []
-        guard !list.contains(document) else { return }
-        list.append(document)
-        if list.count > remembered { list.removeFirst(list.count - remembered) }
-        table[tab] = list
+    static func key(profile: String?, origin: String) -> String {
+        "\(profile?.lowercased() ?? BrowserPageService.agentBrowserProfileID)|\(origin)"
+    }
+
+    private func insertScripted(_ keys: [String]) {
+        let before = scripted.count
+        scripted.formUnion(keys)
+        if scripted.count != before { save() }
+    }
+
+    private func insertFilled(_ keys: [String]) {
+        let before = filled.count
+        filled.formUnion(keys)
+        if filled.count != before { save() }
+    }
+
+    private func load() {
+        guard !loaded else { return }
+        loaded = true
+        guard let file, let data = try? Data(contentsOf: file),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
+        scripted = Set(saved.scripted)
+        filled = Set(saved.filled)
+    }
+
+    private func save() {
+        guard let file else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(Saved(scripted: scripted.sorted(), filled: filled.sorted())) else { return }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
     }
 }

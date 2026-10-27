@@ -14035,133 +14035,133 @@
       }
     },
     "control.error.loginFilled": {
-      "comment": "cmux browser eval or wait --function: refused because the app filled the person's saved login (Secure Store) into this page, so an agent's script could read it back. A new page (navigation) is allowed again.",
+      "comment": "cmux browser eval or wait --function: refused because the app filled the person's saved login (Secure Store) on this site (origin), so an agent's script there could read it back. Agent scripts stay refused on that site.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This page holds a filled sign-in; open another page first"
+            "value": "This site holds a filled sign-in; agent scripts cannot run on it"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تحتوي هذه الصفحة على تسجيل دخول مُعبأ؛ افتح صفحة أخرى أولاً"
+            "value": "يحتوي هذا الموقع على تسجيل دخول مُعبأ؛ لا يمكن تشغيل نصوص الوكيل عليه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova stranica sadrži popunjenu prijavu; prvo otvori drugu stranicu"
+            "value": "Ova stranica sadrži popunjenu prijavu; skripte agenta se na njoj ne mogu pokretati"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne side indeholder et udfyldt login; åbn en anden side først"
+            "value": "Dette websted har et udfyldt login; agentscripts kan ikke køre på det"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Seite enthält eine ausgefüllte Anmeldung; öffne zuerst eine andere Seite"
+            "value": "Diese Website enthält eine ausgefüllte Anmeldung; Agent-Skripte können dort nicht laufen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta página tiene un inicio de sesión rellenado; abre otra página primero"
+            "value": "Este sitio tiene un inicio de sesión rellenado; los scripts del agente no pueden ejecutarse en él"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette page contient un identifiant rempli ; ouvrez d’abord une autre page"
+            "value": "Ce site contient un identifiant rempli ; les scripts de l’agent ne peuvent pas s’y exécuter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa pagina contiene un accesso compilato; apri prima un’altra pagina"
+            "value": "Questo sito contiene un accesso compilato; gli script dell’agente non possono essere eseguiti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このページには入力済みのログイン情報があります。先に別のページを開いてください"
+            "value": "このサイトには入力済みのログイン情報があります。エージェントのスクリプトは実行できません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រនេះមានការចូលដែលបានបំពេញ; សូមបើកទំព័រផ្សេងសិន"
+            "value": "គេហទំព័រនេះមានការចូលដែលបានបំពេញ; ស្គ្រីបរបស់ភ្នាក់ងារមិនអាចដំណើរការលើវាបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 페이지에는 입력된 로그인 정보가 있습니다. 먼저 다른 페이지를 여세요"
+            "value": "이 사이트에는 입력된 로그인 정보가 있어 에이전트 스크립트를 실행할 수 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne siden har en utfylt pålogging; åpne en annen side først"
+            "value": "Dette nettstedet har en utfylt pålogging; agentskript kan ikke kjøre på det"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta strona zawiera wypełnione logowanie; najpierw otwórz inną stronę"
+            "value": "Ta witryna zawiera wypełnione logowanie; skrypty agenta nie mogą na niej działać"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta página contém um login preenchido; abra outra página primeiro"
+            "value": "Este site contém um login preenchido; scripts do agente não podem ser executados nele"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На этой странице заполнены данные для входа; сначала откройте другую страницу"
+            "value": "На этом сайте заполнены данные для входа; скрипты агента на нём не запускаются"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้านี้มีข้อมูลเข้าสู่ระบบที่กรอกไว้แล้ว เปิดหน้าอื่นก่อน"
+            "value": "เว็บไซต์นี้มีข้อมูลเข้าสู่ระบบที่กรอกไว้แล้ว สคริปต์ของเอเจนต์จึงทำงานบนเว็บไซต์นี้ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sayfada doldurulmuş bir giriş var; önce başka bir sayfa açın"
+            "value": "Bu sitede doldurulmuş bir giriş var; ajan betikleri bu sitede çalışamaz"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На цій сторінці заповнено дані для входу; спершу відкрийте іншу сторінку"
+            "value": "На цьому сайті заповнено дані для входу; скрипти агента на ньому не запускаються"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang này đang chứa thông tin đăng nhập đã điền; hãy mở trang khác trước"
+            "value": "Trang web này đang chứa thông tin đăng nhập đã điền; không thể chạy script của tác tử trên đó"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此页面包含已填写的登录信息；请先打开另一个页面"
+            "value": "此网站包含已填写的登录信息；无法在其上运行代理脚本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此頁面包含已填寫的登入資訊；請先開啟另一個頁面"
+            "value": "此網站包含已填寫的登入資訊；無法在其上執行代理程式指令碼"
           }
         }
       }

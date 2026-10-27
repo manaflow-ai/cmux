@@ -39,7 +39,7 @@ extension BrowserPageScripts {
         const typeOf = (el) => String(el.getAttribute('type') || 'text').toLowerCase();
         const parentOf = (n) => { if (n.parentElement) return n.parentElement; const r = n.getRootNode ? n.getRootNode() : null; if (r && r.host) return r.host;
           try { return (n.ownerDocument && n.ownerDocument.defaultView && n.ownerDocument.defaultView.frameElement) || null; } catch (_) { return null; } };
-        const secret = (el) => { if (typeOf(el) === 'password') return true; if (/password|one-time-code|cc-number|cc-csc/.test(String(el.getAttribute('autocomplete') || '').toLowerCase())) return true;
+        const secret = (el) => { if (typeOf(el) === 'password' || (el.hasAttribute && el.hasAttribute('\#(secretMark)'))) return true; if (/password|one-time-code|cc-number|cc-csc/.test(String(el.getAttribute('autocomplete') || '').toLowerCase())) return true;
           const s = styleOf(el); return !!s && (s.webkitTextSecurity || 'none') !== 'none'; };
         const kidsOf = (n) => { if (n.tagName === 'SLOT') { const a = n.assignedNodes({ flatten: true }); return a.length ? a : n.childNodes; } return n.shadowRoot ? n.shadowRoot.childNodes : n.childNodes; };
         // Text as a name: alt, SVG titles, children's labels; controls inside (a wrapping label's field) are left out.

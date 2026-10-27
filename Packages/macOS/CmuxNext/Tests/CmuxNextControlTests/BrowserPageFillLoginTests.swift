@@ -12,31 +12,35 @@ import Testing
     static let username = "ada@example.com"
     static let password = "hunter2-SECRET-pw"
 
-    /// A page: `state` gives its URL, the isolated document probe its current document, other
-    /// isolated scripts are the fill (answering `fill`) or the submit, and `evaluate` is an
-    /// agent's `eval`.
+    /// A page: `state` gives its URL, the isolated origin probe its origin (`origin`; a throw when
+    /// `probeFails`), other isolated scripts are the fill (answering `fill`) or the submit, and
+    /// `evaluate` is an agent's `eval`. Every tab shows the same page.
     final class LoginEngine: BrowserPageEngine {
         let announced = Mutex<[BrowserPageAgentInput]>([])
         let isolatedScripts = Mutex<[String]>([])
         let agentScripts = Mutex<[String]>([])
-        let document = Mutex("1000.5")
+        let page: Mutex<(url: String, origin: String)>
         let opener = Mutex(false)
-        let url: String
+        let probeFails = Mutex(false)
         let fill: JSONValue
         let failure: ControlError?
 
         init(url: String, fill: JSONValue, failure: ControlError? = nil) {
-            self.url = url
+            let origin = URL(string: url).flatMap(BrowserPageService.webOrigin) ?? "null"
+            self.page = Mutex((url, origin))
             self.fill = fill
             self.failure = failure
         }
+
+        var url: String { page.withLock { $0.url } }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
             switch operation {
             case .state:
                 return ["url": .string(self.url), "title": "Sign in"]
-            case .evaluateIsolated(let script) where script == BrowserPageScripts.documentProbe:
-                return ["value": ["document": .string(document.withLock { $0 }), "opener": .bool(opener.withLock { $0 })]]
+            case .evaluateIsolated(let script) where script == BrowserPageScripts.originProbe:
+                if probeFails.withLock({ $0 }) { throw ControlError(code: "js_error", message: "no isolated world") }
+                return ["value": ["origin": .string(page.withLock { $0.origin }), "opener": .bool(opener.withLock { $0 })]]
             case .evaluateIsolated(let script):
                 isolatedScripts.withLock { $0.append(script) }
                 if let failure { throw failure }
@@ -54,8 +58,10 @@ import Testing
             announced.withLock { $0.append(input) }
         }
 
-        /// A navigation: a new document.
-        func navigate(to document: String) { self.document.withLock { $0 = document } }
+        /// A navigation (every tab shows `url` now).
+        func navigate(to url: String) {
+            page.withLock { $0 = (url, URL(string: url).flatMap(BrowserPageService.webOrigin) ?? "null") }
+        }
 
         var inputs: [BrowserPageAgentInput] { announced.withLock { $0 } }
         var evaluated: [String] { isolatedScripts.withLock { $0 } }
@@ -80,32 +86,40 @@ import Testing
     static let at: JSONValue = ["x": 10, "y": 20, "w": 200, "h": 30, "secret": false]
     static let filledBoth: JSONValue = ["value": ["username": true, "password": true], "at": at]
 
-    func install(_ engine: LoginEngine, _ lookups: Lookups, profile: String? = BrowserPageService.agentBrowserProfileID) -> ControlRouter {
+    /// Two agent tabs (`tab_0123abcd`, `tab_other`) showing the engine's page.
+    func install(_ engine: LoginEngine, _ lookups: Lookups, profile: String? = BrowserPageService.agentBrowserProfileID,
+                 guardsFile: URL? = nil) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
-        BrowserPageService(engine: engine, logins: lookups.logins).install(on: router)
+        BrowserPageService(engine: engine, logins: lookups.logins, loginGuardsFile: guardsFile).install(on: router)
         var snapshot = ControlSnapshot.sample()
-        var tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Sign in", url: engine.url)
-        tab.browserProfileID = profile
-        snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
+        for (id, surface) in [("tab_0123abcd", "12"), ("tab_other", "13")] {
+            var tab = ControlTabInfo(id: id, surface: surface, kind: "browser", title: "Sign in", url: engine.url)
+            tab.browserProfileID = profile
+            snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
+        }
         router.snapshots.publish { $0 = snapshot }
         return router
     }
 
-    func call(_ router: ControlRouter, _ params: [String: JSONValue] = [:]) async -> Result<JSONValue, ControlError> {
+    func call(_ router: ControlRouter, _ params: [String: JSONValue] = [:], tab: String = "tab_0123abcd") async -> Result<JSONValue, ControlError> {
         var params = params
-        params["tab"] = "tab_0123abcd"
+        params["tab"] = .string(tab)
         return await router.handle(ControlRequest(method: "browser.page.fill_login", params: params))
     }
 
-    func eval(_ router: ControlRouter) async -> Result<JSONValue, ControlError> {
+    func eval(_ router: ControlRouter, tab: String = "tab_0123abcd") async -> Result<JSONValue, ControlError> {
         await router.handle(ControlRequest(method: "browser.page.eval",
-                                           params: ["tab": "tab_0123abcd", "script": "document.querySelector('input[type=password]').value"]))
+                                           params: ["tab": .string(tab), "script": "document.querySelector('input[type=password]').value"]))
     }
 
     func waitFunction(_ router: ControlRouter) async -> Result<JSONValue, ControlError> {
         await router.handle(ControlRequest(method: "browser.page.wait",
                                            params: ["tab": "tab_0123abcd", "function": "document.querySelector('input[type=password]').value",
                                                     "timeout_ms": 50]))
+    }
+
+    static func temporaryFile() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("login-guards-\(UUID().uuidString)").appendingPathComponent("guards.json")
     }
 
     /// Neither secret appears anywhere in `value`'s text.
@@ -139,8 +153,10 @@ import Testing
         // host and https first; the submit is a second script that checks them again.
         #expect(engine.evaluated.count == 2)
         let fill = try #require(engine.evaluated.first)
-        #expect(fill.contains("www.example.com") && fill.contains("1000.5") && fill.contains("https:"))
-        #expect(engine.evaluated.last == BrowserPageScripts.submitLogin(host: "www.example.com", document: "1000.5"))
+        #expect(fill.contains(BrowserPageScripts.literal("www.example.com")) && fill.contains(BrowserPageScripts.literal("https://www.example.com"))
+            && fill.contains("'https:'"))
+        #expect(fill.contains(BrowserPageScripts.secretMark) && fill.contains("MutationObserver"), "a revealed password empties")
+        #expect(engine.evaluated.last == BrowserPageScripts.submitLogin(host: "www.example.com", origin: "https://www.example.com"))
         #expect(Self.holdsNoSecret(engine.evaluated.last ?? ""))
         #expect(engine.agentEvaluated.isEmpty, "nothing runs in the page's world")
         // The agent cursor draws a secret fill with no text, even when the page said the field shows its text.
@@ -200,37 +216,67 @@ import Testing
         #expect(error.code == "lease_held")
     }
 
-    @Test func anEvalOrScriptedWaitOnTheFilledPageIsRefused() async throws {
+    @Test func aFilledSiteRefusesAgentScriptsInEveryTab() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved))
         _ = try await call(router).get()
-        guard case .failure(let error) = await eval(router) else { Issue.record("eval read the filled page"); return }
-        #expect(error.code == "login_filled")
-        guard case .failure(let waited) = await waitFunction(router) else { Issue.record("wait ran on the filled page"); return }
+        for tab in ["tab_0123abcd", "tab_other"] {
+            guard case .failure(let error) = await eval(router, tab: tab) else { Issue.record("eval read the filled site in \(tab)"); return }
+            #expect(error.code == "login_filled")
+        }
+        guard case .failure(let waited) = await waitFunction(router) else { Issue.record("wait ran on the filled site"); return }
         #expect(waited.code == "login_filled")
-        #expect(engine.agentEvaluated.isEmpty, "no agent script reached the page")
+        // Another page of the site, after a navigation: still refused.
+        engine.navigate(to: "https://www.example.com/feed")
+        guard case .failure = await eval(router) else { Issue.record("eval ran on the filled site after a navigation"); return }
+        #expect(engine.agentEvaluated.isEmpty, "no agent script reached the site")
+        // Another site is fine, and its script is pinned to its origin.
+        engine.navigate(to: "https://news.example.org/")
+        _ = try await eval(router).get()
+        #expect(engine.agentEvaluated.first?.contains(BrowserPageScripts.originPin("https://news.example.org")) == true)
     }
 
-    @Test func aPageAnAgentScriptedGetsNoLogin() async throws {
+    @Test func aScriptedSiteGetsNoLoginInAnyTab() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved))
-        _ = try await eval(router).get()
+        _ = try await eval(router, tab: "tab_other").get()
+        // Another page of the site in another tab: an opener handle or a service worker could be waiting.
+        engine.navigate(to: "https://www.example.com/signin")
         let answer = try await call(router).get()
         #expect(answer["filled"] == false)
-        #expect(answer["reason"] == "scripted_page")
+        #expect(answer["reason"] == "scripted_origin")
         #expect(engine.evaluated.isEmpty, "no fill script ran")
     }
 
-    @Test func aFreshDocumentAfterNavigationIsCleanAgain() async throws {
+    @Test func anUnreadableOriginRefusesScriptsOnceASiteIsFilled() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved))
-        // Scripted, then a new document: the fill is allowed there.
+        engine.probeFails.withLock { $0 = true }
+        // Nothing filled yet: an unreadable page may run the agent's script.
         _ = try await eval(router).get()
-        engine.navigate(to: "2000.25")
-        #expect(try await call(router).get()["filled"] == true)
-        // Filled, then a new document: the agent's scripts run again.
-        engine.navigate(to: "3000.75")
-        #expect(try await eval(router).get()["tab"] == "tab_0123abcd")
+        engine.probeFails.withLock { $0 = false }
+        engine.navigate(to: "https://login.example.net/")
+        _ = try await call(router).get()
+        engine.probeFails.withLock { $0 = true }
+        guard case .failure(let error) = await eval(router) else { Issue.record("an unreadable page ran a script"); return }
+        #expect(error.code == "login_filled")
+    }
+
+    @Test func theMarksOutliveTheApp() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let first = BrowserLoginGuards(file: file)
+        #expect(await first.beginScript(profile: nil, origins: ["https://scripted.test"]))
+        #expect(await first.beginFill(profile: nil, origins: ["https://filled.test"]))
+        let second = BrowserLoginGuards(file: file)
+        #expect(await !second.beginFill(profile: nil, origins: ["https://scripted.test"]), "a scripted site stays scripted")
+        #expect(await !second.beginScript(profile: nil, origins: ["https://filled.test"]), "a filled site stays filled")
+        #expect(await second.beginScript(profile: "default", origins: ["https://filled.test"]), "another profile is another store")
+        // Through the service: a new app run with the same file refuses the eval.
+        let engine = LoginEngine(url: "https://filled.test/", fill: Self.filledBoth)
+        let router = install(engine, Lookups(Self.saved), guardsFile: file)
+        guard case .failure(let error) = await eval(router) else { Issue.record("the filled site was forgotten"); return }
+        #expect(error.code == "login_filled")
     }
 
     @Test func thePersonsProfileTabNeverGetsALogin() async throws {

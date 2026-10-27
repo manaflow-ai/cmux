@@ -49,10 +49,12 @@ password) or `oauth` (a "Sign in with ..." page).
      what it filled (`filled`, `username_filled`, `password_filled`,
      `submitted`). A two-step login fills the user name first
      (`password_filled: false`): run it again on the password page.
-     `reason: "no_saved_login"` means nothing is saved for that site yet;
-     `scripted_page` means you ran `eval` (or `wait --function`) on this
-     page: navigate to the login page again, then fill. It fills only your
-     own tab, and `eval` on the filled page is refused (`login_filled`).
+     `reason: "no_saved_login"` means nothing is saved for that site yet.
+     Never `eval` (or `wait --function`) on a site you will sign into:
+     after one, the app refuses to fill it (`scripted_origin`), for good.
+     Once a site's sign-in is filled, agent scripts on that site are
+     refused (`login_filled`); use snapshot, click and fill there instead.
+     It fills only your own tab.
      Then continue the task.
 - Never import cookies or sign-ins from another browser without the
   user's Allow (`cmux browser import-cookies ... --reason`).

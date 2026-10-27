@@ -62,8 +62,9 @@ enum AppBrowserPage {
         // profile (#24413). The browser's saved passwords never fill in an agent-driven tab
         // (`markAgentDriven` above), and the per-tab lease coordinates agents. The one login an
         // agent tab gets is `browser.page.fill_login`: only a Secure Store login the person added
-        // for that site, only into an agent-profile tab whose document no agent script has run
-        // on, and agent scripts are refused on that document afterwards (`BrowserLoginGuards`).
+        // for that site, only into an agent-profile tab on a site (origin) no agent script has
+        // ever run on, and once a site's sign-in is filled, agent scripts on that site are refused
+        // (`BrowserLoginGuards`, kept across restarts).
         switch operation {
         case .navigate:
             if let target { page.load(target) }

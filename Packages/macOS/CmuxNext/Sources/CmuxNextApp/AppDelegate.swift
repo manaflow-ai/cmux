@@ -415,7 +415,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                            await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
                                        }, mirrors: services,
                                        // `browser.page.fill_login`: the person's Secure Store logins.
-                                       logins: BrowserPageService.secureStoreLogins).install(on: router)
+                                       logins: BrowserPageService.secureStoreLogins,
+                                       loginGuardsFile: BrowserPageService.loginGuardsFile(bundleIdentifier: Bundle.main.bundleIdentifier))
+                        .install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")

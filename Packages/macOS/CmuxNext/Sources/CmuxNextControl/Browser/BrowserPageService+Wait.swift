@@ -110,9 +110,9 @@ extension BrowserPageService {
             let started = ContinuousClock.now
             do {
                 // The page's own timer ends the wait; this bounds an engine that never answers.
-                let value = try await Self.guardedAgentScript(engine, tab, guards) {
+                let value = try await Self.guardedAgentScript(engine, tab, guards) { pin in
                     try await ControlDeadline.shared.run(method: method, deadline: .now + .milliseconds(chunk) + .seconds(1)) {
-                        try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: chunk)), tab)
+                        try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition.pinned(to: pin), timeoutMs: chunk)), tab)
                     }
                 }["value"]
                 if value?["met"]?.boolValue == true { return }

@@ -7,17 +7,18 @@ import Foundation
 /// password. Params: `tab`, `agent`, `submit` (then submit the form). A write verb: it takes the
 /// tab's lease like `fill`, and on `right` runs only on the agent's own or a handed-over tab.
 ///
-/// Only into an agent-profile tab, only over https, only into a document no agent script ran on,
-/// and agent scripts are refused on that document afterwards (``BrowserLoginGuards``). The fill and
-/// submit scripts run in cmux's isolated world, so a page-world hook never sees the values.
+/// Only into an agent-profile tab, only over https, only on a site (origin) no agent script ever
+/// ran on, and agent scripts on that site are refused from then on (``BrowserLoginGuards``). The
+/// fill and submit scripts run in cmux's isolated world, so a page-world hook never sees the
+/// values.
 ///
 /// Answers `{tab, filled, site, username_filled, password_filled, submitted}`, plus `reason` when
 /// nothing was filled: `no_saved_login` (`site` null), `not_agent_tab` (the person's profile),
-/// `not_https`, `scripted_page` (an agent script ran on this document: open the page again),
-/// `opened_by_page` (another window opened it and could reach in), `page_unavailable` (the page
-/// could not be read), `no_login_field`, or `navigated` (the page moved before the fill ran).
-/// The answer never holds the username or the password; nothing here logs them, the agent cursor
-/// draws the fill as secret with no text, and a page error comes back without its message.
+/// `not_https`, `scripted_origin` (an agent script ran on this site), `opened_by_page` (another
+/// window opened it and could reach in), `page_unavailable` (the page's origin could not be
+/// read), `no_login_field`, or `navigated` (the page moved before the fill ran). The answer never
+/// holds the username or the password; nothing here logs them, the agent cursor draws the fill as
+/// secret with no text, and a page error comes back without its message.
 extension BrowserPageService {
     func fillLoginMethods() -> [ControlMethod] {
         let engine = engine
@@ -40,21 +41,21 @@ extension BrowserPageService {
                 guard url.scheme?.lowercased() == "https" else {
                     return Self.loginAnswer(tab, site: login.site, reason: "not_https")
                 }
-                let probe = await Self.probeDocument(engine, tab)
-                guard let document = probe.document else {
+                let page = await Self.pageOrigin(engine, tab, url: url.absoluteString)
+                guard let probed = page.probed, probed != "null", let origins = page.origins else {
                     return Self.loginAnswer(tab, site: login.site, reason: "page_unavailable")
                 }
-                guard !probe.opener else { return Self.loginAnswer(tab, site: login.site, reason: "opened_by_page") }
-                guard await guards.beginFill(tab: tab.id, document: document) else {
-                    return Self.loginAnswer(tab, site: login.site, reason: "scripted_page")
+                guard !page.opener else { return Self.loginAnswer(tab, site: login.site, reason: "opened_by_page") }
+                guard await guards.beginFill(profile: tab.browserProfileID, origins: origins) else {
+                    return Self.loginAnswer(tab, site: login.site, reason: "scripted_origin")
                 }
-                let script = BrowserPageScripts.fillLogin(host: host, document: document, username: login.username, password: login.password)
+                let script = BrowserPageScripts.fillLogin(host: host, origin: probed, username: login.username, password: login.password)
                 let value = try await Self.runLoginScript(engine, script, tab)
                 let fields = value["value"] ?? .null
                 let username = fields["username"]?.boolValue == true
                 let password = fields["password"]?.boolValue == true
                 guard username || password else {
-                    await guards.forgetFill(tab: tab.id, document: document)
+                    await guards.forgetFill(profile: tab.browserProfileID, origins: origins)
                     return Self.loginAnswer(tab, site: login.site, reason: fields["reason"]?.stringValue ?? "no_login_field")
                 }
                 var input = BrowserPageAgentInput.from(kind: .type, answer: value, replace: true)
@@ -64,7 +65,7 @@ extension BrowserPageService {
                 var submitted = false
                 if submit {
                     // A second script, a later task: the page's framework has taken the values.
-                    let submitScript = BrowserPageScripts.submitLogin(host: host, document: document)
+                    let submitScript = BrowserPageScripts.submitLogin(host: host, origin: probed)
                     submitted = try await Self.runLoginScript(engine, submitScript, tab)["value"]?.boolValue == true
                 }
                 return Self.loginAnswer(tab, site: login.site, username: username, password: password, submitted: submitted)
@@ -79,42 +80,68 @@ extension BrowserPageService {
         return await logins(host)
     }
 
-    /// The tab's current document as cmux's isolated world names it (``BrowserPageScripts/documentProbe``);
-    /// a nil document when the page cannot be read.
-    static func probeDocument(_ engine: any BrowserPageEngine, _ tab: Tab) async -> (document: String?, opener: Bool) {
-        guard let answer = try? await run(engine, .evaluateIsolated(BrowserPageScripts.documentProbe), tab)["value"] else {
-            return (nil, false)
+    /// `scheme://host[:port]` of a web URL as `location.origin` writes it (default port left
+    /// out); nil for a page with no site (about:, data:, a file).
+    static func webOrigin(_ url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
+        let shown = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        guard let port = url.port, port != (scheme == "https" ? 443 : 80) else { return "\(scheme)://\(shown)" }
+        return "\(scheme)://\(shown):\(port)"
+    }
+
+    /// The tab's page origins for ``BrowserLoginGuards``: the engine's URL and the isolated
+    /// world's `location.origin` (``BrowserPageScripts/originProbe``). `origins` is nil when
+    /// either cannot be read, empty for a page with no site; `probed` is what the probe read
+    /// (`"null"` for an opaque page), `opener` whether another window opened it.
+    static func pageOrigin(_ engine: any BrowserPageEngine, _ tab: Tab,
+                           url known: String? = nil) async -> (origins: [String]?, probed: String?, opener: Bool) {
+        let raw: String?
+        if let known {
+            raw = known
+        } else {
+            raw = (try? await run(engine, .state, tab))?["url"]?.stringValue ?? tab.url
         }
-        let document = answer["document"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        return (document, answer["opener"]?.boolValue == true)
+        let answer = try? await run(engine, .evaluateIsolated(BrowserPageScripts.originProbe), tab)["value"]
+        let probed = answer?["origin"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let opener = answer?["opener"]?.boolValue == true
+        guard let raw, let url = URL(string: raw), let probed else { return (nil, probed, opener) }
+        var origins: [String] = []
+        if let engineOrigin = webOrigin(url) { origins.append(engineOrigin) }
+        if probed != "null", !origins.contains(probed) { origins.append(probed) }
+        return (origins, probed, opener)
     }
 
     /// Before an agent's own script (`eval`, `wait --function`): refused with `login_filled` on a
-    /// document holding a filled login; else that document takes no login afterwards.
-    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws {
-        let document = await probeDocument(engine, tab).document
-        guard await guards.beginScript(tab: tab.id, document: document) else {
+    /// site holding a filled login (or, when the page's origin cannot be read, while this profile
+    /// holds any); else the site takes no login from then on. Answers the origin to pin the script
+    /// to (``BrowserPageScripts/originPin(_:)``), nil when it could not be read.
+    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws -> String? {
+        let page = await pageOrigin(engine, tab)
+        guard await guards.beginScript(profile: tab.browserProfileID, origins: page.origins) else {
             throw ControlError(code: "login_filled",
                                message: ControlStrings.text("control.error.loginFilled",
-                                                            "This page holds a filled sign-in; open another page first"),
+                                                            "This site holds a filled sign-in; agent scripts cannot run on it"),
                                data: ["tab": .string(tab.id)])
         }
+        return page.origins == nil ? nil : page.probed
     }
 
-    /// After an agent's own script: the document it ended on (it may have navigated) takes no login.
+    /// After an agent's own script: the site it ended on (it may have navigated) takes no login.
     static func endAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async {
-        await guards.markScripted(tab: tab.id, document: probeDocument(engine, tab).document)
+        await guards.markScripted(profile: tab.browserProfileID, origins: pageOrigin(engine, tab).origins)
     }
 
-    /// `body`, an agent's own script, between ``beginAgentScript(_:_:_:)`` and
-    /// ``endAgentScript(_:_:_:)``; with no guards (not an agent script) only `body`.
+    /// `body`, an agent's own script given the origin it must pin to, between
+    /// ``beginAgentScript(_:_:_:)`` and ``endAgentScript(_:_:_:)``; with no guards (not an agent
+    /// script) only `body`, unpinned.
     static func guardedAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards?,
-                                   _ body: () async throws -> JSONValue) async throws -> JSONValue {
-        guard let guards else { return try await body() }
-        try await beginAgentScript(engine, tab, guards)
+                                   _ body: (String?) async throws -> JSONValue) async throws -> JSONValue {
+        guard let guards else { return try await body(nil) }
+        let pin = try await beginAgentScript(engine, tab, guards)
         let value: JSONValue
         do {
-            value = try await body()
+            value = try await body(pin)
         } catch {
             await endAgentScript(engine, tab, guards)
             throw error

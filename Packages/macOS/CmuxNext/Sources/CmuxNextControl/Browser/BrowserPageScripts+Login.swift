@@ -10,27 +10,37 @@ import Foundation
 /// fields never). A two-step login shows only the username: it is filled alone when it says it
 /// is one. The document is walked with its open shadow roots and same-origin frames, in tree order.
 extension BrowserPageScripts {
-    /// The document's name for ``BrowserLoginGuards``, run in cmux's isolated world: its time
-    /// origin (page scripts cannot change what the isolated world reads), and whether another
-    /// window opened it (an opener's script could reach into it). Answers `{document, opener}`.
-    static let documentProbe = """
-        (() => { let t = null; try { t = performance.timeOrigin; } catch (_) {} \
-        return { document: (typeof t === 'number' && isFinite(t) && t > 0) ? String(t) : null, opener: !!window.opener }; })()
+    /// The page's origin for ``BrowserLoginGuards``, run in cmux's isolated world (page scripts
+    /// cannot change what it reads), and whether another window opened it (an opener's script
+    /// could reach into it). Answers `{origin, opener}`; `origin` is `"null"` for an opaque page.
+    static let originProbe = """
+        (() => { let o = null; try { o = String(location.origin); } catch (_) {} return { origin: o, opener: !!window.opener }; })()
         """
 
-    /// The checks every login script makes first, in its own world: still `document` (no
+    /// A page-world statement that throws unless the page is still at `origin`: the first line of
+    /// an agent's script, so a navigation between the guard's check and the script ends it.
+    /// `location` cannot be redefined by page script.
+    static func originPin(_ origin: String) -> String {
+        "if (location.origin !== \(literal(origin))) { throw new Error('cmux: the page moved to another site before the script ran; run it again'); }"
+    }
+
+    /// The checks every login script makes first, in its own world: still `origin` (no
     /// navigation since the probe), still `host`, still https.
-    private static func loginPreamble(host: String, document: String) -> String {
+    private static func loginPreamble(host: String, origin: String) -> String {
         """
-        let cmuxDoc = null; try { cmuxDoc = String(performance.timeOrigin); } catch (_) {}
-        if (cmuxDoc !== \(literal(document)) || String(location.hostname || '').toLowerCase() !== \(literal(host.lowercased()))) {
+        let cmuxOrigin = null; try { cmuxOrigin = String(location.origin); } catch (_) {}
+        if (cmuxOrigin !== \(literal(origin)) || String(location.hostname || '').toLowerCase() !== \(literal(host.lowercased()))) {
           return { value: { username: false, password: false, reason: 'navigated' } };
         }
         if (location.protocol !== 'https:') { return { value: { username: false, password: false, reason: 'not_https' } }; }
         """
     }
 
-    /// The attribute the fill leaves on the last field it filled, for ``submitLogin(host:document:)``.
+    /// The attribute a filled password field keeps: the `value` and `snapshot` scripts treat a
+    /// field with it as secret whatever its type.
+    static let secretMark = "data-cmux-secret"
+
+    /// The attribute the fill leaves on the last field it filled, for ``submitLogin(host:origin:)``.
     static let loginMark = "data-cmux-login"
 
     /// `cmuxLoginShown(el)` and `cmuxLoginFields()` → `{user, pass}` (either may be null).
@@ -74,14 +84,17 @@ extension BrowserPageScripts {
         };
         """
 
-    /// Fills `username` and `password` into the login fields of `document` (``documentProbe``) on
-    /// `host` over https, all checked again here so a page that moved gets nothing. It runs in
-    /// cmux's isolated world, so a page-world hook on the value setter never sees the values. Answers
+    /// Fills `username` and `password` into the login fields of a page at `origin`
+    /// (``originProbe``) on `host` over https, all checked again here so a page that moved gets
+    /// nothing. It runs in cmux's isolated world, so a page-world hook on the value setter never
+    /// sees the values. A filled password field keeps ``secretMark``, and an observer empties it
+    /// the moment its type stops being `password` (a "show password" toggle), so no read and no
+    /// screenshot shows it. Answers
     /// `{value: {username, password, reason?}, at}`: which fields it filled (booleans only, never
     /// a value) and the last field's rect, always marked secret. The values ride only in this
     /// script; nothing echoes them.
-    static func fillLogin(host: String, document: String, username: String, password: String) -> String {
-        wrap(measure + loginFields + loginPreamble(host: host, document: document) + """
+    static func fillLogin(host: String, origin: String, username: String, password: String) -> String {
+        wrap(measure + loginFields + loginPreamble(host: host, origin: origin) + """
         const found = cmuxLoginFields();
         if (!found.user && !found.pass) { return { value: { username: false, password: false, reason: 'no_login_field' } }; }
         const put = (el, next) => {
@@ -93,7 +106,15 @@ extension BrowserPageScripts {
           el.dispatchEvent(new Event('change', { bubbles: true }));
         };
         if (found.user) { put(found.user, \(literal(username))); }
-        if (found.pass) { put(found.pass, \(literal(password))); }
+        if (found.pass) {
+          const field = found.pass;
+          put(field, \(literal(password)));
+          field.setAttribute('\(secretMark)', '');
+          const W = (field.ownerDocument && field.ownerDocument.defaultView) || window;
+          const d = Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value');
+          const hide = () => { if (String(field.type || '').toLowerCase() !== 'password') { try { if (d && d.set) { d.set.call(field, ''); } else { field.value = ''; } } catch (_) {} } };
+          try { new MutationObserver(hide).observe(field, { attributes: true, attributeFilter: ['type'] }); } catch (_) {}
+        }
         for (const e of cmuxLoginAll()) { try { e.removeAttribute('\(loginMark)'); } catch (_) {} }
         const last = found.pass || found.user;
         last.setAttribute('\(loginMark)', '');
@@ -103,13 +124,13 @@ extension BrowserPageScripts {
         """)
     }
 
-    /// Submits the form of the field ``fillLogin(host:document:username:password:)`` filled last, in a
+    /// Submits the form of the field ``fillLogin(host:origin:username:password:)`` filled last, in a
     /// later task than the fill so a framework sees the new values first: its sign-in (or next)
     /// submit button, else the form itself, else a sign-in button near the field, else Enter on
     /// the field. Answers `{value: true}` when it pressed or submitted something. The same checks as
     /// the fill come first (a moved page answers `{value: {reason}}`, not true).
-    static func submitLogin(host: String, document: String) -> String {
-        wrap(deepQuery + loginFields + loginPreamble(host: host, document: document) + """
+    static func submitLogin(host: String, origin: String) -> String {
+        wrap(deepQuery + loginFields + loginPreamble(host: host, origin: origin) + """
         const el = cmuxDeep(document, '[\(loginMark)]', 0);
         if (!el) { return { value: false }; }
         el.removeAttribute('\(loginMark)');
@@ -132,5 +153,14 @@ extension BrowserPageScripts {
         key('keydown'); key('keypress'); key('keyup');
         return { value: false };
         """)
+    }
+}
+
+extension BrowserPageScripts.WaitCondition {
+    /// A `function` condition that throws unless the page is still at `origin`
+    /// (``BrowserPageScripts/originPin(_:)``); any other condition as it is.
+    func pinned(to origin: String?) -> Self {
+        guard let origin, case .function(let expression) = self else { return self }
+        return .function("(() => { \(BrowserPageScripts.originPin(origin)) return (\n\(expression)\n); })()")
     }
 }
