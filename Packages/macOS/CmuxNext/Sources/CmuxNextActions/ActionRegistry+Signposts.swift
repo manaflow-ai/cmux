@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 extension ActionRegistry {
     /// Runs one action run's synchronous work inside ``runTiming`` (always-on `action.perform` and
@@ -55,12 +55,11 @@ extension ActionRegistry {
 
     /// Where a run came from: a person's run by the type of the event being dispatched (a key or
     /// a click; none is ``ActionEntrypoint/unattributed``), any other run by its origin.
-    static func entrypoint(origin: ActionOrigin, event: NSEvent?) -> ActionEntrypoint {
-        switch event?.type {
-        case .keyDown, .keyUp: ActionEntrypoint(origin: origin, isKey: true, isPointer: false)
-        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
-            ActionEntrypoint(origin: origin, isKey: false, isPointer: true)
-        default: ActionEntrypoint(origin: origin, isKey: false, isPointer: false)
+    static func entrypoint(origin: ActionOrigin, event: (any ActionInputEvent)?) -> ActionEntrypoint {
+        switch event?.actionInputKind {
+        case .key: ActionEntrypoint(origin: origin, isKey: true, isPointer: false)
+        case .pointer: ActionEntrypoint(origin: origin, isKey: false, isPointer: true)
+        case nil: ActionEntrypoint(origin: origin, isKey: false, isPointer: false)
         }
     }
 
@@ -73,7 +72,7 @@ extension ActionRegistry {
     /// gated run, ``ActionInvocation/inputTimestamp``) gives the age. `NSApp.currentEvent` is not
     /// used: it keeps the last event after its dispatch ends, so a socket run minutes after a key
     /// press would report that key's age.
-    static func inputAgeMilliseconds(origin: ActionOrigin, event: NSEvent?, carried: Double? = nil,
+    static func inputAgeMilliseconds(origin: ActionOrigin, event: (any ActionInputEvent)?, carried: Double? = nil,
                                      now: TimeInterval) -> Double {
         guard origin == .user else { return -1 }
         guard let stamp = inputTimestamp(of: event) ?? carried, stamp <= now else { return -1 }
@@ -81,13 +80,8 @@ extension ActionRegistry {
     }
 
     /// `event`'s timestamp when it is a key or a click, else nil.
-    public static func inputTimestamp(of event: NSEvent?) -> Double? {
-        guard let event else { return nil }
-        switch event.type {
-        case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
-            return event.timestamp
-        default:
-            return nil
-        }
+    public static func inputTimestamp(of event: (any ActionInputEvent)?) -> Double? {
+        guard let event, event.actionInputKind != nil else { return nil }
+        return event.timestamp
     }
 }

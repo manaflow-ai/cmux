@@ -117,3 +117,11 @@ nonisolated enum ContextMenuEssentials {
         return result
     }
 }
+
+nonisolated extension ContextMenuCatalog {
+    /// The row a choices submenu of `id` always ends with (`ContextMenuEssentials.choiceTrailers`),
+    /// nil for none: Move to Group ends with New Group.
+    package static func choiceTrailer(of id: ActionID) -> ActionID? {
+        ContextMenuEssentials.choiceTrailers[id]
+    }
+}

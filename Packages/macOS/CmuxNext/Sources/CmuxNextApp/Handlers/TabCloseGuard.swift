@@ -95,7 +95,7 @@ enum TabCloseGuard {
     /// A Close Tab press as ``PaneCloseAim`` reads it: the input event AppKit is dispatching (its
     /// time and repeat flag), else the time of the press that started a gated run, else now.
     static func press(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> PaneCloseAim.Press {
-        let event = ctx.registry.dispatchingInputEvent()
+        let event = ctx.registry.dispatchingInputEvent() as? NSEvent
         switch event?.type {
         case .keyDown?:
             return .init(time: event?.timestamp ?? 0, isKey: true, isRepeat: event?.isARepeat == true)

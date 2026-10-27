@@ -13,7 +13,7 @@ struct TabSelectionTitles {
                              "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "tab.stash"] {
             ActionTargetTitles.setPaletteTitle(id, in: registry) { [context] in
                 guard let strip = context.services.windows.active?.focusedPane?.stripModel, strip.selectedTabIDs.count > 1 else { return nil }
-                return NSMenu.tabSelectionTitle(id, pins: strip.pinsAll(strip.selectedTabIDs))
+                return ActionInvocation.tabSelectionTitle(id, pins: strip.pinsAll(strip.selectedTabIDs))
             }
         }
     }

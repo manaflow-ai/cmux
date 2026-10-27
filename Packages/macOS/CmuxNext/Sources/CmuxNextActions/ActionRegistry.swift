@@ -1,4 +1,3 @@
-public import AppKit
 public import CmuxNextWakeups
 public import Observation
 
@@ -75,7 +74,7 @@ public final class ActionRegistry {
     /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
     /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
-    @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
+    @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> (any ActionInputEvent)? = { nil }
     /// Called when a run's ``ActionEffect`` says the next frame shows its change: ``ActionEffect/done`` (the whole
     /// change happened on the turn; an untyped `invoke:` / `handler:` run settles as done),
     /// ``ActionEffect/applied(_:)`` (a store intent included) or ``ActionEffect/waiting(_:_:)``; never
@@ -114,7 +113,7 @@ public final class ActionRegistry {
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
-    @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
+    @ObservationIgnored package var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
@@ -395,9 +394,9 @@ public final class ActionRegistry {
         return best?.id
     }
 
-    @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
-    /// Delegates of open choices submenus, released with their menu.
-    @ObservationIgnored let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+    /// The menu side's state, kept for the registry's lifetime: CmuxNextActionsAppKit's menu target
+    /// (`ActionRegistry.menuTarget`), made with the first menu item. Nil until then.
+    @ObservationIgnored package var menuState: AnyObject?
 
     /// A target of an argument's kind supplies that argument when the
     /// action does not act on that kind itself: right-clicking a browser

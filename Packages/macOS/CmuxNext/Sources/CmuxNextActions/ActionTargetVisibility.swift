@@ -15,7 +15,7 @@ public enum ActionTargetVisibility {
     }
 
     /// Whether the menu row of `id` is left out for `invocation`'s target.
-    static func isHidden(_ id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
+    package static func isHidden(_ id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
         registry.action(for: id)?.targetHidden?(invocation) ?? false
     }
 }

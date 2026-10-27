@@ -55,19 +55,6 @@ extension ActionRegistry {
         return items
     }
 
-    /// Focus facts a right-click implies (right-clicking a page means a
-    /// browser is the target even if a terminal has focus).
-    nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
-        switch context {
-        case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
-        case .terminalSelection: .terminalFocused
-        case .agentChat, .priorityRow: .agentPaneFocused
-        // A right-clicked row is the explorer's even while another view has the keyboard.
-        case .fileExplorerRow: .fileExplorerFocused
-        default: []
-        }
-    }
-
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
                            arguments: [String: ActionValue], labels: [ActionID: String] = [:]) -> [NSMenuItem] {
         var items: [NSMenuItem] = []

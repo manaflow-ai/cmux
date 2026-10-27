@@ -22,8 +22,8 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
     /// The argument a choices submenu picks, its values and the checked one:
     /// an enumeration or suggested string first, else a listed target kind.
     @MainActor
-    static func resolve(_ descriptor: ActionDescriptor, target: ActionTargetRef?,
-                        in registry: ActionRegistry) -> (ActionArgument, [ActionEnumCase], String?)? {
+    package static func resolve(_ descriptor: ActionDescriptor, target: ActionTargetRef?,
+                                in registry: ActionRegistry) -> (ActionArgument, [ActionEnumCase], String?)? {
         if let (argument, cases) = descriptor.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
             let own = registry.action(for: descriptor.id)?.choiceState
             return (argument, cases, own.map { $0(target) } ?? registry.choiceState?(descriptor.id, target))

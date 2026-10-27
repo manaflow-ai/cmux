@@ -1,5 +1,3 @@
-import AppKit
-
 // Target-aware context menu titles: a toggle reads as the change it makes
 // on the right-clicked target ("Pin Tab" or "Unpin Tab", Chrome parity,
 // PINNED-ITEMS-END-TO-END) while the palette, the CLI and MCP keep the
@@ -45,17 +43,5 @@ public enum ActionTargetTitles {
         guard var action = registry.action(for: id) else { return }
         action.paletteTitle = title
         registry.register(action)
-    }
-
-    /// Applies the target's title, its toggle state and the target-aware
-    /// disabled reason (Chromium in a build without CEF) to a context menu item.
-    static func decorate(_ item: NSMenuItem, id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) {
-        let action = registry.action(for: id)
-        if let title = action?.targetTitle?(invocation) { item.title = title }
-        if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
-        if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
-            if #available(macOS 14.4, *) { item.subtitle = reason }
-            item.toolTip = reason
-        }
     }
 }

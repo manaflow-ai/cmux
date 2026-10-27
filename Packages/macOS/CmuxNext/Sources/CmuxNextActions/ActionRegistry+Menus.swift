@@ -60,11 +60,24 @@ final class ActionMenuPayload: NSObject {
     }
 }
 
+extension ActionRegistry {
+    /// The target of every menu item the registry makes, made with the first one and kept in
+    /// ``ActionRegistry/menuState`` for the registry's lifetime.
+    var menuTarget: ActionMenuTarget {
+        if let target = menuState as? ActionMenuTarget { return target }
+        let target = ActionMenuTarget(registry: self)
+        menuState = target
+        return target
+    }
+}
+
 /// Objective-C target that forwards menu selections to the registry.
 final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     private weak var registry: ActionRegistry?
     /// Key-down searches, refusals and validations (``ActionRegistry/menuKeyEquivalentCounters``).
     var counters = MenuKeyEquivalentCounters()
+    /// Delegates of open choices submenus, released with their menu.
+    let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
 
     init(registry: ActionRegistry) {
         self.registry = registry
