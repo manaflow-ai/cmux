@@ -529,12 +529,40 @@ fn diff_git_lines_split_only_when_unambiguous() {
 }
 
 #[test]
+fn diff_git_lines_from_outside_input_name_nothing_or_split_cleanly() {
+    assert_eq!(diff_git_names("a/ b/"), [""]);
+    assert!(diff_git_names("a/").is_empty());
+    assert!(diff_git_names("a/x").is_empty());
+    // The length split falls inside a two-byte character.
+    assert!(diff_git_names("a/éé b/é").is_empty());
+    assert_eq!(diff_git_names("a/é b/é"), ["é"]);
+    // Unterminated quotes, one ending in an escape.
+    assert!(diff_git_names("\"a/x\\").is_empty());
+    assert!(diff_git_names("\"a/x\\\"").is_empty());
+    assert!(diff_git_names("\"").is_empty());
+    // A quoted old name and a plain new one.
+    assert_eq!(diff_git_names("\"a/x y\" b/x y"), ["x y", "x y"]);
+}
+
+#[test]
 fn base64_matches_the_standard_alphabet() {
     assert_eq!(base64(b""), "");
     assert_eq!(base64(b"f"), "Zg==");
     assert_eq!(base64(b"fo"), "Zm8=");
     assert_eq!(base64(b"foo"), "Zm9v");
     assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
+    assert_eq!(base64(&[0xff]), "/w==");
+    assert_eq!(base64(&[0, 0, 0, 0xff]), "AAAA/w==");
+    let every_digit = [
+        0x00, 0x10, 0x83, 0x10, 0x51, 0x87, 0x20, 0x92, 0x8b, 0x30, 0xd3, 0x8f, 0x41, 0x14, 0x93,
+        0x51, 0x55, 0x97, 0x61, 0x96, 0x9b, 0x71, 0xd7, 0x9f, 0x82, 0x18, 0xa3, 0x92, 0x59, 0xa7,
+        0xa2, 0x9a, 0xab, 0xb2, 0xdb, 0xaf, 0xc3, 0x1c, 0xb3, 0xd3, 0x5d, 0xb7, 0xe3, 0x9e, 0xbb,
+        0xf3, 0xdf, 0xbf,
+    ];
+    assert_eq!(
+        base64(&every_digit),
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    );
 }
 
 #[test]

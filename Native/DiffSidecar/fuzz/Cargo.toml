@@ -1,0 +1,51 @@
+# libFuzzer targets for the diff sidecar's decoders of outside input
+# (plans/cmux-next/chrome-parity/p10-stability.md, task 159). Its own workspace and
+# lock, so Native/DiffSidecar/Cargo.toml's dependencies and Cargo.lock never change
+# for a fuzz target. Build and run with cargo-fuzz on the nightly in
+# rust-toolchain.toml:
+#   scripts/cmux-next/rust-fuzz.sh --fuzz-dir Native/DiffSidecar/fuzz --all
+# Seeds come from seeds.py.
+[package]
+name = "cmux-diff-sidecar-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+cmux-diff-sidecar = { path = "..", features = ["fuzz"] }
+serde_json = "1"
+
+# A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
+# build with DCHECKs on.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "diff_rpc_request"
+path = "fuzz_targets/diff_rpc_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "diff_patch_names"
+path = "fuzz_targets/diff_patch_names.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "diff_manifest"
+path = "fuzz_targets/diff_manifest.rs"
+test = false
+doc = false
+bench = false

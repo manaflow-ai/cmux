@@ -8,6 +8,8 @@ publish = false
 [features]
 default = []
 benchmark = []
+# Native/DiffSidecar/fuzz reaches the decoders through server::fuzz_entry.
+fuzz = []
 http-server = [
     "dep:axum",
     "dep:futures-util",

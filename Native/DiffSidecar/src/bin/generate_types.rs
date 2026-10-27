@@ -1,10 +1,11 @@
 use cmux_diff_sidecar::protocol::{DiffEvent, DiffRequest, DiffResponse, DiffTransportConfig};
-use ts_rs::{Config, TS};
+use ts_rs::{Config, ExportError, TS};
 
-fn main() {
+fn main() -> Result<(), ExportError> {
     let config = Config::from_env();
-    DiffRequest::export_all(&config).expect("export DiffRequest");
-    DiffResponse::export_all(&config).expect("export DiffResponse");
-    DiffEvent::export_all(&config).expect("export DiffEvent");
-    DiffTransportConfig::export_all(&config).expect("export DiffTransportConfig");
+    DiffRequest::export_all(&config)?;
+    DiffResponse::export_all(&config)?;
+    DiffEvent::export_all(&config)?;
+    DiffTransportConfig::export_all(&config)?;
+    Ok(())
 }

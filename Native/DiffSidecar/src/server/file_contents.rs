@@ -242,8 +242,12 @@ pub(super) fn patch_names_all(patch: &Path, wanted: &[String]) -> bool {
     let Ok(file) = std::fs::File::open(patch) else {
         return false;
     };
+    patch_text_names_all(BufReader::new(file), wanted)
+}
+
+/// [`patch_names_all`] over the patch's bytes.
+pub(super) fn patch_text_names_all(mut reader: impl BufRead, wanted: &[String]) -> bool {
     let mut missing: HashSet<&str> = wanted.iter().map(String::as_str).collect();
-    let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     let mut in_header = false;
     loop {
@@ -301,9 +305,9 @@ pub(super) fn diff_git_names(rest: &str) -> Vec<String> {
     if rest.starts_with('"') {
         let mut names = Vec::new();
         let mut remaining = rest;
-        while let Some(end) = quoted_end(remaining) {
-            names.push(unquote(&remaining[..=end]));
-            remaining = remaining[end + 1..].trim_start();
+        while let Some((quoted, after)) = split_quoted(remaining) {
+            names.push(unquote(quoted));
+            remaining = after.trim_start();
             if !remaining.starts_with('"') {
                 if let Some(plain) = remaining.strip_prefix("b/") {
                     names.push(format!("b/{plain}"));
@@ -324,31 +328,35 @@ pub(super) fn diff_git_names(rest: &str) -> Vec<String> {
         return Vec::new();
     };
     // `<name> b/<name>`: the length gives the split.
-    if rest.len() >= 3 && (rest.len() - 3) % 2 == 0 {
-        let length = (rest.len() - 3) / 2;
-        if rest.is_char_boundary(length)
-            && rest.is_char_boundary(length + 3)
-            && &rest[length..length + 3] == " b/"
-            && rest[..length] == rest[length + 3..]
-        {
-            return vec![rest[..length].to_owned()];
-        }
+    let Some(both) = rest.len().checked_sub(" b/".len()) else {
+        return Vec::new();
+    };
+    if both % 2 != 0 {
+        return Vec::new();
     }
-    Vec::new()
+    let Some((old, new)) = rest.split_at_checked(both / 2) else {
+        return Vec::new();
+    };
+    match new.strip_prefix(" b/") {
+        Some(new) if new == old => vec![old.to_owned()],
+        _ => Vec::new(),
+    }
 }
 
-/// The index of the closing quote of the C-quoted name `text` starts with.
-fn quoted_end(text: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    if bytes.first() != Some(&b'"') {
+/// The C-quoted name `text` starts with (both quotes included) and the text
+/// after it.
+fn split_quoted(text: &str) -> Option<(&str, &str)> {
+    let mut bytes = text.bytes().enumerate();
+    if bytes.next()?.1 != b'"' {
         return None;
     }
-    let mut index = 1;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index += 2,
-            b'"' => return Some(index),
-            _ => index += 1,
+    while let Some((index, byte)) = bytes.next() {
+        match byte {
+            b'\\' => {
+                bytes.next();
+            }
+            b'"' => return text.split_at_checked(index.checked_add(1)?),
+            _ => {}
         }
     }
     None
@@ -515,17 +523,32 @@ async fn read_work_tree(repo: &Path, path: &str) -> Result<Side, FileContentsErr
 
 /// Standard base64 with padding (RFC 4648), for a binary side.
 pub(super) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let triple = (u32::from(chunk[0]) << 16)
-            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
-            | u32::from(chunk.get(2).copied().unwrap_or(0));
-        let digit = |shift: u32| char::from(ALPHABET[((triple >> shift) & 0x3f) as usize]);
-        text.push(digit(18));
-        text.push(digit(12));
-        text.push(if chunk.len() > 1 { digit(6) } else { '=' });
-        text.push(if chunk.len() > 2 { digit(0) } else { '=' });
+        let (first, second, third) = match *chunk {
+            [first] => (first, None, None),
+            [first, second] => (first, Some(second), None),
+            [first, second, third, ..] => (first, Some(second), Some(third)),
+            [] => break,
+        };
+        let middle = second.unwrap_or(0);
+        let last = third.unwrap_or(0);
+        text.push(base64_digit(first >> 2));
+        text.push(base64_digit(((first & 0x03) << 4) | (middle >> 4)));
+        text.push(second.map_or('=', |_| base64_digit(((middle & 0x0f) << 2) | (last >> 6))));
+        text.push(third.map_or('=', |_| base64_digit(last & 0x3f)));
     }
     text
+}
+
+/// The RFC 4648 alphabet's digit for a six-bit value.
+fn base64_digit(value: u8) -> char {
+    let ascii = match value {
+        0..=25 => b'A' + value,
+        26..=51 => b'a' + (value - 26),
+        52..=61 => b'0' + (value - 52),
+        62 => b'+',
+        _ => b'/',
+    };
+    char::from(ascii)
 }

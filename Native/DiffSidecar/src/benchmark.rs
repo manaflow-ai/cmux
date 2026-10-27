@@ -92,8 +92,11 @@ pub fn run(sample_bytes: usize, iterations: usize) -> Result<BenchmarkReport, St
 fn percentile(samples: &mut [Duration], percentile: usize) -> Duration {
     samples.sort_unstable();
     let rank = samples.len().saturating_mul(percentile).div_ceil(100);
-    let index = rank.saturating_sub(1).min(samples.len() - 1);
-    samples[index]
+    samples
+        .get(rank.saturating_sub(1))
+        .or_else(|| samples.last())
+        .copied()
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

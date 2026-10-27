@@ -11,15 +11,18 @@
 # Usage: scripts/cmux-next/rust-fuzz.sh (--all | --target NAME[,NAME...]) [--seconds N]
 #            [--parallel N] [--out DIR] [--corpus DIR] [--rss-limit-mb N] [--malloc-limit-mb N]
 #            [--timeout N] [--sanitizer address|leak|none] [--build-only] [--list]
-#            [-- EXTRA LIBFUZZER FLAGS]
+#            [--fuzz-dir DIR] [-- EXTRA LIBFUZZER FLAGS]
 #        scripts/cmux-next/rust-fuzz.sh --self-test [--out DIR] [--sanitizer address|leak]
-#   --all          every target in cmux-tui/fuzz/Cargo.toml except the selftest_ ones.
+#   --fuzz-dir     the fuzz workspace (default cmux-tui/fuzz; relative to the repo root), for
+#                  the separate workspaces' own ones such as Native/DiffSidecar/fuzz. It has
+#                  the same layout: Cargo.toml, rust-toolchain.toml, fuzz_targets/, seeds.py.
+#   --all          every target in the fuzz workspace's Cargo.toml except the selftest_ ones.
 #   --target       the named targets only.
 #   --seconds      fuzzing time per target (default 300).
 #   --parallel     targets fuzzed at once (default 1). Each run is one libFuzzer process.
 #   --out          results directory (default artifacts/rust-fuzz/<UTC>).
 #   --corpus       corpus root, one subdirectory per target (default <out>/corpus). Seeds from
-#                  cmux-tui/fuzz/seeds.py are added to it first; what the run finds stays in it.
+#                  the fuzz workspace's seeds.py are added to it first; what the run finds stays in it.
 #   --rss-limit-mb, --malloc-limit-mb, --timeout
 #                  libFuzzer limits (defaults 2048, 256 and 2 seconds).
 #   --sanitizer    cargo fuzz --sanitizer (default address). libFuzzer enforces the malloc
@@ -87,6 +90,7 @@ while [[ $# -gt 0 ]]; do
     --build-only) BUILD_ONLY=1; shift ;;
     --list) LIST=1; shift ;;
     --self-test) SELF_TEST=1; shift ;;
+    --fuzz-dir) need_value "$@"; FUZZ_DIR="$2"; shift 2 ;;
     -h|--help) usage ;;
     --) shift; EXTRA=("$@"); break ;;
     *) echo "rust-fuzz.sh: unknown argument '$1'" >&2; usage ;;
@@ -97,6 +101,10 @@ case "$SANITIZER" in
   address|leak|none) ;;
   *) echo "rust-fuzz.sh: --sanitizer must be address, leak or none" >&2; exit 2 ;;
 esac
+[[ "$FUZZ_DIR" == /* ]] || FUZZ_DIR="$REPO/$FUZZ_DIR"
+if [[ ! -f "$FUZZ_DIR/Cargo.toml" || ! -f "$FUZZ_DIR/rust-toolchain.toml" ]]; then
+  echo "rust-fuzz.sh: --fuzz-dir $FUZZ_DIR has no Cargo.toml and rust-toolchain.toml" >&2; exit 2
+fi
 
 # Every [[bin]] name in the fuzz manifest, in file order.
 manifest_targets() {
@@ -168,7 +176,7 @@ fi
 CHANNEL="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$FUZZ_DIR/rust-toolchain.toml")"
 VM_NIGHTLY="$(sed -n '/^\[nightly\]/,/^\[/s/^channel *= *"\(.*\)"/\1/p' "$REPO/scripts/cmux-next/linux/tool-versions.toml")"
 if [[ "$CHANNEL" != "$VM_NIGHTLY" ]]; then
-  echo "rust-fuzz.sh: cmux-tui/fuzz/rust-toolchain.toml pins $CHANNEL but scripts/cmux-next/linux/tool-versions.toml installs $VM_NIGHTLY; change both" >&2
+  echo "rust-fuzz.sh: ${FUZZ_DIR#$REPO/}/rust-toolchain.toml pins $CHANNEL but scripts/cmux-next/linux/tool-versions.toml installs $VM_NIGHTLY; change both" >&2
   exit 75
 fi
 if [[ "$SANITIZER" == none ]]; then
@@ -227,7 +235,9 @@ if [[ "$BUILD_ONLY" == 1 ]]; then
   exit 0
 fi
 
-python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
+if [[ -f "$FUZZ_DIR/seeds.py" ]]; then
+  python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
+fi
 
 # One libFuzzer run of one target. Writes <out>/verdict-<target>.json.
 run_target() {

@@ -314,20 +314,26 @@ where
         Ok(Err(error)) => return Err(error.to_string()),
         Ok(Ok(_)) => {}
     }
+    Ok(decode_rpc_request(&input))
+}
+
+/// One complete RPC request as read from stdin: the request, or the response
+/// that rejects it (too large or not a `DiffRequest`).
+fn decode_rpc_request(input: &[u8]) -> RpcRequestRead {
     if input.len() > MAX_RPC_REQUEST_BYTES {
-        return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+        return RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
             "requestTooLarge",
             "RPC request exceeds 1 MiB",
-        )));
+        ));
     }
-    match serde_json::from_slice(&input) {
-        Ok(request) => Ok(RpcRequestRead::Request(request)),
-        Err(error) => Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+    match serde_json::from_slice(input) {
+        Ok(request) => RpcRequestRead::Request(request),
+        Err(error) => RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
             "invalidRequest",
             &format!("Invalid RPC request: {error}"),
-        ))),
+        )),
     }
 }
 
@@ -635,6 +641,45 @@ impl Whitespace {
     }
 }
 
+/// A `patch` source: a file the manifest allows, served as it is (no git,
+/// no child process).
+async fn open_patch_session(
+    state: &AppState,
+    params: &OpenSessionRequest,
+    path: &str,
+) -> Result<SessionOpened, SessionOpenError> {
+    let request_path = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
+    let (_, resource) =
+        resolve_allowed_file(state, &format!("{}{request_path}", params.capability_token))
+            .await
+            .ok_or(SessionOpenError::Unauthorized)?;
+    let length = if resource.remote_url.is_none() {
+        tokio::fs::metadata(&resource.file_path)
+            .await
+            .ok()
+            .map(|metadata| metadata.len())
+    } else {
+        None
+    };
+    Ok(SessionOpened {
+        session_id: uuid::Uuid::new_v4().to_string(),
+        patch: DiffResourceRef {
+            id: resource_url(state, &params.capability_token, &request_path),
+            media_type: "text/x-diff".to_owned(),
+            byte_length: length,
+            revision: 1,
+        },
+        source: params.source.clone(),
+        generated_paths: Vec::new(),
+        // A patch source is fixed bytes: white space cannot be hidden.
+        ignore_whitespace: false,
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 async fn open_session(
     state: &AppState,
@@ -643,49 +688,17 @@ async fn open_session(
     if !valid_token(&params.capability_token) {
         return Err(SessionOpenError::Unauthorized);
     }
-    if let DiffSource::Patch { path } = &params.source {
-        let request_path = if path.starts_with('/') {
-            path.clone()
-        } else {
-            format!("/{path}")
-        };
-        let (_, resource) =
-            resolve_allowed_file(state, &format!("{}{request_path}", params.capability_token))
-                .await
-                .ok_or(SessionOpenError::Unauthorized)?;
-        let length = if resource.remote_url.is_none() {
-            tokio::fs::metadata(&resource.file_path)
-                .await
-                .ok()
-                .map(|metadata| metadata.len())
-        } else {
-            None
-        };
-        return Ok(SessionOpened {
-            session_id: uuid::Uuid::new_v4().to_string(),
-            patch: DiffResourceRef {
-                id: resource_url(state, &params.capability_token, &request_path),
-                media_type: "text/x-diff".to_owned(),
-                byte_length: length,
-                revision: 1,
-            },
-            source: params.source,
-            generated_paths: Vec::new(),
-            // A patch source is fixed bytes: white space cannot be hidden.
-            ignore_whitespace: false,
-        });
-    }
+    let repo = match &params.source {
+        DiffSource::Patch { path } => return open_patch_session(state, &params, path).await,
+        DiffSource::Unstaged { repo_root }
+        | DiffSource::Staged { repo_root }
+        | DiffSource::Branch { repo_root, .. } => repo_root,
+    };
     let _permit = state
         .child_processes
         .try_acquire()
         .map_err(|_| SessionOpenError::Failed)?;
 
-    let repo = match &params.source {
-        DiffSource::Unstaged { repo_root }
-        | DiffSource::Staged { repo_root }
-        | DiffSource::Branch { repo_root, .. } => repo_root,
-        DiffSource::Patch { .. } => unreachable!(),
-    };
     if !authorize_repo_for_token(state, &params.capability_token, repo).await {
         return Err(SessionOpenError::Unauthorized);
     }
@@ -974,8 +987,9 @@ async fn stream_git_stdout(
             if next_size > max_patch_bytes {
                 return Err(SessionOpenError::Failed);
             }
+            let chunk = buffer.get(..read).ok_or(SessionOpenError::Failed)?;
             output
-                .write_all(&buffer[..read])
+                .write_all(chunk)
                 .await
                 .map_err(|_| SessionOpenError::Failed)?;
             *bytes_written = next_size;
@@ -1148,10 +1162,11 @@ async fn git_untracked_file_patch(git: &SessionGit, path: String, budget: u64) -
             if read == 0 {
                 break;
             }
-            if (collected_bytes.len() + read) as u64 > budget {
+            let chunk = buffer.get(..read)?;
+            if (collected_bytes.len() + chunk.len()) as u64 > budget {
                 return None;
             }
-            collected_bytes.extend_from_slice(&buffer[..read]);
+            collected_bytes.extend_from_slice(chunk);
         }
         // `--no-index` exits 1 when the files differ, which an added file
         // always does.
@@ -2216,6 +2231,9 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 mod file_contents;
 
+#[cfg(feature = "fuzz")]
+pub mod fuzz_entry;
+
 #[cfg(all(test, unix))]
 mod file_contents_tests;
 
@@ -2236,10 +2254,11 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, Whitespace, git_generated_paths,
-        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
-        register_session_temp, reserve_session_owner, run_git_patch_with_limit, valid_group_id,
+        AllowedFile, DiffSource, FileExt, MAX_RPC_REQUEST_BYTES, Manifest, OpenOptions,
+        RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, Whitespace,
+        decode_rpc_request, git_generated_paths, handle_protocol_request,
+        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
+        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
     use super::{AppState, ResourceScheme, ServerConfig, app_state, resource_url};
     use super::{SESSION_GIT_TIMEOUT, SessionGit};
@@ -2284,6 +2303,34 @@ mod tests {
             !handshake
                 .capabilities
                 .contains(&"transport.websocket".to_owned())
+        );
+    }
+
+    #[test]
+    fn rpc_requests_decode_or_get_an_untrusted_rejection() {
+        let RpcRequestRead::Request(request) =
+            decode_rpc_request(br#"{"id":"h","version":1,"method":"protocolHandshake"}"#)
+        else {
+            panic!("expected a handshake request");
+        };
+        assert_eq!(request.id, "h");
+        assert!(matches!(request.command, DiffCommand::ProtocolHandshake));
+
+        let rejection = |input: &[u8]| {
+            let RpcRequestRead::Rejected(response) = decode_rpc_request(input) else {
+                panic!("expected a rejected request");
+            };
+            assert_eq!(response.id, UNTRUSTED_RPC_REQUEST_ID);
+            response.error.map(|error| error.code)
+        };
+        assert_eq!(rejection(b"").as_deref(), Some("invalidRequest"));
+        assert_eq!(
+            rejection(br#"{"id":"x","version":1,"method":"sessionOpen","params":{}}"#).as_deref(),
+            Some("invalidRequest")
+        );
+        assert_eq!(
+            rejection(&vec![b' '; MAX_RPC_REQUEST_BYTES + 1]).as_deref(),
+            Some("requestTooLarge")
         );
     }
 
