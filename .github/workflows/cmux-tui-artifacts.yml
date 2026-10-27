@@ -1284,6 +1284,41 @@ jobs:
             fi
           fi
 
+      # On the marker path (a published tree with no marker yet) this job can
+      # wait in its key's concurrency group while another run of the key tests
+      # it, or queue while another run marks it. It asks R2 again now that it
+      # has a runner and skips the tests when the tree has its marker under
+      # both keys; before, it ran them again. The key step still runs, so
+      # publish-tree-tested (a no-op
+      # on a marked tree) and request-nightly-next go ahead. Only a push to a
+      # branch other than main on a tree another run published (tree_ready,
+      # unmarked): main and a dispatch test what they build. A failed read
+      # tests.
+      - name: Check whether another run already marked the tree daemon-tested
+        id: marked
+        if: steps.current.outputs.stale != 'true' && github.event_name == 'push' && github.ref != 'refs/heads/main' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true')
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Only a final 200 counts: a 3xx alone (no --location) or an error
+          # page must not skip the tests, since publish-tree-tested would then
+          # write the marker for an untested tree.
+          has_marker() { # <key>
+            local code
+            code="$(curl --head --silent --location --proto '=https' --connect-timeout 5 --max-time 15 \
+              -o /dev/null -w '%{http_code}' \
+              "https://files.cmux.com/cmux-tui/tree/$1/daemon-tests.json?daemon-tests=$RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null)" || code=""
+            [[ "$code" == 200 ]]
+          }
+          if [[ "$KEY" =~ ^[0-9a-f]{40}$ ]] && has_marker "$KEY" \
+             && { [[ -z "$LEGACY_KEY" || "$LEGACY_KEY" == "$KEY" ]] || has_marker "$LEGACY_KEY"; }; then
+            echo "marked=true" >> "$GITHUB_OUTPUT"
+            echo "Tree $KEY already has its daemon-tests marker (another run of the key tested it); this job does not test it again."
+          fi
+
       - name: Tree key
         if: steps.current.outputs.stale != 'true'
         id: key
@@ -1304,15 +1339,15 @@ jobs:
           echo "cmux-tui v1 tree key: $legacy_key"
 
       - name: Use short temporary directory for socket tests
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install the build dependencies
-        if: steps.current.outputs.stale != 'true' && runner.os == 'Linux'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
@@ -1320,29 +1355,29 @@ jobs:
       # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
       # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
       - name: Cache the verified Zig tarball
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-zig-tarballs
           key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
 
       - name: Install zig
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
       - name: Fetch the ghostty-next Zig packages (retried)
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -1351,7 +1386,7 @@ jobs:
           cache-all-crates: true
 
       - name: cargo test cmux_next_
-        if: steps.current.outputs.stale != 'true'
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         working-directory: cmux-tui
         shell: bash
         run: |
