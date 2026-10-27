@@ -15,7 +15,7 @@ import Testing
         defer { MessagesLabHomeView.reduceMotionOverride = saved }
         let rig = try await HomeChatRig()
         defer { rig.stop() }
-        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, true))
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, on: true))
         rig.frame()
         let demo = try #require(rig.view.controller.demo)
         let row = try #require(demo.collection.visibleCells.compactMap { $0 as? RowCell }.first {
@@ -32,7 +32,7 @@ import Testing
         MessagesLabHomeView.voiceMotionGate = { true }
         rig.view.applyReduceMotion()
         #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
-        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, false))
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, on: false))
         rig.frame()
         #expect(loopPaths(in: row.layer).isEmpty, "The fading typing row must no longer loop")
         row.prepareForReuse()
