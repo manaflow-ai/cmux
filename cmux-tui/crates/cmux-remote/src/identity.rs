@@ -174,7 +174,7 @@ pub enum KnownDaemonAuth {
 pub struct ClientIdentityStore {
     state_dir: PathBuf,
     identity: StaticIdentity,
-    state: StdMutex<ClientStateCache>,
+    state: Arc<StdMutex<ClientStateCache>>,
 }
 
 impl std::fmt::Debug for ClientIdentityStore {
@@ -203,7 +203,7 @@ impl ClientIdentityStore {
         Ok(Arc::new(Self {
             state_dir,
             identity,
-            state: StdMutex::new(ClientStateCache { persisted: state, generation: 0 }),
+            state: Arc::new(StdMutex::new(ClientStateCache { persisted: state, generation: 0 })),
         }))
     }
 
@@ -388,45 +388,45 @@ impl ClientIdentityStore {
         transaction: ClientStateTransaction,
         candidate: PersistedClientState,
     ) -> Result<(), IdentityError> {
-        {
-            let cache = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if cache.generation != transaction.generation {
-                return Err(IdentityError::Persistence(
-                    "client identity cache changed while its owner-file lock was held".into(),
-                ));
-            }
-        }
-        // The blocking job owns the cross-process lease, so a canceled caller
-        // cannot release it while the durable write is still running.
+        // One blocking job owns the cross-process lease, the durable write and
+        // the matching cache publication, so a canceled caller can neither
+        // release the lease mid-write nor leave the cache behind the file.
         let path = self.state_dir.join(CLIENT_STATE_FILE);
-        let (transaction, candidate, persisted) = cmux_blocking::spawn_blocking(move || {
-            let persisted = atomic_json(&path, &candidate);
-            (transaction, candidate, persisted)
+        let cache = Arc::clone(&self.state);
+        cmux_blocking::spawn_blocking(move || {
+            commit_client_state_blocking(&path, &cache, transaction, candidate)
         })
         .await
-        .map_err(|error| IdentityError::Io(error.into()))?;
-        let result = match persisted {
-            Ok(()) => {
-                self.state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .replace(candidate)?;
-                Ok(())
-            }
-            Err(error @ IdentityError::Committed(_)) => {
-                self.state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .replace(candidate)?;
-                Err(error)
-            }
-            Err(error) => Err(error),
-        };
-        // Keep the cross-process lease through both the durable write and the
-        // matching cache publication.
-        drop(transaction);
-        result
+        .map_err(|error| IdentityError::Io(error.into()))?
     }
+}
+
+fn commit_client_state_blocking(
+    path: &Path,
+    cache: &StdMutex<ClientStateCache>,
+    transaction: ClientStateTransaction,
+    candidate: PersistedClientState,
+) -> Result<(), IdentityError> {
+    let generation = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).generation;
+    if generation != transaction.generation {
+        return Err(IdentityError::Persistence(
+            "client identity cache changed while its owner-file lock was held".into(),
+        ));
+    }
+    let result = match atomic_json(path, &candidate) {
+        Ok(()) => {
+            cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).replace(candidate)
+        }
+        Err(error @ IdentityError::Committed(_)) => {
+            cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).replace(candidate)?;
+            Err(error)
+        }
+        Err(error) => Err(error),
+    };
+    // Keep the cross-process lease through both the durable write and the
+    // matching cache publication.
+    drop(transaction);
+    result
 }
 
 struct ClientStateCache {
@@ -925,7 +925,7 @@ impl AuthDatabase {
     /// terminal persistence result before the lease is released.
     pub async fn shutdown_with_cleanup(
         &self,
-        cleanup: impl FnOnce(&Result<(), IdentityError>) -> Result<(), IdentityError> + Send,
+        cleanup: impl FnOnce(&Result<(), IdentityError>) -> Result<(), IdentityError> + Send + 'static,
     ) -> Result<(), IdentityError> {
         let final_write = {
             let mut state = self.state.lock().await;
@@ -941,7 +941,12 @@ impl AuthDatabase {
             // cancelled caller or worker failure remains observable after join.
             let _ = final_write.wait().await;
         }
-        self.persistence.close_and_join_with_cleanup(cleanup)
+        // The writer join and the caller's lifecycle file work both block, so
+        // they run as one MayBlock job that a canceled caller cannot split.
+        let persistence = Arc::clone(&self.persistence);
+        cmux_blocking::spawn_blocking(move || persistence.close_and_join_with_cleanup(cleanup))
+            .await
+            .map_err(|error| IdentityError::Io(error.into()))?
     }
 
     pub async fn create_invitation(
@@ -2310,5 +2315,90 @@ mod tests {
         assert_eq!(pinned.fingerprint, fingerprint);
         assert_eq!(key, Some(public_key));
         assert!(forgotten);
+    }
+
+    #[test]
+    fn auth_shutdown_joins_and_cleans_up_off_the_runtime_thread() {
+        // The writer join and the caller's lifecycle file work left on the
+        // block_on thread panic in cmux_threads' blocking check in debug.
+        let state_dir = tempfile::tempdir().unwrap();
+        let database =
+            AuthDatabase::load_or_create(state_dir.path().join("auth"), "daemon:test", false)
+                .unwrap();
+        let marker = state_dir.path().join("lifecycle-cleanup");
+        let cleanup_marker = marker.clone();
+        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let stalled = cmux_blocking::counts().stalled;
+
+        cmux_blocking::runtime::block_on(&runtime, async {
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+            database
+                .shutdown_with_cleanup(move |finalization| {
+                    assert!(finalization.is_ok(), "{finalization:?}");
+                    cmux_blocking::fs::write(&cleanup_marker, b"done").map_err(IdentityError::Io)
+                })
+                .await
+                .unwrap();
+            database.shutdown().await.unwrap();
+        });
+
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert_eq!(std::fs::read(&marker).unwrap(), b"done");
+    }
+
+    #[test]
+    fn canceled_client_state_commit_still_publishes_the_written_state() {
+        let state_dir = tempfile::tempdir().unwrap();
+        let client_dir = state_dir.path().join("client");
+        let store = ClientIdentityStore::load_or_create(&client_dir).unwrap();
+        let path = client_dir.join(CLIENT_STATE_FILE);
+        let lock_path = sibling_lock_path(&path).unwrap();
+        let public_key = [9_u8; 32];
+        let fingerprint = public_key_fingerprint(&public_key);
+        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+
+        let (cached, on_disk) = cmux_blocking::runtime::block_on(&runtime, async {
+            let (transaction, mut candidate) = store.reload_client_state().await.unwrap();
+            candidate.daemons.insert(
+                fingerprint.clone(),
+                KnownDaemon {
+                    fingerprint: fingerprint.clone(),
+                    name: "daemon".into(),
+                    public_key: encode_key(&public_key),
+                    route_hints: Vec::new(),
+                    auth: KnownDaemonAuth::Enrolled,
+                    first_seen_at_unix: 1,
+                    last_used_at_unix: 1,
+                },
+            );
+            let mut commit = Box::pin(store.commit_client_state(transaction, candidate));
+            // Poll once so the write starts, then cancel the caller.
+            tokio::select! {
+                biased;
+                result = &mut commit => result.unwrap(),
+                () = std::future::ready(()) => {}
+            }
+            drop(commit);
+            // The commit job holds the lease until it has published its state.
+            let lease = OwnerFileLock::acquire_async(lock_path).await.unwrap();
+            let cached = store
+                .known_daemons()
+                .await
+                .into_iter()
+                .map(|daemon| daemon.fingerprint)
+                .collect::<Vec<_>>();
+            let on_disk = {
+                let path = path.clone();
+                cmux_blocking::spawn_blocking(move || load_client_state(&path)).await.unwrap()
+            }
+            .unwrap()
+            .map(|(state, _)| state.daemons.into_keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+            drop(lease);
+            (cached, on_disk)
+        });
+
+        assert_eq!(on_disk, vec![fingerprint]);
+        assert_eq!(cached, on_disk);
     }
 }
