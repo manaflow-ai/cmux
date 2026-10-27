@@ -33,10 +33,10 @@ pub(super) fn probe_script() -> String {
     format!(
         r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
-au_d=$HOME/.config/systemd/user; au_there=; au_own=1
+au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
 for au_f in acpmux-update.service acpmux-update.timer; do
 au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=error
-[ ! -e "$au_d/$au_f" ] || au_there=1
+if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=
 au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_own=; [ -z "$au_x" ] || au_own= ;; esac
@@ -47,7 +47,7 @@ if [ -n "$au_there" ]; then
 [ ! -e "$au_d/acpmux-update.timer" ] || cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
 {timer}ACPMUX_UPDATE_TIMER
 if [ -z "$au_own" ]; then echo {MARK}foreign
-elif [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
+elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
 else echo {MARK}stopped; fi
 fi
 fi"#
