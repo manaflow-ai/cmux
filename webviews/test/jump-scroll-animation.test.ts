@@ -42,6 +42,7 @@ test("one clock follows a moving target and lands exactly with rounded offsets",
   const clock = frames();
   let target = 900;
   let landed = 0;
+  let cancelled = 0;
   const start = performance.now();
   try {
     animateScroll(
@@ -50,6 +51,7 @@ test("one clock follows a moving target and lands exactly with rounded offsets",
       400,
       JUMP_CURVE,
       () => landed++,
+      () => cancelled++,
     );
     const tops: number[] = [];
     for (let at = 0; at <= 400; at += 20) {
@@ -60,6 +62,7 @@ test("one clock follows a moving target and lands exactly with rounded offsets",
     expect(tops.slice(1).every((top, at) => top >= tops[at]!)).toBe(true);
     expect(clock.node.scrollTop).toBe(target);
     expect(landed).toBe(1);
+    expect(cancelled).toBe(0);
     expect(clock.pending.size).toBe(0);
   } finally {
     clock.restore();
