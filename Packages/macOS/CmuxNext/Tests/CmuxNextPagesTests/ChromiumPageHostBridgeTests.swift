@@ -187,17 +187,23 @@ struct ChromiumPageHostBridgeTests {
         #expect(!PageHostTrust.isTrusted(message, page: PageDescriptor(id: "test.plain", resource: "plain", processGroup: .solo, namespaces: [])))
     }
 
-    /// A post before the first commit is heard asks the main frame once, as a binding call asks its context.
-    @Test func aPostBeforeTheCommitAsksTheMainFrame() async {
+    /// A post before its cmux page's commit is heard (the commit's event and the post come on different pipes) waits
+    /// for that commit, past the initial `about:blank` one, and is judged by it, in order, with no sender probe; a
+    /// later commit replays nothing.
+    @Test func aPostBeforeTheCommitWaitsForIt() throws {
         let page = FakeChromiumPage()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: ["cmuxPagePainted"])
-        let heard: String? = await PageTestWait.value("message") { done in
-            bridge.onMessage = { name, _ in done(name) }
-            bridge.receive(pageHostPost: Self.text(["name": "cmuxPagePainted", "body": 1]))
-        }
-        #expect(heard == "cmuxPagePainted")
-        let probes = page.calls.filter { $0.params["expression"] as? String == "[location.href, window === window.top]" }
-        #expect(probes.count == 1 && probes.first?.params["contextId"] == nil)
+        var heard: [String] = []
+        bridge.onMessage = { name, body in heard.append("\(name) \(body)") }
+        bridge.receive(pageHostPost: Self.text(["name": "cmuxPagePainted", "body": 1]))
+        bridge.documentCommitted(URL(string: "about:blank"))
+        bridge.receive(pageHostPost: Self.text(["name": "cmuxPagePainted", "body": 2]))
+        #expect(heard.isEmpty, "a post was judged before its document's commit")
+        bridge.documentCommitted(try #require(URL(string: page.senderURL)))
+        #expect(heard == ["cmuxPagePainted 1", "cmuxPagePainted 2"])
+        bridge.documentCommitted(URL(string: page.senderURL))
+        #expect(heard.count == 2)
+        #expect(page.calls.isEmpty, "a DevTools call: \(page.calls.map(\.method))")
     }
 
     /// One bad message refuses the whole post.
