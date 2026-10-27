@@ -242,7 +242,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
-        assert "needs: [tree-preflight, tree-owner-wait]" in body
+        # The daemon tests also wait on their runner pick.
+        assert "needs: [tree-preflight, tree-owner-wait" in body
         assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
         assert "needs.tree-owner-wait.outputs.takeover == 'true'" in body
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")

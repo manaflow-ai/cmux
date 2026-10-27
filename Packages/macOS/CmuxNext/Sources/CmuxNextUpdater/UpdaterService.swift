@@ -254,11 +254,8 @@ public final class UpdaterService {
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
-            // The nightly feed lists each build's deltas minutes after its DMG
-            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG. The tip feed lists an
-            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
-            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
+            // A found update is offered at once, deltas listed or not: no check holds a build back
+            // for deltas that come minutes later (a later check uses them for the next build).
             // Until the settings load (``configure``), a launch check's update waits: nothing
             // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
             // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
