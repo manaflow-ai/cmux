@@ -318,7 +318,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
-    MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, parse_queue_rounds, persistent)
+    MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, nightly_dedicated, parse_queue_rounds, persistent)
 import owned_pool_sources  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
@@ -595,7 +595,8 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label)):
+        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
+                or nightly_dedicated(str(label))):
             return str(label)
     return None
 
