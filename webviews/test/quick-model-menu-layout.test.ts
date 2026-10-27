@@ -133,19 +133,31 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("launch profiles and route-backed accounts occupy separate submenus", async () => {
-    for (const [label, choice, absent] of [
-      ["Profile", "Subrouter", "API key"],
-      ["Account", "API key", "Subrouter"],
-    ]) {
-      const page = await open("claude");
-      try {
-        await page.getByRole("menuitem", { name: new RegExp("^" + label) }).hover();
-        await page.getByRole("menuitemradio", { name: choice, exact: true }).waitFor();
-        expect(await page.getByRole("menuitemradio", { name: absent, exact: true }).count()).toBe(0);
-      } finally {
-        await page.close();
-      }
+  test("launch configurations are named harness entries, with no Profile submenu", async () => {
+    const page = await open("claude");
+    try {
+      expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
+      await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the picker uses readable rows and a left harness rail", async () => {
+    const page = await open("claude");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      const body = await bounds(page, ".acpmux-quick-body");
+      const row = await bounds(page, ".acpmux-quick-item:first-child");
+      expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
+      expect(row.height).toBeGreaterThanOrEqual(36);
+      const search = await bounds(page, ".acpmux-quick-search");
+      expect(search.height).toBeGreaterThanOrEqual(40);
+      expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
     }
   });
 
