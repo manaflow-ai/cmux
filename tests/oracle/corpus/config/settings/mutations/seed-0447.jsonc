@@ -1,0 +1,13 @@
+{
+	"chief": {
+		"reactionsCanWake": null,
+	},
+	// a { brace
+"sidebar": {
+		"workspaceRow": {
+			"browser": {
+				"icon": null,
+			},
+		}
+	},
+}

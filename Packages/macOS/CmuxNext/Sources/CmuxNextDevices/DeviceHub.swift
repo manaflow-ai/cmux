@@ -131,7 +131,7 @@ public final class DeviceHub {
             return
         }
         let socket = self.socket, hub = WeakHub(hub: self)
-        socketTask = Task {
+        socketTask = Task { @concurrent in // off main: connect, reads, ping, backoff; each event awaits the hub in order
             await socket.run { event in
                 await hub.hub?.handle(event)
             }
@@ -155,7 +155,7 @@ public final class DeviceHub {
         lastError = nil
         pushCount = 0
         let client = self.client
-        Task { await client.signOut() } // task-owner: a one-shot reset of the client's cached session
+        Task { @concurrent in await client.signOut() } // task-owner: a one-shot reset of the client's cached session, on its actor
     }
 
     private func stopSocket() {

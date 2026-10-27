@@ -1,8 +1,8 @@
 {
   "id": "swift-page-claim-ready",
   "tier": "builder",
-  "description": "PageHostPoolClaimReadyBenchmark: claim-to-ready of a Settings page from the parked spare page host, eight claims.",
-  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-page-claim-ready", "--filter", "PageHostPoolClaimReadyBenchmark", "--env", "CMUX_PAGE_CLAIM_BENCH=8"],
+  "description": "PagePreloadClaimReadyBenchmark: claim-to-ready of a Settings page from the preload slot (PagePreloads), eight claims.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-page-claim-ready", "--filter", "PagePreloadClaimReadyBenchmark", "--env", "CMUX_PAGE_CLAIM_BENCH=8"],
   "session": "light",
   "engine": "none",
   "config": "release",
@@ -11,7 +11,7 @@
   ],
   "repeats": 1,
   "seconds": 1200,
-  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests/PageHostPoolClaimReadyBenchmark.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests/PagePreloadClaimReadyBenchmark.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
   "owner": "PL-webui",
-  "component": "Pages>Pool"
+  "component": "Pages>Preload"
 }
