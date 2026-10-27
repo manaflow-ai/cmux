@@ -122,9 +122,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "name": {"type": "string", "minLength": 1, "maxLength": crate::automations::NAME_MAX, "description": "add: a short name the person sees in Chief settings, e.g. \"Morning PR summary\"."},
             "prompt": {"type": "string", "minLength": 1, "maxLength": crate::automations::PROMPT_MAX, "description": "add: the whole task you do at each fire, standing alone (you will not see this turn then)."},
             "cron": {"type": "string", "minLength": 1, "description": "add, a schedule: five fields in this Mac's time zone (minute hour day-of-month month day-of-week), e.g. \"0 9 * * *\" every day at 9, \"0 9 * * 1-5\" weekdays; or @hourly, @daily, @weekly."},
-            "event": {"type": "string", "enum": crate::automations::EVENTS, "description": "add, an event instead of cron: agent_done (one of your subagents finished), ci_red (a GitHub Actions run of `repo` failed). Each event fires it once."},
-            "repo": {"type": "string", "minLength": 3, "description": "ci_red: owner/name."},
-            "branch": {"type": "string", "minLength": 1, "description": "ci_red: only this branch."},
+            "event": {"type": "string", "enum": crate::automations::EVENTS, "description": "add, an event instead of cron: agent_done (one of your subagents finished). Each event fires it once."},
             "match": {"type": "string", "minLength": 1, "description": "agent_done: only subagents whose title has this text."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,

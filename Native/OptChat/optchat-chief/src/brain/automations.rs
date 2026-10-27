@@ -4,21 +4,17 @@
 //!
 //! A schedule is due on the brain's own timer (`next_automation_due`), as a
 //! `sleep` wake is; nothing polls for it. An `agent_done` automation fires
-//! from `sub_done` when a subagent's report reaches the Chief. A `ci_red`
-//! automation is read every [`crate::ci::CI_EVERY`] off the brain thread,
-//! only while one is active. Each fire queues the automation's note
+//! from `sub_done` when a subagent's report reaches the Chief. Each fire
+//! queues the automation's note
 //! (`Automation::note`), which starts a normal turn that posts its result
 //! in the Chief conversation.
 
-use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 use super::{Brain, Source, now_ms};
-use crate::automations::{
-    AUTOMATIONS_MAX, Automation, AutomationCall, CiRun, Cron, Event, Trigger,
-};
+use crate::automations::{AUTOMATIONS_MAX, Automation, AutomationCall, Cron, Event, Trigger};
 
 /// What the owner asks of the automations from Home.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,8 +94,6 @@ impl Brain {
             last_fired_ms: None,
             runs: 0,
             fired: Vec::new(),
-            last_error: None,
-            baselined: false,
         };
         schedule(&mut automation, now);
         if let Trigger::Schedule { cron } = &automation.trigger
@@ -144,9 +138,6 @@ impl Brain {
                     return Ok(("noop", format!("{id} is {action}d already")));
                 }
                 automation.paused = pause;
-                // What failed while it was paused is not news: the next read
-                // takes a new baseline.
-                automation.baselined = false;
                 schedule(automation, now);
                 ("done", automation.line())
             }
@@ -195,12 +186,11 @@ impl Brain {
     }
 
     /// When the brain must look at its automations next: the soonest
-    /// schedule, or the next CI read while a `ci_red` one is active.
+    /// schedule.
     pub(super) fn next_automation_due(&self) -> Option<Instant> {
         let now = now_ms();
         let at = |ms: u64| Instant::now() + Duration::from_millis(ms.saturating_sub(now));
-        let schedule = self
-            .state
+        self.state
             .automations
             .iter()
             .filter(|a| !a.paused)
@@ -210,15 +200,12 @@ impl Brain {
             // An Instant stands still while the Mac sleeps: look at the wall
             // clock again at least once a minute, so a 9:00 fire after a
             // night's sleep comes at wake, not hours later.
-            .map(|due| due.min(Instant::now() + SCHEDULE_RECHECK));
-        let ci = (self.ci.is_some() && self.ci_polling.is_empty() && !self.ci_watched().is_empty())
-            .then(|| self.ci_read_at.unwrap_or_else(Instant::now));
-        [schedule, ci].into_iter().flatten().min()
+            .map(|due| due.min(Instant::now() + SCHEDULE_RECHECK))
     }
 
-    /// Fires every schedule due at `now_ms` (wall clock), and reads CI when
-    /// that is due. A schedule missed while the host was down fires once
-    /// and goes on from now.
+    /// Fires every schedule due at `now_ms` (wall clock). A schedule missed
+    /// while the host was down or the Mac slept fires once and goes on from
+    /// now.
     pub fn fire_automations_at(&mut self, now_ms: u64) {
         let due: Vec<usize> = self
             .state
@@ -247,9 +234,6 @@ impl Brain {
         }
         if fired {
             self.save();
-        }
-        if self.ci_read_at.is_none_or(|at| at <= Instant::now()) {
-            self.ci_tick();
         }
     }
 
@@ -285,121 +269,6 @@ impl Brain {
         self.trace
             .emit("automation.fire", json!({"id": id, "key": key}));
         self.queue(note, Source::Note);
-    }
-
-    /// The repositories (and branches) active `ci_red` automations watch.
-    fn ci_watched(&self) -> BTreeSet<(String, Option<String>)> {
-        self.state
-            .automations
-            .iter()
-            .filter(|a| !a.paused)
-            .filter_map(|a| match &a.trigger {
-                Trigger::CiRed { repo, branch } => Some((repo.clone(), branch.clone())),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Reads each watched repository's failed runs, off the brain thread;
-    /// each answer comes back as `Input::CiRead`.
-    fn ci_tick(&mut self) {
-        let Some(ci) = self.ci.clone() else {
-            return;
-        };
-        let watched = self.ci_watched();
-        if watched.is_empty() || !self.ci_polling.is_empty() {
-            return;
-        }
-        self.ci_read_at = Some(Instant::now() + self.ci_every);
-        for (repo, branch) in watched {
-            let key = (repo.clone(), branch.clone());
-            self.ci_polling.insert(key.clone());
-            let ci = ci.clone();
-            let tx = self.tx.clone();
-            let spawned = std::thread::Builder::new()
-                .name("ci-read".into())
-                .spawn(move || {
-                    let result = ci.failed(&repo, branch.as_deref());
-                    let _ = tx.send(super::Input::CiRead {
-                        repo,
-                        branch,
-                        result,
-                    });
-                });
-            // No thread, no answer: the next tick reads it again.
-            if let Err(e) = spawned {
-                self.ci_polling.remove(&key);
-                (self.log)(&format!("automation CI read of {}: {e}", key.0));
-            }
-        }
-    }
-
-    /// The failed runs of `repo` (`branch`) were read: each new one fires
-    /// the automations that wait for it; a failed read is shown on them.
-    pub fn ci_read(
-        &mut self,
-        repo: &str,
-        branch: Option<&str>,
-        result: Result<Vec<CiRun>, String>,
-    ) {
-        self.ci_polling
-            .remove(&(repo.to_owned(), branch.map(str::to_owned)));
-        let watches = |a: &Automation| matches!(&a.trigger, Trigger::CiRed { repo: r, branch: b } if r == repo && b.as_deref() == branch);
-        let error = result.as_ref().err().cloned();
-        let mut changed = false;
-        for automation in self.state.automations.iter_mut().filter(|a| watches(a)) {
-            if automation.last_error != error {
-                automation.last_error = error.clone();
-                changed = true;
-            }
-        }
-        if let Some(e) = &error {
-            (self.log)(&format!("automation CI read of {repo}: {e}"));
-        }
-        if changed {
-            self.save();
-        }
-        let Ok(runs) = result else { return };
-        // The first read after an automation was made or resumed is its
-        // baseline: what is red now never fires it.
-        let mut baselined = false;
-        for automation in self
-            .state
-            .automations
-            .iter_mut()
-            .filter(|a| watches(a) && !a.paused && !a.baselined)
-        {
-            for run in &runs {
-                let key = Event::CiRed {
-                    repo: repo.to_owned(),
-                    run: run.clone(),
-                }
-                .key();
-                automation.record_seen(&key);
-            }
-            automation.baselined = true;
-            baselined = true;
-        }
-        if baselined {
-            self.save();
-        }
-        // Oldest first, so the notes come in the order the runs failed.
-        for run in runs.into_iter().rev() {
-            self.automation_event(Event::CiRed {
-                repo: repo.to_owned(),
-                run,
-            });
-        }
-    }
-
-    /// Reads CI for `ci_red` automations through `ci`, every `every`.
-    pub fn set_ci_runs(
-        &mut self,
-        ci: Option<std::sync::Arc<dyn crate::ci::CiRuns>>,
-        every: Duration,
-    ) {
-        self.ci = ci;
-        self.ci_every = every;
     }
 }
 

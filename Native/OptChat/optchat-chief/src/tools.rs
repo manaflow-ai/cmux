@@ -509,7 +509,7 @@ pub fn usage(tool: &str) -> String {
             "sleep" => "SECONDS [\"note\"]",
             "remember" => "\"the preference, one short line\"",
             "automation" =>
-                "[list] | pause|resume|delete|run ID | '{\"action\": \"add\", \"name\": \"...\", \"prompt\": \"...\", \"cron\": \"0 9 * * *\"}' | '{\"action\": \"add\", \"prompt\": \"...\", \"event\": \"agent_done|ci_red\", \"repo\": \"owner/name\"}'",
+                "[list] | pause|resume|delete|run ID | '{\"action\": \"add\", \"name\": \"...\", \"prompt\": \"...\", \"cron\": \"0 9 * * *\"}' | '{\"action\": \"add\", \"prompt\": \"...\", \"event\": \"agent_done\"}'",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "peers" => "",

@@ -5,7 +5,7 @@ import Foundation
 
 /// The Chief Settings card's Automations block (issue 25573): the tasks the person asked the
 /// Chief to run on a schedule or when an event happens (`chief.automation.list`), each with what
-/// starts it, its next run or that it is paused, why its trigger could not be read, and Pause or
+/// starts it, its next run or that it is paused, and Pause or
 /// Resume and Delete (`chief.automation.update` through `onAction`). The Chief makes them in
 /// chat with its `automation` tool; this block only shows and changes them.
 @MainActor
@@ -59,13 +59,6 @@ final class HomeChiefAutomationRows: NSStackView {
         detail.ink = .secondary
         detail.preferredMaxLayoutWidth = width
         var views: [NSView] = [name, detail]
-        if let error = automation.lastError, !error.isEmpty {
-            let failure = ThemedLabel(wrappingLabelWithString: String(format: HomeEngineStrings.automationErrorFormat, error))
-            failure.font = Typography.caption
-            failure.ink = .danger
-            failure.preferredMaxLayoutWidth = width
-            views.append(failure)
-        }
         let toggle = button(automation.paused ? HomeEngineStrings.automationResume : HomeEngineStrings.automationPause,
                             id: automation.id, action: automation.paused ? .resume : .pause)
         let delete = button(HomeEngineStrings.automationDelete, id: automation.id, action: .delete)
@@ -127,8 +120,6 @@ final class HomeChiefAutomationRows: NSStackView {
         case .schedule(let cron): String(format: HomeEngineStrings.automationScheduleFormat, cron)
         case .agentDone(nil): HomeEngineStrings.automationAgentDone
         case .agentDone(let matches?): String(format: HomeEngineStrings.automationAgentDoneMatchingFormat, matches)
-        case .ciRed(let repo, nil): String(format: HomeEngineStrings.automationCIRedFormat, repo)
-        case .ciRed(let repo, let branch?): String(format: HomeEngineStrings.automationCIRedFormat, "\(repo) (\(branch))")
         case .other(let type): type
         }
     }

@@ -1,18 +1,18 @@
 //! The Chief's automations (issue 25573): "Every morning at 9, summarize my
 //! open PRs" makes an automation that runs at 9 and posts in the chat; event
-//! triggers (a subagent done, CI red) fire once per event; the owner lists,
+//! triggers (a subagent done) fire once per event; nothing polls GitHub
+//! (a CI event is the Cloud Chief's webhook job); the owner lists,
 //! pauses, resumes and deletes them (Home's Chief settings).
 
 mod common;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
-use optchat_chief::automations::{CiRun, Cron, Event};
+use optchat_chief::automations::{Cron, Event};
 use optchat_chief::brain::{AutomationsRequest, Input};
-use optchat_chief::ci::CiRuns;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{Call, Orchestrator};
 use serde_json::{Value, json};
@@ -167,7 +167,7 @@ fn the_owner_lists_pauses_resumes_and_deletes_them() {
     .unwrap();
     automation(
         &mut h,
-        json!({"action": "add", "name": "Fix CI", "prompt": "fix the red run", "event": "ci_red", "repo": "manaflow-ai/cmux"}),
+        json!({"action": "add", "name": "Review", "prompt": "review the finished work", "event": "agent_done", "match": "fix"}),
     )
     .unwrap();
     let list = h.brain.automations_control(AutomationsRequest::List);
@@ -177,14 +177,9 @@ fn the_owner_lists_pauses_resumes_and_deletes_them() {
     assert_eq!(items[0]["trigger"]["type"], "schedule");
     assert_eq!(items[0]["trigger"]["cron"], "@daily");
     assert!(items[0]["next_ms"].is_u64());
-    assert_eq!(items[1]["trigger"]["type"], "ci_red");
-    assert_eq!(items[1]["trigger"]["repo"], "manaflow-ai/cmux");
-    assert!(
-        items[1]["trigger"]["summary"]
-            .as_str()
-            .unwrap()
-            .contains("CI fails")
-    );
+    assert_eq!(items[1]["trigger"]["type"], "agent_done");
+    assert_eq!(items[1]["trigger"]["matches"], "fix");
+    assert!(items[1]["next_ms"].is_null(), "an event has no next time");
 
     // Paused: no next fire, and a due time passes with no turn.
     let due = h.brain.automations()[0].next_ms.unwrap();
@@ -422,142 +417,15 @@ fn agent_done_fires_once_when_a_subagent_finishes() {
 }
 
 /// Failed runs a test hands out.
-struct FakeCi {
-    runs: Mutex<Result<Vec<CiRun>, String>>,
-    reads: Mutex<Vec<(String, Option<String>)>>,
-}
-
-impl CiRuns for FakeCi {
-    fn failed(&self, repo: &str, branch: Option<&str>) -> Result<Vec<CiRun>, String> {
-        self.reads
-            .lock()
-            .unwrap()
-            .push((repo.to_owned(), branch.map(str::to_owned)));
-        self.runs.lock().unwrap().clone()
-    }
-}
-
-fn red(id: u64, created_ms: u64) -> CiRun {
-    CiRun {
-        id,
-        workflow: "CI".into(),
-        title: "fix the build".into(),
-        branch: "main".into(),
-        url: format!("https://github.com/manaflow-ai/cmux/actions/runs/{id}"),
-        created_ms,
-    }
-}
-
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
-/// Steps the brain until `n` CI reads came back.
-fn read_ci(h: &mut Harness, ci: &FakeCi, n: usize) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    h.brain.fire_automations_at(now());
-    while ci.reads.lock().unwrap().len() < n {
-        assert!(Instant::now() < deadline, "CI was not read");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    // The read's answer, and the turn a fire starts, until the brain is quiet.
-    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(300)) {
-        h.brain.step(input);
-    }
-    h.settle_posts();
-}
 
 #[test]
-fn ci_red_fires_once_per_failed_run_after_its_baseline() {
+fn a_github_event_is_not_a_local_automation() {
     let mut h = Harness::new(default_script());
-    let ci = Arc::new(FakeCi {
-        runs: Mutex::new(Ok(Vec::new())),
-        reads: Mutex::new(Vec::new()),
-    });
-    h.brain.set_ci_runs(Some(ci.clone()), Duration::ZERO);
     h.connect();
-    automation(
-        &mut h,
-        json!({"action": "add", "name": "Fix CI", "prompt": "Find why main is red and fix it", "event": "ci_red", "repo": "manaflow-ai/cmux", "branch": "main"}),
-    )
-    .unwrap();
-    let made = h.brain.automations()[0].created_ms;
-    // Its first read is its baseline: what is red now never fires it.
-    *ci.runs.lock().unwrap() = Ok(vec![red(1, made - 60_000)]);
-    read_ci(&mut h, &ci, 1);
-    assert_eq!(
-        ci.reads.lock().unwrap()[0],
-        ("manaflow-ai/cmux".to_owned(), Some("main".to_owned()))
-    );
-    assert!(
-        automation_notes(&h).is_empty(),
-        "{:?}",
-        automation_notes(&h)
-    );
-    // A run that started before the automation and failed after it fires it.
-    *ci.runs.lock().unwrap() = Ok(vec![red(2, made - 30_000), red(1, made - 60_000)]);
-    read_ci(&mut h, &ci, 2);
-    let notes = automation_notes(&h);
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert!(notes[0].contains("Find why main is red"), "{}", notes[0]);
-    assert!(notes[0].contains("actions/runs/2"), "{}", notes[0]);
-    assert!(
-        !notes[0].contains("fix the build"),
-        "a run's title is never quoted: {}",
-        notes[0]
-    );
-    // The next read sees the same run: no second fire.
-    read_ci(&mut h, &ci, 3);
-    assert_eq!(automation_notes(&h).len(), 1);
-    // A new red run fires it again, once.
-    *ci.runs.lock().unwrap() = Ok(vec![red(3, made + 5_000), red(2, made - 30_000)]);
-    read_ci(&mut h, &ci, 4);
-    let notes = automation_notes(&h);
-    assert_eq!(notes.len(), 2, "{notes:?}");
-    assert!(notes[1].contains("actions/runs/3"));
-    // Paused, then resumed: what failed meanwhile is a new baseline, not a burst.
-    for action in ["pause", "resume"] {
-        h.brain.automations_control(AutomationsRequest::Update {
-            id: "au1".into(),
-            action: action.into(),
-        });
-    }
-    *ci.runs.lock().unwrap() = Ok(vec![red(5, made + 9_000), red(4, made + 8_000)]);
-    read_ci(&mut h, &ci, 5);
-    assert_eq!(automation_notes(&h).len(), 2, "{:?}", automation_notes(&h));
-    // A read that fails is shown on the automation, and cleared by a good one.
-    *ci.runs.lock().unwrap() = Err("gh: not logged in".into());
-    read_ci(&mut h, &ci, 6);
-    let list = h.brain.automations_control(AutomationsRequest::List);
-    assert_eq!(list["automations"][0]["last_error"], "gh: not logged in");
-    *ci.runs.lock().unwrap() = Ok(Vec::new());
-    read_ci(&mut h, &ci, 7);
-    let list = h.brain.automations_control(AutomationsRequest::List);
-    assert!(list["automations"][0]["last_error"].is_null());
-}
-
-#[test]
-fn a_paused_ci_automation_is_not_read() {
-    let mut h = Harness::new(default_script());
-    let ci = Arc::new(FakeCi {
-        runs: Mutex::new(Ok(Vec::new())),
-        reads: Mutex::new(Vec::new()),
-    });
-    h.brain.set_ci_runs(Some(ci.clone()), Duration::ZERO);
-    h.connect();
-    automation(
+    let refused = automation(
         &mut h,
         json!({"action": "add", "prompt": "fix", "event": "ci_red", "repo": "o/r"}),
-    )
-    .unwrap();
-    h.brain.automations_control(AutomationsRequest::Update {
-        id: "au1".into(),
-        action: "pause".into(),
-    });
-    h.brain.fire_automations_at(now());
-    std::thread::sleep(Duration::from_millis(100));
-    assert!(ci.reads.lock().unwrap().is_empty());
+    );
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(h.brain.automations().is_empty());
 }

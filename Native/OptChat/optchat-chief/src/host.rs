@@ -1674,11 +1674,6 @@ fn start(
             std::time::Duration::from_secs(30),
         );
     }
-    // `ci_red` automations read failed runs with the person's `gh` login.
-    brain.set_ci_runs(
-        Some(std::sync::Arc::new(crate::ci::GhRuns::find())),
-        crate::ci::CI_EVERY,
-    );
     brain.set_agent_keys(agent_keys, crate::agent_keys::REVOKE_AFTER_DONE);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(

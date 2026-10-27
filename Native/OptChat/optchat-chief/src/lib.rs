@@ -21,7 +21,6 @@ pub mod brain;
 pub mod browse;
 pub mod chief_profile;
 pub mod chief_settings;
-pub mod ci;
 pub mod claude_import;
 pub mod cli;
 pub mod cloud;

@@ -23,20 +23,12 @@ nonisolated extension HomeEngineStrings {
         String(localized: "home.engine.automations.agentDoneMatching", defaultValue: "When a subagent titled “%@” finishes",
                table: "Home", bundle: .module)
     }
-    /// A CI trigger, by its repository ("manaflow-ai/cmux").
-    static var automationCIRedFormat: String {
-        String(localized: "home.engine.automations.ciRed", defaultValue: "When CI fails on %@", table: "Home", bundle: .module)
-    }
     /// A schedule's next run, by its date and time.
     static var automationNextFormat: String {
         String(localized: "home.engine.automations.next", defaultValue: "Next: %@", table: "Home", bundle: .module)
     }
     static var automationPaused: String {
         String(localized: "home.engine.automations.paused", defaultValue: "Paused", table: "Home", bundle: .module)
-    }
-    /// The trigger could not be read last time (a CI read), with why.
-    static var automationErrorFormat: String {
-        String(localized: "home.engine.automations.error", defaultValue: "Could not check: %@", table: "Home", bundle: .module)
     }
     static var automationPause: String {
         String(localized: "home.engine.automations.pause", defaultValue: "Pause", table: "Home", bundle: .module)

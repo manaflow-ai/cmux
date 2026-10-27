@@ -15,11 +15,10 @@ import Testing
     {"automations": [
       {"id": "au1", "name": "Morning PRs", "prompt": "Summarize my open PRs",
        "trigger": {"type": "schedule", "cron": "0 9 * * *", "summary": "on the schedule `0 9 * * *`"},
-       "paused": false, "created_ms": 1793000000000, "next_ms": 1793091600000, "last_fired_ms": null, "runs": 0,
-       "last_error": null},
-      {"id": "au2", "name": "Fix CI", "prompt": "Find why main is red",
-       "trigger": {"type": "ci_red", "repo": "manaflow-ai/cmux", "branch": "main", "summary": "when CI fails"},
-       "paused": true, "created_ms": 1793000000000, "next_ms": null, "runs": 2, "last_error": "gh: not logged in"},
+       "paused": false, "created_ms": 1793000000000, "next_ms": 1793091600000, "last_fired_ms": null, "runs": 0},
+      {"id": "au2", "name": "Review fixes", "prompt": "Review the finished fix",
+       "trigger": {"type": "agent_done", "matches": "fix", "summary": "when a subagent whose title has \"fix\" finishes"},
+       "paused": true, "created_ms": 1793000000000, "next_ms": null, "runs": 2},
       {"id": "au3", "name": "Review", "prompt": "Review it", "trigger": {"type": "agent_done"}, "paused": false,
        "created_ms": 1, "runs": 0},
       {"id": "au4", "name": "Later", "prompt": "x", "trigger": {"type": "webhook_from_the_future"}, "created_ms": 1}
@@ -35,8 +34,8 @@ import Testing
         #expect(list.map(\.id) == ["au1", "au2", "au3", "au4"])
         #expect(list[0].trigger == .schedule(cron: "0 9 * * *"))
         #expect(list[0].nextMs == 1_793_091_600_000)
-        #expect(list[1].trigger == .ciRed(repo: "manaflow-ai/cmux", branch: "main"))
-        #expect(list[1].paused && list[1].runs == 2 && list[1].lastError == "gh: not logged in")
+        #expect(list[1].trigger == .agentDone(matches: "fix"))
+        #expect(list[1].paused && list[1].runs == 2)
         #expect(list[2].trigger == .agentDone(matches: nil))
         #expect(list[3].trigger == .other("webhook_from_the_future"), "a newer brain's trigger still decodes")
     }
@@ -48,7 +47,7 @@ import Testing
         #expect(next.hasPrefix(String(format: HomeEngineStrings.automationScheduleFormat, "0 9 * * *")))
         #expect(next.contains("9:00"), "\(next)")
         let paused = HomeChiefAutomationRows.detail(list[1])
-        #expect(paused.contains("manaflow-ai/cmux (main)"))
+        #expect(paused.hasPrefix(String(format: HomeEngineStrings.automationAgentDoneMatchingFormat, "fix")))
         #expect(paused.hasSuffix(HomeEngineStrings.automationPaused))
         #expect(HomeChiefAutomationRows.detail(list[2]) == HomeEngineStrings.automationAgentDone)
     }

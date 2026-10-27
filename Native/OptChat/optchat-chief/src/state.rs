@@ -152,7 +152,11 @@ pub struct HostState {
     pub wakes: Vec<Wake>,
     /// The automations the person asked for (automations.rs), oldest
     /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::automations::deserialize_kept"
+    )]
     pub automations: Vec<crate::automations::Automation>,
     /// The number of the next automation id (`au<N>`), unique for this home.
     #[serde(default)]
