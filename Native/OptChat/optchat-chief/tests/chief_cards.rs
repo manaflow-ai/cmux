@@ -254,3 +254,49 @@ fn send_refuses_a_sign_in_that_is_not_a_host_name() {
     );
     assert!(ok.is_ok(), "a host name in any case: {ok:?}");
 }
+
+#[test]
+fn the_text_fallback_answers_the_same_messages() {
+    let mut h = Harness::new(replying("Done.\n[next: Show me the draft]"));
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("invalid_parts".into()));
+    h.connect();
+    h.say("user_local", "draft it");
+    h.settle_posts();
+    let answers: Vec<Vec<String>> = ops(&h)
+        .into_iter()
+        .filter_map(|(key, op)| match op {
+            Op::MessageSend { answers, .. } if key.ends_with(":text") => Some(answers),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 1, "{:?}", ops(&h));
+    assert!(!answers[0].is_empty(), "the fallback answers the person's message");
+}
+
+#[test]
+fn an_owner_that_refuses_the_browser_card_gets_its_text_once() {
+    let mut h = Harness::new(browsing());
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("invalid_parts".into()));
+    h.connect();
+    h.say("user_local", "reply to Jun Beom on LinkedIn");
+    h.settle_posts();
+    let browser_ops: Vec<String> = ops(&h)
+        .into_iter()
+        .map(|(key, _)| key)
+        .filter(|key| key.contains(":browser"))
+        .collect();
+    assert_eq!(
+        browser_ops.len(),
+        2,
+        "the refused card, then its text, and nothing more: {browser_ops:?}"
+    );
+    assert!(browser_ops[1].ends_with(":browser:text"), "{browser_ops:?}");
+}

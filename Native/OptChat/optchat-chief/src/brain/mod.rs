@@ -712,8 +712,8 @@ pub struct Brain {
     /// The attachments uploaded for the running turn's steps (turn key, step id):
     /// every later append of the step names them again (a step is replaced whole).
     run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
-    /// The running (or last) turn's live browser card (browser_card.rs).
-    browser_card: Option<browser_card::BrowserCard>,
+    /// The owner refused a browser card once: no more are posted (browser_card.rs).
+    browser_cards_refused: bool,
     /// The owner said once that it takes no typing indicator (cloud).
     typing_unsupported: bool,
     after_turn: Option<TurnHook>,
@@ -943,7 +943,7 @@ impl Brain {
             live_failed: false,
             live_streams: Default::default(),
             run_attachments: HashMap::new(),
-            browser_card: None,
+            browser_cards_refused: false,
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),

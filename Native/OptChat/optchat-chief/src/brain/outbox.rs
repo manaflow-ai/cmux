@@ -132,11 +132,34 @@ impl Brain {
                         &head.op,
                         &head.cards,
                     );
-                    let fallback = super::reply_entry(
+                    let mut fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
                         &text,
                     );
+                    // The text answers the same messages in the same thread.
+                    if let (
+                        Op::MessageSend {
+                            reply_to,
+                            answers,
+                            answers_pending,
+                            thread_root,
+                            ..
+                        },
+                        Op::MessageSend {
+                            reply_to: to,
+                            answers: ans,
+                            answers_pending: pending,
+                            thread_root: root,
+                            ..
+                        },
+                    ) = (&head.op, &mut fallback.op)
+                    {
+                        *to = reply_to.clone();
+                        *ans = answers.clone();
+                        *pending = answers_pending.clone();
+                        *root = thread_root.clone();
+                    }
                     *head = fallback;
                     self.save();
                     (self.log)(&format!(

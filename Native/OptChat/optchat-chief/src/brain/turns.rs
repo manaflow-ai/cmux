@@ -1542,6 +1542,7 @@ impl Brain {
 
     fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
         self.cuts += 1;
+        self.browser_turn_ended(key);
         let error = outcome.error.clone().unwrap_or_default();
         let wait = self
             .upstream_backoff

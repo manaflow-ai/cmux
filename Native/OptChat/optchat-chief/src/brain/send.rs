@@ -91,7 +91,11 @@ impl Brain {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
         if let Some(sign_in) = &call.sign_in {
-            fingerprint.push_str(&format!("\u{0}sign_in={}", sign_in.site));
+            fingerprint.push_str(&format!(
+                "\u{0}sign_in={}\u{0}{}",
+                sign_in.site,
+                sign_in.url.as_deref().unwrap_or_default()
+            ));
         }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",

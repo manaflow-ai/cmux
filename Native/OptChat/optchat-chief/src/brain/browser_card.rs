@@ -11,29 +11,14 @@
 //! call's image, or the file a `cmux browser … screenshot --out FILE` wrote.
 
 use cmux_conversation::{Card, CardImage, CardSurface, MAX_CARD_STEP_CHARS, Op, Part, PartRef};
+
+use crate::state::BrowserCard;
 use serde_json::{Value, json};
 
 use super::Brain;
 
 /// Largest screenshot file read from a `--out` path.
 const MAX_SCREENSHOT_BYTES: u64 = cmux_conversation::MAX_CARD_IMAGE_BYTES;
-
-/// The running turn's browser card.
-#[derive(Debug)]
-pub(super) struct BrowserCard {
-    pub turn: String,
-    pub conversation: String,
-    /// The card message's client_msg_id and idempotency key.
-    pub key: String,
-    /// The owner's id of the card message once it is posted.
-    pub message_id: Option<String>,
-    /// A change made before the id was known: edited in once it is.
-    pub unsent: bool,
-    pub edits: u64,
-    pub card: Card,
-    /// The thread the turn answers in (root, parent), like its run.
-    pub thread: Option<(String, String)>,
-}
 
 /// What a run step tells the card: its surface, target and step line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,18 +187,24 @@ impl Brain {
         let mut changed = false;
         for step in steps.iter_mut() {
             let browsing = browser_step(step);
-            if browsing.is_none() && self.browser_card.as_ref().is_none_or(|c| c.turn != turn) {
+            if self.browser_cards_refused
+                || (browsing.is_none()
+                    && self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn))
+            {
                 continue;
             }
             if let Some(browsing) = &browsing {
-                if self.browser_card.as_ref().is_none_or(|c| c.turn != turn) {
-                    self.browser_card = Some(BrowserCard {
+                if self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn) {
+                    // A card an earlier turn left live (a restart, a cut turn) ends first.
+                    self.end_browser_card();
+                    self.state.browser_card = Some(BrowserCard {
                         turn: turn.to_owned(),
                         conversation: conversation.to_owned(),
                         key: format!("{turn}:browser"),
                         message_id: None,
                         unsent: false,
                         edits: 0,
+                        refused: false,
                         card: Card::Browser {
                             surface: browsing.surface,
                             step: browsing.step.clone(),
@@ -246,12 +237,17 @@ impl Brain {
                 target,
                 url,
                 image: shown,
-                ..
-            }) = self.browser_card.as_mut().map(|c| &mut c.card)
+                live,
+            }) = self.state.browser_card.as_mut().map(|c| &mut c.card)
             else {
                 continue;
             };
             if let Some(browsing) = browsing {
+                // A step of a turn the card had ended for (a cut turn that runs again).
+                if !*live {
+                    *live = true;
+                    changed = true;
+                }
                 let next_target = browsing.target.or_else(|| target.clone());
                 let next_url = browsing.url.or_else(|| url.clone());
                 if *surface != browsing.surface
@@ -276,25 +272,39 @@ impl Brain {
         }
     }
 
-    /// The turn `turn` ended: its browser card stops being live.
-    pub(super) fn browser_turn_ended(&mut self, turn: &str) {
-        let Some(card) = self.browser_card.as_mut().filter(|c| c.turn == turn) else {
+    /// A turn ended (or was cut): the browser card stops being live. Any
+    /// card, not only this turn's: one turn runs at a time, so a live card
+    /// of another turn was left by a restart.
+    pub(super) fn browser_turn_ended(&mut self, _turn: &str) {
+        self.end_browser_card();
+    }
+
+    fn end_browser_card(&mut self) {
+        let Some(card) = self.state.browser_card.as_mut() else {
             return;
         };
-        if let Card::Browser { live, .. } = &mut card.card {
-            if !*live {
-                return;
-            }
-            *live = false;
+        match &mut card.card {
+            Card::Browser { live, .. } if *live => *live = false,
+            _ => return,
         }
         self.show_browser_card();
     }
 
     /// The owner took a message under `key`: the card message's id.
     pub(super) fn browser_card_sent(&mut self, key: &str, message_id: &str) {
-        let Some(card) = self.browser_card.as_mut().filter(|c| c.key == key) else {
+        let Some(card) = self.state.browser_card.as_mut() else {
             return;
         };
+        // The owner refused the card and took its text (outbox.rs): no
+        // edits follow, and later turns show no browser card either.
+        if key == format!("{}:text", card.key) {
+            card.refused = true;
+            self.browser_cards_refused = true;
+            return;
+        }
+        if card.key != key {
+            return;
+        }
         card.message_id = Some(message_id.to_owned());
         if std::mem::take(&mut card.unsent) {
             self.show_browser_card();
@@ -303,7 +313,7 @@ impl Brain {
 
     /// Posts the card, or edits it in: a change replaces a queued one.
     fn show_browser_card(&mut self) {
-        let Some(card) = self.browser_card.as_mut() else {
+        let Some(card) = self.state.browser_card.as_mut().filter(|c| !c.refused) else {
             return;
         };
         let parts = vec![Part::Card(card.card.clone())];

@@ -59,6 +59,10 @@ pub struct HostState {
     /// Conversation ops not yet confirmed by the owner, in order.
     #[serde(default)]
     pub outbox: Vec<OutboxEntry>,
+    /// The latest turn's live browser card (brain/browser_card.rs): kept
+    /// across restarts, so a card a restart cut off still ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_card: Option<BrowserCard>,
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
@@ -511,6 +515,31 @@ pub struct OutboxEntry {
     /// previews and uploads still fill the text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cards: Vec<cmux_conversation::Card>,
+}
+
+/// A turn's browser card (brain/browser_card.rs): one message, posted at
+/// the turn's first browser step and edited as the steps go.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserCard {
+    pub turn: String,
+    pub conversation: String,
+    /// The card message's client_msg_id and idempotency key.
+    pub key: String,
+    /// The owner's id of the card message once it is posted.
+    #[serde(default)]
+    pub message_id: Option<String>,
+    /// A change made before the id was known: edited in once it is.
+    #[serde(default)]
+    pub unsent: bool,
+    #[serde(default)]
+    pub edits: u64,
+    /// The owner took the card as text: nothing more is sent for it.
+    #[serde(default)]
+    pub refused: bool,
+    pub card: cmux_conversation::Card,
+    /// The thread the turn answers in (root, parent), like its run.
+    #[serde(default)]
+    pub thread: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

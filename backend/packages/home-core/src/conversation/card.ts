@@ -38,9 +38,15 @@ const validLabel = (value: unknown, maxChars: number): value is string => {
   return count > 0 && count <= maxChars && !CONTROL.test(value)
 }
 
-/** A lowercase DNS name: 1..253 characters of `[a-z0-9.-]` with at least one dot. */
+/** A lowercase DNS name: 1..253 characters of `[a-z0-9.-]` with at least one dot, no empty label, not starting or ending with `.` or `-` (Rust `valid_card_site`). */
 export const validCardSite = (site: unknown): site is string =>
-  typeof site === "string" && site.length > 0 && site.length <= CARD_LIMITS.maxSiteChars && SITE.test(site) && site.includes(".")
+  typeof site === "string" &&
+  site.length > 0 &&
+  site.length <= CARD_LIMITS.maxSiteChars &&
+  SITE.test(site) &&
+  site.includes(".") &&
+  !site.includes("..") &&
+  !/^[.-]|[.-]$/.test(site)
 
 /** `browser:right`, or `machine:<id>` with id `[A-Za-z0-9_-]{1,128}`. */
 export const validCardTarget = (target: unknown): target is string => {
