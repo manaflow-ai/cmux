@@ -339,7 +339,7 @@ unoptimized build. Plan:
   next Core Animation commit: a one-shot main run-loop observer at order 2,000,001, after Core
   Animation's commit observer (2,000,000), installed only while an interval is open (a real
   signal, no sleep). `CommitBoundaryAudit` reads the main run loop's display, layout and commit
-  observers (Core Animation's and AppKit's) and flags any after the boundary: `SignpostsTests` in
+  observers (Core Animation's and AppKit's) and flags any after the boundary: `CommitBoundaryCoreAnimationTests` in
   a bare process, `CommitBoundaryAppKitTests` with `NSApplication` and a window, and
   `debug.commit_boundary` in the running app, on each macOS major. A boundary asked for inside the
   turn's commit pass sees the wake first and ends with `commit=missed`; readers drop those.

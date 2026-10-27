@@ -2,14 +2,15 @@
 """Write or check the `generated` part of Packages/macOS/CmuxNext/linux-tier.json.
 
 linux-tier.json says which CmuxNext targets build on Linux (plans/cmux-next/chrome-parity/p15-oracle.md,
-section H). People edit `waves`, `new`, `excludedPackages` and `ffi`; this script writes `generated`, which
-the Linux scripts read, and copies `ffi` and the lists the manifest uses into the Linux mode of Package.swift
-(CMUX_SWIFTPM_TARGET_LINUX=1 on Linux) as a literal between its `BEGIN linux-tier.py` and `END linux-tier.py`
-lines. The manifest reads no file: SwiftPM keys its manifest cache on the manifest text, so every tier change
-is a manifest change.
+section H). People edit `waves`, `new`, `macOnlyTests`, `excludedPackages` and `ffi`; this script writes
+`generated`, which the Linux scripts read, and copies `ffi` and the lists the manifest uses into the Linux mode
+of Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1 on Linux) as a literal between its `BEGIN linux-tier.py` and
+`END linux-tier.py` lines. The manifest reads no file: SwiftPM keys its manifest cache on the manifest text, so
+every tier change is a manifest change.
 
   targets             the tier's source targets that exist, in wave order, then CZlib when a target needs it
-  testTargets         the test targets whose every in-package dependency is a tier target
+  testTargets         the test targets whose every in-package dependency is a tier target, less the macOnlyTests
+                      (test targets that import a UI framework their dependencies do not name, such as QuartzCore)
   products            the library products whose every target is a tier target
   pathDependencies    the local packages (repository paths) the kept targets use, excluded packages left out
   remoteDependencies  the remote package identities the kept targets use, swift-crypto when one needs Crypto
@@ -114,6 +115,10 @@ def build(tier: dict, manifest: dict, graph) -> dict:
     for name in wanted:
         if declared.get(name, {}).get("type") == "test":
             raise SystemExit(f"{TIER.relative_to(ROOT)}: {name} is a test target; test targets are generated")
+    mac_only = tier.get("macOnlyTests", [])
+    for name in mac_only:
+        if declared.get(name, {}).get("type") != "test":
+            raise SystemExit(f"{TIER.relative_to(ROOT)}: macOnlyTests names {name}, which is not a test target")
     # The Linux mode declares the FFI target itself whenever the Apple manifest has the binary target it replaces.
     present = [name for name in wanted
                if (name in declared and name != ffi["replaces"]) or (name == ffi["target"] and ffi["replaces"] in declared)]
@@ -148,7 +153,7 @@ def build(tier: dict, manifest: dict, graph) -> dict:
     sources = set(present)
     tests = []
     for name, target in sorted(declared.items()):
-        if target["type"] != "test":
+        if target["type"] != "test" or name in mac_only:
             continue
         kept, dropped, _ = split(name, sources)
         if kept and not dropped:

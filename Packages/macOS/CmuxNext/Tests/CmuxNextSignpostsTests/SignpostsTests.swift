@@ -1,7 +1,6 @@
 import CmuxNextSignposts
 import CoreFoundation
 import Foundation
-import QuartzCore
 import Testing
 
 /// What the run-loop callbacks of one test saw, in order.
@@ -96,23 +95,6 @@ struct SignpostsTests {
         CFRunLoopObserverInvalidate(inPass)
         #expect(log.events == ["boundary", "timer"])
         #expect(log.outcomes == [.missed])
-    }
-
-    /// The boundary is only correct while Core Animation commits at an order below
-    /// `CommitBoundary.order`; this reads the main run loop's observers on the macOS that runs it
-    /// (14, 15, 26 and 27 are supported), so a change in a new major fails here. AppKit's own
-    /// display observers are checked by `CommitBoundaryAppKitTests` (CmuxNextAppTests) and in the
-    /// running app by `debug.commit_boundary`.
-    @Test("Core Animation's commit observer on this macOS runs before the boundary")
-    func coreAnimationCommitsBeforeTheBoundary() throws {
-        // A property change on the main thread opens an implicit transaction, which installs
-        // Core Animation's commit observer on the main run loop.
-        let layer = CALayer()
-        layer.opacity = 0.5
-        let audit = CommitBoundaryAudit.mainRunLoop()
-        pollingTurn()
-        try #require(!audit.coreAnimation.isEmpty, "no Core Animation commit observer on the main run loop: \(audit.observers)")
-        #expect(audit.late.isEmpty, "observers after the boundary: \(audit.late)")
     }
 
     @Test("The audit reads every observer from a run loop dump, once each, and flags the late ones")

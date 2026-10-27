@@ -1,5 +1,5 @@
 {
-  "_doc": "The CmuxNext targets that build on Linux (plans/cmux-next/chrome-parity/p15-oracle.md section H). Edit waves, new, excludedPackages and ffi; `generated` is written by scripts/cmux-next/linux/linux-tier.py from swift package dump-package, and the same script copies ffi and the generated lists into the Linux mode of Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1 on Linux), which reads no file so that SwiftPM's manifest cache sees every change. Run it after a Package.swift or tier change; --check says when either is stale. A tier target keeps only its dependencies inside the tier: the dropped ones are listed under generated.blockedEdges, and their compile errors are the Linux work queue (swift-tier.sh --errors-queue).",
+  "_doc": "The CmuxNext targets that build on Linux (plans/cmux-next/chrome-parity/p15-oracle.md section H). Edit waves, new, macOnlyTests, excludedPackages and ffi; `generated` is written by scripts/cmux-next/linux/linux-tier.py from swift package dump-package, and the same script copies ffi and the generated lists into the Linux mode of Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1 on Linux), which reads no file so that SwiftPM's manifest cache sees every change. Run it after a Package.swift or tier change; --check says when either is stale. A tier target keeps only its dependencies inside the tier: the dropped ones are listed under generated.blockedEdges, and their compile errors are the Linux work queue (swift-tier.sh --errors-queue).",
   "waves": [
     [
       "CmuxNextCompat",
@@ -62,6 +62,11 @@
     "CmuxNextHeadless"
   ],
   "_new": "Targets later p15-oracle tasks add (030, 102, 104, 105, 212, 160); generated.absent lists them until they exist.",
+  "macOnlyTests": [
+    "CmuxNextCompatAppKitTests",
+    "CmuxNextSignpostsAppKitTests"
+  ],
+  "_macOnlyTests": "Test targets that stay out of generated.testTargets although every dependency is in the tier: their files import a UI framework (AppKit, QuartzCore) that no dependency names (p15-oracle.md, MQ-linux-test-imports, task 143). A test target with an AppKit dependency outside the tier, such as CmuxNextActionsAppKitTests, needs no entry.",
   "excludedPackages": [
     "CmuxGhosttyKit",
     "CmuxScreenKit",

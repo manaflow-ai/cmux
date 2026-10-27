@@ -150,6 +150,19 @@ class LinuxTierTests(unittest.TestCase):
                                    if t["name"] != "CCmuxAppFFI"])
         self.assertIn("CCmuxAppFFILinux", self.generated(dump=dump)["absent"])
 
+    def test_a_mac_only_test_target_stays_out_whatever_its_dependencies(self):
+        dump = dict(DUMP, targets=DUMP["targets"] + [target("CoreAppKitTests", kind="test", deps=[by_name("Core")])])
+        self.assertEqual(self.generated(dump=dump)["testTargets"], ["CoreAppKitTests", "CoreTests"])
+        tier = dict(TIER, macOnlyTests=["CoreAppKitTests"])
+        generated = self.generated(tier=tier, dump=dump)
+        self.assertEqual(generated["testTargets"], ["CoreTests"])
+        self.assertNotIn("CoreAppKitTests", generated["blockedEdges"])
+
+    def test_a_mac_only_name_that_is_not_a_test_target_is_refused(self):
+        for name in ("Core", "Missing"):
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.generated(tier=dict(TIER, macOnlyTests=[name]))
+
     def test_listing_a_test_target_is_refused(self):
         tier = dict(TIER, waves=[["Core", "CoreTests"]])
         with self.assertRaises(SystemExit):

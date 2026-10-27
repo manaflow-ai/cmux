@@ -11,9 +11,10 @@ import Foundation
 /// boundary's own order and the autorelease pool pop at INT_MAX: Core Animation's transaction observer and
 /// AppKit's own (its display cycle, constraint and layout passes). Which observers exist, and
 /// their orders, belong to the macOS major, so this reads them from the running process
-/// (`CFCopyDescription` of the run loop) instead of assuming: `SignpostsTests` checks a bare test process,
-/// an App test checks one with `NSApplication` and a window, and the App's `debug.commit_boundary`
-/// socket command reports the running app on any fleet host (macOS 14, 15, 26, 27).
+/// (`CFCopyDescription` of the run loop) instead of assuming: `CommitBoundaryCoreAnimationTests`
+/// checks a bare test process, an App test checks one with `NSApplication` and a window, and the
+/// App's `debug.commit_boundary` socket command reports the running app on any fleet host (macOS 14,
+/// 15, 26, 27).
 ///
 /// ```swift
 /// let audit = CommitBoundaryAudit.mainRunLoop()

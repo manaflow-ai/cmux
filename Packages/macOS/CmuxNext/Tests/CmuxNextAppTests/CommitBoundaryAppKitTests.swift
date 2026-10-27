@@ -3,10 +3,10 @@ import CmuxNextSignposts
 import Testing
 
 /// `action.commit` ends at ``CommitBoundary``: right only while every display, layout and commit
-/// observer of the turn runs before it. `SignpostsTests` checks a bare test process (Core Animation
-/// only); this one boots `NSApplication`, shows a window and dirties its layout and display, so
-/// AppKit's own observers (its display cycle) are on the main run loop too, on whichever macOS
-/// runs it. The running app reports the same audit through `debug.commit_boundary`.
+/// observer of the turn runs before it. `CommitBoundaryCoreAnimationTests` checks a bare test
+/// process (Core Animation only); this one boots `NSApplication`, shows a window and dirties its
+/// layout and display, so AppKit's own observers (its display cycle) are on the main run loop too,
+/// on whichever macOS runs it. The running app reports the same audit through `debug.commit_boundary`.
 @MainActor @Suite(.serialized)
 struct CommitBoundaryAppKitTests {
     @Test func appKitAndCoreAnimationObserversRunBeforeTheBoundary() throws {

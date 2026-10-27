@@ -1439,6 +1439,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [.target(name: "CmuxNextCompat"), .product(name: "CmuxThreading", package: "CmuxThreading")],
             swiftSettings: uiSwiftSettings
         ),
+        // The Compat tests that import AppKit (menu tracking, the background NSWorkspace opens, the NSImage
+        // decode seam): macOS only, so CmuxNextCompatTests imports no UI framework (p15-oracle.md,
+        // MQ-linux-test-imports, task 143). linux-tier.json lists it under macOnlyTests.
+        .testTarget(
+            name: "CmuxNextCompatAppKitTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
@@ -1473,6 +1481,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSignpostsTests",
             // Compat's Atomic: the allocation tests' per-thread malloc counter. SignpostsC: its names match the catalog.
             dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat", "CmuxNextSignpostsC"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The CommitBoundary audit against Core Animation's commit observer (it makes a CALayer): macOS only, so
+        // CmuxNextSignpostsTests imports no UI framework (p15-oracle.md, MQ-linux-test-imports, task 143).
+        // linux-tier.json lists it under macOnlyTests.
+        .testTarget(
+            name: "CmuxNextSignpostsAppKitTests",
+            dependencies: ["CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
         // Launch-only types (plans/cmux-next/chrome-parity/p08-startup.md, task 073): CmuxNextApp's size
