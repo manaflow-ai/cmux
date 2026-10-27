@@ -831,6 +831,9 @@ pub struct Mux {
     /// The daemon-wide sequenced pool: every connection's control sequence
     /// and stream sequences run on its fixed workers (p05-ipc-073).
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// Whether the verified app's person input runs on its connection's
+    /// person-input lane (server/stream_lanes.rs, p01-process-235).
+    pub(crate) person_input_lane: crate::server::PersonInputLaneGate,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// Blocking work that request threads hand off (`cmux_threads::work`

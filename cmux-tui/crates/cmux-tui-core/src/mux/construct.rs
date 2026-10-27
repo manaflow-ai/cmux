@@ -467,6 +467,7 @@ impl Mux {
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
             sequenced_pool: crate::server::SequencedPool::default(),
+            person_input_lane: crate::server::PersonInputLaneGate::from_env(),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
             #[cfg(unix)]

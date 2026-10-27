@@ -2385,6 +2385,7 @@ use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
     ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
 };
+pub(crate) use stream_lanes::PersonInputLaneGate;
 
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;

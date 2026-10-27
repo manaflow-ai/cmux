@@ -23,16 +23,82 @@
 //! id names one FIFO at a time. A closing lane leaves at the next open,
 //! close or barrier that finds its sequence idle.
 //!
+//! The person-input lane (p01-process-235) is one more sequence of the
+//! connection, at input priority: the person's keys, pastes, scrolls and
+//! view focus that the verified app sends on its control stream run there,
+//! ahead of whatever automation queued on control and on input workers that
+//! no control or bulk work takes. Blink gives input its own task queue at
+//! the highest priority for the same reason
+//! (third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc,
+//! `input_task_queue_`). Person input overtakes only control requests of
+//! other surfaces: while control holds a request of its surface, or a
+//! stream of its surface holds items, it stays on control, and a control
+//! command of a surface the lane holds input for is fenced on the lane like
+//! on a stream. Behind the default-off daemon feature
+//! [`PERSON_INPUT_LANE_FEATURE`].
+//!
 //! [`StreamLanes`] has no lock of its own: it lives in the connection's
 //! scheduler state (`ConnectionSurfaceState`), so a stream post and a
 //! control arrival are ordered by that one lock.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_ipc::MethodTables;
 
+use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
+use super::Command;
 use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority, SequencedPool};
 use crate::SurfaceId;
+
+/// The registry name of the daemon feature that turns the person-input lane
+/// on (schemas/features/features.d/daemonPersonInputLane.json).
+pub(crate) const PERSON_INPUT_LANE_FEATURE: &str = "daemonPersonInputLane";
+
+/// Whether the verified app's person input runs on its connection's
+/// person-input lane; one per mux, read with one relaxed load per request.
+#[derive(Debug, Default)]
+pub(crate) struct PersonInputLaneGate(AtomicBool);
+
+impl PersonInputLaneGate {
+    /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable
+    /// wins); the registry default is off on every channel.
+    pub(crate) fn from_env() -> Self {
+        Self(AtomicBool::new(cmux_features::listed_in_env(PERSON_INPUT_LANE_FEATURE)))
+    }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&self, enabled: bool) {
+        self.0.store(enabled, Ordering::Relaxed);
+    }
+}
+
+/// The surface of `cmd` when it is the person's own input to a view: a key,
+/// a paste, a scroll, a pointer or wheel event, or the view's focus. A
+/// `send` by terminal id (a terminal still being created) is not: its
+/// order with the create that makes the terminal is the control order.
+pub(super) fn person_input_surface(cmd: &Command) -> Option<SurfaceId> {
+    match cmd {
+        Command::Send(_)
+        | Command::SendKey(_)
+        | Command::PasteImage(_)
+        | Command::ScrollSurface(_)
+        | Command::NoteSizeActivity { .. }
+        | Command::BrowserKey { .. }
+        | Command::BrowserKeyPress { .. }
+        | Command::BrowserInsertText { .. }
+        | Command::BrowserMouse { .. }
+        | Command::BrowserMouseGuarded { .. }
+        | Command::BrowserWheel { .. }
+        | Command::BrowserWheelGuarded { .. }
+        | Command::BrowserActivate { .. } => cmd.ordering_surface(),
+        _ => None,
+    }
+}
 
 /// Why a stream did not open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,10 +154,21 @@ struct StreamLane {
     closing: bool,
 }
 
-/// The open streams of one connection, by stream id.
+/// The person-input lane: its sequence and what it holds.
+struct PersonLane {
+    sequence: Sequence,
+    /// Queued or running items, by target surface.
+    surfaces: HashMap<SurfaceId, usize>,
+    items: usize,
+    bytes: usize,
+}
+
+/// The open streams of one connection, by stream id, and its person-input
+/// lane.
 #[derive(Default)]
 pub(crate) struct StreamLanes {
     streams: HashMap<u16, StreamLane>,
+    person: Option<PersonLane>,
 }
 
 impl StreamLanes {
@@ -166,14 +243,71 @@ impl StreamLanes {
         self.open_lane(stream).map(|lane| lane.sequence.depth())
     }
 
+    /// No stream is open and the person-input lane holds nothing.
     pub(crate) fn is_empty(&self) -> bool {
-        self.streams.is_empty()
+        self.streams.is_empty() && self.person_items() == 0
+    }
+
+    /// Whether person input for `surface` may take the person-input lane:
+    /// no stream of `surface` holds an item it would pass.
+    pub(crate) fn person_may_pass_streams(&self, surface: SurfaceId) -> bool {
+        !self.streams.values().any(|lane| lane.surface == surface && !lane.sequence.is_idle())
+    }
+
+    /// Queues person input `item` for `surface`, `bytes` long, on the
+    /// person-input lane behind the earlier person input (the lane opens at
+    /// its first item). A full lane refuses it: known not delivered.
+    /// Returns the lane's items with this one. The item reports its end
+    /// through [`Self::person_ran`].
+    pub(crate) fn post_person<F>(
+        &mut self,
+        pool: &SequencedPool,
+        surface: SurfaceId,
+        bytes: usize,
+        item: F,
+    ) -> Result<usize, StreamPostError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let lane = self.person.get_or_insert_with(|| PersonLane {
+            sequence: pool.sequence(SequencePriority::Input),
+            surfaces: HashMap::new(),
+            items: 0,
+            bytes: 0,
+        });
+        if bytes > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(lane.bytes) {
+            return Err(StreamPostError::Full);
+        }
+        lane.sequence.post(item)?;
+        lane.items += 1;
+        lane.bytes += bytes;
+        *lane.surfaces.entry(surface).or_default() += 1;
+        Ok(lane.items)
+    }
+
+    /// A person-input item for `surface`, `bytes` long, ran (or unwound).
+    pub(crate) fn person_ran(&mut self, surface: SurfaceId, bytes: usize) {
+        let Some(lane) = self.person.as_mut() else { return };
+        lane.items = lane.items.saturating_sub(1);
+        lane.bytes = lane.bytes.saturating_sub(bytes);
+        if let Some(count) = lane.surfaces.get_mut(&surface) {
+            *count -= 1;
+            if *count == 0 {
+                lane.surfaces.remove(&surface);
+            }
+        }
+    }
+
+    /// Person-input items queued or running.
+    pub(crate) fn person_items(&self) -> usize {
+        self.person.as_ref().map_or(0, |lane| lane.items)
     }
 
     /// The stream barrier for a control command on `surface`: `then` runs
-    /// once every stream of `surface`, open or closing, ran the items it
-    /// holds now. [`Fenced::Drained`] hands `then` back when none holds an
-    /// item, and the command goes on at once.
+    /// once every stream of `surface`, open or closing, and the person-input
+    /// lane when it holds input for `surface`, ran the items it holds now.
+    /// [`Fenced::Drained`] hands `then` back when none holds an item, and
+    /// the command goes on at once.
     pub(crate) fn barrier<F>(
         &mut self,
         pool: &SequencedPool,
@@ -184,11 +318,17 @@ impl StreamLanes {
         F: FnOnce() + Send + 'static,
     {
         self.prune_drained();
+        let person = self
+            .person
+            .as_ref()
+            .filter(|lane| lane.surfaces.contains_key(&surface))
+            .map(|lane| &lane.sequence);
         let sequences: Vec<&Sequence> = self
             .streams
             .values()
             .filter(|lane| lane.surface == surface)
             .map(|lane| &lane.sequence)
+            .chain(person)
             .collect();
         if sequences.is_empty() {
             return Fenced::Drained(then);
@@ -212,3 +352,7 @@ pub(crate) fn crosses_stream_ok(wire_name: &str) -> bool {
 #[cfg(test)]
 #[path = "stream_lanes_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "stream_lanes_person_tests.rs"]
+mod person_tests;

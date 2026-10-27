@@ -12,7 +12,9 @@
 //! input write and the wait of `wait-for`), so it starts a temporary worker
 //! instead of holding one of the fixed ones. The streams a connection opens are sequences of their own
 //! (stream_lanes.rs); a control command on a surface with an open stream
-//! waits for the items that stream held when the command arrived.
+//! waits for the items that stream held when the command arrived. The
+//! person's own input from the verified app runs on the connection's
+//! person-input lane (stream_lanes.rs, p01-process-235), ahead of control.
 //!
 //! Request threads (the WebSocket connection thread) start through
 //! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
@@ -41,7 +43,9 @@ use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
 use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
-use super::stream_lanes::{StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok};
+use super::stream_lanes::{
+    StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok, person_input_surface,
+};
 use super::terminal_create;
 use crate::Mux;
 #[path = "connection_qos.rs"]
@@ -137,6 +141,8 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) context: Option<ControlContext>,
     /// A pump task (one request) is posted or running on `control`.
     pub(super) pump_scheduled: bool,
+    /// The surface of the request the pump runs, while it runs.
+    pub(super) running_surface: Option<SurfaceId>,
     /// The connection's open streams.
     pub(super) streams: StreamLanes,
     pub(super) next_barrier: u64,
@@ -329,6 +335,18 @@ impl ConnectionSurfaceScheduler {
         let Some(queued) = request.take() else {
             return Some(true);
         };
+        if let Some(surface) = Self::person_lane_surface(&state, &mux, &queued.cmd) {
+            let pending = PendingSurfaceRequest {
+                request: queued,
+                arrival,
+                cause: EventCause::current(),
+                frame_call: writer.frame_call().cloned(),
+                retained_bytes,
+                _bytes_permit: bytes_permit,
+                stream_barrier: None,
+            };
+            return Some(self.post_person_locked(state, &mux, client, pending, &writer, surface));
+        }
         if state.control.is_none() {
             state.control = Some(mux.sequenced_pool.sequence(SequencePriority::Control));
         }
@@ -400,6 +418,98 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
+    /// The surface whose person-input lane `cmd` takes: the verified app's
+    /// input to a view, with the feature on, when neither the control
+    /// sequence nor a stream holds a request of that surface it would pass.
+    fn person_lane_surface(
+        state: &ConnectionSurfaceState,
+        mux: &Mux,
+        cmd: &super::Command,
+    ) -> Option<SurfaceId> {
+        if !mux.person_input_lane.enabled() || EventCause::current() != EventCause::Frontend {
+            return None;
+        }
+        let surface = person_input_surface(cmd)?;
+        let control_holds = state.running_surface == Some(surface)
+            || state
+                .requests
+                .iter()
+                .any(|pending| pending.request.cmd.ordering_surface() == Some(surface));
+        (!control_holds && state.streams.person_may_pass_streams(surface)).then_some(surface)
+    }
+
+    /// Queues `pending`, the person's input to `surface`, on the
+    /// person-input lane. False when the connection must close.
+    fn post_person_locked(
+        self: &Arc<Self>,
+        mut state: std::sync::MutexGuard<'_, ConnectionSurfaceState>,
+        mux: &Arc<Mux>,
+        client: u64,
+        pending: PendingSurfaceRequest,
+        writer: &MessageWriter,
+        surface: SurfaceId,
+    ) -> bool {
+        let request_id = pending.request.id.clone();
+        let bytes = pending.retained_bytes;
+        let item = PersonInput {
+            scheduler: self.clone(),
+            mux: mux.clone(),
+            client,
+            writer: writer.connection_writer(),
+            surface,
+            pending,
+        };
+        let posted =
+            state.streams.post_person(&mux.sequenced_pool, surface, bytes, move || item.run());
+        drop(state);
+        match posted {
+            Ok(depth) => {
+                mux.ipc_stats().sequence_depth(depth);
+                true
+            }
+            Err(StreamPostError::Full) => send_request_error(
+                writer,
+                request_id,
+                "person input queue is full; request was not executed",
+            ),
+            Err(error) => {
+                self.close();
+                send_request_error(
+                    writer,
+                    request_id,
+                    &format!("could not queue on the connection's person-input lane: {error}"),
+                )
+            }
+        }
+    }
+
+    /// Queues `item` on the person-input lane as person input to `surface`.
+    #[cfg(test)]
+    pub(super) fn post_person_item<F>(
+        self: &Arc<Self>,
+        mux: &Mux,
+        surface: SurfaceId,
+        item: F,
+    ) -> Result<usize, StreamPostError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let scheduler = self.clone();
+        let mut state = self.state.lock().recover_poison();
+        state.streams.post_person(&mux.sequenced_pool, surface, 0, move || {
+            let _ran = PersonRan { scheduler: &scheduler, surface, bytes: 0 };
+            item();
+        })
+    }
+
+    /// A person-input item for `surface` ended: a control command fenced on
+    /// it goes on through its fence; a closed connection may settle.
+    fn person_ran(self: &Arc<Self>, surface: SurfaceId, bytes: usize) {
+        let mut state = self.state.lock().recover_poison();
+        state.streams.person_ran(surface, bytes);
+        self.reschedule_locked(state);
+    }
+
     /// The fence of `ticket` passed: its request may run.
     fn release_stream_barrier(self: &Arc<Self>, ticket: u64) {
         let mut state = self.state.lock().recover_poison();
@@ -453,7 +563,12 @@ impl ConnectionSurfaceScheduler {
     /// control sequence and its context leave with the returned value, for
     /// the caller to drop outside the lock.
     fn settle_locked(&self, state: &mut ConnectionSurfaceState) -> Option<Drained> {
-        if state.drained || !state.closed || !state.requests.is_empty() || state.pump_scheduled {
+        if state.drained
+            || !state.closed
+            || !state.requests.is_empty()
+            || state.pump_scheduled
+            || state.streams.person_items() > 0
+        {
             return None;
         }
         // Lock order: `state`, then the permit's (a leaf).
@@ -484,6 +599,7 @@ impl ConnectionSurfaceScheduler {
     pub(super) fn finish_pump(self: &Arc<Self>) {
         let mut state = self.state.lock().recover_poison();
         state.pump_scheduled = false;
+        state.running_surface = None;
         self.reschedule_locked(state);
     }
 
@@ -494,6 +610,7 @@ impl ConnectionSurfaceScheduler {
         let index = Self::next_runnable_index(&state)?;
         let pending = state.requests.remove(index)?;
         state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
+        state.running_surface = pending.request.cmd.ordering_surface();
         // Clear-history is always ordered by a surface; a clear worker
         // never overlaps another on the same surface.
         if pending.request.cmd.is_clear_history()
@@ -635,6 +752,51 @@ impl ConnectionSurfaceScheduler {
 struct Drained {
     _control: Option<Sequence>,
     _context: Option<ControlContext>,
+}
+
+/// One request on the person-input lane.
+struct PersonInput {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    surface: SurfaceId,
+    pending: PendingSurfaceRequest,
+}
+
+impl PersonInput {
+    /// Runs the request as the pump runs a control request. A closed
+    /// connection drops it unrun, as it drops its queued control requests.
+    fn run(self) {
+        let Self { scheduler, mux, client, writer, surface, pending } = self;
+        let _ran = PersonRan { scheduler: &scheduler, surface, bytes: pending.retained_bytes };
+        if scheduler.cancelled.is_cancelled() {
+            return;
+        }
+        if !writer.is_open() {
+            drop(pending);
+            scheduler.close();
+            return;
+        }
+        let _class =
+            mux.request_qos().enter_class(scheduler.class.get().qos(ConnectionThread::Request));
+        if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
+            scheduler.close();
+        }
+    }
+}
+
+/// Ends a person-input item, unwinding included.
+struct PersonRan<'a> {
+    scheduler: &'a Arc<ConnectionSurfaceScheduler>,
+    surface: SurfaceId,
+    bytes: usize,
+}
+
+impl Drop for PersonRan<'_> {
+    fn drop(&mut self) {
+        self.scheduler.person_ran(self.surface, self.bytes);
+    }
 }
 
 /// Ends a pump, unwinding included, so a panicking request never leaves
