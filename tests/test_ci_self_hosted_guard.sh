@@ -1099,28 +1099,74 @@ check_no_github_hosted_runners() {
     fi
   done
 
-  local line file content stripped exception allowed failed=0
-  while IFS= read -r line; do
-    file="${line%%:*}"
-    content="${line#*:*:}"
-    [[ "$content" =~ ^[[:space:]]*# ]] && continue
-    # Nightly workflows may name hosted macOS and Windows images (above);
-    # their Linux jobs take Blacksmith.
-    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
-      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
-    fi
-    # Fork-only matrix rows: read only through the fork branch above.
-    [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
-    stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
-    printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
-    allowed=0
-    for exception in "${exceptions[@]}"; do
-      if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
+  # The scan over one workflow directory: prints a FAIL line per hosted label
+  # in a runner-selection position that is not an exact exception. It is run
+  # on fixtures first, so a narrowed key pattern cannot pass vacuously.
+  hosted_scan() {
+    local dir="$1" line file content stripped exception allowed
+    # A block-scalar runs-on (`runs-on: >-`) spreads the label over lines the
+    # line scan cannot read, so it is refused outright.
+    grep -rnE "^[[:space:]]+runs-on:[[:space:]]*[>|][-+]?[[:space:]]*(#.*)?$" "$dir" | while IFS= read -r line; do
+      echo "FAIL: block-scalar runs-on (write it on one line so this guard can read it): ${line#"$ROOT_DIR"/}" | cut -c1-260
     done
-    [[ "$allowed" -eq 1 ]] && continue
-    echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+    while IFS= read -r line; do
+      file="${line%%:*}"
+      content="${line#*:*:}"
+      [[ "$content" =~ ^[[:space:]]*# ]] && continue
+      # Nightly workflows may name hosted macOS and Windows images (above);
+      # their Linux jobs take Blacksmith.
+      if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+        content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+      fi
+      # Fork-only matrix rows: read only through the fork branch above.
+      [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
+      stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
+      printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+      allowed=0
+      for exception in "${exceptions[@]}"; do
+        if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
+      done
+      [[ "$allowed" -eq 1 ]] && continue
+      echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+  }
+  local fixture scan_out failed=0
+  fixture="$(mktemp -d)"
+  cat > "$fixture/caught.yml" <<'YAML'
+jobs:
+  a:
+    runs-on: ubuntu-24.04
+  b:
+    runs-on: ${{ vars.X || 'ubuntu-24.04' }}
+  c:
+    uses: ./.github/workflows/x.yml
+    with:
+      linux-arm64-runner: ubuntu-24.04-arm
+      linux_runner: ubuntu-latest
+      LINUX_BUILD_RUNNER: ubuntu-22.04
+  d:
+    runs-on: >-
+      ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+YAML
+  cat > "$fixture/clean-nightly.yml" <<'YAML'
+jobs:
+  a:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+  b:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+YAML
+  scan_out="$(hosted_scan "$fixture")"
+  rm -rf "$fixture"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 6 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the six hosted selections in its fixture and nothing in the clean one:"
+    echo "$scan_out"
+    exit 1
+  fi
+  scan_out="$(hosted_scan "$ROOT_DIR/.github/workflows")"
+  if [[ -n "$scan_out" ]]; then
+    echo "$scan_out"
     failed=1
-  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_]*runner)\"?:[[:space:]]|[A-Za-z0-9_]*RUNNER[A-Za-z0-9_]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$ROOT_DIR/.github/workflows")
+  fi
   # The capability map's manaflow-ai fleet feeds runs-on through resolve-runners.yml.
   local owner_fleet fleet_hits
   owner_fleet="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["owners"]["manaflow-ai"])' "$ROOT_DIR/.github/runners.json")"
