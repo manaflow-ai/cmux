@@ -277,6 +277,34 @@ class RigCleanupTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(self.records()[self.rig][1]["owner_pid"], os.getpid())
 
+    def test_an_unreadable_record_is_never_taken_over(self):
+        os.makedirs(rig_cleanup.registry_dir(), exist_ok=True)
+        with open(rig_cleanup.record_file(self.rig), "w") as f:
+            f.write("{not json")
+        c, _ = self.cleanup_with({})
+        with self.assertRaises(SystemExit):
+            c.register_rig()
+        with open(rig_cleanup.record_file(self.rig)) as f:
+            self.assertEqual(f.read(), "{not json")
+
+    def test_a_failed_rewrite_removes_the_empty_dir_it_made(self):
+        import shutil
+        shutil.rmtree(self.rig)
+        c, _ = self.cleanup_with({})
+        real = rig_cleanup.register
+        calls = []
+
+        def drop_then_fail(path, *args, **kwargs):
+            calls.append(path)
+            if len(calls) == 1:
+                return real(path, *args, **kwargs) and os.unlink(rig_cleanup.record_file(path)) or path
+            raise OSError("disk full")
+
+        with mock.patch.object(rig_cleanup, "register", side_effect=drop_then_fail):
+            with self.assertRaises(SystemExit):
+                c.register_rig()
+        self.assertFalse(os.path.exists(self.rig))
+
 
 if __name__ == "__main__":
     unittest.main()

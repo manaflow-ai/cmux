@@ -155,7 +155,10 @@ def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=N
     path = canonical(path)
     directory = directory or registry_dir()
     with RegistryLock(directory):
-        held = read_record(path, directory)
+        try:
+            held = read_record(path, directory, strict=True)
+        except Unreadable as error:
+            raise Held(f"{path} has a record that cannot be read ({error}); it is never taken over")
         if held and not owned(held, owner_pid, owner_start) and record_alive(held):
             raise Held(f"{path} is held by live owner pid {held.get('owner_pid')} (group {held.get('owner_pgid')})")
         _write(path, owner_pid, owner_start, kind, owner_pgid, directory)
@@ -204,11 +207,24 @@ def remove_recorded(path, owner_pid, owner_start, directory=None):
         return True
 
 
-def read_record(path, directory=None):
+class Unreadable(Exception):
+    """A record file is there but cannot be read: never taken over, never acted on."""
+
+
+def read_record(path, directory=None, strict=False):
+    """PATH's record, or None when there is none. An unreadable or malformed one is None too, or, with STRICT,
+    raises Unreadable."""
     try:
         with open(record_file(canonical(path), directory)) as f:
-            return json.load(f)
-    except (OSError, ValueError):
+            record = json.load(f)
+        if not isinstance(record, dict):
+            raise ValueError("not an object")
+        return record
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        if strict:
+            raise Unreadable(f"{record_file(canonical(path), directory)}: {error}")
         return None
 
 
@@ -271,15 +287,24 @@ class RigCleanup:
         self.rig_owner = (pid, process_start(pid))
         try:
             register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
-            os.makedirs(self.rig, exist_ok=True)
-            # A reaper that saw the record before the dir existed may have dropped it ("its dir is gone"); the
-            # dir exists now, so a record written again stays.
-            if not owned(read_record(self.rig, self.directory), *self.rig_owner):
-                register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
         except Held as held:
             raise SystemExit(f"refusing to start: {held} (another run of this rig)")
         except (OSError, ValueError) as error:
             raise SystemExit(f"refusing to start: the rig dir's cleanup record was not written: {error}")
+        made = not os.path.exists(self.rig)
+        os.makedirs(self.rig, exist_ok=True)
+        # A reaper that saw the record before the dir existed may have dropped it ("its dir is gone"); the dir
+        # exists now, so a record written again stays.
+        try:
+            if not owned(read_record(self.rig, self.directory), *self.rig_owner):
+                register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
+        except (Held, OSError, ValueError) as error:
+            if made:
+                try:
+                    os.rmdir(self.rig)  # the empty dir this call made: nothing is left unrecorded
+                except OSError:
+                    pass
+            raise SystemExit(f"refusing to start: the rig dir's cleanup record was lost and not written again: {error}")
 
     def _daemons(self):
         """(pid, ACPMUX_HOME) of each `acpmux daemon run` of the rig's bundle now."""
