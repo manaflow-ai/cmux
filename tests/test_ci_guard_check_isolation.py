@@ -5,9 +5,10 @@ tests/test_ci_self_hosted_guard.sh runs ~30 runner checks in one CI step. It use
 `set -e`, so the first red check stopped the rest, and the step failed as a whole. Once one check went
 red on the base (a hosted `runs-on: ubuntu-24.04` in chief-evals.yml, 2026-10-26), the base-red
 comparison saw the same red step on the base and the change, and every later runner violation landed
-as the base's. Now `run_check` runs each check on its own and prints one `error:` line per failed check
-and per finding. scripts/ci/base_red_excuse.py (gh-merge-green) compares a red step's error lines with
-the base's, so a head with a red check the base does not have is never excused.
+as the base's. Now `run_check` runs each check on its own and prints each failed check as a cargo-style
+`test runner-guard/<check> ... FAILED` line. scripts/ci/base_red_excuse.py (gh-merge-green) always
+compares failing test names with the base's, even beside other failing tests in the job, so a head with
+a red check the base does not have is never excused.
 """
 import importlib.util
 from pathlib import Path
@@ -50,13 +51,16 @@ def run_guard(failing: set[str]) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", str(script)], capture_output=True, text=True)
 
 
-def job_and_log(failing: set[str]) -> tuple[dict, str]:
-    """The failed CI job and its `gh run view --log` text, as base_red_excuse.py reads them."""
+def job_and_log(failing: set[str], other_test: bool = False) -> tuple[dict, str]:
+    """The failed CI job and its `gh run view --log` text, as base_red_excuse.py reads them; with
+    `other_test`, an unrelated failing unittest in the same job, red on the base too."""
     done = run_guard(failing)
     job = {"id": 1, "run_id": 1, "name": JOB, "status": "completed", "conclusion": "failure",
            "steps": [{"name": "Checkout", "status": "completed", "conclusion": "success"},
                      {"name": STEP, "status": "completed", "conclusion": "failure"}]}
     lines = done.stdout.splitlines() + ["##[error]Process completed with exit code 1."]
+    if other_test:
+        lines = ["FAIL: test_unrelated (test_other.Other.test_unrelated)"] + lines
     log = "\n".join(f"{JOB}\t{STEP}\t2026-10-27T02:10:37.8032610Z {line}" for line in lines)
     return job, log
 
@@ -71,12 +75,21 @@ class EveryCheckRuns(unittest.TestCase):
     def test_all_green_passes(self):
         self.assertEqual(run_guard(set()).returncode, 0)
 
+    def test_a_check_with_arguments_is_one_test_name(self):
+        source = guard_script({"hosted"}).replace("run_check check_hosted\n",
+                                                  "run_check check_hosted \"$ROOT_DIR/ci.yml\" job\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "guard.sh"
+            script.write_text(source, encoding="utf-8")
+            out = subprocess.run(["bash", str(script)], capture_output=True, text=True).stdout
+        self.assertIn("test runner-guard/check_hosted_ci.yml_job ... FAILED\n", out)
+
     def test_each_failed_check_and_finding_is_an_error_line(self):
         out = run_guard({"hosted", "fleet"}).stdout
         for line in ("error: check_hosted: FAIL: hosted runner in chief-evals.yml:35",
-                     "error: runner guard check failed: check_hosted",
+                     "test runner-guard/check_hosted ... FAILED",
                      "error: check_fleet: FAIL: self-hosted fleet label in ci.yml:12",
-                     "error: runner guard check failed: check_fleet"):
+                     "test runner-guard/check_fleet ... FAILED"):
             self.assertIn(line + "\n", out)
 
     def test_every_runner_check_goes_through_run_check(self):
@@ -89,13 +102,14 @@ class EveryCheckRuns(unittest.TestCase):
 
 
 class ABaseRedCannotExcuseAnother(unittest.TestCase):
-    def missing(self, head_failing: set[str], base_failing: set[str]) -> set[str]:
-        """The head's error lines the base lacks: what base_red_excuse.py refuses to excuse
-        (it compares error lines when no test name failed, as here)."""
-        head_steps, head_tests, head_errors = excuse.signature(*job_and_log(head_failing))
-        base_steps, base_tests, base_errors = excuse.signature(*job_and_log(base_failing))
-        self.assertEqual(head_tests, set(), "a check's finding parsed as a test name, so errors are not compared")
+    def missing(self, head_failing: set[str], base_failing: set[str], *, other_test: bool = False) -> set[str]:
+        """What base_red_excuse.py finds on the head and not the base: failing test names, always compared,
+        or error lines when no test name failed."""
+        head_steps, head_tests, head_errors = excuse.signature(*job_and_log(head_failing, other_test))
+        base_steps, base_tests, base_errors = excuse.signature(*job_and_log(base_failing, other_test))
         self.assertEqual(head_steps, base_steps)
+        if head_tests:
+            return head_tests - base_tests
         return head_errors - base_errors
 
     def test_a_new_red_check_beside_a_base_red_one_is_the_changes(self):
@@ -105,6 +119,11 @@ class ABaseRedCannotExcuseAnother(unittest.TestCase):
 
     def test_the_same_base_red_alone_is_excused(self):
         self.assertEqual(self.missing({"hosted"}, {"hosted"}), set())
+
+    def test_another_failing_test_in_the_job_does_not_hide_a_new_red_check(self):
+        missing = self.missing({"hosted", "fleet"}, {"hosted"}, other_test=True)
+        self.assertEqual(missing, {"runner-guard/check_fleet"})
+        self.assertEqual(self.missing({"hosted"}, {"hosted"}, other_test=True), set())
 
 
 if __name__ == "__main__":

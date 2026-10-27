@@ -124,15 +124,12 @@ class OneCheckCannotMaskAnother(unittest.TestCase):
         done = self.compare(self.results(["hosted"]), base)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
-    def test_a_base_from_before_the_split_stands_in_with_its_step_result(self):
-        base = {self.STEP: False}
-        done = self.compare(self.results(["hosted"]), base)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        done = self.compare(self.results(["hosted"]), {self.STEP: True})
+    def test_a_base_from_before_the_split_excuses_no_check(self):
+        # The base's step was red as a whole: that says nothing about which check, so every red check is
+        # the change's until the base reports its checks (fails closed for one landing).
+        done = self.compare(self.results(["hosted"]), {self.STEP: False})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-
-    def test_the_separators_agree(self):
-        self.assertIn(f'CHECK_SEPARATOR = "{run_ci_guards.CHECK_SEPARATOR}"', SCRIPT.read_text(encoding="utf-8"))
+        self.assertIn(f"::error title=Guard red on this change::{self.STEP} :: check_hosted", done.stdout)
 
 
 if __name__ == "__main__":

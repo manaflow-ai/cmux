@@ -6,9 +6,10 @@
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
 base, or is new, fails; a step red on both is a warning. Missing base results (an unreadable base)
-make every head red the change's. A step that reports its own checks adds one "<step> :: <check>"
-entry per check, so each check is compared on its own and a check red on the base never masks a
-different check red on the change.
+make every head red the change's. A step that reports its own checks (run_ci_guards.py) adds one
+"<step> :: <check>" entry per check, compared like any step: a check red on the base never masks a
+different check red on the change, and a check the base has no entry for (a base from before the
+step reported its checks) counts as the change's, so a step-level red on the base excuses nothing.
 
 --label names what the annotations count (default: Guard); the webview tests use it with
 webviews_test_results.py's per-test results.
@@ -19,7 +20,6 @@ import json
 from pathlib import Path
 import sys
 
-CHECK_SEPARATOR = " :: "  # run_ci_guards.CHECK_SEPARATOR
 
 def load(path: str) -> dict[str, bool] | None:
     try:
@@ -43,18 +43,9 @@ def main(argv: list[str]) -> int:
     if base is None:
         print(f"no base results in {argv[1]}: every red step counts as this change's")
         base = {}
-
-    def on_base(step: str) -> bool | None:
-        # "<step> :: <check>" is one check of a step that reports its checks (run_ci_guards.py). A base
-        # from before the step reported them has only the step's result, which stands in for each check.
-        if step in base:
-            return base[step]
-        parent, sep, _ = step.partition(CHECK_SEPARATOR)
-        return base.get(parent) if sep else None
-
-    new = sorted(step for step, ok in head.items() if not ok and on_base(step) is not False)
-    old = sorted(step for step, ok in head.items() if not ok and on_base(step) is False)
-    fixed = sorted(step for step, ok in head.items() if ok and on_base(step) is False)
+    new = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
+    old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)
+    fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
     for step in new:
