@@ -245,6 +245,35 @@ test('an older run that fails after a newer one published opens no incident', as
   assert.equal(await fail(github, sha('d'), 'main', { releaseTag: 'nightly' }), 1);
 });
 
+test('a failure rewritten off its branch after the branch published opens no incident', async () => {
+  // 5 was force-pushed away from rc/v0.65.2, whose tip 2 is published.
+  const { github, issues } = fakeGitHub({ parents: { ...RC, [sha('5')]: [sha('1')] }, branches: RC_BRANCHES });
+  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('2')} -->` } });
+  assert.equal(await fail(github, sha('5'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), null);
+  assert.equal(issues.length, 0);
+  // Still on its branch (the branch moved to 6): an incident.
+  const other = fakeGitHub({ parents: { ...RC, [sha('6')]: [sha('1')] }, branches: { ...RC_BRANCHES, 'rc/v0.65.2': sha('6') } });
+  other.github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('2')} -->` } });
+  assert.equal(await fail(other.github, sha('6'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), 1);
+});
+
+test('comments are read in id order whatever order the API returns', async () => {
+  const { github, issues } = fakeGitHub({ parents: MAIN, labelExists: true });
+  // An old-style close settled c; then a rerun fails again at c.
+  await github.rest.issues.create({ labels: ['nightly-failure'], body: failureMarkerFor(sha('c')) });
+  issues[0].comments.push(`cmux NIGHTLY publish succeeded again on ${sha('a')}: https://x`);
+  issues[0].state = 'closed';
+  await fail(github, sha('c'));
+  assert.equal(issues[0].state, 'open');
+  const list = github.rest.issues.listComments;
+  github.rest.issues.listComments = async (args) => {
+    const { data } = await list(args);
+    return { data: data.map((c, i) => ({ ...c, id: i + 1 })).reverse() };
+  };
+  assert.deepEqual(await publish(github, sha('a')), []);
+  assert.equal(issues[0].state, 'open');
+});
+
 test('an older RC line that fails after a newer line published opens no incident', async () => {
   const { github, issues } = fakeGitHub({ parents: RC, branches: RC_BRANCHES });
   github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('4')} -->` } });

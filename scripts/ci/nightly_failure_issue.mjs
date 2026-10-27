@@ -18,7 +18,9 @@
 // settled in the list, so every reporter finds the same one. Only the very
 // first report of a channel creates it. rc/ branches cut before this change
 // still run the old inline script and may open another issue; each open
-// issue is resolved on its own, as before.
+// issue is resolved on its own, as before. Those writers keep the old code's
+// races (a failure written just after a close lands on a closed issue); they
+// go away with the branches.
 //
 // An issue is an ordered log. A failure counts until a later closing comment
 // settles it, so a rerun that fails again at a commit an earlier close settled
@@ -115,7 +117,10 @@ export async function covers({ github, owner, repo, published, failure }) {
 
 async function texts(github, owner, repo, issue) {
   const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: issue.number, per_page: 100 });
-  return [issue.body || '', ...comments.map((comment) => comment.body || '')];
+  // GitHub lists issue comments by ascending id; sort anyway, since settlement
+  // depends on the order.
+  const ordered = [...comments].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+  return [issue.body || '', ...ordered.map((comment) => comment.body || '')];
 }
 
 const key = (failure) => `${failure.sha}@${failure.ref}`;
@@ -231,7 +236,13 @@ async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
   if (status === 'ahead') return { sha: published, ref };
   if (status !== 'diverged') return null;
   const line = await newerRcLine({ github, owner, repo, published, failureRef: ref });
-  return line ? { sha: published, ref: line } : null;
+  if (line) return { sha: published, ref: line };
+  // The failed commit was rewritten off its branch, and the publication is
+  // that branch's: the failure is not an incident (`covers` resolves it too).
+  const failedOnBranch = await compareStatus(github, owner, repo, sha, ref);
+  if (failedOnBranch === 'ahead' || failedOnBranch === 'identical') return null;
+  const publishedOnBranch = await compareStatus(github, owner, repo, published, ref);
+  return publishedOnBranch === 'ahead' || publishedOnBranch === 'identical' ? { sha: published, ref } : null;
 }
 
 // Records a failure of `sha` on `ref` on the channel's incident. With
