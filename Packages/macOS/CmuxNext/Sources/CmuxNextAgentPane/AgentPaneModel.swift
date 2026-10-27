@@ -423,9 +423,20 @@ public final class AgentPaneModel {
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
             }
-            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             guard let onCloudCredentialTransfer else { return Self.unsupported(AgentPaneCloudCredentialTransferRequest.method) }
-            return AgentPaneReply.success(["transferred": await onCloudCredentialTransfer(request)])
+            guard let connection = transport.connection,
+                  let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
+                    "promptId": request.retryPromptID, "sessionId": request.sessionID,
+                  ]]]), let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+            var released = false
+            defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
+            guard await onCloudCredentialTransfer(request), !Task.isCancelled,
+                  transport.connection == connection, sessionId == request.sessionID else {
+                return AgentPaneReply.success(["transferred": false])
+            }
+            // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
+            released = true
+            return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
