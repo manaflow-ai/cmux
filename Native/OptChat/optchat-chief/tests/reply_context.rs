@@ -99,9 +99,9 @@ fn a_reply_to_an_older_message_quotes_it_in_one_short_line() {
         .collect();
     let want = format!("(reply to #{}: {quote}…)\nyes, today", first.seq);
     assert_eq!(user_lines(&h).last(), Some(&want), "{:?}", user_lines(&h));
-    // The turn reads the same line (JSON escapes the newline).
+    // The turn's delta reads the same line, newlines shown as spaces.
     assert!(
-        prompts(&h).contains(&format!("(reply to #{}: {quote}…)\\nyes, today", first.seq)),
+        prompts(&h).contains(&format!("|user: (reply to #{}: {quote}…) yes, today", first.seq)),
         "{}",
         prompts(&h)
     );
