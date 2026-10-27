@@ -5319,14 +5319,17 @@ jobs:
   # build dispatch both hold GITHUB_TOKEN: on 2026-10-26, 139 of 272 kicks failed with "API rate
   # limit exceeded for installation", and a landing waited 10.2 min (p50) and 34.6 min (p90) for
   # the first DEV compile that covered it. The App token goes first (its own budget), GITHUB_TOKEN
-  # second. A landing that compiled no app (placement failed or off, no ready tree, a failed
-  # compile) asks main's dispatcher for a DEV build of the tip at once instead. Neither dispatch starts a cmux-next run, so no
-  # workflow_run listener of cmux-next (nightly-next-tick, dogfood-artifact-publish) fires for it.
+  # second. A landing that compiled no app (placement failed, no ready tree, a failed compile)
+  # asks main's dispatcher for a DEV build of the tip at once instead. With the landing compile
+  # off (vars.CMUX_NEXT_DEV_LANDING_COMPILE=0) this job skips too: the push's cmux-scheme-compile
+  # produces its DEV app and cmux-next-dev-kick.yml asks the dispatcher, as before. Neither
+  # dispatch starts a cmux-next run, so no workflow_run listener of cmux-next (nightly-next-tick,
+  # dogfood-artifact-publish) fires for it.
   # The dispatcher is the backstop for a lost handoff: it hands a tip's finished landing app over
   # too. Newest wins at publish (the publisher's record and the tip feed compare commits).
   dev-landing-publish:
     needs: [dev-landing-place, dev-landing-compile]
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ !cancelled() && needs.dev-landing-place.result != 'skipped' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication (landing)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # The App key is a repository secret; the credential-free environment dev-landing-place and
