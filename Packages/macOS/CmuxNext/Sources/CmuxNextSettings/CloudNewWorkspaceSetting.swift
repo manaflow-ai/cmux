@@ -42,7 +42,7 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
                 help: SettingsText.keyed("settings.cloud.newWorkspacesInCloud.help",
                                          "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["cloud", "vm", "remote", "machine", "freestyle", "new workspace", "cmd-n", "agent", "local", "toggle"]
+                keywords: ["cloud", "vm", "remote", "machine", "new workspace", "cmd-n", "agent", "local", "toggle"]
             ),
             SettingDescriptor(
                 folderPath, section: .machines, group: group,

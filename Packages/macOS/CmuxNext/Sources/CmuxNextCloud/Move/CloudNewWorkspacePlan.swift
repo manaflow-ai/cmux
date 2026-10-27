@@ -35,8 +35,15 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
     ///   - namesMachineOrCommand: The run names a machine (it opens there) or a command (it runs here).
     public init?(inCloud: Bool, inheritsFolder: Bool, cwd: String?, byPerson: Bool, namesMachineOrCommand: Bool) {
         guard inCloud, byPerson, !namesMachineOrCommand else { return nil }
-        // A home folder or the disk's root is never copied: the workspace starts empty instead.
-        folder = inheritsFolder ? cwd.flatMap(CloudMoveFolder.init(chat:)).flatMap { $0.isTooBroad ? nil : $0 } : nil
+        // Only a git working copy is copied: a plain folder (`/Users`, `~/Downloads`, a disk) could hold
+        // anything, the home folder included. Anything else starts in the machine's empty folder.
+        folder = inheritsFolder ? cwd.flatMap(CloudMoveFolder.init(chat:)).flatMap { Self.isWorkingCopy($0) ? $0 : nil } : nil
+    }
+
+    /// Whether `folder` is a git working copy's top folder, and not the home folder or the disk's root
+    /// (a dotfiles repository at home).
+    static func isWorkingCopy(_ folder: CloudMoveFolder) -> Bool {
+        !folder.isTooBroad && FileManager.default.fileExists(atPath: (folder.root as NSString).appendingPathComponent(".git"))
     }
 
     /// The new workspace's name: the copied folder's, else none (the daemon names it).

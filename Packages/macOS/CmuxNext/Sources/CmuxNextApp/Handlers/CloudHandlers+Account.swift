@@ -302,7 +302,8 @@ extension CloudHandlers {
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?
-            if let folder = plan.folder, let binary = cloud.move.cli, let socket = await connection.endpoint?.socketPath {
+            if let folder = plan.folder, let binary = cloud.move.cli {
+                guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
                 let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)
                 do {
                     cwd = try await CloudNewWorkspacePlan.copy(folder, workRoots: cloud.move.workRoots) { remote in

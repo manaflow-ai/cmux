@@ -46,6 +46,14 @@ struct CloudNewWorkspaceTests {
         #expect(plan.workspaceName == "app")
     }
 
+    /// A folder outside any git working copy (`/Users`, `~/Downloads`, a disk) is never copied:
+    /// it could hold anything. The workspace starts in the machine's empty folder.
+    @Test func aPlainFolderOutsideGitIsNotCopied() throws {
+        let plain = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-new-ws-\(UUID().uuidString)/Downloads").path
+        try FileManager.default.createDirectory(atPath: plain + "/big", withIntermediateDirectories: true)
+        #expect(try #require(Self.plan(Self.settings(inCloud: true), cwd: plain + "/big")).folder == nil)
+    }
+
     @Test func emptyFolderStartsWithNothingCopied() throws {
         let (_, nested) = try Self.project()
         let plan = try #require(Self.plan(Self.settings(inCloud: true, folder: "empty"), cwd: nested))
