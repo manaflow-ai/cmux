@@ -15,7 +15,9 @@ not finish. The wrappers are cmux-blocking, whose modules allow the lint, and
 the two crates it depends on: cmux-threads (the sync primitives, spawn, work,
 hang and cmux_threads::checked) and cmux-panic-log. Those two build the policy
 itself and cannot call cmux-blocking without a dependency cycle, so the table
-lists their hits on rows of their own and --check never counts them.
+lists their hits on rows of their own and --check never counts them. One crate
+above cmux-blocking is a wrapper too: cmux-important-file, whose std calls all
+run inside one cmux_blocking::scoped_blocking_call.
 """
 import argparse
 import collections
@@ -33,8 +35,10 @@ LINT = "clippy::disallowed_methods"
 # The sanctioned callers of the blocking std calls: (row, path prefix); the
 # first prefix that matches names the row. cmux-blocking depends on
 # cmux-threads and cmux-panic-log, so those layers call std directly.
-# cmux-important-file checks the same policy at its caller
-# (`write_important`, Chrome's ScopedBlockingCall in ImportantFileWriter).
+# cmux-important-file runs its whole write as one
+# cmux_blocking::scoped_blocking_call (Chrome's ScopedBlockingCall in
+# ImportantFileWriter): the policy check, block_in_place on a multi_thread
+# worker and the stall record of a runtime's driving thread apply to it.
 WRAPPERS = (
     ("cmux-blocking", "crates/cmux-blocking/"),
     ("cmux-threads (checked)", "crates/cmux-threads/src/checked.rs"),

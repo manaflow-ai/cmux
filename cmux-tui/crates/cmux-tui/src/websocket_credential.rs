@@ -66,23 +66,10 @@ pub(crate) fn write(
         "token": token,
         "pid": std::process::id(),
     });
-    let mut temporary = path.clone().into_os_string();
-    temporary.push(format!(".{}.tmp", std::process::id()));
-    let temporary = PathBuf::from(temporary);
-    let _ = std::fs::remove_file(&temporary);
-    let result = (|| -> std::io::Result<()> {
-        use std::io::Write;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&temporary)?;
-        file.write_all(value.to_string().as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, &path)
-    })();
-    if let Err(error) = result {
-        let _ = std::fs::remove_file(&temporary);
+    let owner_only = cmux_important_file::Mode::Exact(0o600);
+    if let Err(error) =
+        cmux_important_file::write_important(&path, value.to_string().as_bytes(), owner_only)
+    {
         anyhow::bail!("cannot write the WebSocket credential file {}: {error}", path.display());
     }
     Ok(CredentialFile { path })

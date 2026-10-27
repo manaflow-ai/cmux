@@ -10,10 +10,10 @@
 //! works.
 
 use crate::json::JsonField;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,6 +21,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_important_file::{Mode, Options, write_important_with};
 use cmux_server::cloud_http::JsonPoster;
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
@@ -85,26 +86,8 @@ impl Store for FileStore {
     }
 
     fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
-        let path = self.at(file);
-        let dir = path.parent().ok_or("no parent directory")?;
-        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let tmp = dir.join(format!(
-            ".{}.tmp-{}",
-            path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-            std::process::id()
-        ));
-        let mut out = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(mode)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
-            .map_err(|e| format!("{}: {e}", tmp.display()))?;
-        out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        out.set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        drop(out);
-        fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+        let options = Options::new(Mode::Exact(mode)).create_parent();
+        write_important_with(&self.at(file), text.as_bytes(), &options).map_err(|e| e.to_string())
     }
 
     fn remove(&mut self, file: &str) {

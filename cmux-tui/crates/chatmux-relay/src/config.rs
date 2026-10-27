@@ -7,12 +7,13 @@
 //! (newer or older) relay builds are preserved across load/save.
 
 use std::fs::OpenOptions;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
+use cmux_important_file::{Mode, Options, write_important_with};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -228,58 +229,14 @@ pub fn validate_allowed_roots(roots: &[String]) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Persist the pairing with owner-only permissions (0600 on Unix). The
-/// credential is written into a fresh 0600 temp file and renamed over the
-/// destination, so it never lands in a pre-existing file with looser
-/// permissions and a crashed write never leaves a half-written config.
+/// Persist the pairing with owner-only permissions (0600 on Unix), atomically
+/// and durably (`cmux_important_file`): the credential is written into a new
+/// 0600 temp file and renamed over the destination, so it never lands in a
+/// pre-existing file with looser permissions and a crashed write never leaves
+/// a half-written config.
 pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
-    let parent = path.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(parent)?;
     let body =
         format!("{}\n", serde_json::to_string_pretty(config).map_err(std::io::Error::other)?);
-    let temp = parent.join(format!(
-        ".{}.tmp-{}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("config.json"),
-        std::process::id(),
-    ));
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    let _ = std::fs::remove_file(&temp);
-    let mut file = options.open(&temp)?;
-    let written = file.write_all(body.as_bytes()).and_then(|()| file.sync_all());
-    drop(file);
-    let renamed = written.and_then(|()| {
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStrExt as _;
-            use windows_sys::Win32::Storage::FileSystem::{
-                MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-            };
-            let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-            let destination: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-            // MoveFileExW replaces the destination without a remove-then-rename gap.
-            if unsafe {
-                MoveFileExW(
-                    source.as_ptr(),
-                    destination.as_ptr(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-                )
-            } == 0
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-            return Ok(());
-        }
-        #[cfg(not(windows))]
-        std::fs::rename(&temp, path)
-    });
-    if renamed.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    renamed
+    let options = Options::new(Mode::Exact(0o600)).create_parent();
+    Ok(write_important_with(path, body.as_bytes(), &options)?)
 }

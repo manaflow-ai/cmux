@@ -458,51 +458,8 @@ fn persist_state(
     };
     let bytes = serde_json::to_vec_pretty(state)
         .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    let tmp = path.with_extension("json.tmp");
-    write_private(&tmp, &bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    std::fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    if let Some(parent) = path.parent() {
-        #[cfg(unix)]
-        std::fs::File::open(parent)
-            .and_then(|file| file.sync_all())
-            .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    }
-    Ok(())
-}
-
-/// Write a temporary mailbox state owner-only, then let `persist_state`
-/// durably rename it into place.
-#[cfg(unix)]
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
-    if file.metadata()?.permissions().mode() & 0o077 != 0 {
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    file.write_all(bytes)?;
-    file.sync_all()
-}
-
-#[cfg(windows)]
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    match std::fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    let mut file = crate::owner_only::create_new(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    crate::config::write_owner_only_as(path, &bytes, 0o600)
+        .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))
 }
 
 #[cfg(test)]

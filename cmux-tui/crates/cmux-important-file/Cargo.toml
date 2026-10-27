@@ -5,13 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "write_important: the one atomic, durable state-file write of the cmux daemons (Chrome's ImportantFileWriter): temp file, fsync, rename, directory fsync, typed full-disk error"
+description = "write_important: the one atomic, durable state-file write of the cmux daemons (Chrome's ImportantFileWriter): temp file, fsync, rename, directory fsync, typed full-disk error, one scoped blocking call"
 
 [lints]
 workspace = true
 
 [dependencies]
-cmux-threads.workspace = true
+cmux-blocking.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+tokio.workspace = true

@@ -619,28 +619,13 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
-/// Write `value` to `path` through a temporary file and a rename.
+/// Write `record` to `path` owner-only (0600), atomically and durably
+/// (`cmux_important_file`).
 #[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .with_context(|| format!("create {}", tmp.display()))?;
-    let written = (|| -> Result<()> {
-        f.write_all(&serde_json::to_vec(record)?)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    written
+    let bytes = serde_json::to_vec(record)?;
+    cmux_important_file::write_important(path, &bytes, cmux_important_file::Mode::Exact(0o600))?;
+    Ok(())
 }
 /// Windows port: host records are owner-only files there (a later landing).
 #[cfg(not(unix))]

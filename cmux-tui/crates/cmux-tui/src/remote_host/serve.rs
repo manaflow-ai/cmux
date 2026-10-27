@@ -39,6 +39,9 @@ pub(crate) struct Host {
     /// Open teammate (guest) connections, mirrored to `active.json` for
     /// `cmux host status` and the app's indicator.
     guests: Mutex<Vec<(u64, Value)>>,
+    /// Each change's `active.json` bytes, sent under `guests` (so in order)
+    /// to the thread that writes them ([`write_active`]).
+    active: std::sync::mpsc::Sender<Vec<u8>>,
 }
 
 /// `<host dir>/active.json`: the open teammate connections.
@@ -46,19 +49,40 @@ pub(crate) const ACTIVE_FILE: &str = "active.json";
 
 static NEXT_GUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-impl Host {
-    fn write_guests(&self, guests: &[(u64, Value)]) {
-        let list: Vec<&Value> = guests.iter().map(|(_, v)| v).collect();
-        let result = config::ensure_dir().and_then(|dir| {
-            let path = dir.join(ACTIVE_FILE);
-            let bytes = serde_json::to_vec(&list)?;
-            let owner_only = cmux_important_file::Mode::Exact(0o600);
-            cmux_important_file::write_important(&path, &bytes, owner_only)?;
-            Ok(())
-        });
-        if let Err(e) = result {
-            eprintln!("cmux host: cannot record teammate connections: {e:#}");
+/// The `active.json` bytes of `guests`.
+fn active_bytes(guests: &[(u64, Value)]) -> Vec<u8> {
+    let list: Vec<&Value> = guests.iter().map(|(_, v)| v).collect();
+    serde_json::to_vec(&list).unwrap_or_else(|_| b"[]".to_vec())
+}
+
+/// Replaces `active.json` with `bytes`, durably and owner-only.
+fn write_active_file(bytes: &[u8]) {
+    let result = config::ensure_dir().and_then(|dir| {
+        let owner_only = cmux_important_file::Mode::Exact(0o600);
+        cmux_important_file::write_important(&dir.join(ACTIVE_FILE), bytes, owner_only)?;
+        Ok(())
+    });
+    if let Err(e) = result {
+        eprintln!("cmux host: cannot record teammate connections: {e:#}");
+    }
+}
+
+/// The `active.json` writer: the disk write (two fsyncs) runs here, never on
+/// a connection's thread or under `guests`. A burst of changes writes only
+/// the newest bytes, so the file never goes back to an older list.
+fn write_active(changes: &std::sync::mpsc::Receiver<Vec<u8>>) {
+    while let Ok(mut bytes) = cmux_blocking::sync::recv(changes) {
+        while let Ok(newer) = changes.try_recv() {
+            bytes = newer;
         }
+        write_active_file(&bytes);
+    }
+}
+
+impl Host {
+    /// Queues `guests` for `active.json`; called under the `guests` lock.
+    fn write_guests(&self, guests: &[(u64, Value)]) {
+        let _ = self.active.send(active_bytes(guests));
     }
 
     fn guest_opened(&self, entry: Value) -> u64 {
@@ -159,6 +183,13 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
             Err(e) => return Err(e).with_context(|| format!("cannot listen on {addr}")),
         }
     }
+    // A listener that died left no one connected: cleared before `ready`.
+    write_active_file(&active_bytes(&[]));
+    let (active, changes) = std::sync::mpsc::channel();
+    cmux_threads::spawn("cmux-host-active", cmux_threads::ThreadQos::Utility, move || {
+        write_active(&changes)
+    })
+    .context("cannot start the teammate connection recorder")?;
     let host = Arc::new(Host {
         tailnet,
         self_ips,
@@ -167,9 +198,8 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         socket: Mutex::new(None),
         pending: Mutex::new(HashMap::new()),
         guests: Mutex::new(Vec::new()),
+        active,
     });
-    // A listener that died left no one connected.
-    host.write_guests(&[]);
     let owner = config.owner.as_deref().unwrap_or("(none)");
     for listener in &listeners {
         eprintln!(

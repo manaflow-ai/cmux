@@ -854,35 +854,27 @@ impl AgentTools {
     }
 }
 
-/// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
-/// file first, then renamed, so claude never reads half a config).
-#[cfg(unix)]
-pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
-    let written = (|| -> std::io::Result<()> {
-        let mut f =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    Ok(written?)
-}
-/// Windows: the folder and the file owner-only (`owner_only.rs`).
-#[cfg(windows)]
+/// Write `bytes` to `path` as an owner-only file (0600) in an owner-only
+/// folder (0700), atomically and durably (`config::write_owner_only`), so
+/// claude never reads half a config.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    crate::owner_only::create_dir_all(dir)?;
-    crate::owner_only::restrict(dir)?;
+    owner_only_folder(dir)?;
     crate::config::write_owner_only(path, bytes)
+}
+
+/// Makes `dir` (and missing parents) and narrows `dir` to its owner: mode
+/// 0700 on Unix, an owner-only access list on Windows (`owner_only.rs`).
+#[cfg(unix)]
+pub(crate) fn owner_only_folder(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+#[cfg(windows)]
+pub(crate) fn owner_only_folder(dir: &Path) -> std::io::Result<()> {
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)
 }
 
 #[cfg(unix)]

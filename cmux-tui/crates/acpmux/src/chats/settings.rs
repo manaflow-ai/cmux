@@ -11,10 +11,11 @@
 //! is refused with the reason; nothing reads inside a guarded spelling.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use cmux_chat_index::{AdapterKind, RootSpec};
+use cmux_important_file::{Mode, Options, write_important_with};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -91,20 +92,11 @@ impl ChatSettings {
             .unwrap_or_default()
     }
 
-    /// Writes the file (0600, through a temp file and a rename).
+    /// Writes the file (0600), atomically and durably (`cmux_important_file`).
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
-        fs::create_dir_all(dir)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        let tmp = path.with_extension("json.tmp");
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
+        let options = Options::new(Mode::Exact(0o600)).create_parent();
+        Ok(write_important_with(path, &bytes, &options)?)
     }
 
     /// The root specs of the settings roots (managed first), and the refused ones.

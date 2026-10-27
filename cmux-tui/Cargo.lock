@@ -1260,8 +1260,9 @@ dependencies = [
 name = "cmux-important-file"
 version = "0.1.0"
 dependencies = [
- "cmux-threads",
+ "cmux-blocking",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

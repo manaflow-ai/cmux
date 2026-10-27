@@ -18,7 +18,6 @@
 //! credential folder (`gcloud`, ...). Each sync checks the folder again.
 
 use std::collections::BTreeMap;
-use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Component, Path, PathBuf};
 
@@ -250,19 +249,13 @@ impl Store {
 
     pub(super) fn save(&self) -> anyhow::Result<()> {
         let record = Record { version: VERSION, grants: self.grants.clone() };
-        let part = self.path.with_extension(format!("{}.part", std::process::id()));
-        let _ = std::fs::remove_file(&part);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&part)
-            .with_context(|| format!("cannot write {}", part.display()))?;
-        file.write_all(&serde_json::to_vec(&record)?)?;
-        file.sync_all()?;
-        std::fs::rename(&part, &self.path)
-            .with_context(|| format!("cannot write {}", self.path.display()))
+        let bytes = serde_json::to_vec(&record)?;
+        cmux_important_file::write_important(
+            &self.path,
+            &bytes,
+            cmux_important_file::Mode::Exact(0o600),
+        )
+        .with_context(|| format!("cannot write {}", self.path.display()))
     }
 
     /// The grants of `machine` (and of `session` when given), by their copy

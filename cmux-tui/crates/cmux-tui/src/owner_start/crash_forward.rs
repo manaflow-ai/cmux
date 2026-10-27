@@ -245,19 +245,9 @@ pub(super) fn forward_new(
 }
 
 fn write_offset(state: &Path, offset: usize) -> Result<(), String> {
-    let temp = state.with_extension("sent.tmp");
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    use std::io::Write;
-    let mut file = options.open(&temp).map_err(|error| format!("write offset: {error}"))?;
-    file.write_all(offset.to_string().as_bytes())
-        .map_err(|error| format!("write offset: {error}"))?;
-    std::fs::rename(&temp, state).map_err(|error| format!("write offset: {error}"))
+    let owner_only = cmux_important_file::Mode::Exact(0o600);
+    cmux_important_file::write_important(state, offset.to_string().as_bytes(), owner_only)
+        .map_err(|error| format!("write offset: {error}"))
 }
 
 /// The offset file beside `log`.

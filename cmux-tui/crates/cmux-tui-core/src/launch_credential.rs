@@ -16,7 +16,6 @@
 //! is no owner or mode check.
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -394,8 +393,10 @@ fn read_trusted(path: &Path) -> Result<Option<LaunchKeys>, &'static str> {
     LaunchKeys::from_stored(stored).map(Some).ok_or("invalid keys")
 }
 
-/// Write `keys` through a staged 0600 file and a rename, in a 0700
-/// directory this user owns. A rename replaces a planted link or file.
+/// Write `keys` owner-only (0600), atomically and durably
+/// (`cmux_important_file`: the rename and its folder are flushed, since a lost
+/// key file revokes every live credential), in a 0700 directory this user
+/// owns. The rename replaces a planted link or file.
 fn write_keys(path: &Path, keys: &LaunchKeys) -> std::io::Result<()> {
     let directory = path.parent().ok_or_else(|| std::io::Error::other("no key directory"))?;
     #[cfg(unix)]
@@ -410,28 +411,8 @@ fn write_keys(path: &Path, keys: &LaunchKeys) -> std::io::Result<()> {
     #[cfg(not(unix))]
     std::fs::create_dir_all(directory)?;
     crate::platform::restrict_directory(directory)?;
-    let staged = directory.join(format!("{KEY_FILE}.tmp.{}", std::process::id()));
-    match std::fs::remove_file(&staged) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&staged)?;
-        crate::platform::restrict_file(&staged)?;
-        file.write_all(&serde_json::to_vec(&keys.stored()).map_err(std::io::Error::other)?)?;
-        file.sync_all()?;
-    }
-    std::fs::rename(&staged, path)?;
-    // A lost key file revokes every live credential: make the rename durable.
-    crate::platform::sync_directory(directory)
+    let bytes = serde_json::to_vec(&keys.stored()).map_err(std::io::Error::other)?;
+    Ok(cmux_important_file::write_important(path, &bytes, cmux_important_file::Mode::Exact(0o600))?)
 }
 
 fn random_key() -> anyhow::Result<[u8; KEY_BYTES]> {

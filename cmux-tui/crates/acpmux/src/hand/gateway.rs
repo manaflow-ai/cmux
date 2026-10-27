@@ -121,18 +121,13 @@ pub fn renew(id: &str, route: &ModelRoute) -> Result<(), HandError> {
             format!("{id} expired; start a new agent session"),
         ));
     }
-    // Written beside it and renamed over it: a spawn reading it sees the old or the
-    // new token, never a half-written file.
-    let tmp = dir().join(format!(".{id}.token.tmp"));
-    super::config::write_private(&tmp, route.token.as_bytes())
-        .and_then(|()| std::fs::rename(&tmp, &path).map_err(Into::into))
+    // Replaced atomically: a spawn reading it sees the old or the new token,
+    // never a half-written file.
+    super::config::write_private(&path, route.token.as_bytes())
         .and_then(|()| {
             super::config::write_private(&expiry_path(id), route.expires_at.to_string().as_bytes())
         })
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            HandError::new("agent.bad_route", format!("{e:#}"))
-        })
+        .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))
 }
 
 /// Writes the token file and the run's route; returns the route id.

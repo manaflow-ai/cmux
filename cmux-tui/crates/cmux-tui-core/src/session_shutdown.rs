@@ -328,23 +328,10 @@ fn remove_stale_marker_temporaries(path: &Path) {
     }
 }
 
-/// Replace the marker atomically (a private temporary file, then rename).
+/// Replace the marker atomically and durably, owner-only.
 fn write_marker(path: &Path, value: &str) -> anyhow::Result<()> {
-    use std::io::Write;
-
-    let temporary = path.with_extension(format!("owner-shutdown.{}.tmp", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(&temporary)?;
-    file.write_all(value.as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&temporary, path)?;
+    let owner_only = cmux_important_file::Mode::Exact(0o600);
+    cmux_important_file::write_important(path, value.as_bytes(), owner_only)?;
     Ok(())
 }
 

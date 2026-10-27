@@ -116,23 +116,11 @@ pub fn save(cfg: &HandConfig) -> Result<PathBuf> {
     let dir = home();
     std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let p = path();
-    let tmp = dir.join(".hand.json.tmp");
-    write_private(&tmp, serde_json::to_vec_pretty(cfg)?.as_slice())?;
-    std::fs::rename(&tmp, &p)?;
+    write_private(&p, &serde_json::to_vec_pretty(cfg)?)?;
     Ok(p)
 }
 
+/// Writes `p` owner-only (0600), atomically and durably (`config::write_owner_only`).
 pub(super) fn write_private(p: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
-    let mut o = std::fs::OpenOptions::new();
-    o.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
-    }
-    let mut f = o.open(p).with_context(|| format!("open {}", p.display()))?;
-    f.write_all(bytes)?;
-    f.sync_all()?;
-    Ok(())
+    crate::config::write_owner_only(p, bytes)
 }

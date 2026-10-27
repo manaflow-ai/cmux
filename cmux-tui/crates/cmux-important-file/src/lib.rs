@@ -12,11 +12,16 @@
 //!
 //! Every failure names its step ([`Step`], Chrome's `TempFileFailure`), and a
 //! full disk or quota is its own [`WriteError::DiskFull`]. A failed write
-//! removes its temporary file and leaves the target as it was.
+//! removes its temporary file and leaves the target as it was. Once the
+//! rename has replaced the target the write has succeeded, as Chrome's does:
+//! a folder flush that fails after it is reported in [`Committed`], never as
+//! an error, because the new contents are already what every reader sees.
 //!
-//! The call blocks on the file system; it checks the thread's blocking policy
-//! at the caller's location (`cmux_threads::assert_blocking_allowed`, Chrome's
-//! `ScopedBlockingCall` in the same function).
+//! The call blocks on the file system. It runs as one
+//! `cmux_blocking::scoped_blocking_call` (Chrome's `ScopedBlockingCall` in
+//! the same function): the policy is checked at the caller's location, a
+//! tokio worker hands its queue to another thread for the call, and a stall
+//! of a runtime's driving thread is recorded.
 
 #![forbid(unsafe_code)]
 
@@ -26,7 +31,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use cmux_threads::{BlockingKind, assert_blocking_allowed};
+use cmux_blocking::{BlockingKind, scoped_blocking_call};
 
 /// The permission bits of the written file (Unix; other systems ignore them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,7 +54,6 @@ pub enum Step {
     Sync,
     Check,
     Rename,
-    SyncDir,
 }
 
 impl Step {
@@ -62,7 +66,6 @@ impl Step {
             Self::Sync => "flush to disk",
             Self::Check => "check the new contents",
             Self::Rename => "replace the file",
-            Self::SyncDir => "flush the folder",
         }
     }
 }
@@ -73,9 +76,7 @@ impl fmt::Display for Step {
     }
 }
 
-/// Why a [`write_important`] failed. The target is unchanged unless the step
-/// is [`Step::SyncDir`] (the new contents are in place; only the flush of
-/// the rename failed).
+/// Why a [`write_important`] failed. The target is unchanged.
 #[derive(Debug)]
 pub enum WriteError {
     /// The disk or the user's quota is full (`ENOSPC`, `EDQUOT`,
@@ -203,6 +204,21 @@ impl<'a> Options<'a> {
     }
 }
 
+/// A write whose rename replaced the target: every reader now sees the new
+/// contents. Only the flush of the rename to disk can still have failed.
+#[derive(Debug, Default)]
+pub struct Committed {
+    folder_flush: Option<io::Error>,
+}
+
+impl Committed {
+    /// Why the folder flush after the rename failed: a power loss before the
+    /// system writes the folder back can still bring back the old file.
+    pub fn folder_flush_error(&self) -> Option<&io::Error> {
+        self.folder_flush.as_ref()
+    }
+}
+
 /// Replaces `path` with `bytes` atomically and durably, with `mode`.
 #[track_caller]
 pub fn write_important(path: &Path, bytes: &[u8], mode: Mode) -> Result<(), WriteError> {
@@ -218,7 +234,21 @@ pub fn write_important_with(
     bytes: &[u8],
     options: &Options<'_>,
 ) -> Result<(), WriteError> {
-    assert_blocking_allowed(BlockingKind::Fs);
+    commit_important(path, bytes, options).map(drop)
+}
+
+/// [`write_important_with`] that also returns what the write left undone
+/// after its rename ([`Committed`]), for a caller that reports it.
+#[track_caller]
+pub fn commit_important(
+    path: &Path,
+    bytes: &[u8],
+    options: &Options<'_>,
+) -> Result<Committed, WriteError> {
+    scoped_blocking_call("write_important", BlockingKind::Fs, || commit(path, bytes, options))
+}
+
+fn commit(path: &Path, bytes: &[u8], options: &Options<'_>) -> Result<Committed, WriteError> {
     let fail = |step, source| WriteError::from_io(path, step, source);
     let dir = path.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().ok_or_else(|| {
@@ -243,7 +273,7 @@ pub fn write_important_with(
         let _ = fs::remove_file(&temp);
         return Err(error);
     }
-    sync_dir(dir).map_err(|e| fail(Step::SyncDir, e))
+    Ok(Committed { folder_flush: sync_dir(dir).err() })
 }
 
 /// The exact bits to set, or `None` to leave what the create made.
@@ -324,12 +354,15 @@ fn fill(mut file: File, bytes: &[u8], mode: Option<u32>) -> Result<(), (Step, io
 }
 
 /// Flushes the folder entry the rename changed. A file system that cannot
-/// flush a folder answers `EINVAL`; it is ignored there, as SQLite's
-/// `unixSync` does.
+/// flush a folder answers `EINVAL`, or `ENOTSUP` for macOS `F_FULLFSYNC` on
+/// SMB or exFAT; there is nothing to flush there, as SQLite's `unixSync`
+/// treats it.
 fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     match File::open(dir).and_then(|dir| dir.sync_all()) {
-        Err(e) if e.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        Err(e) if matches!(e.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::Unsupported) => {
+            Ok(())
+        }
         other => other,
     }
     #[cfg(not(unix))]

@@ -9,7 +9,7 @@
 //! service/launchd.rs). Every other key, the program and its arguments
 //! included, stays as installed.
 
-use std::io::{self, Write as _};
+use std::io;
 use std::path::Path;
 
 use cmux_server_core::units::LaunchdJob;
@@ -39,26 +39,9 @@ pub(crate) fn upgrade_process_type(path: &Path, job: LaunchdJob) -> io::Result<b
     Ok(true)
 }
 
-/// Writes `bytes` beside `path` and renames it over `path`, with `path`'s mode.
+/// Replaces `path` with `bytes` atomically and durably, with `path`'s mode.
 fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let permissions = std::fs::metadata(path)?.permissions();
-    let name = path.file_name().ok_or_else(|| io::Error::other("the plist path has no name"))?;
-    let mut temporary_name = std::ffi::OsString::from(".");
-    temporary_name.push(name);
-    temporary_name.push(format!(".{}.tmp", std::process::id()));
-    let temporary = path.with_file_name(temporary_name);
-    let result = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::set_permissions(&temporary, permissions)?;
-        std::fs::rename(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+    Ok(cmux_important_file::write_important(path, bytes, cmux_important_file::Mode::Keep)?)
 }
 
 #[cfg(test)]

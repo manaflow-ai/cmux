@@ -4,11 +4,21 @@ use std::sync::Mutex as StdMutex;
 
 use cmux_important_file::{Mode, Options, write_important_with};
 
+use super::config_writer::ConfigWriter;
+
 #[derive(Default)]
 pub(crate) struct Briefs {
     rows: StdMutex<BTreeMap<String, Value>>,
-    path: Option<std::path::PathBuf>,
+    persist: Option<Persist>,
     load_failed: bool,
+}
+
+/// Where the ledger is saved, and the thread that saves it: a change takes a snapshot under the
+/// rows lock and queues it, so the newest snapshot wins and no request waits on the disk
+/// (`config_writer.rs`, Chrome's ImportantFileWriter on its background sequence).
+struct Persist {
+    path: std::path::PathBuf,
+    writer: ConfigWriter,
 }
 
 impl Briefs {
@@ -29,7 +39,15 @@ impl Briefs {
                 (BTreeMap::new(), true)
             }
         };
-        Self { rows: StdMutex::new(rows), path: Some(path), load_failed }
+        let writer = ConfigWriter::start("acpmux-briefs-writer", write_ledger);
+        Self { rows: StdMutex::new(rows), persist: Some(Persist { path, writer }), load_failed }
+    }
+
+    /// Waits until every change made so far is on disk (shutdown).
+    pub(crate) fn flush(&self) {
+        if let Some(persist) = &self.persist {
+            persist.writer.flush();
+        }
     }
 
     pub(crate) fn load_failed(&self) -> bool {
@@ -58,13 +76,12 @@ impl Briefs {
         None
     }
 
+    /// Queues a snapshot of `rows`; called under the rows lock, so snapshots queue in order.
     fn save(&self, rows: &BTreeMap<String, Value>) {
-        let Some(path) = &self.path else { return };
-        if let Ok(bytes) = serde_json::to_vec(rows) {
-            let options = Options::new(Mode::Default).create_parent();
-            if let Err(error) = write_important_with(path, &bytes, &options) {
-                eprintln!("acpmux: brief persistence warning: {error}");
-            }
+        let Some(persist) = &self.persist else { return };
+        match serde_json::to_vec(rows) {
+            Ok(bytes) => persist.writer.queue(persist.path.clone(), bytes),
+            Err(error) => eprintln!("acpmux: brief persistence warning: {error}"),
         }
     }
 
@@ -124,6 +141,14 @@ impl Briefs {
     }
 }
 
+/// The ledger's write, on its writer thread.
+fn write_ledger(path: &std::path::Path, bytes: &[u8]) {
+    let options = Options::new(Mode::Default).create_parent();
+    if let Err(error) = write_important_with(path, bytes, &options) {
+        eprintln!("acpmux: brief persistence warning: {error}");
+    }
+}
+
 pub(crate) fn event(kind: &str, row: &Value) -> Value {
     json!({
         "kind": kind,
@@ -144,8 +169,7 @@ mod tests {
 
     #[test]
     fn brief_identity_keeps_non_claude_harness_pair() {
-        let briefs =
-            Briefs { rows: StdMutex::new(BTreeMap::new()), path: None, load_failed: false };
+        let briefs = Briefs::default();
         let row = briefs.put(json!({
             "title": "opencode to pi",
             "harness": "pi",
@@ -157,5 +181,28 @@ mod tests {
         assert_eq!(listed[0]["briefId"], id);
         assert_eq!(listed[0]["fromHarness"], "opencode");
         assert_eq!(listed[0]["harness"], "pi");
+    }
+
+    /// A claim queues the ledger and returns; the newest snapshot is what reaches the disk.
+    #[test]
+    fn changes_reach_the_disk_on_the_writer_and_the_newest_wins() {
+        let dir = std::env::temp_dir().join(format!("acpmux-briefs-{}", uuid::Uuid::now_v7()));
+        let path = dir.join("briefs.json");
+        let briefs = Briefs::open(Some(path.clone()));
+        assert!(briefs.claim("b1", Some("k1")).is_none());
+        for n in 0..20 {
+            briefs.update("b1", |row| row["n"] = json!(n));
+        }
+        briefs.put(json!({"briefId": "b2", "status": "running"}));
+        assert!(briefs.claim("b3", None).is_none());
+        briefs.release("b3");
+        briefs.flush();
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["b1"]["n"], 19, "{saved}");
+        assert_eq!(saved["b2"]["status"], "running", "{saved}");
+        assert!(saved.get("b3").is_none(), "a released claim is gone: {saved}");
+        let reopened = Briefs::open(Some(path));
+        assert_eq!(reopened.get("b1").unwrap()["idempotencyKey"], "k1");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

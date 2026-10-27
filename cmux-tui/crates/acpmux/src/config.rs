@@ -1,7 +1,7 @@
 //! Configuration: `$ACPMUX_HOME/config.json`, agent registry, store mode.
 
 use anyhow::{Context, Result};
-use cmux_important_file::{Mode, Options, write_important_with};
+use cmux_important_file::{Mode, Options, WriteError, commit_important};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -1255,11 +1255,29 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 /// tokens and session data): `0o600` on Unix, an owner-only access list on
 /// Windows (`owner_only.rs`). Atomic and durable (`cmux_important_file`).
 pub fn write_owner_only(path: &Path, bytes: &[u8]) -> Result<()> {
+    Ok(write_owner_only_as(path, bytes, 0o600)?)
+}
+
+/// [`write_owner_only`] with the Unix bits `unix_mode` (owner bits only:
+/// `0o400` for a file nothing rewrites in place). Windows ignores them.
+pub(crate) fn write_owner_only_as(
+    path: &Path,
+    bytes: &[u8],
+    unix_mode: u32,
+) -> std::result::Result<(), WriteError> {
     #[cfg(windows)]
-    let options = Options::new(Mode::Default).open_temp(&crate::owner_only::create_new);
+    let options = {
+        let _ = unix_mode;
+        Options::new(Mode::Default).open_temp(&crate::owner_only::create_new)
+    };
     #[cfg(not(windows))]
-    let options = Options::new(Mode::Exact(0o600));
-    write_important_with(path, bytes, &options)?;
+    let options = Options::new(Mode::Exact(unix_mode & 0o700));
+    // Once renamed, the new file is what every reader sees: a folder that could
+    // not be flushed after it is a warning, not a failed save.
+    let committed = commit_important(path, bytes, &options)?;
+    if let Some(error) = committed.folder_flush_error() {
+        tracing::warn!(file = %path.display(), "saved; the folder was not flushed to disk: {error}");
+    }
     Ok(())
 }
 

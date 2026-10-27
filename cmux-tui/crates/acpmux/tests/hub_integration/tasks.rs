@@ -527,8 +527,10 @@ fn hub_at(root: &Path, list_fails: bool) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-/// The ledger row of task `id` as saved beside the store at `root`.
-fn saved_task(root: &Path, id: &str) -> Value {
+/// The ledger row of task `id` as `hub` saved it beside the store at `root` (its ledger writer
+/// flushed first).
+fn saved_task(hub: &Hub, root: &Path, id: &str) -> Value {
+    hub.flush_writes();
     let rows: Value =
         serde_json::from_slice(&std::fs::read(root.join("briefs.json")).unwrap()).unwrap();
     rows[id].clone()
@@ -549,10 +551,12 @@ async fn deleting_a_moved_lanes_copy_after_a_restart_keeps_its_task() {
         .await;
     let id = given["task"]["taskId"].as_str().unwrap().to_owned();
     move_chat(&mut person, &mut other, &lane).await;
+    here.flush_writes();
 
     let restarted = hub_at(&root, false);
     Client::open(&restarted).call("session/delete", json!({"sessionId": lane})).await;
-    assert_eq!(saved_task(&root, &id)["status"], "running", "{}", saved_task(&root, &id));
+    let row = saved_task(&restarted, &root, &id);
+    assert_eq!(row["status"], "running", "{row}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -573,13 +577,14 @@ async fn an_owed_orphan_card_waits_for_a_start_that_loads_its_giver() {
     person.call("session/close", json!({"sessionId": lane})).await;
     person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
     // As a crash between the ledger write and the card leaves it.
+    first.flush_writes();
     let path = root.join("briefs.json");
     let mut rows: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     rows[&id]["result"]["cardOwed"] = json!(true);
     std::fs::write(&path, serde_json::to_vec(&rows).unwrap()).unwrap();
 
-    let _blind = hub_at(&root, true);
-    let row = saved_task(&root, &id);
+    let blind = hub_at(&root, true);
+    let row = saved_task(&blind, &root, &id);
     assert_eq!(row["result"]["cardOwed"], true, "{row}");
     assert!(row["result"].get("undelivered").is_none(), "{row}");
 
@@ -587,12 +592,12 @@ async fn an_owed_orphan_card_waits_for_a_start_that_loads_its_giver() {
     // send is a duplicate (one card), and the mark goes.
     let next = hub_at(&root, false);
     for _ in 0..300 {
-        if saved_task(&root, &id)["result"].get("cardOwed").is_none() {
+        if saved_task(&next, &root, &id)["result"].get("cardOwed").is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let row = saved_task(&root, &id);
+    let row = saved_task(&next, &root, &id);
     assert!(row["result"].get("cardOwed").is_none(), "{row}");
     let cards = Client::open(&next).prompts(&coordinator, &format!("task-result-{id}"), 1).await;
     assert_eq!(cards.len(), 1, "{cards:?}");

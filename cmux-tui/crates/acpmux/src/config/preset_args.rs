@@ -224,37 +224,13 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 }
 
 /// Writes `text` as preset `name`'s system prompt file (directory 0700, file
-/// 0400, replaced atomically); returns the file's sha256.
-#[cfg(unix)]
-pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    let dir = preset_dir(presets, name);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-    let tmp = dir.join(format!(".{SYSTEM_PROMPT_FILE}.{}", uuid::Uuid::now_v7()));
-    let written = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o400).open(&tmp)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    written?;
-    Ok(crate::sha256::sha256_hex(text.as_bytes()))
-}
-/// Windows: the folder and the file owner-only (`owner_only.rs`); the
-/// file is replaced atomically as on Unix.
-#[cfg(windows)]
+/// 0400, owner-only on Windows), atomically and durably; returns the file's
+/// sha256.
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     let dir = preset_dir(presets, name);
-    crate::owner_only::create_dir_all(&dir)?;
-    crate::owner_only::restrict(&dir)?;
-    crate::config::write_owner_only(&dir.join(SYSTEM_PROMPT_FILE), text.as_bytes())
-        .map_err(io::Error::other)?;
+    crate::agent_tools::owner_only_folder(&dir)?;
+    crate::config::write_owner_only_as(&dir.join(SYSTEM_PROMPT_FILE), text.as_bytes(), 0o400)
+        .map_err(io::Error::from)?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
 }
 

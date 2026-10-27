@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::time::Instant;
@@ -1175,24 +1175,10 @@ fn replace_registry_metadata(
     let registry = install_root.join(".registry");
     fs::create_dir_all(&registry)?;
     let path = registry_metadata_path(install_root, name);
-    let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
-    let result = (|| -> anyhow::Result<()> {
-        let encoded = serde_json::to_vec(metadata)?;
-        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
-        file.write_all(&encoded)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&temp, &path)
-            .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", path.display()))
-    })();
-    if result.is_err() {
-        // A failed write or sync can leave a partial temporary file. Remove
-        // it before returning so a later install cannot inherit stale
-        // metadata and the registry does not accumulate unbounded debris.
-        let _ = fs::remove_file(&temp);
-    }
-    result
+    let mut encoded = serde_json::to_vec(metadata)?;
+    encoded.push(b'\n');
+    cmux_important_file::write_important(&path, &encoded, cmux_important_file::Mode::Default)
+        .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", path.display()))
 }
 
 /// A completed artifact replacement whose old files remain available until

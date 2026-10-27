@@ -8,8 +8,7 @@
 //! The copy is `<state>/link-sync/<sha256 of folder NUL machine folder>.json`
 //! (0600, its folder 0700), written to a temporary name and renamed.
 
-use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
@@ -64,18 +63,9 @@ pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyh
         .mode(0o700)
         .create(dir)
         .with_context(|| format!("cannot make {}", dir.display()))?;
-    let part = path.with_extension(format!("{}.part", std::process::id()));
-    let _ = std::fs::remove_file(&part);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&part)
-        .with_context(|| format!("cannot write {}", part.display()))?;
-    file.write_all(&serde_json::to_vec(manifest)?)?;
-    file.sync_all()?;
-    std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
+    let bytes = serde_json::to_vec(manifest)?;
+    cmux_important_file::write_important(&path, &bytes, cmux_important_file::Mode::Exact(0o600))
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 /// The base of `local` synced to `remote_root`, checked against the

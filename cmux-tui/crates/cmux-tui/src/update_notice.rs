@@ -193,25 +193,15 @@ pub(crate) fn read_cache(root: &Path) -> Option<Cached> {
 }
 
 pub(crate) fn write_cache(root: &Path, cached: &Cached) -> Result<(), String> {
-    use std::io::Write;
     let body = serde_json::json!({
         "checked_at_ms": cached.checked_at_ms,
         "latest": cached.latest,
         "next": cached.next,
         "channel": cached.channel,
     });
-    let path = cache_path(root);
-    let temp = root.join(format!("{CACHE_NAME}.tmp"));
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    let mut file = options.open(&temp).map_err(|error| format!("write cache: {error}"))?;
-    file.write_all(body.to_string().as_bytes()).map_err(|error| format!("write cache: {error}"))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("write cache: {error}"))
+    let owner_only = cmux_important_file::Mode::Exact(0o600);
+    cmux_important_file::write_important(&cache_path(root), body.to_string().as_bytes(), owner_only)
+        .map_err(|error| format!("write cache: {error}"))
 }
 
 /// Whether the cache needs a fresh answer (none, another channel, or older than a day).

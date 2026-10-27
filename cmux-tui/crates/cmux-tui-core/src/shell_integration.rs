@@ -14,9 +14,8 @@
 
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
@@ -344,29 +343,11 @@ fn materialize(root: &Path) -> io::Result<PathBuf> {
         {
             continue;
         }
-        // Unique per call: shells can launch concurrently in one process.
-        let temp = parent.join(format!(
-            ".{}.{}.{}.tmp",
-            path.file_name().and_then(OsStr::to_str).unwrap_or("script"),
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        let written = (|| {
-            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
-            file.write_all(script.contents.as_bytes())?;
-            file.sync_all()?;
-            crate::platform::restrict_file(&temp)?;
-            fs::rename(&temp, &path)
-        })();
-        if written.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        written?;
+        let owner_only = cmux_important_file::Mode::Exact(0o600);
+        cmux_important_file::write_important(&path, script.contents.as_bytes(), owner_only)?;
     }
     Ok(root.to_path_buf())
 }
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Every directory from `base` up to `/` must belong to this user or root.
 /// One that every user can write to must be a root-owned sticky directory

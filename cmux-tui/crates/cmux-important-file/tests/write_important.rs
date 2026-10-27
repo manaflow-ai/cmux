@@ -5,7 +5,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use cmux_important_file::{Mode, Options, Step, WriteError, write_important, write_important_with};
+use cmux_important_file::{
+    Mode, Options, Step, WriteError, commit_important, write_important, write_important_with,
+};
 
 fn names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
@@ -159,6 +161,37 @@ mod unix {
         assert_eq!(error.step(), Step::CreateTemp);
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(fs::read(&path).unwrap(), b"old");
+    }
+
+    /// A folder that can be written but not opened: the temp and the rename
+    /// work, the folder flush after the rename fails. The write succeeded
+    /// (every reader sees the new contents) and says what is left undone.
+    #[test]
+    fn a_failed_folder_flush_after_the_rename_is_committed_not_an_error() {
+        if is_root() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing.json");
+        fs::write(&path, b"old").unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o300)).unwrap();
+        let committed = commit_important(&path, b"new", &Options::new(Mode::Exact(0o600)));
+        let plain = write_important(&path, b"newer", Mode::Exact(0o600));
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let committed = committed.unwrap();
+        let flush = committed.folder_flush_error().expect("the folder flush failed");
+        assert_eq!(flush.kind(), io::ErrorKind::PermissionDenied);
+        plain.unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"newer");
+        assert_eq!(names(dir.path()), ["pairing.json"]);
+    }
+
+    #[test]
+    fn a_flushed_folder_reports_nothing_left_undone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        let committed = commit_important(&path, b"new", &Options::new(Mode::Default)).unwrap();
+        assert!(committed.folder_flush_error().is_none(), "{committed:?}");
     }
 
     /// Root ignores folder permissions; `id -u` keeps this test free of FFI.

@@ -9,6 +9,10 @@
 //! the thread writes the newest bytes of each file with `write_owner_only`, so a burst of picks is
 //! one write and the file never goes back to an older state. `flush` waits for what is queued:
 //! before the daemon reads `config.json` back (`reload_catalog`) and at shutdown.
+//!
+//! The brief ledger (`briefs.json`, `dispatch.rs`) has a writer of its own
+//! ([`ConfigWriter::start`] with its write): a claim made the same two fsyncs while holding the
+//! ledger's lock on a tokio worker.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -21,11 +25,14 @@ struct State {
     stop: bool,
 }
 
-#[derive(Default)]
+/// Writes one file's bytes; reports its own failure.
+pub(crate) type Write = fn(&std::path::Path, &[u8]);
+
 struct Shared {
     state: Mutex<State>,
     work: Condvar,
     written: Condvar,
+    write: Write,
 }
 
 pub(crate) struct ConfigWriter {
@@ -35,24 +42,32 @@ pub(crate) struct ConfigWriter {
 
 impl Default for ConfigWriter {
     fn default() -> Self {
-        let shared = Arc::new(Shared::default());
-        let worker = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("acpmux-config-writer".into())
-            .spawn(move || run(&worker))
-            .map_err(|e| {
-                tracing::error!("the config writer did not start; files are written in place: {e}")
-            })
-            .ok();
-        Self { shared, thread: Mutex::new(thread) }
+        Self::start("acpmux-config-writer", write_settings)
     }
 }
 
 impl ConfigWriter {
+    /// A writer thread named `name` that writes each file with `write`.
+    pub(crate) fn start(name: &str, write: Write) -> Self {
+        let shared = Arc::new(Shared {
+            state: Mutex::default(),
+            work: Condvar::new(),
+            written: Condvar::new(),
+            write,
+        });
+        let worker = shared.clone();
+        let thread = std::thread::Builder::new()
+            .name(name.into())
+            .spawn(move || run(&worker))
+            .map_err(|e| tracing::error!("{name} did not start; files are written in place: {e}"))
+            .ok();
+        Self { shared, thread: Mutex::new(thread) }
+    }
+
     /// Queues `bytes` as the next content of `path`, replacing older queued bytes of it.
     pub(crate) fn queue(&self, path: PathBuf, bytes: Vec<u8>) {
         if !self.running() {
-            write(&path, &bytes);
+            (self.shared.write)(&path, &bytes);
             return;
         }
         let mut state = self.lock();
@@ -102,7 +117,7 @@ fn run(shared: &Shared) {
         state.writing = true;
         drop(state);
         for (path, bytes) in batch {
-            write(&path, &bytes);
+            (shared.write)(&path, &bytes);
         }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         state.writing = false;
@@ -110,7 +125,7 @@ fn run(shared: &Shared) {
     }
 }
 
-fn write(path: &std::path::Path, bytes: &[u8]) {
+fn write_settings(path: &std::path::Path, bytes: &[u8]) {
     let result = path
         .parent()
         .map_or(Ok(()), crate::config::private_state_dir)

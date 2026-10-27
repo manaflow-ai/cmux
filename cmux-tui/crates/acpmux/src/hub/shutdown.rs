@@ -140,11 +140,12 @@ impl Hub {
         self.append(s, "mux", "turn_result", result);
     }
 
-    /// Waits until every session record and settings file queued so far is on disk
-    /// (`meta_writer.rs`, `config_writer.rs`): before a restart reads them back.
+    /// Waits until every session record, settings file and brief ledger change queued so far is
+    /// on disk (`meta_writer.rs`, `config_writer.rs`): before a restart reads them back.
     pub fn flush_writes(&self) {
         self.meta_writer.flush();
         self.config_writer.flush();
+        self.briefs.flush();
     }
 
     /// Save every session's meta and sync the event log to disk.

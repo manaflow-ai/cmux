@@ -4,7 +4,6 @@
 //! without this record nothing would end such a move. A run holds the
 //! record's lock throughout, so two pumps never move one chat at once.
 
-use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
@@ -97,24 +96,15 @@ impl Records {
         }
     }
 
-    /// Replaces the record (written whole, then renamed into place).
+    /// Replaces the record atomically and durably, owner-only.
     pub(super) fn save(&self, record: &Record) -> anyhow::Result<()> {
-        let temporary = self.path.with_extension("json.tmp");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&temporary)
-            .context("cannot write the move record")?;
-        file.write_all(&serde_json::to_vec(record)?)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, &self.path).context("cannot save the move record")?;
-        // The rename itself survives a crash once its folder is synced.
-        if let Some(dir) = self.path.parent() {
-            std::fs::File::open(dir)?.sync_all()?;
-        }
-        Ok(())
+        let bytes = serde_json::to_vec(record)?;
+        cmux_important_file::write_important(
+            &self.path,
+            &bytes,
+            cmux_important_file::Mode::Exact(0o600),
+        )
+        .context("cannot save the move record")
     }
 
     pub(super) fn clear(&self) {
