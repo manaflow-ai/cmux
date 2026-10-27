@@ -5863,12 +5863,21 @@ function AcpmuxPane() {
   const sandboxElsewhere =
     snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
   const [sandboxViewing, setSandboxViewing] = useState(false);
+  /// What only the composer held (shell mode, its line, attachments) while the receipt took its
+  /// place: Back puts it back. It belongs to that chat, so another chat or a new one drops it.
+  const sandboxWake = useRef<ComposerWake | undefined>(undefined);
   /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
   const newTabSandboxSent = useRef(false);
   useEffect(() => {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
+    sandboxWake.current = undefined;
   }, [snapshot.sessionId, newTabGeneration]);
+  /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
+  /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
+  useEffect(() => {
+    if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
+  }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
@@ -9086,7 +9095,7 @@ function AcpmuxPane() {
               onClick={() => {
                 // The receipt takes the composer's place: what only the composer holds (shell
                 // mode, its line, attachments) comes back with it on Back.
-                pendingWake.current = composerHandle.current?.wakeState();
+                sandboxWake.current = composerHandle.current?.wakeState();
                 setSandboxViewing(true);
               }}
             >
@@ -9969,7 +9978,11 @@ function AcpmuxPane() {
                   <SandboxRunView
                     run={viewedSandbox}
                     onCheckAgain={() => void sandbox.read()}
-                    onBack={() => setSandboxViewing(false)}
+                    onBack={() => {
+                      pendingWake.current = sandboxWake.current ?? pendingWake.current;
+                      sandboxWake.current = undefined;
+                      setSandboxViewing(false);
+                    }}
                   />
                 ) : reviewing && handoff && snapshot.handoff ? (
                   <HandoffReviewMessage
