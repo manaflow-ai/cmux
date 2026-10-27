@@ -31,7 +31,7 @@ struct AgentPaneSendPickedFolderPromptTests {
 
     /// A pane with no root for `folder` (a project outside the fresh workspace) and one root of its
     /// own (`root`), on a stand-in acpmux.
-    private func pane(home: Bool = false, connected: Bool = true) async throws -> Pane {
+    private func pane(home: Bool = false, connected: Bool = true, maximumSendBytes: Int = 64 << 20) async throws -> Pane {
         let server = AcpmuxStandInServer()
         try await server.start()
         let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -44,7 +44,9 @@ struct AgentPaneSendPickedFolderPromptTests {
         let root = AcpmuxPathPolicy.canonical(rooted) ?? rooted
         let clock = Clock()
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
-        let transport = AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now }))
+        var limits = AgentPaneTransport.Limits()
+        limits.maximumOutstandingBytes = maximumSendBytes
+        let transport = AgentPaneTransport(limits: limits, gestures: AgentPaneUserGestures(now: { clock.now }))
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
         let model = AgentPaneModel(host: NoHost(), transport: transport)
         transport.roots = { [root] }
@@ -140,6 +142,48 @@ struct AgentPaneSendPickedFolderPromptTests {
         pane.model.transport.close(connection: pane.id)
         // The native picker completes even though the old connection still has request ids.
         #expect(await pane.model.transport.pick(pane.folder) == pane.folder)
+        try await startAfterDeferredTrust(pane)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func journalReplayWaitsForDeferredTrustAcknowledgement() async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let transport = pane.model.transport
+        let daemon = pane.base.appendingPathComponent("acpmux.sock").path
+        let journal = AgentPanePromptJournal(url: pane.base.appendingPathComponent("prompts.json"))
+        let entry = AgentPanePromptJournal.Entry(daemon: daemon, sessionId: "s-new", promptId: "replay-1",
+            params: #"{"sessionId":"s-new","prompt":[{"type":"text","text":"Continue"}],"_meta":{"acpmux":{"promptId":"replay-1"}}}"#, at: Date())
+        let owner = UUID()
+        let recorded = await Task.detached { journal.record(entry, owner: owner) }.value
+        #expect(recorded)
+        journal.connectionEnded(owner: owner, byDaemon: false)
+        transport.promptJournal = journal
+        transport.webModes = { _, _, _ in nil }
+        #expect(await transport.pick(pane.folder) == pane.folder)
+        pane.server.hold("acp.trust.set")
+        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: daemon))
+        defer { pane.server.releaseHeld(); transport.close(connection: id) }
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+        #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
+        #expect(journal.entries().count == 1)
+        pane.server.releaseHeld()
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/status","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("session/prompt") && $0.contains("replay-1") } == true })
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aTrustSendFailureKeepsTheFolderForReconnect(overflow: Bool) async throws {
+        let pane = try await pane(maximumSendBytes: 1024)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let transport = pane.model.transport
+        let socket = try #require(transport.socket)
+        let ids = try #require(transport.requestIds)
+        if !overflow { socket.close(code: 1000, reason: "", error: nil) }
+        // Exercise a failure after the picker has queued its host request, at the actual send.
+        let host = AgentPaneTransport.PendingHostSend(connection: pane.id, requestID: ids.hostID(), folder: pane.folder,
+            frame: overflow ? String(repeating: " ", count: 1025) : "{}", reply: nil)
+        await transport.sendHost(host, socket: socket, ids: ids)
         try await startAfterDeferredTrust(pane)
     }
 
