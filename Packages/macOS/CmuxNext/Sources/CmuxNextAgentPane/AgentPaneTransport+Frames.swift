@@ -266,6 +266,11 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
+        // A start or open while a Sandboxed send runs is refused before it spends the gesture or
+        // leaves a start credit (the count below still decides).
+        if socket.refusesPageFrame(method: facts.method) {
+            return Self.refuse(.refuse(.methodRefused, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         // A gesture the folder check below uses: a new chat's start carries it to its first prompt.
         var startGesture = false
         if facts.needsPathCheck, !remoteWire {

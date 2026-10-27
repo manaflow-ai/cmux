@@ -204,6 +204,21 @@ struct AgentPaneSandboxRunTests {
         }
     }
 
+    @Test func aStartWhileASandboxedSendRunsIsRefusedBeforeItSpendsAnything() {
+        // Checked before the gesture and the start credit (AgentPaneTransport decide): only a start
+        // or open, and only while the send runs.
+        let replacements = AcpmuxPaneReplacements()
+        #expect(!replacements.refuses(method: "session/new"))
+        #expect(replacements.beginSandbox())
+        for method in ["session/new", "session/load", "session/resume", "_acpmux/attach"] {
+            #expect(replacements.refuses(method: method))
+        }
+        #expect(!replacements.refuses(method: "session/prompt"))
+        #expect(!replacements.refuses(method: nil))
+        replacements.endSandbox()
+        #expect(!replacements.refuses(method: "session/new"))
+    }
+
     @Test func aSandboxRunWaitsForTheSendLineToDrain() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         #expect(await model.transport.lineDrained(within: .milliseconds(10)))

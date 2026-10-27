@@ -185,7 +185,9 @@ test("a read that fails after a lost answer keeps the tab's send spent", async (
   tab.send("first", "claude");
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(tab.host).toEqual({ kind: "unknown" });
+  // The lost answer stays in view (it may hide a live Run), with Check again.
+  expect(tab.unread).toBe(true);
+  expect(tab.view()).toMatchObject({ task: "first", state: "failed", code: "timeout" });
   expect(tab.spent()).toBe(true);
   expect(tab.send("second", "claude")).toBe(false);
 });
@@ -521,4 +523,22 @@ test("the only documented request refusals free the tab; a host read with no att
     expect(tab.host).toEqual({ kind: "unknown" });
     expect(tab.checked).toBe(false);
   }
+});
+
+test("a read that fails keeps the run the tab last knew in view, with Check again", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  let fail = false;
+  const tab = new SandboxTab(
+    (_method, params) =>
+      fail ? Promise.reject({ code: "native.not_connected" }) : params.wait ? new Promise(() => undefined) : Promise.resolve({ task: "go", key: "k", running: true }),
+    () => undefined,
+  );
+  void tab.read();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.view()).toEqual({ task: "go", state: "running" });
+  fail = true;
+  await tab.read();
+  expect(tab.unread).toBe(true);
+  expect(tab.view()).toEqual({ task: "go", state: "running" });
+  expect(tab.spent()).toBe(true);
 });
