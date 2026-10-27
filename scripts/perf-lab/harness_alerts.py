@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Harness-broken alerts, story coverage, and Pinpoint's functional mode (p12-perf-process.md 3.6, task 214).
+"""Harness-broken alerts and story coverage (p12-perf-process.md 3.6, task 214).
 
 A story that errors is not slow, it measures nothing, so the change-point detector (alerts.py) never
 sees it. This module turns the story runner's outcomes into the alerts a broken harness needs:
@@ -8,23 +8,19 @@ sees it. This module turns the story runner's outcomes into the alerts a broken 
   alert (rule `harness_broken`) on each of its series on that host class, and those alerts form one
   harness-broken group, never a regression group. Outcomes of an env-invalid host are no evidence
   either way (host_env refused the job and nothing ran), so they neither count nor break the streak.
-  A pass ends the streak; when the story passes again after its group opened, the group moves to
-  `fixed`.
+  The group's range is (last passing batch tip, first failing batch tip]. It then moves through the
+  sheriff's states like any group; sheriff.py closes it once the story ran again after the break.
 - story_coverage() counts a planned story as measured only for an env-valid pass. An error, a
   harness-broken story and an env-invalid gap all count missing; a broken story is never dropped from
   the planned count, so a broken harness cannot raise coverage.
-- When the breakage has a passing batch before it, the group gets a queued functional bisect job
-  (jobs row, kind `bisect`, params mode `functional`) from the last passing batch tip to the first
-  failing one, for the Pinpoint executor (task 016) to run with pinpoint.py's Job (task 015).
-- functional_comparison() is how functional mode compares two Changes: the pass/fail of each attempt,
-  as catapult `dashboard/dashboard/pinpoint/models/job_state.py` _Compare compares
-  `bool(execution.exception)` tuples with `compare.Compare(..., FUNCTIONAL, comparison_magnitude)`,
-  magnitude 0.5 when the job sets none. The thresholds are perf_stats.compare's functional
-  HighThreshold row; the bisect takes the floored verdict (R5). Fewer failures on the later Change is
-  SAME, as a shift in the improvement direction is for performance (015), so a bisect follows the
-  breaking step and not a later fix.
-- functional_bisect() runs that comparison over a commit range with Pinpoint's attempt doubling
-  (10 up to 160) and midpoint split, skipping commits that do not build, down to the breaking commit.
+- functional_target() is what the Pinpoint executor (pinpoint_exec.py) bisects a harness-broken group
+  with: a functional-mode pinpoint.Job, which compares the attempts' pass/fail rates with
+  perf_stats.compare in functional mode (the functional HighThreshold row, magnitude 0.5, the floored
+  verdict for a bisect), as catapult `dashboard/dashboard/pinpoint/models/job_state.py` _Compare
+  compares `bool(execution.exception)` tuples. Fewer failures on the later Change is SAME, so the
+  bisect follows the breaking step and not a later fix. The good end is the story's newest stored
+  waterfall pass before the range and the series is the one that pass stored: a passing attempt
+  stores that metric, a broken one stores nothing.
 
 The outcomes come from the story runner (task 008: run_story.py exits 3 on env-invalid) through the
 executor; on the command line they are ndjson, one StoryOutcome per line:
@@ -43,7 +39,7 @@ import sqlite3
 import sys
 import tempfile
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,10 +50,6 @@ STATUSES = (PASS, ERROR, ENV_INVALID)
 BROKEN_AFTER = 2  # consecutive env-valid errored batches
 RULE = "harness_broken"
 ACTOR = "perf-lab-harness-alerts"
-FUNCTIONAL = "functional"
-FUNCTIONAL_METRIC = "harness.failed"  # 1 per failed attempt, 0 per passed one; lower is better
-FUNCTIONAL_MAGNITUDE = 0.5  # job_state.py _Compare: the functional magnitude when the job sets none
-BISECT_JOB_STATE = "queued"
 
 
 class HarnessAlertsError(RuntimeError):
@@ -84,7 +76,6 @@ def _load_sibling(module_name: str, filename: str):
 
 alerts = _load_sibling("perf_lab_alerts", "alerts.py")
 store_mod = alerts.store_mod
-perf_stats = alerts.perf_stats
 
 
 # ---------- outcomes ----------
@@ -277,148 +268,6 @@ def _broken_positions(batches: Sequence[BatchStatus]) -> set[int]:
     return broken
 
 
-# ---------- functional mode ----------
-
-
-def failure_values(outcomes: Iterable[StoryOutcome]) -> list[int]:
-    """A functional Attempt's values: 1 per env-valid error, 0 per pass; env-invalid runs measured nothing."""
-    return [int(outcome.status == ERROR) for outcome in outcomes if outcome.status != ENV_INVALID]
-
-
-@dataclass(frozen=True)
-class FunctionalVerdict:
-    verdict: str  # perf_stats DIFFERENT, SAME or UNKNOWN: the bisect's (floored) verdict
-    comparison: object  # perf_stats.Comparison, both rules and both p-values
-    failure_rate_a: float | None
-    failure_rate_b: float | None
-
-
-def functional_comparison(failed_a: Sequence[int], failed_b: Sequence[int], *,
-                          magnitude: float = FUNCTIONAL_MAGNITUDE) -> FunctionalVerdict:
-    """Compares the pass/fail of two Changes' attempts in Pinpoint's functional mode.
-
-    The verdict is the floored one (DIFFERENT p <= 0.05, SAME p > max(HighThreshold('functional',
-    magnitude, n), 0.10)); fewer failures on Change b is SAME.
-    """
-    a, b = [int(bool(value)) for value in failed_a], [int(bool(value)) for value in failed_b]
-    comparison = perf_stats.compare(a, b, mode=FUNCTIONAL, magnitude=magnitude)
-    rate_a = sum(a) / len(a) if a else None
-    rate_b = sum(b) / len(b) if b else None
-    verdict = comparison.floored.result
-    if verdict == perf_stats.DIFFERENT and rate_b < rate_a:
-        verdict = perf_stats.SAME
-    return FunctionalVerdict(verdict, comparison, rate_a, rate_b)
-
-
-MIN_ATTEMPTS, MAX_ATTEMPTS = 10, 160  # catapult job_state.py
-# Runs `attempts` attempts of the story at a commit: 1 per failed attempt, 0 per pass; None when the
-# commit does not build (it is skipped, as Pinpoint skips an unbuildable Change).
-AttemptRunner = Callable[[str, int], "Sequence[int] | None"]
-
-
-@dataclass(frozen=True)
-class FunctionalBisectResult:
-    culprit: str | None  # the first failing commit, when the step is between two adjacent measured commits
-    good: str  # the last commit judged passing
-    bad: str  # the first commit judged failing
-    skipped: tuple[str, ...]  # unbuildable commits inside the range
-    comparisons: tuple[tuple[str, str, str], ...]  # (a, b, verdict) in order
-
-
-def functional_bisect(commits: Sequence[str], run: AttemptRunner, *,
-                      magnitude: float = FUNCTIONAL_MAGNITUDE) -> FunctionalBisectResult:
-    """Bisects the pass/fail rate between commits[0] (good) and commits[-1] (bad), first parent order.
-
-    Pinpoint's loop for one step: compare a Change with its neighbour; UNKNOWN doubles both Changes'
-    attempts from MIN_ATTEMPTS up to MAX_ATTEMPTS (still UNKNOWN there counts SAME); DIFFERENT splits
-    the range at its midpoint. The executor (task 016) runs this until pinpoint.py's functional Job
-    (task 015) takes it over with the same comparison, functional_comparison().
-    """
-    if len(commits) < 2:
-        raise HarnessAlertsError("a functional bisect needs a good and a bad commit")
-    values: dict[str, list[int]] = {}
-    unbuildable: set[str] = set()
-    log: list[tuple[str, str, str]] = []
-
-    def measure(sha: str, count: int) -> bool:
-        have = values.setdefault(sha, [])
-        if len(have) < count:
-            more = run(sha, count - len(have))
-            if more is None:
-                unbuildable.add(sha)
-                return False
-            have.extend(int(bool(value)) for value in more)
-        return True
-
-    def verdict(a: str, b: str) -> str:
-        count = MIN_ATTEMPTS
-        while True:
-            if not (measure(a, count) and measure(b, count)):
-                raise HarnessAlertsError(f"{a if a in unbuildable else b}: the bisect's end does not build")
-            result = functional_comparison(values[a], values[b], magnitude=magnitude).verdict
-            if result != perf_stats.UNKNOWN or count >= MAX_ATTEMPTS:
-                result = perf_stats.SAME if result == perf_stats.UNKNOWN else result
-                log.append((a, b, result))
-                return result
-            count = min(count * 2, MAX_ATTEMPTS)
-
-    lo, hi = 0, len(commits) - 1
-
-    def result(culprit: str | None) -> FunctionalBisectResult:
-        skipped = tuple(sha for sha in commits[lo + 1:hi] if sha in unbuildable)
-        return FunctionalBisectResult(culprit, commits[lo], commits[hi], skipped, tuple(log))
-
-    if verdict(commits[lo], commits[hi]) != perf_stats.DIFFERENT:
-        return result(None)
-    while True:
-        inside = [index for index in range(lo + 1, hi) if commits[index] not in unbuildable]
-        if not inside:
-            # Adjacent measured commits: the later one broke the story, unless unbuildable commits sit between.
-            return result(None if lo + 1 < hi else commits[hi])
-        mid = inside[len(inside) // 2]
-        if not measure(commits[mid], MIN_ATTEMPTS):
-            continue
-        if verdict(commits[lo], commits[mid]) == perf_stats.DIFFERENT:
-            hi = mid
-        elif verdict(commits[mid], commits[hi]) == perf_stats.DIFFERENT:
-            lo = mid
-        else:
-            return result(None)  # no single step: the failure rate grew gradually over the range
-
-
-@dataclass(frozen=True)
-class FunctionalBisect:
-    """The fields of pinpoint.py's Job (task 015) for a harness-broken group, as its jobs row stores them."""
-
-    group_id: int
-    story: str
-    host_class: str
-    good: str  # the last passing batch tip
-    bad: str  # the first failing batch tip
-    kind: str = "bisect"
-    mode: str = FUNCTIONAL
-    metric: str = FUNCTIONAL_METRIC
-    magnitude: float = FUNCTIONAL_MAGNITUDE
-
-    def params(self) -> dict[str, object]:
-        return {"mode": self.mode, "metric": self.metric, "magnitude": self.magnitude}
-
-    @classmethod
-    def from_job_row(cls, row: sqlite3.Row) -> "FunctionalBisect":
-        params = json.loads(row["params_json"])
-        if params.get("mode") != FUNCTIONAL:
-            raise HarnessAlertsError(f"job {row['id']} is not a functional bisect")
-        return cls(row["alert_group_id"], row["story"], row["host_class"], row["base_sha"], row["head_sha"],
-                   row["kind"], params["mode"], params["metric"], float(params["magnitude"]))
-
-
-def functional_bisects(store, group_id: int) -> list[FunctionalBisect]:
-    rows = store._db.execute("SELECT * FROM jobs WHERE alert_group_id = ? AND kind = 'bisect' ORDER BY id",
-                             (group_id,)).fetchall()
-    return [FunctionalBisect.from_job_row(row) for row in rows
-            if json.loads(row["params_json"]).get("mode") == FUNCTIONAL]
-
-
 # ---------- detection ----------
 
 
@@ -429,23 +278,18 @@ class DetectReport:
     alerts: int = 0
     groups_created: list[int] = field(default_factory=list)
     groups_joined: list[int] = field(default_factory=list)
-    groups_fixed: list[int] = field(default_factory=list)
-    bisects: list[int] = field(default_factory=list)
     no_series: list[str] = field(default_factory=list)  # broken stories with no stored series to alert on
-    no_good_batch: list[str] = field(default_factory=list)  # broken stories with no passing batch to bisect from
+    no_good_batch: list[str] = field(default_factory=list)  # broken stories whose outcomes hold no earlier pass
 
     def to_dict(self) -> dict[str, object]:
         return dict(self.__dict__)
 
 
 def detect(store, outcomes: Iterable[StoryOutcome]) -> DetectReport:
-    """Opens or joins a harness-broken group per broken (story, host class); fixes groups whose story passes again."""
+    """Opens or joins a harness-broken group per broken (story, host class)."""
     report = DetectReport()
     for (story, host_class), batches in sorted(batch_statuses(outcomes).items()):
         report.stories += 1
-        newest_pass = next((b for b in reversed(batches) if b.status == PASS), None)
-        if newest_pass is not None:
-            store._write(lambda: _fix_recovered(store, story, host_class, newest_pass, report))
         broken = breakage(story, host_class, batches)
         if broken is not None:
             report.broken += 1
@@ -453,80 +297,79 @@ def detect(store, outcomes: Iterable[StoryOutcome]) -> DetectReport:
     return report
 
 
-def _story_series(db: sqlite3.Connection, story: str, host_class: str) -> list[sqlite3.Row]:
-    return db.execute("SELECT id FROM series WHERE story = ? AND host_class = ? ORDER BY id",
-                      (story, host_class)).fetchall()
-
-
-def _open_harness_groups(db: sqlite3.Connection, story: str, host_class: str) -> list[sqlite3.Row]:
-    marks = ",".join("?" * len(alerts.OPEN_STATES))
-    return db.execute(
-        f"""SELECT DISTINCT g.* FROM alert_groups g JOIN alerts a ON a.group_id = g.id
-            JOIN series s ON s.id = a.series_id
-            WHERE a.rule = ? AND s.story = ? AND s.host_class = ? AND g.state IN ({marks}) ORDER BY g.id""",
-        (RULE, story, host_class, *alerts.OPEN_STATES)).fetchall()
-
-
-def _history(db: sqlite3.Connection, group_id: int, from_state: str | None, to_state: str, reason: str, now: str) -> None:
-    db.execute("INSERT INTO sheriff_history (group_id, from_state, to_state, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
-               (group_id, from_state, to_state, ACTOR, reason, now))
-
-
 def _record(store, broken: Breakage, report: DetectReport) -> None:
     db, now = store._db, store._now()
     label = f"{broken.story} ({broken.host_class})"
-    series = _story_series(db, broken.story, broken.host_class)
+    series = db.execute("SELECT id FROM series WHERE story = ? AND host_class = ? ORDER BY id",
+                        (broken.story, broken.host_class)).fetchall()
     if not series:
         report.no_series.append(label)
         return
     start, end = broken.start_pos, broken.end_pos
-    group = next((g for g in _open_harness_groups(db, broken.story, broken.host_class)
-                  if g["start_pos"] <= end and g["end_pos"] >= start), None)
+    # A series that already has a harness-broken alert on this break (in any group, closed ones too) gets no other.
+    new = [row["id"] for row in series if db.execute(
+        "SELECT 1 FROM alerts WHERE series_id = ? AND rule = ? AND start_pos <= ? AND end_pos >= ?",
+        (row["id"], RULE, end, start)).fetchone() is None]
+    if not new:
+        return
+    marks = ",".join("?" * len(alerts.OPEN_STATES))
+    group = db.execute(
+        f"""SELECT g.id FROM alert_groups g WHERE g.state IN ({marks}) AND g.start_pos <= ? AND g.end_pos >= ?
+            AND EXISTS (SELECT 1 FROM alerts a JOIN series s ON s.id = a.series_id WHERE a.group_id = g.id
+                        AND a.rule = ? AND s.story = ? AND s.host_class = ?) ORDER BY g.id LIMIT 1""",
+        (*alerts.OPEN_STATES, end, start, RULE, broken.story, broken.host_class)).fetchone()
     if group is None:
         reason = (f"harness broken: {label} errored on {broken.errored_batches} consecutive batches "
                   f"from {broken.first_error.sha[:12]}: {broken.last_error.reason or 'no reason given'}")
         group_id = db.execute(
             "INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at) VALUES ('new', ?, ?, ?, ?)",
             (start, end, now, now)).lastrowid
-        _history(db, group_id, None, "new", reason, now)
+        db.execute("INSERT INTO sheriff_history (group_id, from_state, to_state, actor, reason, at) "
+                   "VALUES (?, NULL, 'new', ?, ?, ?)", (group_id, ACTOR, reason, now))
         report.groups_created.append(group_id)
         if broken.last_pass is None:
             report.no_good_batch.append(label)
-        else:
-            job = FunctionalBisect(group_id, broken.story, broken.host_class, broken.last_pass.sha, broken.first_error.sha)
-            report.bisects.append(db.execute(
-                """INSERT INTO jobs (kind, state, story, host_class, base_sha, head_sha, alert_group_id, params_json,
-                                     created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job.kind, BISECT_JOB_STATE, job.story, job.host_class, job.good, job.bad, group_id,
-                 json.dumps(job.params(), sort_keys=True), now, now)).lastrowid)
     else:
         group_id = group["id"]
-    added = 0
-    for row in series:
-        already = db.execute(
-            "SELECT 1 FROM alerts WHERE series_id = ? AND rule = ? AND start_pos <= ? AND end_pos >= ?",
-            (row["id"], RULE, end, start)).fetchone()
-        if already:
-            continue
+        report.groups_joined.append(group_id)
+    for series_id in new:
         db.execute(
             """INSERT INTO alerts (series_id, group_id, rule, start_pos, end_pos, median_before, median_after,
                                    is_improvement, created_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?)""",
-            (row["id"], group_id, RULE, start, end, now))
-        added += 1
-    report.alerts += added
-    if group is not None and added:
-        report.groups_joined.append(group_id)
+            (series_id, group_id, RULE, start, end, now))
+    report.alerts += len(new)
 
 
-def _fix_recovered(store, story: str, host_class: str, newest_pass: BatchStatus, report: DetectReport) -> None:
-    db, now = store._db, store._now()
-    for group in _open_harness_groups(db, story, host_class):
-        if group["end_pos"] >= newest_pass.batch_pos:
-            continue
-        db.execute("UPDATE alert_groups SET state = 'fixed', updated_at = ? WHERE id = ?", (now, group["id"]))
-        _history(db, group["id"], group["state"], "fixed",
-                 f"{story} ({host_class}) passed again at {newest_pass.sha[:12]}", now)
-        report.groups_fixed.append(group["id"])
+# ---------- the functional bisect's target ----------
+
+
+@dataclass(frozen=True)
+class FunctionalTarget:
+    """What a harness-broken group's functional bisect measures; pinpoint_exec.py builds the Job from it."""
+
+    series: object  # alerts.SeriesInfo: the bisect's story, metric, host class and build config
+    good: str | None  # the story's newest stored waterfall pass before the range; None when none is stored
+
+
+def functional_target(store, group_id: int) -> FunctionalTarget | None:
+    """The target of a harness-broken group; None when the group has no harness-broken alert."""
+    db = store._db
+    group = db.execute("SELECT start_pos FROM alert_groups WHERE id = ?", (group_id,)).fetchone()
+    members = db.execute(
+        """SELECT s.* FROM alerts a JOIN series s ON s.id = a.series_id
+           WHERE a.group_id = ? AND a.rule = ? ORDER BY s.id""", (group_id, RULE)).fetchall()
+    if group is None or not members:
+        return None
+    marks = ",".join("?" * len(members))
+    passed = db.execute(
+        f"""SELECT r.series_id, b.sha FROM results r JOIN runs u ON u.id = r.run_id JOIN builds b ON b.id = u.build_id
+            WHERE r.series_id IN ({marks}) AND u.kind = 'waterfall' AND b.commit_pos < ?
+            ORDER BY b.commit_pos DESC, r.series_id LIMIT 1""",
+        (*(row["id"] for row in members), group["start_pos"])).fetchone()
+    if passed is None:
+        return FunctionalTarget(alerts.SeriesInfo.from_row(members[0]), None)
+    series = next(row for row in members if row["id"] == passed["series_id"])
+    return FunctionalTarget(alerts.SeriesInfo.from_row(series), passed["sha"])
 
 
 # ---------- CLI ----------
