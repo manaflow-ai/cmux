@@ -23,6 +23,17 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       test("a notch covers its distance over several painted frames", async () => {
         await browser.close();
         browser = await (engine === "chromium" ? chromium : webkit).launch();
+        if (process.env.CMUX_WHEEL_TRACE_DIR) {
+          const openPage = browser.newPage.bind(browser);
+          browser.newPage = (options) =>
+            openPage({
+              ...options,
+              recordVideo: {
+                dir: process.env.CMUX_WHEEL_TRACE_DIR!,
+                size: { width: 900, height: 700 },
+              },
+            });
+        }
         const page = await pane.open();
         try {
           const trace = await page.evaluate(async (engine) => {
@@ -82,6 +93,8 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           expect(Math.max(...steps)).toBeLessThan(60);
         } finally {
           await page.close();
+          if (process.env.CMUX_WHEEL_TRACE_DIR && page.video())
+            await page.video()!.saveAs(`${process.env.CMUX_WHEEL_TRACE_DIR}/${engine}.webm`);
         }
       });
       test("precise, modified and reduced-motion wheels remain native", async () => {

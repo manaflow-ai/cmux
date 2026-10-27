@@ -302,6 +302,7 @@ import {
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -2686,6 +2687,7 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
   const strayFrom = (top: number, latest: number) =>
     latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;
@@ -3089,6 +3091,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
@@ -3823,7 +3826,10 @@ export function VirtualTranscript({
           )
         : undefined;
     gutterRelease.current = gutter?.release;
+    wheelGlide.current = node ? installWheelGlide(node) : undefined;
     return () => {
+      wheelGlide.current?.remove();
+      wheelGlide.current = undefined;
       stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
