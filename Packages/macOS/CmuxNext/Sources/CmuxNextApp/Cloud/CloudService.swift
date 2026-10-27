@@ -126,7 +126,7 @@ final class CloudService {
                     let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
                         + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
                     guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
-                        .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+                        .first(where: { FileManager.checked.isExecutableFile(atPath: $0.path) }) else {
                         throw CloudCodexBrokerError.brokerUnavailable
                     }
                     return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
