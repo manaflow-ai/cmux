@@ -445,7 +445,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect, .assumeInside], owner: self)
         addTrackingArea(area)
         tracking = area
     }

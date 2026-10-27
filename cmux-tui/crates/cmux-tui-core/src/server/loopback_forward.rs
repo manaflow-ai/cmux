@@ -895,23 +895,21 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-loopback-open".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            connect_and_start(
-                worker_mux,
-                client,
-                worker_id,
-                stream,
-                audit_host,
-                port,
-                target,
-                window,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The connect waits on the network (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_start(
+            worker_mux,
+            client,
+            worker_id,
+            stream,
+            audit_host,
+            port,
+            target,
+            window,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         forwarder.release(client);
         return open_error(writer, id, OpenError::Limit);
     }
