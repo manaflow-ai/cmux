@@ -33,6 +33,8 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
+            refused: [.bool(true), .string("left")]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 
@@ -71,6 +73,35 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
+    /// `agentPane.display.minimap` was an on/off toggle before it was the Rail / Full Map / Off choice.
+    /// A settings file the toggle wrote keeps its meaning on the way to the page: `true` (the full
+    /// map) arrives as `"full"`, and `false` (the experiment decides) arrives as no value at all,
+    /// as it did before. Without this the choice row refused `true`, the page got nothing, and a
+    /// person who had turned the map on lost it.
+    @Test func theOldMinimapToggleKeepsItsMeaning() {
+        func page(_ value: JSONValue) -> JSONValue? {
+            let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": value])])])
+            return AgentPaneDisplaySetting(fileRoot: root).values["agentPane.display.minimap"]
+        }
+        #expect(page(.bool(true)) == .string("full"))
+        #expect(page(.bool(false)) == nil)
+        #expect(page(.string("compact")) == .string("compact"))
+        #expect(page(.string("off")) == .string("off"))
+        #expect(page(.string("yes")) == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func theOldMinimapToggleAgreesAcrossSettingsAndTheChat(_ on: Bool) throws {
+        let path = ["agentPane", "display", "minimap"]
+        let descriptor = try #require(SettingsSchema.descriptor(for: path))
+        let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": .bool(on)])])])
+        let expected: JSONValue = .string(on ? "full" : "compact")
+        // Settings and the palette read this descriptor value.
+        #expect(descriptor.effectiveValue(in: root) == expected)
+        let chat = AgentPaneDisplaySetting(fileRoot: root).values[descriptor.id] ?? descriptor.defaultValue
+        #expect(chat == expected)
+    }
+
     @Test func thePageFollowsMinimalMode() {
         let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
         #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
@@ -81,6 +112,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
+        "agentPane.display.minimap",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

@@ -21,3 +21,22 @@ extension WorkspaceRowView {
         agentMarkVariant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
     }
 }
+
+extension WorkspaceRowView {
+    /// A custom harness's own icon at the agent mark's size: an image drawn as is, a symbol as a
+    /// template tinted like the marks.
+    func agentIconImage(_ icon: SidebarAgentIcon) -> NSImage? {
+        let side = agentMarkSize
+        switch icon {
+        case .image(let favicon):
+            let image = NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side))
+            image.isTemplate = false
+            return image
+        case .symbol(let name):
+            let config = NSImage.SymbolConfiguration(pointSize: side * 0.82, weight: .regular)
+            let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            image?.isTemplate = true
+            return image
+        }
+    }
+}

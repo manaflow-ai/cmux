@@ -1,6 +1,6 @@
 import { conversation } from "@cmux/home-core"
 import { describe, expect, it } from "vitest"
-import { ownsRoot, replyTarget, rootOf, threadOf } from "../src/chief-brain/brain-text.ts"
+import { ownsRoot, replyTarget, rootOf, SHARED_CHIEF, threadOf } from "../src/chief-brain/brain-text.ts"
 
 /**
  * #25588: where a Cloud Chief's reply goes. A message that answers another without naming a thread
@@ -89,6 +89,12 @@ describe("the Chief's reply, as the owner commits it", () => {
   it("keeps a top-level question's answer at the top level of the Chief's line and a DM", () => {
     expect(answer("chief", byId.get("msg_1")!)).toEqual({ reply_to: undefined, thread_root: undefined })
     expect(answer("dm", byId.get("msg_1")!)).toEqual({ reply_to: undefined, thread_root: undefined })
+  })
+
+  it("a shared Chief chat quotes a top-level question, and answers a reply without a root in its thread", () => {
+    expect(answer(SHARED_CHIEF, byId.get("msg_1")!)).toEqual({ reply_to: "msg_1", thread_root: undefined })
+    expect(answer(SHARED_CHIEF, byId.get("msg_2")!)).toEqual({ reply_to: "msg_2", thread_root: "msg_1" })
+    expect(answer(SHARED_CHIEF, byId.get("msg_3")!)).toEqual({ reply_to: undefined, thread_root: "msg_1" })
   })
 
   it("threads a channel answer under a top-level question", () => {
