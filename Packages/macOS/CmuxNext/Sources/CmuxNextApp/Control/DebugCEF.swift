@@ -68,6 +68,9 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostLocks (p01-process-229): the key window's page view's locks.
+        let lockPage = (NSApp.keyWindow?.firstResponder as? ChromiumHostPageView)
+        object["host_locks"] = services.cache.cef.hostLocks(page: lockPage).map(hostLocks) ?? .null
         // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
         object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
             .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
@@ -85,6 +88,15 @@ enum DebugCEF {
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
         return .object(object)
+    }
+
+    private static func hostLocks(_ report: CEFHostLocksReport) -> JSONValue {
+        let browser: (Int32?) -> JSONValue = { $0.map { .number(Double($0)) } ?? .null }
+        return .object(["installed": .bool(report.installed), "asked": .number(Double(report.asked)),
+                        "granted": .number(Double(report.granted)), "pointer": browser(report.pointer),
+                        "unadjusted_movement": .bool(report.unadjustedMovement), "cursor_held": .bool(report.cursorHeld),
+                        "keyboard": browser(report.keyboard),
+                        "holds_keys": .bool(report.holdsKeys), "fullscreen": browser(report.fullscreen)])
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked

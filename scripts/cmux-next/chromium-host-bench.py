@@ -144,7 +144,9 @@ chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_d
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
 and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
 p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
-and document picture-in-picture, with feature chromiumHostChoosers on.
+and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows
+(chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
+(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
 (default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
@@ -189,12 +191,13 @@ import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_native_ui_locks  # noqa: E402
 import chromium_host_profiles  # noqa: E402
 import chromium_host_restore  # noqa: E402
 
 # Every --native-ui row, in the order they run.
 NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
-                  + chromium_host_native_ui_choosers.ROWS)
+                  + chromium_host_native_ui_choosers.ROWS + chromium_host_native_ui_locks.ROWS)
 
 
 def parse(argv=None):
@@ -756,7 +759,8 @@ def main():
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
-                                                             chromium_host_native_ui_choosers.FEATURES]))
+                                                             chromium_host_native_ui_choosers.FEATURES,
+                                                             chromium_host_native_ui_locks.FEATURES]))
         env.update(chromium_host_native_ui_choosers.ENV)
         chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
         open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
@@ -813,6 +817,14 @@ def main():
                     chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
                 RESULT["modes"]["native_ui"].update(chosen)
                 ok = ok and choosers_ok
+            lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
+            if lock_rows:
+                locks, locks_ok = chromium_host_native_ui_locks.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out,
+                    lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows),
+                    rows_to_run=lock_rows)
+                RESULT["modes"]["native_ui"].update(locks)
+                ok = ok and locks_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         if opts.kill_host:
