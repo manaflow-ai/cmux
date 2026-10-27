@@ -544,6 +544,17 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
 | `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
+| `notifications.sounds.events.finished` | string |  |  | Agent Finished |
+| `notifications.sounds.events.needsInput` | string |  |  | Agent Needs Input |
+| `notifications.sounds.events.error` | string |  |  | Error |
+| `notifications.sounds.events.bell` | string |  |  | Terminal Notification |
+| `notifications.sounds.events.message` | string |  |  | cmux notify Message |
+| `notifications.sounds.volume` | real | `1` | 0 to 1 | Volume. Sounds cmux plays itself. A banner's default sound follows the system alert volume. |
+| `notifications.sounds.when` | string | `"unlessViewed"` | `unlessViewed`, `whenInactive`, `always` | Play Sounds |
+| `notifications.sounds.cooldownSeconds` | real | `1.5` | 0 to 60 | Burst Cooldown. Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off. |
+| `notifications.sounds.workspaces` | dictionary | `{}` |  | Workspace Sounds. Sounds per workspace id. Set one from the workspace's sidebar menu. |
+| `notifications.sounds.groups` | dictionary | `{}` |  | Group Sounds. Sounds per group id or name. Set one from the group's sidebar menu. |
+| `notifications.sounds.agents` | dictionary | `{}` |  | Agent Sounds. Sounds per agent kind, such as claude or codex. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
 | `labs.classicHome` | boolean | `false` |  | Classic Home. Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts. |
 | `feed.github.enabled` | boolean | `false` |  | Connect GitHub. Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first. |

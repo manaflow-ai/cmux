@@ -206,6 +206,7 @@ on:
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_xcode_build_timeline.py
       - scripts/ci/xcode_build_timeline.py
+      - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
@@ -451,6 +452,7 @@ on:
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_xcode_build_timeline.py
       - scripts/ci/xcode_build_timeline.py
+      - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
@@ -1771,6 +1773,7 @@ jobs:
           python3 tests/test_cmux_next_hybrid_ref_capture.py
           python3 tests/test_cmux_next_dev_release_import_out.py
           python3 tests/test_xcode_build_timeline.py
+          python3 tests/test_cmux_next_dev_landing_workflow.py
           python3 tests/test_dev_landing_place.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
@@ -4486,6 +4489,62 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # A feat-cmux-next push's DEV Release app is dev-landing-compile's (one producer of the
+      # run's cmux-next-dev-daily-unsigned-<sha>); this job builds it on a push only while
+      # vars.CMUX_NEXT_DEV_LANDING_COMPILE is 0.
+      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
+      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
+      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
+      # have no complete capture yet; most landings share a key and skip it.
+      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
+      - name: Decide the Linux build's REF capture
+        id: hybrid-ref
+        # Before the product lookup: a key with no capture compiles instead of reusing a product
+        # (a reused product compiles nothing, so there would be no build to capture).
+        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready'))))
+        continue-on-error: true
+        # The lookup waits out a rate limit for at most 10 minutes (hybrid_ref_capture.py have).
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          # This step runs early in the job (before the lookup's waits): the capture step's fallback
+          # for the job's start when its own jobs read fails (a rate limit that outlasts this lookup).
+          echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
+          # Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
+          # packs 14 days). A rate limit is waited out; a lookup that still fails captures anyway and
+          # fails this step, so the run shows it (40428066457 lost its capture to a silent rate limit).
+          # compile=true skips the product reuse so there is a build to capture, unless a capture of
+          # this key came out incomplete in the last day (then only a build that compiles anyway
+          # captures, and a key that never captures whole cannot turn reuse off for every landing).
+          if have="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py have --key "$key" --repo "$GITHUB_REPOSITORY" --budget 600)"; then
+            complete="$(sed -n 's/^complete=//p' <<< "$have")" incomplete="$(sed -n 's/^recent_incomplete=//p' <<< "$have")"
+            capture=false compile=false
+            [[ "$complete" == 0 ]] && capture=true
+            [[ "$capture" == true && "$incomplete" == 0 ]] && compile=true
+            echo "REF key $key: readable complete captures $complete, incomplete today $incomplete, capture $capture, compile $compile"
+            printf 'key=%s\ncapture=%s\ncompile=%s\n' "$key" "$capture" "$compile" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Unknown: capture, and compile so there is a build to capture (a lookup that fails for
+          # 10 minutes is rare; a lost capture costs the Linux build its REF).
+          printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"
+          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); compiling and capturing anyway"
+          exit 1
       # The DEV Release app is reused, not recompiled, when nothing it is built from changed
       # (scripts/ci/dev_release_product_reuse.py): the key is job_input_fingerprint.py
       # dev-release-product (the tree minus docs, tests and other products, this workflow, Xcode,
@@ -4497,13 +4556,13 @@ jobs:
       # workflow on feat-cmux-next reuses: never nightly or stable builds (hq#3967).
       - name: Look up the DEV Release app compiled on the same inputs
         id: dev-product
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         continue-on-error: true
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
           # format(): an unset variable is null, and null == '0' is true (both coerce to the number 0).
-          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
           # A repository variable the compile step reads changes the product but not this file: key it.
           SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |
@@ -4671,49 +4730,12 @@ jobs:
           retention-days: 3
 
       # A current feat-cmux-next push also produces the Release app consumed by
-      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
-      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
-      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
-      # have no complete capture yet; most landings share a key and skip it.
-      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
-      - name: Decide the Linux build's REF capture
-        id: hybrid-ref
-        # A reused product compiles nothing, so its capture step finds no build mode and skips.
-        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
-          # compile step may carry them).
-          HYBRID_REF_SETTINGS: |
-            CMUX_NEXT_CONFIGURATION=Release
-            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
-            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
-            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
-            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
-            CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
-            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
-        run: |
-          set -euo pipefail
-          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
-          # A complete capture counts while its packs are still readable in the store (14 days from
-          # their upload; the manifest artifact keeps the same 14 days).
-          since="$(date -u -v-13d +%Y-%m-%dT%H:%M:%SZ)"
-          have="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hybrid-ref-capture-$key&per_page=100" \
-            --jq "[.artifacts[] | select(.expired == false and .created_at >= \"$since\")] | length")"
-          capture=false
-          [[ "$have" == 0 ]] && capture=true
-          echo "REF key $key: readable complete captures $have, capture $capture"
-          printf 'key=%s\ncapture=%s\n' "$key" "$capture" >> "$GITHUB_OUTPUT"
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -4735,6 +4757,7 @@ jobs:
           # CMUX_NEXT_DEV_COMPILATION_CACHE=0, CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule.
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
@@ -4759,6 +4782,24 @@ jobs:
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
           scripts/cmux-next/compile-dev-release.sh "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      # A host build moved this host's cache: the record the next landing's placement reads.
+      - name: Record this host's cache for the next landing's placement
+        id: dev-holder
+        # A same-tree dispatch compiles inputs.same_tree_sha, not its run's head_sha (the record's commit).
+        if: steps.compile-cmux-next-dev-release.outcome == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha)
+        continue-on-error: true
+        run: scripts/cmux-next/dev-cas-holder.sh "$RUNNER_TEMP/cmux-next-dev-landing/report.txt" "$RUNNER_TEMP/cmux-next-dev-cas-holder" >> "$GITHUB_OUTPUT"
+      - name: Upload this host's cache record
+        if: steps.dev-holder.outputs.holder != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-cas-holder-${{ steps.dev-holder.outputs.holder }}
+          path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
 
       - name: Upload DEV daily compile timing
         if: ${{ always() && steps.compile-cmux-next-dev-release.outcome != 'skipped' }}
@@ -4904,16 +4945,19 @@ jobs:
           DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           KEY: ${{ steps.hybrid-ref.outputs.key }}
+          DECIDE_STARTED: ${{ steps.hybrid-ref.outputs.started }}
           SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
           # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
           # most) and its manifest upload (2) start only while the job, timed from its own start, is
-          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          # under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
+          # start skips it. A skipped capture is taken by the next landing.
           started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
           started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          [[ -n "$started" ]] || started="$DECIDE_STARTED"
           if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
             echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
             exit 0
@@ -4929,7 +4973,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
+          name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
           path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
           if-no-files-found: error
           retention-days: 14
@@ -5006,6 +5050,288 @@ jobs:
   # has its own budget and the installation's actions: write; GITHUB_TOKEN,
   # waiting through a rate limit as scripts/ci/gh_budget_wait.sh does (#25434),
   # is the fallback when the App token cannot be minted or its dispatch fails.
+  # Every feat-cmux-next landing compiles the cmux NEXT DEV Release app at once, instead of
+  # waiting for main's DEV dispatcher (Leo, 2026-10-26: "you can just not have 93 commit caps if
+  # you're just doing it more often"): each compile starts from a cache at most a landing or two
+  # behind, and records its app under the whole-app reuse key (dev_release_product_reuse.py), so
+  # the DEV run the dispatcher later starts for that commit reuses it instead of compiling.
+  # Placement follows the routing order (scripts/ci/dev_landing_place.py): the free owned Mac
+  # whose host tree last compiled the nearest commit (its cmux-next-dev-cas-holder-<host>
+  # record), else any free owned Mac, and only when none is free for about two minutes
+  # Blacksmith macOS (cold there: a VM keeps no cache).
+  # Each landing's compile is its own run's job and is never cancelled. The tree probe is the DEV
+  # run's: this commit's published cmux-tui tree, else the newest published one.
+  # vars.CMUX_NEXT_DEV_LANDING_COMPILE=0 turns both jobs off.
+  dev-landing-place:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) != '0' }}
+    name: cmux NEXT DEV landing placement
+    environment: ci-routing-agent
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      runs_on: ${{ steps.place.outputs.runs_on }}
+      runner_label: ${{ steps.place.outputs.runner_label }}
+      pool: ${{ steps.place.outputs.pool }}
+      host: ${{ steps.place.outputs.host }}
+      holder_sha: ${{ steps.place.outputs.holder_sha }}
+      gap: ${{ steps.place.outputs.gap }}
+      tree_state: ${{ steps.tree.outputs.tree_state }}
+      tree_fetch_key: ${{ steps.tree.outputs.tree_fetch_key }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Probe the same-tree cmux-tui
+        id: tree
+        env:
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.sha }}
+          CMUX_TUI_TREE_DISPATCH: ""
+          CMUX_TUI_TREE_BASE_FALLBACK: "1"
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
+          CMUX_TUI_TREE_RECHECK_SECONDS: "0"
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/pin-cmux-tui.sh probe
+      - name: Mint the owned-pool read token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          permission-actions: read
+      - name: Place the compile
+        id: place
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SHA: ${{ github.sha }}
+          SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
+          OVERFLOW_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+          WAIT_SECONDS: "120"
+          POLL_SECONDS: "30"
+          GAP_REPO: ${{ runner.temp }}/dev-landing-history
+          GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # Commits only, for the distance to each host's last compile.
+          git init -q --bare "$GAP_REPO"
+          timeout 60 git -C "$GAP_REPO" fetch -q --no-tags --filter=tree:0 --depth=300 \
+            "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
+          python3 -I scripts/ci/dev_landing_place.py >> "$GITHUB_OUTPUT"
+
+  dev-landing-compile:
+    needs: dev-landing-place
+    if: ${{ !cancelled() && needs.dev-landing-place.result == 'success' && needs.dev-landing-place.outputs.tree_state == 'ready' }}
+    name: cmux NEXT DEV Release compile (landing)
+    concurrency:
+      group: ${{ format('cmux-next-dev-landing-{0}', github.run_id) }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-12vcpu-macos-26' }}
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    env:
+      # The placed label's first entry (a glaeda-* label means a mini).
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runner_label || 'blacksmith-12vcpu-macos-26' }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_TUI_TREE_KEY: ${{ needs.dev-landing-place.outputs.tree_fetch_key }}
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      # The same key and lookup as cmux-scheme-compile's (a DEV run that compiled these inputs first).
+      - name: Look up the DEV Release app compiled on the same inputs
+        id: dev-product
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKIP_REASON: ${{ format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          key="$(python3 -I scripts/ci/job_input_fingerprint.py dev-release-product \
+            --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
+            --extra "sdk=$(xcrun --sdk macosx --show-sdk-version) $(xcrun --sdk macosx --show-sdk-build-version)" \
+            --extra "arch=$(uname -m)" \
+            --extra "recipe=$(python3 -I -c 'import sys; sys.path.insert(0, "scripts/ci"); import dev_release_product_reuse as r; print(r.RECIPE)') swift_mode=$SWIFT_COMPILATION_MODE" \
+            --extra "tui_tree=${CMUX_TUI_TREE_KEY:-own}" | sed -n 's/^fingerprint=//p')"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          python3 -I scripts/ci/dev_release_product_reuse.py lookup --key "$key" --skip "$SKIP_REASON" \
+            --out "$RUNNER_TEMP/cmux-next-dev-product" --timeout 180 >> "$GITHUB_OUTPUT"
+      - name: Fetch the same-tree cmux-tui
+        if: steps.dev-product.outputs.hit != 'true'
+        timeout-minutes: 10
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "120"
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/pin-cmux-tui.sh fetch
+      - name: Install Rust (diff sidecar)
+        if: steps.dev-product.outputs.hit != 'true'
+        run: ./scripts/install-rust-ci.sh
+      - name: Build in-tree acpmux for the app bundle
+        if: steps.dev-product.outputs.hit != 'true'
+        env:
+          CMUX_NEXT_ACPMUX_ARCHS: arm64
+        run: |
+          set -euo pipefail
+          acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
+          if [[ -x "$acpmux_bin" && ( -z "${CMUX_TUI_TREE_KEY:-}" ||
+                "$CMUX_TUI_TREE_KEY" == "$(scripts/cmux-next/pin-cmux-tui.sh key --rev HEAD)" ) ]]; then
+            printf 'commit=%s\nsource=same-tree\n' "$(git rev-parse HEAD)" > "$acpmux_bin.ref"
+          else
+            acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+            scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          fi
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+      - name: Setup Bun
+        if: steps.dev-product.outputs.hit != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Give this job its own bun
+        if: steps.dev-product.outputs.hit != 'true'
+        run: scripts/cmux-next/private-bun.sh
+      - name: Setup Node
+        if: steps.dev-product.outputs.hit != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+      - name: Build the web bundles
+        if: steps.dev-product.outputs.hit != 'true'
+        run: scripts/cmux-next/build-web-bundles.sh
+      - name: Compile the cmux NEXT DEV Release app
+        id: compile
+        env:
+          CMUX_NEXT_CONFIGURATION: Release
+          CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
+          CMUX_NEXT_BUNDLE_ID: com.cmuxterm.app.debug.next
+          CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
+          CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
+          CMUX_NEXT_TUI_MODE: tree
+          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
+          CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
+          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/summary.md
+          REUSED_ARCHIVE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.archive || '' }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${GITHUB_SHA}.app.zip"
+          if [[ -n "$REUSED_ARCHIVE" && -f "$REUSED_ARCHIVE" ]]; then
+            mv -f "$REUSED_ARCHIVE" "$archive"
+          else
+            scripts/cmux-next/compile-dev-release.sh "$archive"
+          fi
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - name: Upload DEV landing compile timing
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-landing-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Upload the cmux NEXT DEV Release app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-unsigned-${{ github.sha }}
+          path: ${{ steps.compile.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
+      - name: Record the DEV Release app under its input key
+        id: dev-product-record
+        if: steps.dev-product.outputs.key != ''
+        continue-on-error: true
+        env:
+          KEY: ${{ steps.dev-product.outputs.key }}
+          ARCHIVE: ${{ steps.compile.outputs.archive }}
+          REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
+          REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
+          COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+        run: |
+          python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$GITHUB_SHA" --archive "$ARCHIVE" \
+            --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
+      - name: Upload the DEV Release app record
+        if: steps.dev-product-record.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-release-product-${{ steps.dev-product.outputs.key }}
+          path: ${{ runner.temp }}/cmux-next-dev-product-record/manifest.json
+          if-no-files-found: error
+          retention-days: 2
+          overwrite: true
+      # Where this landing compiled and how far its cache was: the host, the commit the cache
+      # last held, the gap, and the overflow. A host build leaves the record the next
+      # landing's placement reads (cmux-next-dev-cas-holder-<host>).
+      - name: Report the landing compile
+        id: report
+        if: ${{ always() && steps.compile.outcome == 'success' && steps.dev-product.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          POOL: ${{ needs.dev-landing-place.outputs.pool || 'blacksmith' }}
+          PLACED: ${{ needs.dev-landing-place.outputs.host }}
+          METRICS: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/metrics.json
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/cmux-next-dev-landing/report.txt"
+          mode="$(sed -n 's/^mode=//p' "$report" 2>/dev/null)"
+          origin="$(sed -n 's/^previous_sha=//p' "$report" 2>/dev/null)"
+          gap="$(python3 -I scripts/ci/dev_landing_place.py gap "$origin" "$GITHUB_SHA")"
+          host="$(printf '%s' "$RUNNER_NAME" | tr '[:upper:]' '[:lower:]')"; host="${host%-glaeda*}"
+          [[ "$POOL" == owned ]] || host="blacksmith"
+          counts="$(python3 -I -c 'import json, sys; c = json.load(open(sys.argv[1])).get("compiler_cache") or {}; print(c.get("hits"), c.get("misses"), c.get("compile_wall_seconds"))' "$METRICS" 2>/dev/null || echo "? ? ?")"
+          read -r hits misses seconds <<<"$counts"
+          line="host=$host (placed ${PLACED:-any}) runner=$RUNNER_NAME overflow=$([[ "$POOL" == owned ]] && echo no || echo yes) mode=${mode:-?} restored=${origin:0:12} gap=${gap:-?} xcodebuild=${seconds}s hits=$hits misses=$misses"
+          echo "::notice title=DEV landing compile::$line"
+          echo "DEV landing compile: $line" >> "$GITHUB_STEP_SUMMARY"
+          scripts/cmux-next/dev-cas-holder.sh "$report" "$RUNNER_TEMP/cmux-next-dev-cas-holder" >> "$GITHUB_OUTPUT"
+      - name: Record this host's cache for the next landing's placement
+        if: steps.report.outputs.holder != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-cas-holder-${{ steps.report.outputs.holder }}
+          path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
   request-cmux-next-dev-publish:
     needs: cmux-scheme-compile
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
