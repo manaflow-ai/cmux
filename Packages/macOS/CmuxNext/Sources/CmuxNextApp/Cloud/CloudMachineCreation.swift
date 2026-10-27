@@ -29,15 +29,17 @@ final class CloudMachineCreation: Identifiable {
     private(set) var readyAfter: Duration?
     /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
     private(set) var bootstrap: CloudMachineBootstrap.Outcome?
-    /// How the started bootstrap ended (`CloudMachineBootstrap.waitForCompletion(on:)`): nil while it runs
-    /// or without one. The New Cloud Workspace wizard observes it to open the clone at `repoPath`.
+    /// How the started bootstrap ended (`CloudMachineBootstrap.waitForCompletion(on:)`): nil until the
+    /// bootstrap finishes; if ``isTornDown`` turns true first, it never will. The New Cloud Workspace wizard
+    /// observes both, to open the clone at `repoPath` or stop waiting.
     private(set) var bootstrapCompletion: CloudMachineBootstrap.Completion?
     /// The wait behind ``bootstrapCompletion``. Its own task, not a child of ``task``: the row's normal
     /// removal (the workspace is mirrored) cancels ``task`` and must not end this wait. It ends with its
     /// bound, a new start (Retry), ``tearDown()`` or the creation's release (it holds the creation weakly).
     @ObservationIgnored private(set) var completionTask: Task<Void, Never>?
-    /// ``tearDown()`` ran: a start that returns after it (its flow was cancelled mid-start) starts no wait.
-    @ObservationIgnored private(set) var isTornDown = false
+    /// ``tearDown()`` ran: the bootstrap wait stopped, and a start that returns after it (its flow was
+    /// cancelled mid-start) starts none. Observed: a caller waiting on ``bootstrapCompletion`` stops on it.
+    private(set) var isTornDown = false
     /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
     private(set) var machineConfig: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
