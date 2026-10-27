@@ -218,7 +218,7 @@ class Decide(unittest.TestCase):
             refused.runners.side_effect = OSError("HTTP Error 403: Forbidden")
             bot.runners.return_value = [runner("mini-a-glaeda-3")]
             clients = {"t": refused, "bot": bot}
-            with mock.patch.object(placement.pool, "GitHub", side_effect=lambda token, repo: clients[token]):
+            with mock.patch.object(placement.pool, "GitHub", side_effect=lambda token, repo, **_: clients[token]):
                 placement.main(env(ROUTE_TOKEN="t", ROUTE_TOKEN_FALLBACK="bot", GITHUB_REPOSITORY="manaflow-ai/cmux",
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
