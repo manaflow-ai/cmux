@@ -122,7 +122,9 @@ public final class TabModel: Identifiable {
     @ObservationIgnored public private(set) var commandSeenAt: Date?
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
-    @ObservationIgnored private var commandTimer: DemandTimer?
+    @ObservationIgnored private var commandTimer: MainDeadline?
+    /// The store's deadlines, set when its index lists this record (``StoreIndex``); nil for a record no store lists.
+    @ObservationIgnored var deadlines: StoreDeadlines?
     /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
     /// a command runs and for a shell without integration.
     public internal(set) var promptSinceMs: UInt64?
@@ -338,14 +340,14 @@ public final class TabModel: Identifiable {
         }
     }
 
-    /// Reads the running command's age again after `delay`: one one-shot timer per running command,
-    /// armed by the status mapping while the command is younger than its threshold.
+    /// Reads the running command's age again after `delay`: one one-shot visible deadline per running command on
+    /// the store's deadlines, armed by the status mapping while the command is younger than its threshold. A record
+    /// no store lists shows nowhere and arms none.
     public func recheckCommand(after delay: Duration) {
-        // timer-class-allow: one one-shot per young command that only bumps `commandRecheck`; the status follows that read it run in their own class, and a record has no deadline scheduler seam
-        let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
+        guard let timer = commandTimer ?? deadlines?.deadline(owner: "tab.command-busy", workClass: .visible) else { return }
         commandTimer = timer
         // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.
-        timer.scheduleOnMain(after: delay) { [weak self] in self?.commandRecheck += 1 }
+        timer.schedule(after: delay) { [weak self] in self?.commandRecheck += 1 }
     }
 
     /// Point updates from surface events (no full snapshot).

@@ -92,10 +92,11 @@ struct SequenceWaiters {
         return Array(idle.values)
     }
 
-    /// Ends the wait `id` as cancelled, when it still waits.
-    mutating func cancel(_ id: UInt64) {
-        if let waiter = applied.removeValue(forKey: id) { waiter.continuation.resume(returning: .cancelled) }
-        if let continuation = idle.removeValue(forKey: id) { continuation.resume(returning: false) }
-        if let waiter = connection.removeValue(forKey: id) { waiter.continuation.resume(returning: false) }
+    /// Drops the wait `id`'s entry, when it is still filed: its wait ended (a cancel ends it from the canceller's
+    /// thread, and the waiting function drops the entry when it resumes on the store's actor).
+    mutating func drop(_ id: UInt64) {
+        applied[id] = nil
+        idle[id] = nil
+        connection[id] = nil
     }
 }

@@ -36,6 +36,11 @@ public struct WorkspaceCloseFlow {
     /// also for a row that stayed shown (`hide` false).
     public private(set) static var running: Set<String> = []
 
+    /// The close of `id` ended: a later press starts another.
+    private static func ended(_ id: String) {
+        running.remove(id)
+    }
+
     /// Starts the close of `id` (`asks`: a person's unconfirmed run); nil while one of it runs.
     public func start(_ id: String, asks: Bool) -> ActionWork? {
         guard Self.running.insert(id).inserted else { return nil }
@@ -44,24 +49,30 @@ public struct WorkspaceCloseFlow {
         // its place among the window's creates and closes (`WorkspaceLanes`).
         guard asks else {
             let work = send(hidden)
-            // main-hop-allow: the press's close bookkeeping (`running`) is main-actor state, cleared once the lane's close ends
-            return Task { @MainActor in
-                defer { Self.running.remove(id) }
-                return await work.value
+            // Off main: the task waits for the lane's close, then clears the press's bookkeeping on main.
+            return Task { @concurrent in
+                let failure = await work.value
+                await Self.ended(id)
+                return failure
             }
         }
-        // main-hop-allow: the person's close in press order: question, the alert and restore are main-actor async seams of the window, read between the terminals' off-main answers (rule 2: the row left in the press's turn)
-        return Task { @MainActor in
-            defer { Self.running.remove(id) }
+        // Off main (recipe R-hop): the task only orders the steps; each is a main-actor step of the window (the
+        // terminals' question, the person's answer, the close or the restore), awaited in press order.
+        let question = question, exists = exists, send = send, restore = restore
+        return Task { @concurrent in
             let ask = await question()
             // Gone meanwhile (the CLI, another window): no question for it.
-            var closes = exists()
+            var closes = await exists()
             if closes, let ask { closes = await ask() }
-            guard closes, exists() else {
-                restore(hidden)
-                return nil
+            let failure: ActionWorkFailure?
+            if closes, await exists() {
+                failure = await send(hidden).value
+            } else {
+                await restore(hidden)
+                failure = nil
             }
-            return await send(hidden).value
+            await Self.ended(id)
+            return failure
         }
     }
 }

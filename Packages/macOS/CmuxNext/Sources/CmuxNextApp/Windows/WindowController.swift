@@ -197,7 +197,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery, node: visibility, on: services.mainWork)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery, node: visibility, on: services.mainWork,
+                                                          deadlines: services.mainDeadlines)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)

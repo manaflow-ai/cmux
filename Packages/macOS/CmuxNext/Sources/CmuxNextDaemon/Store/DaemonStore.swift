@@ -192,11 +192,11 @@ public final class DaemonStore: StateResourceQueries {
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).
-    @ObservationIgnored var resyncRetry: DemandTimer?
+    @ObservationIgnored var resyncRetry: MainDeadline?
     /// The retry budget ran out: the next daemon event resyncs.
     @ObservationIgnored var needsResync = false
-    /// Clock of the retry spacing (tests inject one that does not wait).
-    @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
+    /// Where the store's main-thread deadlines go (``StoreDeadlines``).
+    @ObservationIgnored let deadlines: StoreDeadlines
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
 
     /// Tab ids of the first snapshot of the current connection: tabs the
@@ -217,14 +217,21 @@ public final class DaemonStore: StateResourceQueries {
     ///   - waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
     ///     StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`).
     ///     nil (tests, fixtures): a queue of the store's own.
+    ///   - deadlines: The app's one deadline placer (`MainDeadlineScheduler`), for the store's main-thread deadlines
+    ///     (the resync retry, a script batch's stage bound, a young command's recheck). nil (tests, fixtures): one
+    ///     of the store's own, made at its first deadline (``StoreDeadlines``).
     ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
     ///     event with its cause, and an action run's intent with its origin's. nil (tests, fixtures): none.
     ///   - crashKeys: The app's crash keys; ``CrashKeySlots/Key/daemonEpoch`` follows ``connectionEpoch``.
-    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil, crashKeys: CrashKeySlots? = nil) {
+    public init(waitDeadlines: MainWakeUpQueue? = nil, deadlines: MainDeadlineScheduler? = nil, causes: ObservationCauses? = nil,
+                crashKeys: CrashKeySlots? = nil) {
         self.causes = StoreCauses(causes)
         self.crashKeys = crashKeys
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
+        let storeDeadlines = StoreDeadlines(deadlines)
+        self.deadlines = storeDeadlines
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger(),
+                           tabDeadlines: storeDeadlines)
         index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
     }
 

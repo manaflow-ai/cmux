@@ -54,8 +54,8 @@ extension StateResourceQueries {
 }
 
 extension DaemonStore {
-    /// How long ``sessionStateResolved()`` waits at most: a bound for its keyed wait, never reached by a daemon
-    /// that answers (the stream's snapshot or its end comes within the connect).
+    /// The bound of each keyed wait ``sessionStateResolved()`` files (``KeyedWaiters`` bounds every wait). Its end
+    /// is not the wait's: the wait files again until the session is known or the connection changed.
     static let sessionStateWaitBound: Duration = .seconds(600)
 
     /// Returns once the tree reflects every event up to `sequence` (a
@@ -69,12 +69,17 @@ extension DaemonStore {
     }
 
     /// Returns once the state resources' first snapshot arrived, or this
-    /// daemon serves none (`SessionStateStore.known`), or the connection changed.
-    /// A keyed wait on the connection slot (recipe R-wait, StoreWaiters), which
-    /// the session stream settles when it becomes known.
+    /// daemon serves none (`SessionStateStore.known`), or the connection changed,
+    /// or the calling task was cancelled. There is no time limit: a stalled
+    /// stream on an unchanged connection keeps it waiting, as a caller that
+    /// routes by the answer (`DaemonService.appliedThroughSyncBarrier`, the
+    /// ephemeral workspaces' window) needs. A keyed wait on the connection slot
+    /// (recipe R-wait, StoreWaiters), which the session stream settles when it
+    /// becomes known; a keyed wait's bound only files it again.
     public func sessionStateResolved() async {
-        guard !session.known else { return }
         let state = connectionState, session = session
-        _ = await waitConnection(timeout: Self.sessionStateWaitBound) { now in session.known || now != state }
+        while !session.known, connectionState == state, !Task.isCancelled {
+            _ = await waitConnection(timeout: Self.sessionStateWaitBound) { now in session.known || now != state }
+        }
     }
 }

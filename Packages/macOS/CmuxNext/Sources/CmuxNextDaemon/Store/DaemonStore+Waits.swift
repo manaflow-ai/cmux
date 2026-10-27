@@ -26,20 +26,14 @@ extension DaemonStore {
         defer { endAppliedWait(sequence) }
         if appliedSequence >= sequence { return .reached }
         let id = sequenceWaiters.makeID()
-        return await withTaskCancellationHandler {
-            // A wait dropped unresumed ends as a cancelled one does.
-            (try? await withOnceContinuation { (continuation: OnceContinuation<AppliedWaitResult, OnceContinuationError>) in
-                if Task.isCancelled {
-                    continuation.resume(returning: .cancelled)
-                    return
-                }
-                sequenceWaiters.addApplied(id, SequenceWaiters.Applied(sequence: sequence, epoch: epoch, continuation: continuation))
-            }) ?? .cancelled
-        } onCancel: {
-            // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
-            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
-            Task { @MainActor in self.sequenceWaiters.cancel(id) }
-        }
+        // A cancel ends the wait from the canceller's thread (a cancellable continuation); its entry goes when this
+        // function resumes here, on main. A wait dropped unresumed ends as a cancelled one does.
+        let result = (try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (continuation: OnceContinuation<AppliedWaitResult, OnceContinuationError>) in
+            sequenceWaiters.addApplied(id, SequenceWaiters.Applied(sequence: sequence, epoch: epoch, continuation: continuation))
+        }) ?? .cancelled
+        sequenceWaiters.drop(id)
+        return result
     }
 
     /// Returns true once the intent log is empty (every pending intent echoed, settled or refused; at once when
@@ -47,24 +41,17 @@ extension DaemonStore {
     public func waitIntentsIdle() async -> Bool {
         if intentLog.isEmpty { return true }
         let id = sequenceWaiters.makeID()
-        return await withTaskCancellationHandler {
-            // A wait dropped unresumed ends as a cancelled one does.
-            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
-                if Task.isCancelled {
-                    continuation.resume(returning: false)
-                    return
-                }
-                if intentLog.isEmpty {
-                    continuation.resume(returning: true)
-                    return
-                }
-                sequenceWaiters.addIdle(id, continuation)
-            }) ?? false
-        } onCancel: {
-            // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
-            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
-            Task { @MainActor in self.sequenceWaiters.cancel(id) }
-        }
+        // As ``waitApplied(atLeast:since:)``: a cancel ends the wait at once, its entry goes at the resume.
+        let idle = (try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            if intentLog.isEmpty {
+                continuation.resume(returning: true)
+                return
+            }
+            sequenceWaiters.addIdle(id, continuation)
+        }) ?? false
+        sequenceWaiters.drop(id)
+        return idle
     }
 
     /// Returns true once ``connectionEpoch`` is no longer `epoch` (a connect, a drop or a shutdown applied; at once
@@ -75,24 +62,17 @@ extension DaemonStore {
     public func waitConnectionChange(since epoch: Int) async -> Bool {
         if connectionEpoch != epoch { return true }
         let id = sequenceWaiters.makeID()
-        return await withTaskCancellationHandler {
-            // A wait dropped unresumed ends as a cancelled one does.
-            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
-                if Task.isCancelled {
-                    continuation.resume(returning: false)
-                    return
-                }
-                if connectionEpoch != epoch {
-                    continuation.resume(returning: true)
-                    return
-                }
-                sequenceWaiters.addConnection(id, epoch: epoch, continuation)
-            }) ?? false
-        } onCancel: {
-            // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
-            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
-            Task { @MainActor in self.sequenceWaiters.cancel(id) }
-        }
+        // As ``waitApplied(atLeast:since:)``: a cancel ends the wait at once, its entry goes at the resume.
+        let changed = (try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            if connectionEpoch != epoch {
+                continuation.resume(returning: true)
+                return
+            }
+            sequenceWaiters.addConnection(id, epoch: epoch, continuation)
+        }) ?? false
+        sequenceWaiters.drop(id)
+        return changed
     }
 
     /// The daemon half of `debug.oracle.settle` (p15-oracle-031 adds the snapshot barrier, MotionClock idle, one

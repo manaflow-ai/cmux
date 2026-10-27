@@ -41,7 +41,7 @@ public final class DaemonService {
     public let policyBlock = PolicyBlock()
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
-    public private(set) var connection: DaemonConnection?
+    public internal(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
     /// connect and on every change so the daemon answers OSC 10/11/12 queries
@@ -73,10 +73,12 @@ public final class DaemonService {
     /// The app's main-thread scheduler: a person-scope command's reply settles on it as
     /// userBlocking work (``settleReply(_:)``).
     public let mainWork: MainWorkScheduler
-    /// Where the service's main-thread deadlines go (the startup deadline, the update restart's bound).
-    let deadlines: MainDeadlineScheduler
-    /// The app's notices (the activation that wakes a retry).
-    let appEvents: AppEvents
+    /// The app's one deadline placer (the startup deadline, the update restart's bound, the store's
+    /// deadlines). A remote machine's service gets the local one's (the Cloud, SSH and server services read it here).
+    public let deadlines: MainDeadlineScheduler
+    /// The app's one ``AppEvents`` (the activation that wakes a retry); a remote machine's service gets the
+    /// local one's.
+    public let appEvents: AppEvents
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -103,23 +105,24 @@ public final class DaemonService {
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
     ///     attachment this service opens; nil (tests) watches nothing.
     ///   - crashKeys: The app's crash keys, for the local daemon's service only: its store names its connection
-    ///     epoch there (``DaemonStore/init(waitDeadlines:causes:crashKeys:)``).
-    ///   - deadlines: The app's deadline scheduler; nil makes one on `mainWork` (the same wake-up queue: the
-    ///     service's deadlines are flexible, never in a hidden node's pool).
-    ///   - appEvents: The app's notices (`AppServices.appEvents`); nil makes one on the default center.
+    ///     epoch there (``DaemonStore/init(waitDeadlines:deadlines:causes:crashKeys:)``).
+    ///   - deadlines: The app's one ``MainDeadlineScheduler`` on `mainWork` (`AppServices.mainDeadlines`), shared
+    ///     by every service: one wake-up queue and one aligned grid for the main thread.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`), shared by every service: one
+    ///     observer per notice for the app.
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler,
                 wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil, crashKeys: CrashKeySlots? = nil,
-                deadlines: MainDeadlineScheduler? = nil, appEvents: AppEvents? = nil) {
+                deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
         // Its keyed waits' timeouts share the main thread's one deadline timer.
-        store = DaemonStore(waitDeadlines: mainWork.wakeUps, causes: mainWork.causes, crashKeys: crashKeys)
+        store = DaemonStore(waitDeadlines: mainWork.wakeUps, deadlines: deadlines, causes: mainWork.causes, crashKeys: crashKeys)
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         self.mainWork = mainWork
-        self.deadlines = deadlines ?? MainDeadlineScheduler(work: mainWork)
-        self.appEvents = appEvents ?? AppEvents(center: .default)
+        self.deadlines = deadlines
+        self.appEvents = appEvents
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -259,11 +262,11 @@ public final class DaemonService {
         let store = store
         armStartupDeadline()
         observeRetryEvents()
-        let wake = retryWake
-        // task-owner: the first connection's lifecycle (`runTask`); shutdownConnection cancels it
-        // main-hop-allow: the connection lifecycle: it awaits DaemonStartup's connect (off main) and the store's main-actor run, and applies each connection to this service's main-actor state between them, once per connection
-        runTask = Task { [weak self, drainScheduler, logger] in
-            let clock = self?.startupClock ?? ContinuousClock()
+        let wake = retryWake, clock = startupClock
+        // task-owner: the first connection's lifecycle (`runTask`); shutdownConnection cancels it. Off main: it awaits
+        // the connect, the handoff and the store's run; its steps on main are this service's main-actor methods
+        // (`armStartupDeadline`, `attachConnection`) and the store's run (recipe R-hop).
+        runTask = Task { @concurrent [weak self, drainScheduler] in
             weak let weakSelf = self
             let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
             var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
@@ -274,7 +277,7 @@ public final class DaemonService {
                 await exiting.close()
                 // The first connect was in time; the deadline now covers
                 // the successor's start.
-                self?.armStartupDeadline()
+                await self?.armStartupDeadline()
                 connected = nil
                 if !Task.isCancelled {
                     connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection,
@@ -291,12 +294,17 @@ public final class DaemonService {
                 return
             }
             await marks?.attach(connection)
-            self.didConnect(connection, identity: identity)
-            self.windowState = WindowStateStore(connection: connection)
-            logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-            self.rememberSocket(identity, connection: connection)
+            await self.attachConnection(connection, identity: identity)
             await store.run(connection: connection, scheduler: drainScheduler)
         }
+    }
+
+    /// The first connection's handshake: it becomes the connection this service runs.
+    private func attachConnection(_ connection: DaemonConnection, identity: DaemonIdentity) {
+        didConnect(connection, identity: identity)
+        windowState = WindowStateStore(connection: connection)
+        logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+        rememberSocket(identity, connection: connection)
     }
 
     /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
@@ -334,9 +342,10 @@ public final class DaemonService {
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.hangWatch = hangWatch
-        // task-owner: the remote machine's connection lifecycle (`runTask`); shutdownConnection cancels it
-        // main-hop-allow: the connection lifecycle: it awaits DaemonStartup's connect (off main) and the store's main-actor run, and applies each connection to this service's main-actor state between them, once per connection
-        runTask = Task { [weak self, drainScheduler, logger, configuration] in
+        // task-owner: the remote machine's connection lifecycle (`runTask`); shutdownConnection cancels it. Off main:
+        // it awaits each connect, the store's run and the backoff; its step on main per connection is
+        // `admitConnection` (recipe R-hop).
+        runTask = Task { @concurrent [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: backoff: each iteration runs a connection to its end, then waits in RetryPacer
@@ -365,26 +374,37 @@ public final class DaemonService {
                     await connection.close()
                     return
                 }
-                do {
-                    try admit?(identity)
-                } catch {
-                    logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
-                    // Stop (no run, deadline or path monitor); show the refusal unless
-                    // `admit` already stopped the service with its own text.
-                    let show = !Task.isCancelled
-                    self.shutdownConnection()
-                    if show { store.markFailed(String(describing: error)) }
+                guard await self.admitConnection(connection, identity: identity, admit: admit) else {
                     await connection.close()
                     return
                 }
-                self.didConnect(connection, identity: identity)
-                logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.close()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
         }
+    }
+
+    /// A remote connection's handshake: `admit` checks its identity first. A refusal stops the service and shows why
+    /// (unless `admit` stopped it with its own text); true when the connection is the one this service runs now.
+    /// Runs in the lifecycle's task, so `Task.isCancelled` is that task's.
+    private func admitConnection(_ connection: DaemonConnection, identity: DaemonIdentity,
+                                 admit: (@MainActor (DaemonIdentity) throws -> Void)?) -> Bool {
+        do {
+            try admit?(identity)
+        } catch {
+            logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
+            // Stop (no run, deadline or path monitor); show the refusal unless
+            // `admit` already stopped the service with its own text.
+            let show = !Task.isCancelled
+            shutdownConnection()
+            if show { store.markFailed(String(describing: error)) }
+            return false
+        }
+        didConnect(connection, identity: identity)
+        logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+        return true
     }
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
@@ -475,24 +495,15 @@ public final class DaemonService {
         // skip creating it (and drop the command) when no tracker is set.
         // The ticket opens now, so an action that awaits its scope waits
         // for this command even before the task starts.
-        let ticket = openTicket(label)
-        // main-hop-allow: failure is the service's main-actor command path (the connection read and the ticket close); the command itself runs on the connection's actor
-        let task = Task { await failure(label, ticket: ticket, body) }
-        workTracker?(task)
+        // The command runs off main; its failure is made on main in the sender's class (`startSend`).
+        workTracker?(startSend(label, onFailure: nil, body))
     }
 
     /// `send` that also hands a failure to `onFailure` (on the main actor),
     /// with the same ticket and work tracking.
     public func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
-        let ticket = openTicket(label)
-        // main-hop-allow: failure is the service's main-actor command path (the connection read and the ticket close), and onFailure is the caller's main-actor report; the command runs on the connection's actor
-        let task = Task {
-            let failed = await failure(label, ticket: ticket, body)
-            if let failed { onFailure(failed) }
-            return failed
-        }
-        workTracker?(task)
+        workTracker?(startSend(label, onFailure: onFailure, body))
     }
 
     /// Runs a command; returns nil on success, else the failure (logged).

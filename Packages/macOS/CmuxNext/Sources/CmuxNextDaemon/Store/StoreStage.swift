@@ -54,8 +54,9 @@ public final class StoreStage {
     private var hold = Hold()
     /// The highest sequence the store applied (or capped) while staged: it reaches it at commit.
     private var highestSeen: UInt64 = 0
-    /// The stage's one deadline (a batch whose commit never comes does not hold the store).
-    private var deadline: DemandTimer?
+    /// The stage's one deadline (a batch whose commit never comes does not hold the store): an automation deadline
+    /// on the store's deadlines (``StoreDeadlines``), since a script batch opened the stage.
+    private var deadline: MainDeadline?
     /// Time left to the deadline, read on the clock of the batch that set it.
     private var deadlineRemaining: (() -> Duration)?
     public private(set) var isOpen = true
@@ -70,7 +71,8 @@ public final class StoreStage {
     var events: [DaemonEventEnvelope] { hold.events }
 
     /// Joins one batch: its scope's intents are held from now on. The stage commits by itself at
-    /// `deadline` on `clock`; the earliest deadline of the joined batches holds.
+    /// `deadline` (read on `clock`; the wake is the store's main deadline); the earliest deadline of the joined
+    /// batches holds.
     func join<C: Clock>(scope: DaemonCommandScope?, until deadline: C.Instant, clock: C) -> StoreStageBatch where C.Duration == Duration {
         if let scope, !scopes.contains(where: { $0 === scope }) { scopes.append(scope) }
         let batch = StoreStageBatch(stage: self)
@@ -79,10 +81,10 @@ public final class StoreStage {
         // The earliest deadline holds: a batch that joins later never keeps the stage open longer.
         guard deadlineRemaining.map({ remaining() < $0() }) ?? true else { return batch }
         deadlineRemaining = remaining
-        // timer-class-allow: the stage's one commit bound on the batch's own clock (StoreStageTests step it), and the store has no deadline scheduler seam; a batch's end commits it first
-        let timer = self.deadline ?? DemandTimer(owner: "StoreStage.deadline", clock: clock)
+        guard let store else { return batch }
+        let timer = self.deadline ?? store.deadlines.deadline(owner: "StoreStage.deadline", workClass: .automation)
         self.deadline = timer
-        timer.scheduleOnMain(after: max(remaining(), .zero)) { [weak self] in self?.commitAll() }
+        timer.schedule(after: max(remaining(), .zero)) { [weak self] in self?.commitAll() }
         return batch
     }
 

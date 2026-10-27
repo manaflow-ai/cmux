@@ -60,7 +60,7 @@ public final class EmptyWorkspaceRepair {
     @ObservationIgnored public var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause
     /// Whether commands can run now. Tests replace it.
     @ObservationIgnored public var canCreate: @MainActor () -> Bool
-    public private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    public internal(set) var states: [WorkspaceKey: FirstTerminal] = [:]
     /// Why a workspace's first terminal failed, until a pane shows or New.
     private(set) var failures: [WorkspaceKey: String] = [:]
     /// Each failure's connection epoch: a reconnect lifts the refill hold.
@@ -91,8 +91,8 @@ public final class EmptyWorkspaceRepair {
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
-    /// Where the follows run: the app's main-thread scheduler.
-    @ObservationIgnored private let work: MainWorkScheduler
+    /// Where the follows and the decisions' main-thread steps run: the app's main-thread scheduler.
+    @ObservationIgnored let work: MainWorkScheduler
     /// The store's membership and first live tree (`observe`).
     @ObservationIgnored private var observation: ServiceObservation<[String]>?
     /// The store observed; weak, the store owns its life.
@@ -108,7 +108,9 @@ public final class EmptyWorkspaceRepair {
     /// Workspaces examined for a missing pane since launch: a store change
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
+    /// First tabs whose create answered with a surface, its `created` run (tests: an answer after a teardown).
+    @ObservationIgnored var answeredCreates = 0
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
     /// owns the connection and the workspace close path. `work` is the app's
@@ -128,7 +130,14 @@ public final class EmptyWorkspaceRepair {
         self.canCreate = canCreate
         self.epoch = epoch
         self.isLive = isLive
-        observe(store)
+        self.store = store
+        // The follows start one turn after init, so the owner's seams set in the init's turn (`isLive`, `canCreate`,
+        // `epoch`, `create`; a test's) apply to the first membership pass.
+        // node-free: a close or a repair is a daemon command that must run while no window shows the workspace (p06 rule 3).
+        work.post(.visible, owner: "EmptyWorkspaceRepair.start") { [weak self, weak store] in
+            guard let self, let store else { return }
+            self.observe(store)
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -149,9 +158,9 @@ public final class EmptyWorkspaceRepair {
     /// Both are ``ServiceObservation``s in the visible class (recipe R-obs): a
     /// close or a repair is a daemon command that must run while no window
     /// shows the workspace, and a person's last-tab close flushes as theirs
-    /// (userBlocking). The membership pass runs once now, in this turn.
+    /// (userBlocking). The membership pass runs once when they start, in the
+    /// turn the initializer posted.
     private func observe(_ store: DaemonStore) {
-        self.store = store
         observation = ServiceObservation(.visible, owner: "EmptyWorkspaceRepair.membership", on: work) { [weak store] () -> [String] in
             guard let store else { return [] }
             // Turning live counts as a change: a tree drawn from the
@@ -268,39 +277,11 @@ public final class EmptyWorkspaceRepair {
         guard canCreate() else { retries.insert(key); return false }
         states[key] = .closing
         populated[key] = nil
-        let close = close, cause = cause, create = create
-        // task-owner: one decision per emptied workspace; the claim is the state above
-        // main-hop-allow: the repair's decision reads and writes its main-actor claim (`states`) between the daemon's async seams (cause, then create or close, each run on the connection's actor)
-        Task {
-            // A lost terminal (its host died: crash, kill, reboot) is not a
-            // closed tab: the workspace stays and gets a new terminal.
-            if await cause(key) == .terminalLost {
-                guard states[key] == .closing else { return }
-                states[key] = .awaitingPane
-                record(key, .terminalLost)
-                logger.info("workspace \(key.rawValue, privacy: .public) lost its last terminal; keeping it with a new terminal")
-                do {
-                    _ = try await create(key)
-                } catch {
-                    if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
-                    logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
-                }
-                return
-            }
-            record(key, .tabClosed)
-            logger.info("workspace \(key.rawValue, privacy: .public) lost its last tab; closing it")
-            do {
-                try await close(key)
-            } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
-                logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        decide(key)
         return true
     }
 
-    private func record(_ key: WorkspaceKey, _ cause: EmptiedWorkspaceCause) {
+    func record(_ key: WorkspaceKey, _ cause: EmptiedWorkspaceCause) {
         decisions.append((key, cause))
         if decisions.count > 32 { decisions.removeFirst(decisions.count - 32) }
     }
@@ -324,23 +305,6 @@ public final class EmptyWorkspaceRepair {
         guard states[key] == nil, canCreate() else { return }
         clearFailure(key)
         createTab(key, create: createFirst ?? create, created: created)
-    }
-
-    private func createTab(_ key: WorkspaceKey, create: @escaping @MainActor (WorkspaceKey) async throws -> SurfaceID?,
-                           created: @escaping @MainActor (SurfaceID) -> Void) {
-        guard states[key] == nil, canCreate() else { return }
-        states[key] = .awaitingPane
-        logger.info("workspace \(key.rawValue, privacy: .public) requested a new tab")
-        // task-owner: one first tab per claim (`states`); a failure releases the claim
-        // main-hop-allow: the claim (`states`) and the caller's `created` are main-actor state around the daemon's async create seam (run on the connection's actor)
-        Task {
-            do {
-                if let surface = try await create(key) { created(surface) }
-            } catch {
-                if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
-                logger.error("creating a terminal for an empty workspace failed: \(String(describing: error), privacy: .public)")
-            }
-        }
     }
 
     /// Whether `key` is about to change by itself: its first terminal is on
@@ -369,7 +333,7 @@ public final class EmptyWorkspaceRepair {
         do {
             return try await body()
         } catch {
-            if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
+            release(key, from: .awaitingPane, failure: String(describing: error))
             throw error
         }
     }
@@ -394,8 +358,8 @@ public final class EmptyWorkspaceRepair {
     /// `WorkspaceCreation` could not close `key` after its terminal failed.
     public func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
 
-    private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
-        failures[key] = String(describing: error)
+    func recordFailure(_ key: WorkspaceKey, reason: String) {
+        failures[key] = reason
         failureEpochs[key] = epoch()
     }
 
@@ -410,7 +374,7 @@ public final class EmptyWorkspaceRepair {
             states[key] = .populating(count - 1)
         } else if !succeeded, keptAfterFailedClose.remove(key) != nil {
             states[key] = nil
-            if let error { recordFailure(key, error) }
+            if let error { recordFailure(key, reason: String(describing: error)) }
         } else {
             // A failed create was closed again by its creator
             // (`WorkspaceCreation`): it is empty on purpose and never

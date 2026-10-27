@@ -11,7 +11,7 @@ import Testing
 struct DaemonUnavailableScreenTests {
     private func screen(_ error: DaemonError) -> DaemonConnectingView {
         _ = NSApplication.shared // performClick dispatches through NSApp
-        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), deadlines: MainDeadlineRig().deadlines)
         view.apply(.unavailable(error))
         return view
     }

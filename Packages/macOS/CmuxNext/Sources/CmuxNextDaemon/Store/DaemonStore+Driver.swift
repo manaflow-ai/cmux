@@ -209,7 +209,7 @@ extension DaemonStore {
     /// per frame. A batch that invalidates the tree triggers one snapshot,
     /// fetched and decoded off the main actor; events it supersedes (by
     /// sequence barrier) are dropped. No polling and no timers.
-    public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
+    public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler) async {
         let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
         self.driver = driver
         beginConnection()
@@ -285,23 +285,28 @@ extension DaemonStore {
         personalRefetch.inFlight = true
         let covering = personalRefetch.seen
         let barrier = snapshotBarrier
-        // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's deadline
-        // main-hop-allow: the store driver's fetch and apply: the request runs on the connection's actor, and the apply checks the snapshot barrier and the overlay, main-actor store state, at its one resume
-        Task { @MainActor in
+        // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's
+        // deadline. Off main: the task awaits the request; its one step on main is `personalFetched` (recipe R-hop).
+        Task { @concurrent [self] in
             let state = try? await driver.connection.listPersonal()
-            personalRefetch.inFlight = false
-            guard self.driver != nil else { return }
-            guard let state else { return resync() }
-            // A snapshot that landed or is landing holds this personal state or a newer one; a change after
-            // its barrier is fetched once it lands (`snapshotCoveredPersonal`, or `again` below).
-            if !isResyncing, snapshotBarrier == barrier, personalRefetch.pending != nil {
-                withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
-                advanceAppliedSequence(to: personalRefetch.landed(covering: covering))
-            }
-            if personalRefetch.again {
-                personalRefetch.again = false
-                refetchPersonal()
-            }
+            await personalFetched(state, covering: covering, barrier: barrier)
+        }
+    }
+
+    /// The `list-personal` that `refetchPersonal` sent answered `state` (nil: it failed, so a resync follows).
+    private func personalFetched(_ state: PersonalState?, covering: UInt64, barrier: UInt64) {
+        personalRefetch.inFlight = false
+        guard driver != nil else { return }
+        guard let state else { return resync() }
+        // A snapshot that landed or is landing holds this personal state or a newer one; a change after
+        // its barrier is fetched once it lands (`snapshotCoveredPersonal`, or `again` below).
+        if !isResyncing, snapshotBarrier == barrier, personalRefetch.pending != nil {
+            withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
+            advanceAppliedSequence(to: personalRefetch.landed(covering: covering))
+        }
+        if personalRefetch.again {
+            personalRefetch.again = false
+            refetchPersonal()
         }
     }
 
@@ -325,44 +330,61 @@ extension DaemonStore {
         let cause = causes.resync
         causes.resync = .program
         driver.inbox.hold()
-        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
-        // main-hop-allow: the store driver's resync under the inbox hold (no batch drains meanwhile): the snapshot and its diff run off main, the apply at their resumes is the drain's own work
-        Task { @MainActor in
+        let logger = logger
+        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline. Off main: the
+        // task awaits the snapshot, its diff and the agents; its steps on main (under the inbox hold, so no batch
+        // drains meanwhile) are `resyncFetched` and `resyncEnded` (recipe R-hop).
+        Task { @concurrent [self] in
             var failed = false
             do {
                 let (tree, barrier) = try await driver.snapshot()
                 // The comparison with the last applied snapshot reads the whole tree: off the main
                 // thread. Main applies only what differs (or everything, when the memo cannot vouch).
                 let diff = await snapshotDiff(of: tree)
-                withCause(cause) { apply(snapshot: tree, diff: diff) }
-                snapshotBarrier = max(snapshotBarrier, barrier)
-                snapshotCoveredPersonal(through: barrier)
-                advanceAppliedSequence(to: barrier)
-                resyncPacer.reset()
-                if seedAgents { apply(agents: try await driver.connection.agents()) }
+                await resyncFetched(tree, diff: diff, barrier: barrier, cause: cause)
+                if seedAgents {
+                    let agents = try await driver.connection.agents()
+                    await apply(agents: agents)
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true
             }
-            isResyncing = false
-            if failed {
-                scheduleResyncRetry(seedAgents: seedAgents)
-                // A retry applies what this one would have, with its cause; without one, the batch
-                // that resyncs next names its own.
-                if resyncRetry != nil { causes.resync = max(causes.resync, cause) }
-                // The retry serves them; without one (disconnected or
-                // budget spent) they return now with what the store has.
-                refreshWaiters.insert(contentsOf: refreshing, at: 0)
-                if resyncRetry == nil { resumeRefreshWaiters() }
-            } else {
-                for waiter in refreshing { waiter.resume(returning: ()) }
-            }
-            if !failed, !refreshWaiters.isEmpty {
-                // Asked while this snapshot was in flight: fetch one after it.
-                return resync()
-            }
-            drain()
+            await resyncEnded(failed: failed, refreshing: refreshing, seedAgents: seedAgents, cause: cause)
         }
+    }
+
+    /// The resync's snapshot arrived: applies what differs, in the cause of the batches that asked for it.
+    private func resyncFetched(_ tree: DaemonTree, diff: SnapshotDiff?, barrier: UInt64, cause: ObservationCause) {
+        withCause(cause) { apply(snapshot: tree, diff: diff) }
+        snapshotBarrier = max(snapshotBarrier, barrier)
+        snapshotCoveredPersonal(through: barrier)
+        advanceAppliedSequence(to: barrier)
+        resyncPacer.reset()
+    }
+
+    /// The resync ended (`failed`: its snapshot did not apply): a retry or the next one, the `refresh()` callers it
+    /// serves, and the events held meanwhile.
+    private func resyncEnded(failed: Bool, refreshing: [OnceContinuation<Void, OnceContinuationError>], seedAgents: Bool,
+                             cause: ObservationCause) {
+        isResyncing = false
+        if failed {
+            scheduleResyncRetry(seedAgents: seedAgents)
+            // A retry applies what this one would have, with its cause; without one, the batch
+            // that resyncs next names its own.
+            if resyncRetry != nil { causes.resync = max(causes.resync, cause) }
+            // The retry serves them; without one (disconnected or
+            // budget spent) they return now with what the store has.
+            refreshWaiters.insert(contentsOf: refreshing, at: 0)
+            if resyncRetry == nil { resumeRefreshWaiters() }
+        } else {
+            for waiter in refreshing { waiter.resume(returning: ()) }
+        }
+        if !failed, !refreshWaiters.isEmpty {
+            // Asked while this snapshot was in flight: fetch one after it.
+            return resync()
+        }
+        drain()
     }
 
     /// Fetches a snapshot through the driver's resync (inbox hold, snapshot
@@ -411,11 +433,11 @@ extension DaemonStore {
             needsResync = true
             return
         }
-        // timer-class-allow: the retry spacing runs on the store's injected resyncClock (DaemonDrainFrameTests step it), and the store has no deadline scheduler seam; at most one per failed snapshot
-        let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
-        resyncRetry = timer
-        timer.scheduleOnMain(after: delay) { [weak self] in
-            guard let self, self.driver != nil, self.resyncRetry === timer else { return }
+        // A visible deadline on the app's wake-up queue: the retried snapshot is what the windows show.
+        let retry = deadlines.deadline(owner: "DaemonStore.resync", workClass: .visible)
+        resyncRetry = retry
+        retry.schedule(after: delay) { [weak self] in
+            guard let self, self.driver != nil, self.resyncRetry === retry else { return }
             self.resyncRetry = nil
             self.resync(seedAgents: seedAgents)
         }

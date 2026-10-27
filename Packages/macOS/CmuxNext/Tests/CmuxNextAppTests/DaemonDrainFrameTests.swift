@@ -17,9 +17,10 @@ import Testing
 @MainActor @Suite struct DaemonDrainFrameTests {
     /// ``tree(tabs:workspaces:titles:)`` applied; a resync reads `snapshot` (default: the unstarted
     /// connection's, which fails at once).
-    private func service(tabs: Int, workspaces: Int = 1, mainWork: MainWorkScheduler,
+    private func service(tabs: Int, workspaces: Int = 1, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler? = nil,
                          snapshot: (@MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64))? = nil) -> DaemonService {
-        let service = DaemonService(mainWork: mainWork)
+        let service = deadlines.map { DaemonService(mainWork: mainWork, deadlines: $0, appEvents: AppEvents(center: NotificationCenter())) }
+            ?? DaemonService(mainWork: mainWork)
         service.store.apply(snapshot: Self.tree(tabs: tabs, workspaces: workspaces))
         // Never started: no socket is touched.
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: "/nonexistent/cmux-drain-frame-test.sock"))
@@ -237,18 +238,26 @@ import Testing
     }
 
     /// p06-scheduler-032 review: the retry of a failed snapshot applies it with the cause of the
-    /// batch that asked for it.
+    /// batch that asked for it. p06-scheduler-339 fixer: the retry is a visible main deadline on the
+    /// app's deadlines (no DemandTimer on main): it waits for its wake, then runs as a posted task.
     @Test func theRetryOfAFailedResyncKeepsItsCause() async throws {
         let harness = CauseHarness()
+        let rig = MainDeadlineRig(posting: harness.work)
         let snapshots = SnapshotScript(Self.tree(tabs: 2, titles: [2: "mine 2"]), failures: 1)
-        let store = service(tabs: 2, mainWork: harness.work, snapshot: snapshots.read).store
+        let store = service(tabs: 2, mainWork: harness.work, deadlines: rig.deadlines, snapshot: snapshots.read).store
         store.connectionState = .connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "drain-cause-test")))
-        store.resyncClock = ImmediateClock()
         let driver = try #require(store.driver)
         let mine = harness.watch("mine") { store.tab(surface: 2)?.title ?? "" }
         _ = driver.inbox.append(DaemonEventEnvelope(sequence: 1, event: .treeChanged(transaction: nil), cause: .person))
         store.drain()
-        await store.refresh()
+        let refreshed = Task { await store.refresh() }
+        for _ in 0..<10_000 where store.resyncRetry == nil { await Task.yield() }
+        let retry = try #require(store.resyncRetry, "the failed snapshot armed no retry")
+        #expect(retry.isScheduled && rig.hasArmedWake, "the retry is not a deadline on the app's wake-up queue")
+        #expect(snapshots.reads == 1, "the retry ran before its wake")
+        rig.fire()
+        harness.frame() // the retry's posted visible task
+        await refreshed.value
         #expect(snapshots.reads == 2, "the failed snapshot was not retried once")
         #expect(harness.work.causes.flushPersonCaused() == 1, "the retry did not apply with the person's cause")
         #expect(harness.flushes["mine"] == [nil, .frame])
@@ -292,22 +301,6 @@ private final class SnapshotScript {
 
 /// The daemon did not answer a snapshot (a test's ``SnapshotScript``).
 private struct SnapshotRefused: Error {}
-
-/// A clock whose sleeps complete on the next task turn (the resync retry's spacing).
-private struct ImmediateClock: Clock {
-    struct Instant: InstantProtocol {
-        var offset: Duration = .zero
-
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
-    }
-
-    var now: Instant { Instant() }
-    var minimumResolution: Duration { .nanoseconds(1) }
-
-    func sleep(until _: Instant, tolerance _: Duration?) async throws {}
-}
 
 /// A scheduler on a clock the test moves, kept ticking by one frame client, and the work class each
 /// observation's apply ran in (nil: the first apply, in the caller's turn).

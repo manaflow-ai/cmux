@@ -57,4 +57,35 @@ import Testing
         #expect(store.waiters.pendingCount == 0, "the session stream's answer did not resume the wait")
         await wait.value
     }
+
+    /// A box the waiting task sets when the wait returns.
+    @MainActor private final class Returned {
+        var value = false
+    }
+
+    /// p06-scheduler-339 (fixer): the session-state wait has no time limit. Its keyed wait's bound passing on an
+    /// unchanged connection with the session still unknown files the wait again; it returns only when the stream
+    /// answers (or the connection changes).
+    @Test func aSessionStateWaitDoesNotReturnWhenItsKeyedBoundPasses() async {
+        let rig = DeadlineRig()
+        let store = DaemonStore(waitDeadlines: rig.queue)
+        let returned = Returned()
+        let wait = Task {
+            await store.sessionStateResolved()
+            returned.value = true
+        }
+        await store.waiters.untilPending(1)
+        let filed = store.waiters.evaluations
+
+        rig.advance(by: DaemonStore.sessionStateWaitBound + .seconds(1))
+        #expect(store.waiters.pendingCount == 0, "the keyed wait's bound did not pass")
+        await store.waiters.untilPending(1)
+        #expect(store.waiters.evaluations == filed + 1, "the wait did not file again after its bound")
+        #expect(!returned.value, "the wait returned with the session unknown on an unchanged connection")
+        #expect(!store.session.known)
+
+        _ = store.apply(.sessionState(.ended(reason: "gap")))
+        await wait.value
+        #expect(returned.value)
+    }
 }

@@ -69,21 +69,29 @@ final class CloudMachineSession {
 
     /// - Parameters:
     ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    ///   - deadlines: The app's one deadline placer (the local daemon's ``DaemonService/deadlines``).
+    ///   - appEvents: The app's one ``AppEvents`` (the local daemon's ``DaemonService/appEvents``).
     ///   - work: The app's one ``BackgroundWork``, for the lifecycle hops' awaits.
-    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler, work: BackgroundWork) {
-        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork, work: work)
+    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                     appEvents: AppEvents, work: BackgroundWork) {
+        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork, deadlines: deadlines,
+                  appEvents: appEvents, work: work)
     }
 
     /// - Parameters:
     ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    ///   - deadlines: The app's one deadline placer (the local daemon's ``DaemonService/deadlines``).
+    ///   - appEvents: The app's one ``AppEvents`` (the local daemon's ``DaemonService/appEvents``).
     ///   - work: The app's one ``BackgroundWork``, for the lifecycle hops' awaits.
     convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?,
-                     mainWork: MainWorkScheduler, work: BackgroundWork) {
-        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork, work: work)
+                     mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, appEvents: AppEvents, work: BackgroundWork) {
+        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork, deadlines: deadlines,
+                  appEvents: appEvents, work: work)
     }
 
     private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?,
-                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler, work: BackgroundWork) {
+                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                 appEvents: AppEvents, work: BackgroundWork) {
         machineID = machine.id
         self.machine = machine
         self.link = link
@@ -91,7 +99,8 @@ final class CloudMachineSession {
         self.localIdentity = localIdentity
         self.mainWork = mainWork
         self.work = work
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork,
+                               deadlines: deadlines, appEvents: appEvents)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 

@@ -10,8 +10,8 @@ extension DaemonStore {
     /// - Parameters:
     ///   - scope: The batch's command scope (`DaemonCommandScope.current` while it runs).
     ///   - deadline: When the stage commits by itself, on `clock`.
-    ///   - clock: The deadline's clock, read for the deadline and slept on for it; tests pass one they
-    ///     move by hand.
+    ///   - clock: The deadline's clock, read for the time left to it; the wake is a main deadline on the store's
+    ///     deadlines (`DaemonStore(deadlines:)`; tests pass one on a queue they fire).
     /// - Returns: The batch's part of the stage.
     public func openStage<C: Clock>(for scope: DaemonCommandScope?, until deadline: C.Instant, clock: C) -> StoreStageBatch
     where C.Duration == Duration {

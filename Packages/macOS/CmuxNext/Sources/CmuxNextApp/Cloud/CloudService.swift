@@ -334,11 +334,13 @@ final class CloudService {
             })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
-                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork, work: work)
+                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork,
+                                          deadlines: local.deadlines, appEvents: local.appEvents, work: work)
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork, work: work)
+            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork, deadlines: machines.local.deadlines,
+                                          appEvents: machines.local.appEvents, work: work)
         }
         session.daemon.workTracker = machines.local.workTracker
         // An attach to a paused machine resumes it through Resume Machine's own path.

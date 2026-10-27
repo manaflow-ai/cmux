@@ -125,10 +125,11 @@ public final class WorkspaceLanes {
         if creates[lane]?.isEmpty == true { creates[lane] = nil }
     }
 
-    private func enqueue<T>(_ lane: String, _ body: @escaping @MainActor () async throws -> T) -> Task<T, Error> {
+    /// Queues `body` after the lane's last operation. The lane's wait runs off main; `body`, a main-actor action
+    /// step (a create's records, a close's restore), runs its main-thread parts there (recipe R-hop).
+    private func enqueue<T: Sendable>(_ lane: String, _ body: @escaping @MainActor () async throws -> T) -> Task<T, Error> {
         let previous = tails[lane]
-        // main-hop-allow: the window's lane runs its creates and closes in press order; each body is a main-actor async action step (the create's records, the close's restore)
-        let task = Task { @MainActor () async throws -> T in
+        let task = Task { @concurrent () async throws -> T in
             await previous?.value
             return try await body()
         }

@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextTabs
+@testable import CmuxNextWorkspaceRepair
 import Foundation
 import Testing
 
@@ -187,7 +188,10 @@ import Testing
         let repair = world.services.emptyWorkspaces
         repair.canCreate = { true }
         repair.isLive = { false } // the first pass sees the pane on no live connection: no close later
-        await Self.drainMain()
+        // The repair's follows start in a turn it posted, after these seams (p06-scheduler-339 fixer): its first
+        // membership pass examines the workspace with them.
+        #expect(repair.visited == 0, "the repair's first pass ran in its init's turn, before the test's seams")
+        try #require(runMainLoop { repair.visited == 1 }, "the repair's posted start did not run its first pass")
         repair.isLive = { true }
         let (gate, open) = AsyncStream<Void>.makeStream()
         let asked = Flag(), answered = Flag()
@@ -199,7 +203,9 @@ import Testing
             return SurfaceID(rawValue: 1)
         }
         store.apply(snapshot: Self.emptied)
-        await Self.drainMain()
+        // The pane follow's flush examines it: emptied, but never seen with a pane on a live connection, so not claimed.
+        _ = runMainLoop { repair.visited >= 2 }
+        #expect(!repair.isSettling(Self.key), "the emptied workspace was claimed before the window asked")
 
         let content = WorkspaceContentController(workspace: world.workspace, daemon: world.services.daemon,
                                                  services: world.services, state: world.state)
@@ -207,15 +213,18 @@ import Testing
         world.host.addSubview(content.contentView)
         content.applyCurrent()
         content.didShow()
-        await Self.drainMain()
-        try #require(asked.value, "the empty workspace asked for a new terminal")
+        // The create runs from a task off main (recipe R-hop), so its first step comes some turns later.
+        try #require(runMainLoop { asked.value }, "the empty workspace asked for a new terminal")
+        // The window's check asked (`createTab` with its `created`), not a close decision's refill without one.
+        #expect(repair.decisions.isEmpty, "the repair decided \(repair.decisions.map { $0.cause }) instead of the window's check asking")
         #expect(content.panes.isEmpty)
 
         content.teardown()
         let mounts = world.services.paneMounts.generation
         open.yield(())
-        await Self.drainMain()
-        try #require(answered.value, "the repair answered")
+        try #require(runMainLoop { answered.value }, "the repair answered")
+        // The create's answer reaches main as a posted task, which runs the window's `created` after the teardown.
+        try #require(runMainLoop { repair.answeredCreates == 1 }, "the window's created never ran after the teardown")
         #expect(content.panes.isEmpty, "a repair after teardown mounted \(content.panes.count) panes")
         #expect(world.services.paneMounts.generation == mounts, "a pane mounted after teardown")
         #expect(world.state.focus.state.expectation == nil, "a torn-down workspace left a focus expectation")

@@ -29,11 +29,14 @@ import Foundation
     let unread: UnreadLedger
     /// The tab keys this store lists, for the index over every machine; kept across ``rebuild(_:)``.
     let tabKeys: StoreTabKeys
+    /// The store's deadlines, handed to each tab it indexes (a young command's recheck); kept across ``rebuild(_:)``.
+    let tabDeadlines: StoreDeadlines
 
-    init(waiters: StoreWaiters, unread: UnreadLedger, tabKeys: StoreTabKeys = StoreTabKeys()) {
+    init(waiters: StoreWaiters, unread: UnreadLedger, tabKeys: StoreTabKeys = StoreTabKeys(), tabDeadlines: StoreDeadlines) {
         self.waiters = waiters
         self.unread = unread
         self.tabKeys = tabKeys
+        self.tabDeadlines = tabDeadlines
     }
 
     private(set) var tabsBySurface: [SurfaceID: TabModel] = [:]
@@ -146,7 +149,7 @@ import Foundation
             if case .workspace = entry.keys, let workspace = entry.record as? WorkspaceModel { unread.leave(workspace) }
         }
         tabKeys.noteRebuildStarted()
-        self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys)
+        self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys, tabDeadlines: tabDeadlines)
         (indexedRecords, tabOrderChanges) = (counted, orderChanges)
         waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
@@ -209,6 +212,7 @@ import Foundation
 
     mutating func insert(_ tab: TabModel, in pane: PaneModel) {
         remove(tab)
+        tab.deadlines = tabDeadlines
         add(tab, .tab(surface: tab.surface, id: tab.id, terminal: tab.terminalID, resource: tab.resourceID,
                       terminalResource: tab.terminalResourceID), parent: pane)
     }

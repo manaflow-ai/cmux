@@ -74,13 +74,17 @@ final class SSHMachineSession {
         installPhase = nil
     }
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    ///   - deadlines: The app's one deadline placer (the local daemon's ``DaemonService/deadlines``).
+    ///   - appEvents: The app's one ``AppEvents`` (the local daemon's ``DaemonService/appEvents``).
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         machineID: String? = nil, mainWork: MainWorkScheduler) {
+         machineID: String? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
         self.host = host
         self.mainWork = mainWork
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork,
+                               deadlines: deadlines, appEvents: appEvents)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

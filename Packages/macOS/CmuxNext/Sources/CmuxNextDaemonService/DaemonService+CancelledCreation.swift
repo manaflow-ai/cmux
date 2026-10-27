@@ -33,25 +33,28 @@ extension DaemonService {
     private func close(_ transaction: ClientTransactionID, _ surface: SurfaceID) {
         let batch = daemon.supports(DaemonCapability.batchClose.rawValue)
         let reason: CloseReason? = daemon.supports(DaemonCapability.closeReason.rawValue) ? .sessionEnd : nil
-        let daemon = daemon
         let run: DaemonCommandBody = { connection in
             if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }
         }
+        // The close runs off main (recipe R-hop); its end is one task on main in the class of the change that
+        // asked for it (a person's close: userBlocking).
+        let command = daemon.commandSend("close-tabs (cancelled creation)")
+        let store = daemon.store, mainWork = daemon.mainWork
         // task-owner: one close of a cancelled creation's daemon tab; its failure shows what the daemon kept
-        // main-hop-allow: runReportingTimeout is the service's main-actor command path (the close runs on the connection's actor); the store's intent and refresh are main-actor state at its resume
-        Task {
-            switch await daemon.runReportingTimeout("close-tabs (cancelled creation)", run) {
-            case .succeeded:
-                break // the intent leaves once the records drop the tab
-            case .failed:
+        Task { @concurrent in
+            let ended = await command.run(run)
+            guard case .failed(let error) = ended else { return } // the intent leaves once the records drop the tab
+            command.close(failure: error)
+            guard ended.timedOut else {
                 // The daemon kept it (or the link dropped): the records show what it has.
-                daemon.store.rejectIntent(transaction)
-            case .unknown:
-                // Under load the close usually still commits: never show the tab for a lost
-                // reply (tab-spam-race). A snapshot ordered after the close says; a tab still
-                // there gets its close again.
-                await daemon.store.refresh()
-                daemon.store.creations.closeTimedOut(transaction)
+                mainWork.postFromAnyThread(command.workClass, owner: "CancelledCreationClose.refused") { store.rejectIntent(transaction) }
+                return
+            }
+            // Under load the close usually still commits: never show the tab for a lost reply (tab-spam-race). A
+            // snapshot ordered after the close says; a tab still there gets its close again.
+            await store.refresh()
+            mainWork.postFromAnyThread(command.workClass, owner: "CancelledCreationClose.timedOut") {
+                store.creations.closeTimedOut(transaction)
             }
         }
     }

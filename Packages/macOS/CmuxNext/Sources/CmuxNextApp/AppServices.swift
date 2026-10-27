@@ -78,7 +78,8 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    /// The app's one `MainDeadline` placer, on ``mainWork``; the local daemon and every machine's service share it.
+    let mainDeadlines: MainDeadlineScheduler
     /// The app's one Launch Services and icon answer cache: questions run on `work`'s system lane, never on main.
     private(set) lazy var workspaceQueries = WorkspaceQueries(work: work, mainWork: mainWork)
     /// The local and peer chat upload stagers' expiry deadlines.
@@ -735,12 +736,14 @@ final class AppServices {
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
+        let mainDeadlines = MainDeadlineScheduler(work: mainWork)
+        self.mainDeadlines = mainDeadlines
         IconAssetImages.shared.attach(mainWork: mainWork)  // before any view maps an asset icon
         // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``).
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
-                               hangWatch: hangWatch, crashKeys: crashKeys, appEvents: appEvents)
+                               hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

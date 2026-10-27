@@ -4,81 +4,6 @@ import Observation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A clock that moves only when the test advances it; each sleep that starts is signalled on
-/// ``sleeps``, so a test advances only once a deadline sleeps on it (no poll).
-private final class StageClock: Clock, Sendable {
-    struct Instant: InstantProtocol {
-        var offset: Duration
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
-    }
-
-    private struct Sleeper {
-        let id: Int
-        let deadline: Instant
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
-    private struct State {
-        var now = Instant(offset: .zero)
-        var sleepers: [Sleeper] = []
-        var cancelled: Set<Int> = []
-        var nextID = 0
-    }
-
-    private let state = Mutex(State())
-    private let slept: AsyncStream<Void>.Continuation
-    /// One element per sleep that started and did not end at once.
-    let sleeps: AsyncStream<Void>
-
-    init() {
-        (sleeps, slept) = AsyncStream.makeStream()
-    }
-
-    var now: Instant { state.withLock { $0.now } }
-    var minimumResolution: Duration { .zero }
-
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        let id = state.withLock { state in
-            state.nextID += 1
-            return state.nextID
-        }
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let outcome: Result<Void, any Error>? = state.withLock { state in
-                    if state.cancelled.remove(id) != nil { return .failure(CancellationError()) }
-                    if deadline <= state.now { return .success(()) }
-                    state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
-                    return nil
-                }
-                if let outcome { continuation.resume(with: outcome) } else { slept.yield() }
-            }
-        } onCancel: {
-            let sleeper: Sleeper? = state.withLock { state in
-                guard let index = state.sleepers.firstIndex(where: { $0.id == id }) else {
-                    state.cancelled.insert(id)
-                    return nil
-                }
-                return state.sleepers.remove(at: index)
-            }
-            sleeper?.continuation.resume(throwing: CancellationError())
-        }
-    }
-
-    /// Moves the clock on and wakes every sleeper whose deadline it reached.
-    func advance(by duration: Duration) {
-        let due: [Sleeper] = state.withLock { state in
-            state.now = state.now.advanced(by: duration)
-            let now = state.now
-            let due = state.sleepers.filter { $0.deadline <= now }
-            state.sleepers.removeAll { $0.deadline <= now }
-            return due
-        }
-        for sleeper in due { sleeper.continuation.resume() }
-    }
-}
-
 /// Set once from an observation's change callback (called synchronously inside the mutation).
 private final class ChangeFlag: Sendable {
     private let value = Mutex(false)
@@ -107,8 +32,8 @@ struct StoreStageTests {
         return DaemonTree(workspaceRevision: 1, workspaces: [busy, other])
     }
 
-    private static func store() -> DaemonStore {
-        let store = DaemonStore()
+    private static func store(_ rig: DeadlineRig? = nil) -> DaemonStore {
+        let store = DaemonStore(waitDeadlines: rig?.queue, deadlines: rig?.deadlines)
         store.apply(snapshot: tree())
         return store
     }
@@ -260,37 +185,38 @@ struct StoreStageTests {
     }
 
     /// The earliest deadline holds: a batch that joins with a later one never keeps the stage open
-    /// longer (PL-main review, major 4). On a clock the test moves: only the first deadline passes.
-    @Test func aLaterJoinDoesNotPushTheDeadlineBack() async throws {
-        let store = Self.store()
-        let clock = StageClock()
-        var sleeps = clock.sleeps.makeAsyncIterator()
+    /// longer (PL-main review, major 4). On the store's deadlines, on a queue the test fires: only the first
+    /// deadline passes.
+    @Test func aLaterJoinDoesNotPushTheDeadlineBack() throws {
+        let rig = DeadlineRig()
+        let store = Self.store(rig)
         let scope = DaemonCommandScope()
-        let first = store.openStage(for: scope, until: clock.now.advanced(by: .seconds(10)), clock: clock)
+        let first = store.openStage(for: scope, until: .now + .seconds(10))
         DaemonCommandScope.$current.withValue(scope) {
             store.intend(.renameTab(surface: 4, name: "batch"), transaction: .generate())
         }
-        _ = store.openStage(for: DaemonCommandScope(), until: clock.now.advanced(by: .seconds(600)), clock: clock)
-        _ = await sleeps.next() // the deadline sleeps on the clock
-        clock.advance(by: .seconds(10))
-        try await store.waitUntil("the stage commits at the first batch's deadline") { store.tab(surface: 4)?.name == "batch" }
+        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600))
+        #expect(rig.queue.count == 1, "the stage's one deadline is a main deadline on the store's queue")
+        rig.advance(by: .seconds(11))
+        #expect(store.tab(surface: 4)?.name == "batch", "the stage did not commit at the first batch's deadline")
         #expect(!first.stage.isOpen, "the second batch's later deadline kept the stage open")
     }
 
-    /// A batch whose commit never comes does not hold the store: the stage commits at its deadline.
-    @Test func aStageCommitsByItselfAtItsDeadline() async throws {
-        let store = Self.store()
-        let clock = StageClock()
-        var sleeps = clock.sleeps.makeAsyncIterator()
+    /// A batch whose commit never comes does not hold the store: the stage commits at its deadline, an
+    /// automation task on the store's deadlines (p06-scheduler-339 fixer: no DemandTimer on main).
+    @Test func aStageCommitsByItselfAtItsDeadline() throws {
+        let rig = DeadlineRig()
+        let store = Self.store(rig)
         let scope = DaemonCommandScope()
-        let batch = store.openStage(for: scope, until: clock.now.advanced(by: .seconds(5)), clock: clock)
+        let batch = store.openStage(for: scope, until: .now + .seconds(5))
         DaemonCommandScope.$current.withValue(scope) {
             store.intend(.renameTab(surface: 4, name: "batch"), transaction: .generate())
         }
         #expect(store.tab(surface: 4)?.name == nil)
-        _ = await sleeps.next()
-        clock.advance(by: .seconds(5))
-        try await store.waitUntil("the stage commits at its deadline") { store.tab(surface: 4)?.name == "batch" }
+        rig.advance(by: .seconds(1))
+        #expect(batch.stage.isOpen, "the stage committed before its deadline")
+        rig.advance(by: .seconds(5))
+        #expect(store.tab(surface: 4)?.name == "batch", "the stage did not commit at its deadline")
         #expect(!batch.stage.isOpen, "the stage outlived its deadline")
     }
 

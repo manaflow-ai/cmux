@@ -19,7 +19,7 @@ extension DaemonService {
     /// observed identity (no polling: an ``ObservedCondition``), or nil when `timeout` passes
     /// first (its ``MainDeadline``). The person confirmed the restart and waits for it: the
     /// re-reads and the bound are userBlocking.
-    private func successor(of previous: DaemonIdentity, within timeout: Duration) async -> DaemonIdentity? {
+    func successor(of previous: DaemonIdentity, within timeout: Duration) async -> DaemonIdentity? {
         let store = store
         let successor: @MainActor () -> DaemonIdentity? = {
             guard let next = store.identity, next.pid != previous.pid || next.generation != previous.generation else { return nil }

@@ -27,9 +27,10 @@ extension DaemonService {
             case nil:
                 break
             case "restart":
-                // task-owner: the button's own call; the report shows its progress.
-                // main-hop-allow: restart is DaemonRecovery's main-actor async flow (its replace runs off main in the launcher); this task only starts it
-                Task { await self.recovery.restart() }
+                // task-owner: the button's own call; the report shows its progress. Off main: the task only
+                // awaits the recovery's restart, whose steps on main are its own main-actor methods.
+                let recovery = self.recovery
+                Task { @concurrent in await recovery.restart() }
             case "retry":
                 self.recovery.retryNow()
             case let other?:

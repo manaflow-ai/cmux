@@ -13,7 +13,8 @@ final class MainDeadlineRig {
     /// The rig's scheduler: its posted work runs at ``frame()``.
     let work: MainWorkScheduler
     private let budgetClock: RigUptime
-    private let keeper: FrameClient
+    /// Keeps the rig's own scheduler's link; nil when the deadlines post on a test's scheduler (``init(posting:)``).
+    private let keeper: FrameClient?
     private var frames: Double = 0
 
     /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
@@ -33,17 +34,36 @@ final class MainDeadlineRig {
         keeper.activate()
     }
 
+    /// A rig whose deadlines post on `work`, a scheduler the test runs itself (its frames, its turns): ``fire()``
+    /// fires the queue and runs nothing else.
+    init(posting work: MainWorkScheduler) {
+        let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0)
+        self.timer = timer
+        self.uptime = uptime
+        budgetClock = RigUptime(1_000_000_000)
+        let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
+        self.queue = queue
+        self.work = work
+        deadlines = MainDeadlineScheduler(work: work, queue: queue)
+        keeper = nil
+    }
+
     /// Seconds of uptime since the rig began.
     var elapsed: TimeInterval { Double(uptime.now) / 1_000_000_000 }
 
     /// Moves the uptime on without firing anything.
     func advance(by duration: Duration) { uptime.now += duration.nanosecondCount }
 
-    /// Moves the uptime to the armed wake, fires the queue and runs the posted actions in one frame.
-    func fireAndRun() {
+    /// Moves the uptime to the armed wake and fires the queue: the deadlines due post their actions on ``work``.
+    func fire() {
         if let date = timer.armedDate { uptime.now = max(uptime.now, date) }
         timer.armedDate = nil
         queue.fire()
+    }
+
+    /// Moves the uptime to the armed wake, fires the queue and runs the posted actions in one frame.
+    func fireAndRun() {
+        fire()
         frame()
     }
 

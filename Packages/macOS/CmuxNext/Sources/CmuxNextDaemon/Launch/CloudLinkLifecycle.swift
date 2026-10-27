@@ -60,9 +60,9 @@ public final class CloudLinkLifecycle {
         linkGeneration &+= 1
         let running = linkTask
         linkTask = nil
-        // task-owner: one teardown hop; stopLink() is idempotent
-        // main-hop-allow: the link's one-at-a-time chain: stopLink is this lifecycle's main-actor async step (the stop runs in the launcher), after the running ensure
-        Task { [weak self] in
+        // task-owner: one teardown; stopLink() is idempotent. Off main: it waits for the running ensure, then the
+        // stop's main-thread steps are this lifecycle's main-actor method (recipe R-hop).
+        Task { @concurrent [weak self] in
             _ = await running?.value
             await self?.stopLink()
         }
@@ -84,9 +84,9 @@ public final class CloudLinkLifecycle {
         // One link task: an ensure waits for the one before it.
         let previous = linkTask
         let generation = linkGeneration
-        // task-owner: the link's one task (`linkTask`); a session end waits for it
-        // main-hop-allow: the link's one-at-a-time chain: runEnsure reads this lifecycle's main-actor generation between the launcher's off-main steps
-        let task = Task { [weak self] () -> JSONValue in
+        // task-owner: the link's one task (`linkTask`); a session end waits for it. Off main: it waits for the
+        // previous ensure; the ensure's main-thread steps (the generation and sign-in checks) are `runEnsure`'s.
+        let task = Task { @concurrent [weak self] () -> JSONValue in
             _ = await previous?.value
             guard let self else { return .null }
             return await self.runEnsure(linkLauncher, generation: generation)
