@@ -65,8 +65,9 @@
 // calls still are), as Chrome's ScopedBlockingCall nested in another adds no second blocking scope
 // (base/threading/scoped_blocking_call_internal.cc). The main run loop's own wait for its next event, from its
 // last BeforeWaiting observer to its first AfterWaiting one (the probe's two observers, in the common modes), is
-// not a mach receive; a nested run loop in another mode waiting on main is. dlopen goes through dyld's
-// dlopen_from with the caller's address, so @rpath and @loader_path resolve from the caller as without the probe.
+// not a mach receive; a nested run loop in another mode waiting on main is. Every dlopen, in an inert process and
+// before the constructor too, goes through dyld's dlopen_from with the caller's address, so @rpath and
+// @loader_path resolve from the caller as without the probe (a dyld without dlopen_from is named on stderr).
 // dispatch_sync's time includes the block's own work. On a watched thread other than main, a wait for the next
 // input has its own kind, "input-wait:<call>": a read of a socket, pipe or PTY (not of a regular file), recv*,
 // poll, select, waitpid and wait4. Chrome's message pump waits for work outside any ScopedBlockingCall the same
@@ -173,8 +174,7 @@ static int ready;                    // set once the constructor has read the co
 static pthread_key_t state_key;      // per thread: STATE_BUSY (the probe's own work) or STATE_SELFTEST
 static pthread_key_t outer_key;      // per thread: non-NULL inside a recorded XPC reply, SecItem, getpwuid or dlopen
 static int run_loop_idle;            // the main run loop waits for its next event (main thread only)
-// dyld's dlopen_from(path, mode, address in the caller): resolved at load, NULL on a dyld without it.
-static void *(*dlopen_from_fn)(const char *, int, void *);
+typedef void *(*dlopen_from_t)(const char *, int, void *);
 enum { STATE_NONE = 0, STATE_BUSY = 1, STATE_SELFTEST = 2 };
 static int watch_main = 1;           // the main thread is watched
 static char thread_list[512] = "main";  // the watched threads as given (the dump header)
@@ -551,10 +551,29 @@ static mach_msg_return_t p_mach_msg2(void *data, uint64_t o, uint64_t a, uint64_
                probe_mach_msg2_internal(data, o, a, b, c, d, e, t));
 }
 #endif
+// dyld's dlopen_from(path, mode, address in the caller), looked up at the first dlopen of any process that loads
+// the probe (an inert one too, and before the constructor runs), so every dlopen resolves from its caller.
+static dlopen_from_t dlopen_from_resolved(void) {
+    static dlopen_from_t resolved;
+    static int looked_up;
+    if (__atomic_load_n(&looked_up, __ATOMIC_ACQUIRE)) return __atomic_load_n(&resolved, __ATOMIC_RELAXED);
+    int errno_ = errno;
+    dlopen_from_t found = (dlopen_from_t)dlsym(RTLD_DEFAULT, "dlopen_from");
+    errno = errno_;
+    __atomic_store_n(&resolved, found, __ATOMIC_RELAXED);
+    if (__atomic_exchange_n(&looked_up, 1, __ATOMIC_ACQ_REL) == 0 && found == NULL) {
+        fprintf(stderr, "blocking-probe: pid %d: this dyld has no dlopen_from, so a dlopen of an @rpath, "
+                        "@loader_path or relative name resolves from the probe, not its caller\n", getpid());
+    }
+    return found;
+}
+static void *dlopen_from_caller(const char *path, int mode, void *caller) {
+    dlopen_from_t from = dlopen_from_resolved();
+    return from != NULL ? from(path, mode, caller) : dlopen(path, mode);
+}
 static void *p_dlopen(const char *path, int mode) {
     void *caller = __builtin_return_address(0);
-    TIMED_OUTER("library-load:dlopen",
-                dlopen_from_fn != NULL ? dlopen_from_fn(path, mode, caller) : dlopen(path, mode));
+    TIMED_OUTER("library-load:dlopen", dlopen_from_caller(path, mode, caller));
 }
 static struct passwd *p_getpwuid(uid_t uid) { TIMED_OUTER("system-query:getpwuid", getpwuid(uid)); }
 static int p_getpwuid_r(uid_t uid, struct passwd *pw, char *buffer, size_t size, struct passwd **result) {
@@ -964,11 +983,7 @@ __attribute__((constructor)) static void start(int argc, const char **argv) {
     unsetenv("CMUX_BLOCKING_PROBE_ARG");
     unsetenv("CMUX_BLOCKING_PROBE_CHILD");
     unsetenv("DYLD_INSERT_LIBRARIES");
-    dlopen_from_fn = (void *(*)(const char *, int, void *))dlsym(RTLD_DEFAULT, "dlopen_from");
-    if (dlopen_from_fn == NULL) {
-        fprintf(stderr, "blocking-probe: this dyld has no dlopen_from, so a dlopen of an @rpath or @loader_path name "
-                        "resolves from the probe, not its caller\n");
-    }
+    (void)dlopen_from_resolved();
     if (watch_main) observe_main_run_loop();
     atexit(dump_at_exit);
     __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);

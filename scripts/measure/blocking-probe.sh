@@ -134,13 +134,16 @@ fi
 # The test program plays the three roles. "preflight" is the app: it runs the main run loop (CFRunLoopRun keeps
 # the main thread, unlike dispatch_main, which exits it), so the probe's self-test, queued on the main queue,
 # runs on the main thread. It spawns "preflight hop --probe-session", `cmux-tui server ensure`'s role: one of the
-# two wanted arguments only, so the probe stays inert there and passes itself on. That spawns "preflight work
+# two wanted arguments only, so the probe stays inert there and passes itself on. The hop first dlopens
+# @loader_path/preflight-lib.dylib: the program and that library sit in preflight-bin/, away from the probe, so the
+# dlopen fails if the probe resolves it from its own image (an inert probe must change nothing). That spawns "preflight work
 # --probe-owner --probe-session", the session owner's role, with two threads: probe-test-1-host (watched by the
 # pattern probe-test-*-host) stats a file and reads a pipe (an input wait), probe-test-1-wait (not watched) checks
 # access to a file. Each waits for its child. With a launch window, the app then does what LaunchMarkSink does on
 # CMUX_NEXT_LAUNCH_MARKS_FD (the probe's /dev/null): its fcntls, an earlier mark's line, then the launch mark's
 # line, and checks access to a file, a call after the mark. The app then makes the cross-process and loader calls:
-# a 5 ms mach receive that times out, a synchronous XPC send to a service that does not exist, a dlopen, a
+# a 5 ms mach receive that times out, a synchronous XPC send to a service that does not exist, the same
+# @loader_path dlopen (recorded, and resolved from the program as without the probe), a
 # getpwuid_r and a fork whose child exits at once. A timer then exits; until it fires the main run loop idles, a
 # wait that is never a mach receive, as the receives inside the XPC send and getpwuid_r are not.
 cat >"$out/preflight.c" <<'C'
@@ -201,6 +204,12 @@ static int fail(const char *what) {
     fprintf(stderr, "preflight: %s\n", what);
     return 1;
 }
+// A library beside the program, by a name dyld resolves from the caller's image.
+static int load_beside(void) {
+    if (dlopen("@loader_path/preflight-lib.dylib", RTLD_NOW) != NULL) return 0;
+    fprintf(stderr, "preflight: the @loader_path dlopen failed: %s\n", dlerror());
+    return 1;
+}
 // One call of each cross-process and loader kind, on the main thread.
 static int cross_process(void) {
     mach_port_t port = MACH_PORT_NULL;
@@ -222,7 +231,7 @@ static int cross_process(void) {
     xpc_connection_cancel(connection);
     xpc_release(connection);
     if (!refused) return fail("a service that does not exist replied");
-    if (dlopen("/usr/lib/libz.1.dylib", RTLD_NOW) == NULL) return fail("no libz");
+    if (load_beside() != 0) return 1;
     struct passwd entry, *found = NULL;
     char buffer[4096];
     if (getpwuid_r(getuid(), &entry, buffer, sizeof buffer, &found) != 0 || found == NULL) return fail("no user");
@@ -238,6 +247,7 @@ static int join(void *(*body)(void *)) {
 }
 int main(int argc, char **argv) {
     if (argc > 1 && strcmp(argv[1], "hop") == 0) {
+        if (load_beside() != 0) return 1;
         char *next[] = {argv[0], "work", "--probe-owner", "--probe-session", NULL};
         return run(next);
     }
@@ -259,11 +269,13 @@ int main(int argc, char **argv) {
     return 1;
 }
 C
-clang -O0 -framework CoreFoundation -o "$out/preflight" "$out/preflight.c"
-mkdir -p "$out/preflight-dumps"
+mkdir -p "$out/preflight-bin" "$out/preflight-dumps"
+printf 'int preflight_lib(void) { return 1; }\n' >"$out/preflight-lib.c"
+clang -dynamiclib -O0 -o "$out/preflight-bin/preflight-lib.dylib" "$out/preflight-lib.c"
+clang -O0 -framework CoreFoundation -o "$out/preflight-bin/preflight" "$out/preflight.c"
 if ! CMUX_BLOCKING_PROBE_UNTIL_MARK="$preflight_mark" DYLD_PRINT_INTERPOSING=1 \
      DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" CMUX_BLOCKING_PROBE_OUT="$out/preflight-dumps/probe-%p.tsv" \
-     CMUX_BLOCKING_PROBE_CHILD="preflight:--probe-owner,--probe-session:probe-test-*-host" "$out/preflight" \
+     CMUX_BLOCKING_PROBE_CHILD="preflight:--probe-owner,--probe-session:probe-test-*-host" "$out/preflight-bin/preflight" \
      >>"$out/preflight.txt" 2>&1; then
   echo "blocking-probe: the preflight program failed: dyld refused the probe on this host, or a call it checks failed (its preflight: line); see $out/preflight.txt" >&2
   tail -n 20 "$out/preflight.txt" >&2
@@ -283,7 +295,7 @@ if ! python3 "$report" --preflight ${preflight_window[@]+"${preflight_window[@]}
   echo "blocking-probe: see $out/preflight.txt and $out/preflight-dumps" >&2
   exit 1
 fi
-echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines; main thread, spawn chain, argument gate, thread patterns, input waits, cross-process kinds)"
+echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines; main thread, spawn chain, argument gate, thread patterns, input waits, cross-process kinds, caller-relative dlopen)"
 
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
   | tee "$out/reload.log" | tail -n 40

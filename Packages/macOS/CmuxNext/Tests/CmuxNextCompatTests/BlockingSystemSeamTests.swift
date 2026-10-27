@@ -7,15 +7,16 @@ import Security
 import ServiceManagement
 import Testing
 import UniformTypeIdentifiers
+import XPC
 
 /// The checked seams over synchronous system calls (Security, Accessibility, host resolution, window
-/// lists and captures, NSWorkspace queries, SMAppService): on the main thread each one records exactly one
-/// site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
+/// lists and captures, NSWorkspace queries, SMAppService, XPC replies): on the main thread each one
+/// records exactly one site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
 /// table (``BlockingViolationTable/scoped``). The calls are chosen to change nothing on the host: the
 /// keychain calls name an access group no test runner is entitled to, so securityd refuses the add
 /// (`errSecMissingEntitlement`) and nothing is written; the AX calls go to this process's own element, with
 /// its own short timeout, and name no real attribute or action; the captures name no window; the
-/// SMAppService agent has no plist.
+/// SMAppService agent has no plist; the XPC send names a service that does not exist.
 @Suite(.serialized)
 struct BlockingSystemSeamTests {
     /// The names the debug log and the hang reports use never change.
@@ -35,7 +36,7 @@ struct BlockingSystemSeamTests {
         let expected = try BlockingViolationTable.$scoped.withValue(table) { try callEachSystemSeam() }
         await table.flush()
 
-        #expect(expected.count == 28)
+        #expect(expected.count == 29)
         #expect(Set(expected.map(\.location)).count == expected.count)
         #expect(BlockingDetector(table: table).sites == expected)
     }
@@ -46,7 +47,7 @@ struct BlockingSystemSeamTests {
         await table.flush()
 
         #expect(!onMain)
-        #expect(called == 28)
+        #expect(called == 29)
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #endif
@@ -138,6 +139,15 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.ipcReply) { _ = blockingSMAppServiceStatus(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceRegister(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceUnregister(missingAgent) }
+
+    // No such service is registered, so the reply is an XPC_TYPE_ERROR at once (blocking-probe.sh's preflight
+    // makes the same call).
+    let connection = xpc_connection_create_mach_service("com.cmuxterm.blocking-probe.none", nil, 0)
+    xpc_connection_set_event_handler(connection) { _ in }
+    xpc_connection_resume(connection)
+    defer { xpc_connection_cancel(connection) }
+    let request = xpc_dictionary_create(nil, nil, 0)
+    seam(.xpcReply) { _ = blockingXPCSendWithReply(connection, request) }
     return expected
 }
 
