@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Content that draws nothing until its document paints (an agent page is
 /// transparent until then). A pane switching to it keeps what it showed
@@ -26,10 +26,14 @@ public final class PanePaintHold {
     private var holding = false
     private var release: ((NSView) -> Void)?
     private var ended: (() -> Void)?
-    private let deadline: DemandTimer
+    /// The hold's limit: `visible`, since the person waits on the pane it keeps.
+    private let deadline: MainDeadline
 
-    public init(owner: String) {
-        deadline = DemandTimer(owner: owner)
+    /// - Parameters:
+    ///   - owner: The limit's owner on the board.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`).
+    public init(owner: String, deadlines: MainDeadlineScheduler) {
+        deadline = MainDeadline(owner: owner, workClass: .visible, scheduler: deadlines)
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -63,7 +67,7 @@ public final class PanePaintHold {
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.scheduleOnMain(after: Self.limit) { [weak self] in
+        deadline.schedule(after: Self.limit) { [weak self] in
             self?.end(token)
         }
     }

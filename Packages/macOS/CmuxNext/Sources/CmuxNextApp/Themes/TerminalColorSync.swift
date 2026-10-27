@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextFeatures
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
@@ -58,13 +59,15 @@ final class TerminalColorSync {
 extension AppServices {
     /// Starts the local daemon (AppDelegate, once per launch). `terminalColors` is built here, its first reader,
     /// so every daemon holds the colors terminals are painted with before it connects: its first answers to
-    /// OSC 10/11/12 queries match the screen, and each connect sends them again.
+    /// OSC 10/11/12 queries match the screen, and each connect sends them again. With feature `drainCauseSplit`,
+    /// its program and agent changes apply in budgeted tasks of the app's scheduler (p06-scheduler-223, `DrainTail`).
     func startLocalDaemon(prestart: DaemonPrestart?) {
         terminalColors.apply()
+        if features.isEnabled(.drainCauseSplit) { daemon.store.drainTailScheduler = mainWork }
         daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart)
+                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart, launchSnapshot: environment.launchSnapshot)
     }
 }
 

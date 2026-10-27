@@ -94,7 +94,8 @@ final class CursorRectCountingWindow: NSWindow {
     }
 
     /// The Chief's settings links show the pointing hand from a cursor area AppKit supports: NSTrackingArea.h
-    /// does not support `.activeAlways` with `.cursorUpdate`, so the hover area's `.activeAlways` carries none.
+    /// does not support `.activeAlways` with `.cursorUpdate`, so the hover area (`.activeForHover`, which is
+    /// `.activeAlways` in a no-activate launch) carries none.
     @Test func aChiefLinksCursorAreaIsNotActiveAlways() {
         let link = HomeChiefLinkButton(title: "Show Memory", target: NSView(), action: #selector(NSView.display as (NSView) -> () -> Void))
         link.frame = NSRect(x: 0, y: 0, width: 120, height: 20)
@@ -102,8 +103,9 @@ final class CursorRectCountingWindow: NSWindow {
         let cursorAreas = link.trackingAreas.filter { $0.options.contains(.cursorUpdate) }
         #expect(cursorAreas.contains { $0.options.contains(.activeInKeyWindow) }, "the pointing hand's area")
         #expect(!cursorAreas.contains { $0.options.contains(.activeAlways) })
-        #expect(link.trackingAreas.contains { $0.options.contains(.mouseEnteredAndExited) && $0.options.contains(.activeAlways) },
-                "hover still arrives in any window")
+        #expect(link.trackingAreas.contains { $0.options.contains(.mouseEnteredAndExited) && $0.options.contains(.activeForHover) },
+                "hover still arrives in every window of the active app")
+        #expect(!link.trackingAreas.contains { $0.options.contains(.mouseEnteredAndExited) && $0.options.contains(.cursorUpdate) })
     }
 
     /// Only a selectable label has a cursor area (its I-beam): most labels never select, and an area

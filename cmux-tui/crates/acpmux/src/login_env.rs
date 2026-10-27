@@ -340,6 +340,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     // take the terminal a foreground daemon runs in), and its process group
     // id is its pid (killed as a group on timeout).
     #[cfg(unix)]
+    // SAFETY: the hook runs in the forked child before exec and calls only
+    // setsid and reads errno, both async-signal-safe; it allocates nothing.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -366,6 +368,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
             // The future (and the shell) is dropped; its group goes too.
             #[cfg(unix)]
             if let Some(pid) = pid {
+                // SAFETY: killpg takes no pointers; `pid` leads the shell's own session and
+                // group (setsid above).
                 unsafe {
                     libc::killpg(pid as i32, libc::SIGKILL);
                 }

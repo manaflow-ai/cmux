@@ -8,11 +8,12 @@ import MachO
 /// Making it touches memory only: the ring starts on the heap at once and is attached to the runtime
 /// (``TraceRuntime/attach(_:)``), which owns it from then on, so every `runtime.write` of the process
 /// records into it from the first frame; nothing opens, truncates or maps a file on the caller's thread. The
-/// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`:
+/// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`. The process's
+/// crash-key page (``crashKeys``) starts on the heap beside the ring and is mirrored into its file with it:
 ///
 /// 1. ``adoptFile()``: moves the ring into `<directory>/<role>-<pid>.blackbox.cmxtrace` (``TraceRingFile``),
-///    renaming the role's spare file when one is ready.
-/// 2. ``cleanUp(now:)``: deletes the black boxes of dead processes (``TraceRingCleanup``).
+///    renaming the role's spare file when one is ready, and the page into `<role>-<pid>.crashkeys`.
+/// 2. ``cleanUp(now:)``: deletes the black boxes and pages of dead processes (``TraceRingCleanup``).
 /// 3. ``prepareSpare()``: makes the next launch's spare file, well after launch.
 ///
 /// Chrome does the same with its persistent histogram file: the browser starts on a heap allocator,
@@ -39,6 +40,8 @@ public final class TraceBlackBox: Sendable {
     public let ring: TraceRing
     /// The runtime that owns ``ring``.
     public let runtime: TraceRuntime
+    /// The runtime's crash-key page (``TraceRuntime/attachCrashKeys(_:)``): the heap, mirrored into its file.
+    public let crashKeys: CrashKeyPage
     /// The pid in the file names.
     public let pid: UInt32
 
@@ -74,7 +77,20 @@ public final class TraceBlackBox: Sendable {
             buildVersion: buildVersion, categories: categories.rawValue)
         self.runtime = runtime
         ring = Self.attachedRing(of: runtime) { TraceRing(sizes: sizes, identity: identity, catalog: catalog) }
+        crashKeys = Self.attachedCrashKeys(of: runtime) {
+            CrashKeyPage(identity: .init(pid: process.pid, role: role.ringRole, buildUUID: process.buildUUID,
+                                         processStartUnixMicros: process.processStartUnixMicros,
+                                         startUptimeNanos: identity.startUptimeNanos))
+        }
         runtime.setCategories(categories)
+    }
+
+    /// The crash-key page `runtime` writes to: the one attached already, else `make()`'s, attached now.
+    private static func attachedCrashKeys(of runtime: TraceRuntime, making make: () -> CrashKeyPage) -> CrashKeyPage {
+        if let attached = runtime.crashKeys { return attached }
+        let made = make()
+        runtime.attachCrashKeys(made)
+        return runtime.crashKeys ?? made
     }
 
     /// The ring `runtime` writes to: the one attached already, else `make()`'s, attached now.
@@ -91,8 +107,9 @@ public final class TraceBlackBox: Sendable {
     }
 
     /// Moves the ring from the heap into its black-box file (``TraceRingFile/adopt(_:directory:)``): rename the
-    /// spare or create the file, map it, copy, swap. Blocking file work: BackgroundWork `.files` only. On a
-    /// failure the ring keeps writing to the heap and the failure is counted in the ring's counters.
+    /// spare or create the file, map it, copy, swap; then the crash-key page (``CrashKeyPage/adopt(directory:)``).
+    /// Blocking file work: BackgroundWork `.files` only. On a failure the ring or the page keeps writing to the
+    /// heap and the failure is counted (the ring's counters, ``CrashKeyPage/adoptFailures``).
     ///
     /// - Returns: The mapped file, or nil when the ring stays on the heap.
     @discardableResult
@@ -102,6 +119,7 @@ public final class TraceBlackBox: Sendable {
         let file = TraceRingFile.adopt(ring, directory: directory)
         // The copied header holds the categories of the copy; a change during the copy went to the heap.
         if file != nil { ring.mirrorCategories(runtime.categoryMask) }
+        crashKeys.adopt(directory: directory)
         return file
     }
 
