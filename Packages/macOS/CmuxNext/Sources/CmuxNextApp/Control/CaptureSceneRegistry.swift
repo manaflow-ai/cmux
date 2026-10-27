@@ -315,14 +315,21 @@ extension CaptureSceneRegistry {
             controller.state.selection.select(created.key, in: pane.id)
             _ = services.revealTab(created.key, intent: .focus)
             controller.sidebar.restore(width: 300, hidden: false)
-            let tabSession = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession
-            let fixtureSession = tabSession?.session ?? Self.autoNameSession
-            if let host = tabSession?.host {
-                let turns = AgentTurnStateStore.shared
-                if host != turns.localHost && !turns.mirroredHosts.contains(host) {
-                    turns.mirroredHosts.insert(host)
-                    addedFixtureHost = host
-                }
+            let sessionSettled = await autoNameSettled {
+                workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession?.session == Self.autoNameSession
+            }
+            guard sessionSettled.0 != nil,
+                  let tabSession = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                      .first(where: { $0.id == created.key })?.agentSession,
+                  let fixtureSession = tabSession.session,
+                  fixtureSession == Self.autoNameSession else {
+                return await failure("auto-name agent tab did not resolve its mock session")
+            }
+            let host = tabSession.host
+            let turns = AgentTurnStateStore.shared
+            if host != turns.localHost && !turns.mirroredHosts.contains(host) {
+                turns.mirroredHosts.insert(host)
+                addedFixtureHost = host
             }
             // The fixture supplies an acpmux summary. Only the production namer may write its title.
             let summary: [String: Any] = ["sessionId": fixtureSession, "title": Self.generatedAutoName, "titleSource": "generated"]
@@ -442,7 +449,11 @@ extension CaptureSceneRegistry {
         let tabFound = tab != nil
         let session = tab?.agentSession
         let sessionOK = session?.session == Self.autoNameSession
-        let generatedOK = session.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == expectedGeneratedTitle } ?? false
+        let turns = AgentTurnStateStore.shared
+        let hostKnown = session.map { $0.host == turns.localHost || turns.mirroredHosts.contains($0.host) } ?? false
+        let actualGenerated = session.flatMap { turns.generatedTitle(for: $0) }
+        let generatedOK = actualGenerated == expectedGeneratedTitle
+        let actualGeneratedPreview = actualGenerated.map { String($0.prefix(32)) } ?? "-"
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
         let inWindow = view?.webView.window != nil
@@ -453,8 +464,8 @@ extension CaptureSceneRegistry {
         let sidebarRowMatches = sidebarRow?.title == expected
         let pending = sidebarRow?.rowState.isPending == true
         let ready = workspace.name == expected && workspace.nameSource == expectedSource
-            && tabFound && sessionOK && generatedOK && painted && pageReady && sidebarRowMatches && !pending
-        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),generatedOK=\(generatedOK),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
+            && tabFound && sessionOK && hostKnown && generatedOK && painted && pageReady && sidebarRowMatches && !pending
+        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
         return (ready, String(diagnostic.prefix(330)))
     }
 }
