@@ -27,9 +27,14 @@ of that branch, and a fetch that fails (offline, no origin) only skips that bran
 Which branch the tree is: CMUX_OWNED_POOL_BRANCH when set; under Actions the
 branch the event targets (GITHUB_BASE_REF for a pull request, else
 GITHUB_REF_NAME, a merge queue's gh-readonly-queue/<branch>/... included, and
-main for any other branch); off CI the branch with fewer commits between it and
-HEAD, skipped when either ref is missing. (Both branches carry a cmux-next.yml,
-so no file tells them apart.)
+main for any other branch), unless HEAD is not GITHUB_SHA: then the event's ref
+says nothing about the tree. cmux-ci fast checks dispatch on main and check out
+a snapshot of any branch, so a feat-cmux-next tree was judged as main and its own
+rescue (which has no WATCHED_WORKFLOW_PATHS) was read as main's. Such a tree, and
+any tree off CI, is the branch whose freshly fetched tip changes the fewest paths
+under .github/workflows and scripts/ci against it (a snapshot has no history to
+count commits in), skipped when neither branch can be fetched. (Both branches
+carry a cmux-next.yml, so no single file tells them apart.)
 """
 
 from __future__ import annotations
@@ -57,12 +62,33 @@ def git(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(ROOT), *args], input=stdin, capture_output=True, text=True)
 
 
+def event_describes_tree() -> bool:
+    """Whether the Actions event's ref is this tree's: a pull request's base always is; otherwise HEAD is GITHUB_SHA."""
+    if os.environ.get("GITHUB_BASE_REF"):
+        return True
+    head = git("rev-parse", "HEAD").stdout.strip()
+    return bool(head) and head == os.environ.get("GITHUB_SHA")
+
+
+def nearest_branch() -> str | None:
+    """The branch whose fresh tip changes the fewest workflow and CI script paths against HEAD; None when neither fetches."""
+    changed = {}
+    for name, ref in BRANCHES.items():
+        fresh = fetch(ref)
+        if fresh is None:
+            continue
+        diff = git("diff", "--no-renames", "--name-only", fresh, "HEAD", "--", sources.WORKFLOWS_DIR, "scripts/ci")
+        if diff.returncode == 0:
+            changed[name] = len(diff.stdout.splitlines())
+    return min(changed, key=changed.get) if changed else None
+
+
 def branch() -> str | None:
     """main or feat-cmux-next: the branch this tree is (or is going into), or None when it cannot be told."""
     named = os.environ.get("CMUX_OWNED_POOL_BRANCH")
     if named:
         return named
-    if ON_CI:
+    if ON_CI and event_describes_tree():
         ref = os.environ.get("GITHUB_BASE_REF") or os.environ.get("GITHUB_REF_NAME") or ""
         if ref.startswith("gh-readonly-queue/"):
             ref = ref[len("gh-readonly-queue/"):].rsplit("/pr-", 1)[0]
@@ -71,13 +97,11 @@ def branch() -> str | None:
         # A dispatch on a topic branch: judged as main's, the rescue's home.
         print(f"owned pool sources: {ref or 'no ref'} is neither branch; checking it as main", file=sys.stderr)
         return "main"
-    ahead = {}
-    for name, ref in BRANCHES.items():
-        counted = git("rev-list", "--count", f"{ref}..HEAD")
-        if counted.returncode != 0:
-            return None
-        ahead[name] = int(counted.stdout.strip() or 0)
-    return min(ahead, key=ahead.get)
+    nearest = nearest_branch()
+    if nearest is None and ON_CI:
+        print("owned pool sources: neither branch could be fetched; checking the tree as main", file=sys.stderr)
+        return "main"
+    return nearest
 
 
 def on_feat() -> bool:
@@ -116,11 +140,14 @@ def fetch(ref: str) -> str | None:
     if not has_ref(private):
         return None
     if ON_CI:
+        # A tip whose files cannot all be read is no tip: a missing blob would read as a missing file.
         listing = git("ls-tree", private, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
+        if listing.returncode != 0:
+            return None
         blobs = [line.split()[2] for line in listing.stdout.splitlines() if line.split()[1:2] == ["blob"]]
-        if blobs:
-            git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--filter=blob:none", "--stdin",
-                "origin", stdin="\n".join(blobs) + "\n")
+        if blobs and git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--filter=blob:none",
+                         "--stdin", "origin", stdin="\n".join(blobs) + "\n").returncode != 0:
+            return None
     return private
 
 
