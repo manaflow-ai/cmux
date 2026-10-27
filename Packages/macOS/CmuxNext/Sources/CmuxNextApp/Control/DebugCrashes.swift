@@ -5,8 +5,8 @@ import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
 /// CEF, helper processes from the child monitor), how this launch follows
-/// the previous run (restart, safe restart), the previous run's crash
-/// report paths, the restart notice on screen, and the crash report
+/// the previous run (restart, safe restart), how that run ended
+/// (`previous_exit`, sent once with consent), its crash report paths, the restart notice on screen, and the crash report
 /// folder. No page content.
 @MainActor
 enum DebugCrashes {
@@ -26,6 +26,8 @@ enum DebugCrashes {
                 "signal": previous.signal.map { .number(Double($0)) } ?? .null,
             ])
         }
+        launch["previous_exit"] = crash.previousExit.map { .string($0.outcome.rawValue) } ?? .null
+        launch["previous_exit_sent"] = .bool(crash.previousExitSent)
         launch["system_report"] = crash.previousCrashLog.map { .string($0.path) } ?? .null
         launch["report"] = crash.previousReport.map { .string($0.path) } ?? .null
         launch["notice"] = crash.noticeText.map { .string($0) } ?? .null

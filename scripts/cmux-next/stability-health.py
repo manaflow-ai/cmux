@@ -17,8 +17,10 @@ reads, for one environment over the last --days days:
   hangs           main-thread hangs >= 2 s (MainThreadHangEvent, hang_source:main_thread_watchdog) per
                   issue, split into own and other-owner. Sentry's own 8 s AppHang events report the same
                   stalls again and are not counted.
-  unclean exits   the previous run's outcome (task 203's launch event, tag exit_outcome); the
-                  `unclean-no-report` share of sessions is the clean-exit-beacon number
+  unclean exits   the previous run's outcome, sent once per launch with consent (UncleanExitReport,
+                  tag exit_outcome: clean, signal, exception, crash-caught, unclean-no-report,
+                  system-shutdown) per 1k sessions; the `unclean-no-report` share of sessions is the
+                  clean-exit-beacon number. These events are a metric, not issues: top issues skip them.
   top issues      the --top unresolved cmux-next issues by events in the period
 
 Issues owned by another program (stability-other-owners.json: owner, ETA, GitHub issue, Sentry short
@@ -70,7 +72,12 @@ LAG_QUERY = "hang_source:main_thread_stall"
 HANG_QUERY = "hang_source:main_thread_watchdog"
 HANG_MIN_SECONDS = 2
 EXIT_TAG = "exit_outcome"
+CLEAN_EXIT = "clean"
 UNCLEAN_NO_REPORT = "unclean-no-report"
+# A system shutdown ends the run with no handler too, but Chrome counts it apart from the beacon's unclean exits
+# (components/metrics/stability_metrics_provider.cc); it is listed by outcome and not in the unclean total.
+SYSTEM_SHUTDOWN = "system-shutdown"
+TOP_QUERY = f"is:unresolved !has:{EXIT_TAG}"
 # Release health returns session.duration aggregates in milliseconds.
 DURATION_UNIT_MS = 1.0
 MAX_ISSUES = 500
@@ -322,7 +329,8 @@ def build_report(fetch: Fetch, cfg: Config) -> dict[str, Any]:
     other_hangs = sum(i["events"] for i in hang_issues if i["owner"] is not None)
     exits = tag_counts(fetch, cfg, "", EXIT_TAG)
     no_report = exits.get(UNCLEAN_NO_REPORT, 0)
-    top = issues(fetch, cfg, "is:unresolved", cfg.top)
+    unclean = sum(n for outcome, n in exits.items() if outcome not in (CLEAN_EXIT, SYSTEM_SHUTDOWN))
+    top = issues(fetch, cfg, TOP_QUERY, cfg.top)
     report = {
         "schema": SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -334,7 +342,9 @@ def build_report(fetch: Fetch, cfg: Config) -> dict[str, Any]:
                        "issues": len(spike_issues), "issues_without_github": spikes_without_github},
         "hangs": {"min_seconds": HANG_MIN_SECONDS, "own_events": own_hangs, "other_owner_events": other_hangs,
                   "own_per_1k_session_hours": per(own_hangs, hours, 1000.0), "issues": hang_issues},
-        "unclean_exits": {"by_outcome": exits, "no_report": no_report,
+        "unclean_exits": {"by_outcome": exits, "launches_reported": sum(exits.values()),
+                          "total": unclean, "per_1k_sessions": per(unclean, count, 1000.0),
+                          "no_report": no_report,
                           "no_report_pct_of_sessions": per(no_report, count, 100.0),
                           "no_report_per_1k_sessions": per(no_report, count, 1000.0),
                           "abnormal_sessions": summary["by_status"].get("abnormal", 0)},
@@ -372,6 +382,8 @@ def table(report: dict[str, Any]) -> str:
               f"lag spike signatures: {lag['issues']}, without a GitHub issue {len(lag['issues_without_github'])}",
               *[f"  {i['short_id']:<22} {i['events']:>7} {i['title'][:70]}" for i in lag["issues_without_github"]],
               f"hangs >= {hangs['min_seconds']} s: own {hangs['own_events']}, other-owner {hangs['other_owner_events']}",
+              f"unclean exits: {exits['total']} ({fmt(exits['per_1k_sessions'])} per 1k sessions) "
+              + "  ".join(f"{k} {v}" for k, v in sorted(exits["by_outcome"].items())),
               f"unclean exits without a crash report: {exits['no_report']} "
               f"({fmt(exits['no_report_pct_of_sessions'])} % of sessions); abnormal sessions {exits['abnormal_sessions']}",
               "", f"{'issue':<22} {'events':>7} {'users':>6} {'github':<10} {'owner':<12} title"]

@@ -22,6 +22,11 @@ final class CrashRecoveryService {
     private(set) var previousReport: URL?
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read off the main thread after launch.
     private(set) var previousCrashKeys: CrashKeys?
+    /// How the previous run ended (the clean exit beacon's value, p10-stability-203); nil on a first launch or
+    /// without a marker. ``reportPreviousExit(to:)`` sends it once.
+    let previousExit: UncleanExitReport?
+    /// ``previousExit`` was handed to crash reporting (consent given); it is never sent twice.
+    private(set) var previousExitSent = false
     private var crashObserver: UUID?
     private weak var crashLog: BrowserCrashLog?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
@@ -44,6 +49,7 @@ final class CrashRecoveryService {
             Logger(subsystem: "com.cmuxterm.app.next", category: "crash").fault("run marker launch read had not ended: this run is not marked")
         }
         marker = runMarker?.value.map { AppRunMarker(launch: $0) }
+        previousExit = runMarker?.value.flatMap(CrashRecoveryService.exitReport(of:))
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
         self.work = work
@@ -73,6 +79,19 @@ final class CrashRecoveryService {
             .reply(on: mainWork, class: .background, owner: "CrashRecovery.previousReport") { [weak self] url in
                 self?.previousReport = url
             }
+    }
+
+    /// Sends how the previous run ended as one event (``UncleanExitReport``), off the main thread. Call once
+    /// crash reporting has started: with it off (no consent, managed policy, a DEV build) nothing is sent, and
+    /// after one send a later call sends nothing.
+    func reportPreviousExit(to reporter: CrashReporter) {
+        guard !previousExitSent, let previousExit else { return }
+        previousExitSent = reporter.reportPreviousExit(previousExit, work: work)
+    }
+
+    /// The previous run's end as the marker's launch read found it; nil on a first launch.
+    nonisolated static func exitReport(of launch: AppRunMarker.Launch) -> UncleanExitReport? {
+        launch.previous.map { $0.exitReport(bootSession: launch.bootSession, crashKeys: launch.previousCrashKeys) }
     }
 
     /// Starts the run marker's quick-crash window on the app's deadline scheduler (``AppRunMarker/armSurvivalWindow(on:now:)``).
@@ -195,5 +214,17 @@ final class CrashRecoveryService {
             .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
             .filter { $0.1 >= date }
             .max { $0.1 < $1.1 }?.0
+    }
+}
+
+extension PreviousRun {
+    /// This run's end seen from a launch in boot `current`, with the crash keys its crash path wrote, if any; the
+    /// boot rule is ``uncleanExit(bootSession:)``'s.
+    nonisolated func exitReport(bootSession current: String?, crashKeys: CrashKeys?) -> UncleanExitReport {
+        var bootChanged = false
+        if let bootSession, let current { bootChanged = bootSession != current }
+        return UncleanExitReport(endedAsAsked: endedAsAsked, signal: signal, exception: exception != nil,
+                                 crashPathRan: crashKeys != nil, bootChanged: bootChanged, survived: survived,
+                                 followedRestart: recovery)
     }
 }

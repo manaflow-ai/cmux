@@ -215,6 +215,22 @@ class RatesTests(unittest.TestCase):
         self.assertEqual(exits["no_report_per_1k_sessions"], 0.4)
         self.assertEqual(exits["abnormal_sessions"], 10)
 
+    def test_unclean_exits_per_1k_sessions(self) -> None:
+        # Every outcome but clean and system-shutdown is unclean: 10 crash-caught + 8 unclean-no-report.
+        exits = report()["unclean_exits"]
+        self.assertEqual(exits["total"], 18)
+        self.assertEqual(exits["per_1k_sessions"], 0.9)
+        self.assertEqual(exits["launches_reported"], 19018)
+        outcomes = {"data": [{"tags[exit_outcome]": "clean", "count()": 19000},
+                             {"tags[exit_outcome]": "signal", "count()": 6},
+                             {"tags[exit_outcome]": "exception", "count()": 2},
+                             {"tags[exit_outcome]": "unclean-no-report", "count()": 12},
+                             {"tags[exit_outcome]": "system-shutdown", "count()": 40}]}
+        exits = report(exits=outcomes)["unclean_exits"]
+        self.assertEqual(exits["total"], 20)
+        self.assertEqual(exits["per_1k_sessions"], 1.0)
+        self.assertEqual(exits["by_outcome"]["system-shutdown"], 40)
+
     def test_no_session_hours_gives_no_rate(self) -> None:
         totals = copy.deepcopy(SESSIONS_TOTALS)
         totals["groups"][0]["totals"]["avg(session.duration)"] = None
@@ -233,6 +249,16 @@ class IssuesTests(unittest.TestCase):
         cursors = [dict(p).get("cursor") for path, p in fetch.calls
                    if path.endswith("/issues/") and "is:unresolved" in dict(p)["query"]]
         self.assertEqual(cursors, [None, "0:100:0"])
+
+    def test_top_issues_skip_the_exit_outcome_events(self) -> None:
+        # One exit_outcome event per launch (most of them clean) would otherwise be the top issue.
+        fetch = Recorded()
+        run(["--json", "--top", "3"], fetch=fetch)
+        queries = [dict(p)["query"] for path, p in fetch.calls
+                   if path.endswith("/issues/") and "is:unresolved" in dict(p)["query"]]
+        self.assertTrue(queries)
+        for query in queries:
+            self.assertIn("!has:exit_outcome", query)
 
     def test_top_stops_without_a_next_page(self) -> None:
         code, out, _ = run(["--json", "--top", "50"], fetch=Recorded(top=[TOP_PAGE_1]))
@@ -364,6 +390,7 @@ class OutputTests(unittest.TestCase):
         self.assertIn("cmux-next@0.70.0+900", out)
         self.assertIn("lag spikes >= 250 ms: 300 (10.0 per 1k session-hours", out)
         self.assertIn("hangs >= 2 s: own 3, other-owner 7", out)
+        self.assertIn("unclean exits: 18 (0.9 per 1k sessions) clean 19000  crash-caught 10  unclean-no-report 8", out)
         self.assertIn("unclean exits without a crash report: 8 (0.04 % of sessions)", out)
         self.assertIn("PL-cefhost: hangs 7, issue events 30, #24913, ETA 2026-11-15", out)
         self.assertIn("MISS own_hang_events 3 <= 0", out)
