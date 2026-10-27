@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
+/* cmux-tui mux protocol 12, IR 15c365ae023e8e41df4549c6f61ab37cdcad8812f1bc61b6ce3068a0b6d7a66d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c" as const;
+export const SDK_IR_SHA256 = "15c365ae023e8e41df4549c6f61ab37cdcad8812f1bc61b6ce3068a0b6d7a66d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2537,6 +2537,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Authority must match the value provisioned before this mux generation accepted control clients."
+    ]
+  },
+  "memory-report": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+      "Read only, never journaled; names no title, path, URL or command."
     ]
   },
   "mint-terminal-renderer": {
@@ -28261,6 +28272,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "memory-report": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
     }
   },
   "mint-terminal-renderer": {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c";
+inline constexpr std::string_view kProtocolIrSha256 = "15c365ae023e8e41df4549c6f61ab37cdcad8812f1bc61b6ce3068a0b6d7a66d";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -600,6 +600,8 @@ struct MachineCatalogPublishRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MemoryReportRequest;
+struct MemoryReportResult;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -5137,6 +5139,15 @@ struct MachineUsageResult {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MemoryReportRequest {
+    friend bool operator==(const MemoryReportRequest&, const MemoryReportRequest&) = default;
+};
+
+struct MemoryReportResult {
+    Json value{};
+    friend bool operator==(const MemoryReportResult&, const MemoryReportResult&) = default;
 };
 
 struct MintTerminalRendererByTerminalRequest {
@@ -11325,6 +11336,18 @@ template <>
 struct Codec<MarkWorkspacesProviderManagedRequest> {
     static Result<Json> encode(const MarkWorkspacesProviderManagedRequest& value);
     static Result<MarkWorkspacesProviderManagedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportRequest> {
+    static Result<Json> encode(const MemoryReportRequest& value);
+    static Result<MemoryReportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportResult> {
+    static Result<Json> encode(const MemoryReportResult& value);
+    static Result<MemoryReportResult> decode(const Json& value);
 };
 
 template <>

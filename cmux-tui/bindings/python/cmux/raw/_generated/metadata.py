@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c'
+IR_SHA256 = '15c365ae023e8e41df4549c6f61ab37cdcad8812f1bc61b6ce3068a0b6d7a66d'
 
 
 @dataclass(frozen=True)
@@ -2764,6 +2764,16 @@ COMMANDS = {
         None,
         {
             'authority': CommandFieldMetadata(None, None),
+        },
+    ),
+    'memory-report': CommandMetadata(
+        'memory-report',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'mint-terminal-renderer': CommandMetadata(

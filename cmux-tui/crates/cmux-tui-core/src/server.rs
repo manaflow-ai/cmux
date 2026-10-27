@@ -284,6 +284,7 @@ use group_outcome_json::{
 };
 use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
 mod capabilities;
+mod memory_report;
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
@@ -2011,6 +2012,10 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
+    /// Where this daemon's memory goes (server/memory_report.rs): per
+    /// terminal, the registry's consumers and the process footprint. Owner
+    /// only.
+    MemoryReport,
 }
 }
 

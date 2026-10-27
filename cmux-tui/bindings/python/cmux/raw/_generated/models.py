@@ -5180,6 +5180,12 @@ class MarkWorkspacesProviderManagedRequest:
 
 
 @dataclass(frozen=True)
+class MemoryReportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/memory-report/request'
+    pass
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
@@ -8299,6 +8305,7 @@ __all__ = [
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MemoryReportRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',

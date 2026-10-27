@@ -72,6 +72,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
+        "memory-report",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
@@ -223,7 +224,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     ),
     "background": (
         "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
-        "terminal-resources", "agent-inventory-refresh",
+        "terminal-resources", "agent-inventory-refresh", "memory-report",
     ),
 }
 
@@ -299,6 +300,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "memory-report",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
     "loopback-status", "browser-runtime-status",
