@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import yaml from "js-yaml";
 import {
   REBAKE_INPUTS,
   REBAKE_INPUT_EXEMPT,
@@ -19,6 +18,8 @@ import {
 import { readDevboxAwaitingRebake, repoRoot, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
+const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
 const digest = "08eaadaaff2d2bae9b06f0ab85925fcbbfc8b35eea8da89088b58ea92842b0ee";
 
 describe("rebakeVersion", () => {
@@ -134,7 +135,7 @@ describe("rebake inputs", () => {
   });
 
   test("are exactly the rebake workflow's push paths", () => {
-    const workflow = yaml.load(readFileSync(path.join(here, "../../.github/workflows/cloud-devbox-image-rebake.yml"), "utf8")) as {
+    const workflow = YAML.parse(readFileSync(path.join(here, "../../.github/workflows/cloud-devbox-image-rebake.yml"), "utf8")) as {
       on: { push: { paths: string[] } };
       concurrency: { "cancel-in-progress": boolean };
     };
