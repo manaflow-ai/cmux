@@ -487,6 +487,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.
+    public static let drainCauseSplit = Feature(
+        index: 26,
+        name: "drainCauseSplit",
+        owner: "Performance Lead",
+        description: "The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress", "new-surfaces-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
         index: 27,
@@ -1465,12 +1482,12 @@ nonisolated extension Feature {
         replaces: ["motion.pane.holdContent"]
     )
 
-    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    /// Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
         index: 81,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        description: "Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1482,12 +1499,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.
+    /// Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.
     public static let pointerFrameHover = Feature(
         index: 82,
         name: "pointerFrameHover",
         owner: "PL-motion-cef",
-        description: "The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.",
+        description: "Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1693,6 +1710,23 @@ nonisolated extension Feature {
         name: "stripPanResampling",
         owner: "PL-motion-core",
         description: "A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.
+    public static let tabStripScrollFrames = Feature(
+        index: 94,
+        name: "tabStripScrollFrames",
+        owner: "PL-motion-core",
+        description: "Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -2037,6 +2071,7 @@ nonisolated extension Feature {
         .crashForwardersAfterStartup,
         .daemonRequestQos,
         .directionalPrewarm,
+        .drainCauseSplit,
         .energySaver,
         .featureFlagsCard,
         .frameRateClasses,
@@ -2107,6 +2142,7 @@ nonisolated extension Feature {
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
         .terminalGPURelease,
         .terminalHiddenActionHold,
@@ -2156,6 +2192,7 @@ nonisolated extension Feature {
         .crashForwardersAfterStartup,
         .daemonRequestQos,
         .directionalPrewarm,
+        .drainCauseSplit,
         .energySaver,
         .featureFlagsCard,
         .frameRateClasses,
@@ -2226,6 +2263,7 @@ nonisolated extension Feature {
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
         .terminalGPURelease,
         .terminalHiddenActionHold,

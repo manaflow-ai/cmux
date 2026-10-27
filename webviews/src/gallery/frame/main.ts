@@ -98,14 +98,16 @@ emulateMedia({
   "prefers-contrast": env.highContrast ? "more" : "no-preference",
 });
 // WebTheme: the app's document-start script, then its payload, as every cmux web view gets them.
-// A classic script, as WKUserScript injects it.
+// A classic script, as WKUserScript injects it. A variant's `webTheme` fields (Energy Saver,
+// animations off) go over the payload, as the app sends them.
 const bootstrap = document.createElement("script");
 bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
-);
+(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply({
+  ...webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
+  ...entry.variants[variantName]!.webTheme,
+});
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);

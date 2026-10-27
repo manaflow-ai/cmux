@@ -163,6 +163,43 @@ import CmuxNextWakeupsTestSupport
         rig.gate.enqueue(Self.job(3))
         #expect(rig.gate.heldCount == 1)
     }
+
+    /// A job that sees the uninstall's or the nested loop's bit while held jobs are not released
+    /// yet (another thread between the bit and the release) queues behind them; the release sets
+    /// the bit and empties the FIFO in one step.
+    @Test func aJobDuringAReleaseQueuesBehindTheReleasedJobs() {
+        for bit in [InputPendingState.Bits.bypass, .nestedLoop] {
+            let rig = GateRig()
+            rig.state.publish(.key)
+            rig.gate.enqueue(Self.job(1))
+            rig.state.insert(bit)
+            rig.gate.enqueue(Self.job(2), bits: rig.state.bits, onMain: false)
+            #expect(rig.forwarded.jobs.isEmpty, "\(bit): no job overtakes a held one")
+            rig.state.remove(bit)
+            if bit == .bypass { rig.gate.stop() } else { rig.gate.enterNestedLoop() }
+            #expect(rig.forwarded.jobs == [Self.job(1).job, Self.job(2).job])
+            #expect(rig.state.bits.contains(bit))
+            #expect(!rig.state.bits.contains(.held))
+            rig.gate.enqueue(Self.job(3), bits: rig.state.bits, onMain: false)
+            #expect(rig.forwarded.jobs == [1, 2, 3].map { Self.job($0).job })
+        }
+    }
+
+    /// A job held one refresh or more counts as deferred over one frame; one forwarded sooner does not.
+    @Test func deferredOverOneFrameCountsLongHolds() {
+        let clock = ManualClock()
+        let rig = GateRig(clock: clock)
+        rig.state.publish(.key)
+        rig.gate.enqueue(Self.job(1))
+        clock.advance(by: .milliseconds(10))
+        rig.gate.enqueue(Self.job(2))
+        clock.advance(by: .milliseconds(7))
+        #expect(rig.gate.releaseIfOverdue(refreshNanos: 16_666_667))
+        #expect(rig.gate.counters.deferredOverOneFrame == 1, "job 2 waited 7 ms")
+        rig.gate.resetCounters()
+        #expect(rig.gate.counters.deferredOverOneFrame == 0)
+        #expect(rig.gate.counters.releasedBy.values.allSatisfy { $0 == 0 })
+    }
 }
 
 /// A gate whose forwards and wakes are recorded, on the real clock or a manual one.

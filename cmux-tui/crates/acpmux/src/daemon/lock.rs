@@ -38,6 +38,8 @@ impl std::error::Error for LockHeld {}
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
     let file = crate::config::private_state_rw(path)?;
+    // SAFETY: flock takes no pointers; `file` keeps the descriptor open across
+    // the call (and holds the lock for the daemon's lifetime).
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
         let e = std::io::Error::last_os_error();
@@ -127,6 +129,8 @@ pub(super) fn fork_a_child_for_tests() {
         // SAFETY: the child only calls nanosleep and _exit, both
         // async-signal-safe, and touches no Rust state.
         if unsafe { libc::fork() } == 0 {
+            // SAFETY: in the forked child: nanosleep reads the live `nap` and _exit
+            // never returns; both are async-signal-safe.
             unsafe {
                 libc::nanosleep(&nap, std::ptr::null_mut());
                 libc::_exit(0);
