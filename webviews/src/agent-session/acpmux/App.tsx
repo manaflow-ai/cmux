@@ -104,7 +104,8 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { topModelsFor } from "./topModels";
-import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -155,6 +156,7 @@ import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
+import { PeerCopyBanner } from "./PeerCopyBanner";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
@@ -4373,6 +4375,28 @@ function AcpmuxPane() {
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
+  // Typing in a new chat (this pane's fresh composer or its New Tab page) warms the agent its Enter
+  // starts (newChatPrewarm.ts, acpmux hub/pool). Silent: a folder without a Trust answer asks at Enter.
+  const [newChatPrewarm] = useState(
+    () =>
+      new NewChatPrewarm(
+        {
+          supported: () => directClient.current?.prewarmSupported === true,
+          prewarm: (target) => directClient.current?.typingPrewarm(target.harness, target.cwd),
+          release: (target) => directClient.current?.releasePrewarm(target.harness, target.cwd),
+        },
+        browserSwitchClock,
+      ),
+  );
+  // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
+  useEffect(() => {
+    const gone = () => newChatPrewarm.abandon();
+    window.addEventListener("pagehide", gone);
+    return () => {
+      window.removeEventListener("pagehide", gone);
+      gone();
+    };
+  }, [newChatPrewarm]);
   const queryClient = useQueryClient();
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
@@ -7592,8 +7616,16 @@ function AcpmuxPane() {
         // a web update's reload waits for the start too.
         const startChat = window.cmuxAcpmuxActions["chat.new"]!;
         window.cmuxAcpmuxActions["chat.new"] = (params) => {
+          // The chat it starts takes the agent its typing warmed (newChatPrewarm.ts).
+          newChatPrewarm.sent();
           untakenSends.current += 1;
           return startChat(params).finally(() => (untakenSends.current -= 1));
+        };
+        // A new chat's first send starts its chat, which takes the warm agent: nothing is released.
+        const sendPrompt = window.cmuxAcpmuxActions["chat.send"]!;
+        window.cmuxAcpmuxActions["chat.send"] = (params) => {
+          newChatPrewarm.sent();
+          return sendPrompt(params);
         };
         notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
@@ -7707,7 +7739,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab, restartGate]);
+  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -8279,6 +8311,33 @@ function AcpmuxPane() {
   const newTabSessions = useSharedSessions(
     carriedSessions ?? composerSnapshot.sessions,
     sharesChatList(newTab, composerSnapshot),
+  );
+  // What this pane's new chat's Enter would start (newChatPrewarm.ts): the held pick or switch's
+  // harness (none: acpmux's default) in the picked project, the switch's folder or the pane's own.
+  // The pane's own folder (`newChatCwd`) is read at the keystroke: the client is a ref.
+  const freshPick = useRef<{ harness?: string; cwd?: string }>({});
+  freshPick.current = {
+    harness: heldPick(snapshot).harness ?? switchView.intent?.harness,
+    cwd: projectDraft ?? switchView.intent?.cwd,
+  };
+  // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
+  const onNewChatDraft = useCallback(
+    (text: string) => {
+      postUnsentDraft(text);
+      const { harness } = freshPick.current;
+      const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
+      const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
+      newChatPrewarm.typed(text, target);
+    },
+    [newChatPrewarm],
+  );
+  const onNewTabPromptTyped = useCallback(
+    (text: string, target?: { harness?: string; cwd?: string }) =>
+      newChatPrewarm.typed(
+        text,
+        target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
+      ),
+    [newChatPrewarm],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -8900,7 +8959,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
-            onUnsentDraft={quick ? undefined : postUnsentDraft}
+            onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
@@ -9458,6 +9517,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              onPromptTyped={onNewTabPromptTyped}
               {...(!handshaken ? { startPending: true } : {})}
               {...(newTabChatsPending ? { chatsPending: true } : {})}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
@@ -9663,6 +9723,7 @@ function AcpmuxPane() {
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
+                {snapshot.peerCopy?.offline && <PeerCopyBanner copy={snapshot.peerCopy} />}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}

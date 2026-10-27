@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -395,6 +396,88 @@ class FastRoute(unittest.TestCase):
                     github.return_value.runners.return_value = runners
                     placement.main(values)
                 self.assertIn(f"fast_runner={expected}\n", output.read_text())
+
+
+FRESH = "glaeda-dev-std-xcode-26.6"
+
+
+class FreshRoute(unittest.TestCase):
+    """A feed's compile takes the freshness slot (one extra runner per owned std mini) while it is idle, then
+    the side route and the cascade (2026-10-26: no DEV publish from 21:01Z, every DEV Release compile queued
+    behind PR compiles on the 22 busy side runners)."""
+
+    def test_idle_fresh_runners_take_the_feeds_compiles_only(self):
+        idle = [runner("mini-a-glaeda-12", labels=(FRESH,)), runner("mini-b-glaeda-12", busy=True, labels=(FRESH,))]
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "cmux-scheme-compile", "FRESH_SLOT_JOBS": "cmux-scheme-compile",
+                  "JOBS": " ".join(JOBS)}
+        self.assertEqual(placement.fresh_route(values, idle), (FRESH, ("cmux-scheme-compile",)))
+        # A feed's compile the slot's hook does not admit (a push's Release compile) never takes it.
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": "release-compile"}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_SLOT_JOBS": ""}, idle), ("", ()))
+        # No FRESH_JOBS (a PR run), a job this run does not have, or no label: nothing takes the slot.
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": ""}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": "not-a-job"}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_LABEL": ""}, idle), ("", ()))
+
+    def test_a_busy_offline_or_unread_slot_routes_nothing(self):
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "cmux-scheme-compile", "FRESH_SLOT_JOBS": "cmux-scheme-compile",
+                  "JOBS": " ".join(JOBS)}
+        busy = [runner("mini-a-glaeda-12", busy=True, labels=(FRESH,)),
+                runner("mini-b-glaeda-12", status="offline", labels=(FRESH,))]
+        for runners in (busy, [], None, [runner("mini-c-glaeda-1")]):
+            with self.subTest(runners=runners):
+                self.assertEqual(placement.fresh_route(values, runners), ("", ()))
+
+    def test_routed_jobs_leave_the_side_route_and_the_cascade(self):
+        trimmed = placement.without_jobs({"JOBS": "fast-tier release-compile", "CASCADE_RUNS": " release-compile ",
+                                          "FIRST_JOBS": "release-compile", "FRESH_JOBS": "release-compile"},
+                                         ("release-compile",))
+        self.assertEqual(trimmed, {"JOBS": "fast-tier", "CASCADE_RUNS": "", "FIRST_JOBS": "", "FRESH_JOBS": ""})
+
+    def test_main_writes_the_fresh_route(self):
+        idle = [runner("mini-a-glaeda-12", labels=(FRESH,)), runner("mini-b-glaeda-1", busy=True)]
+        for runners, label, jobs in ((idle, FRESH, " cmux-scheme-compile "), (idle[1:], "", "")):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(FRESH_LABEL=FRESH, FRESH_JOBS="cmux-scheme-compile", FRESH_SLOT_JOBS="cmux-scheme-compile",
+                             CASCADE_RUNS=" cmux-scheme-compile ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        mock.patch.object(placement.cascade, "place", wraps=placement.cascade.place) as place, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                text = output.read_text()
+                self.assertIn(f"fresh_runner={label}\n", text)
+                self.assertIn(f"fresh_jobs={jobs}\n", text)
+                # A routed compile is no longer the cascade's: it takes no Blacksmith slot as well.
+                cascade_env = place.call_args.args[0]
+                self.assertEqual("cmux-scheme-compile" in cascade_env["CASCADE_RUNS"].split(), not label)
+
+
+class FreshSlotJobs(unittest.TestCase):
+    """cmux-next.yml's FRESH_SLOT_JOBS names exactly the jobs the slot's glaeda hook admits
+    (dev_compile_refusal, glaeda#1636): a job it refuses would fail in setup instead of falling back."""
+
+    def test_the_workflow_routes_only_what_the_slot_admits(self):
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml"
+        text = workflow.read_text()
+        match = re.search(r"^\s*FRESH_SLOT_JOBS:\s*(.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(set(match.group(1).split()), {"cmux-scheme-compile", "release-compile"})
+        # Every slot job reads the slot in its runs-on (a slot job that never reads it would still be dropped
+        # from the cascade by fresh_route() and lose its Blacksmith overflow).
+        for job in match.group(1).split():
+            self.assertIn(f"contains(needs.macos-placement.outputs.fresh_jobs, ' {job} ')", text)
+
+    def test_a_pushs_release_compile_takes_an_idle_slot(self):
+        idle = [runner("mini-a-glaeda-2", labels=(FRESH,)), runner("mini-b-glaeda-2", labels=(FRESH,))]
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "release-compile",
+                  "FRESH_SLOT_JOBS": "cmux-scheme-compile release-compile", "JOBS": " ".join(JOBS)}
+        self.assertEqual(placement.fresh_route(values, idle), (FRESH, ("release-compile",)))
+        busy = [runner("mini-a-glaeda-2", busy=True, labels=(FRESH,))]
+        self.assertEqual(placement.fresh_route(values, busy), ("", ()), "busy: the side route and the cascade")
 
 
 class GatewayRoute(unittest.TestCase):
