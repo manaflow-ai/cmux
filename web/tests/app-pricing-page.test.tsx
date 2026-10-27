@@ -115,7 +115,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).toMatch(/plan=max[^"]*interval=year/);
+    expect(html).toMatch(/plan=max[^"]*interval=month/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
@@ -262,7 +262,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("defaults the Pro card to yearly billing", async () => {
+  test("defaults the Pro card to monthly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -271,9 +271,10 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toMatch(/billed yearly, save/);
-    expect(html).toContain("$40");
-    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).toMatch(/interval(=|%3D|%253D)month/);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
 
