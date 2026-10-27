@@ -87,7 +87,8 @@ public nonisolated struct HomeChiefNames: Hashable, Sendable {
         return name
     }
 
-    static func trimmed(_ name: String) -> String? {
+    /// `name` without the spaces around it; nil when nothing is left.
+    public static func trimmed(_ name: String) -> String? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
     }

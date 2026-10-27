@@ -235,8 +235,10 @@ extension HomeService {
             return await renamingRecord(id, to: name) { await self.directory.renameChief(conversation: conversation, to: name) }
         }
         guard let connection else { return .noConnection }
+        // The owner's row says whether this is a Chief's own conversation; before its first answer, the store's row.
         let row = homeInbox.rows?.first { $0.id == conversation }
-        guard row?.kind == "chief", let chief = row?.chief ?? homeStore.summary(id).flatMap({ Self.soleChief(of: $0.participants) }) else {
+        let isChiefs = row.map { $0.kind == "chief" } ?? (homeStore.rows.first { $0.id == id }?.kind == .chief)
+        guard isChiefs, let chief = row?.chief ?? homeStore.summary(id).flatMap({ Self.soleChief(of: $0.participants) }) else {
             return await HomeConversationRename(conversation: conversation, name: name).send(over: connection)
         }
         return await renamingRecord(id, to: name) { await HomeLocalChiefRename(chief: chief, name: name).send(over: connection) }
@@ -261,9 +263,12 @@ extension HomeService {
     /// or anyone's rename since); event-driven, it ends then.
     private func settleRename(_ id: ConversationID) {
         // task-owner: one saved rename; Observation of the Chief's record, ends when the rename is settled
+        // (or with the service, if the save's echo never comes: the rename then keeps showing, as saved)
         Task { [weak self] in
             for await record in ObservationStream({ self?.chiefRecord(of: id) }) {
                 guard let self else { return }
+                // No record read (the list reconnecting) settles nothing: the saved name keeps showing.
+                guard record != nil else { continue }
                 chiefRenames.settle(id, record: record)
                 if !chiefRenames.isPending(id) { return }
             }
