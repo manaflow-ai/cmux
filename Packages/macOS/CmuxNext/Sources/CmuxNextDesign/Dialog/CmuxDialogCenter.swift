@@ -117,6 +117,17 @@ public final class CmuxDialogCenter {
         entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
     }
 
+    /// Runs key-down `event` against dialog `id` as the dialog keyboard (`CmuxDialogKeys`):
+    /// Return presses the default button, Escape the cancel one, Tab moves focus. True when
+    /// the dialog used it.
+    public func key(_ event: NSEvent, in id: Int) -> Bool {
+        guard let view = entries[id]?.view, let key = CmuxDialogView.key(event) else { return false }
+        return view.handle(key, modifiers: CmuxDialogView.modifiers(event))
+    }
+
+    /// Some dialog is on screen: one read, so a key-down can skip the dialog lookup.
+    public var showsDialog: Bool { entries.values.contains { $0.view != nil } }
+
     /// Ends dialog `id` as its cancel answer (tab closed, app quitting,
     /// the asking page navigated away).
     @discardableResult
