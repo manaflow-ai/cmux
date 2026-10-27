@@ -36,6 +36,9 @@ use crate::harness_health::HarnessHealth;
 /// The variable that names the fixture file.
 pub const ENV: &str = "ACPMUX_HARNESS_FIXTURE";
 
+/// The largest fixture file read (a real one is a few KiB).
+pub const MAX_BYTES: u64 = 1 << 20;
+
 /// Why a requested update of a fixture harness is refused.
 pub const REFUSAL: &str = "a capture fixture's harness: nothing is installed to update";
 
@@ -56,9 +59,20 @@ impl Fixture {
     /// that holds it).
     pub fn read(path: &Path) -> Result<Self, String> {
         let text = open_no_follow(path)
-            .and_then(|mut file| {
+            .and_then(|file| {
+                // A regular file only (never a FIFO or a device that never ends), read bounded.
+                if !file.metadata()?.is_file() {
+                    return Err(std::io::Error::other("not a regular file"));
+                }
                 let mut text = Vec::new();
-                std::io::Read::read_to_end(&mut file, &mut text).map(|_| text)
+                std::io::Read::read_to_end(
+                    &mut std::io::Read::take(file, MAX_BYTES + 1),
+                    &mut text,
+                )?;
+                if text.len() as u64 > MAX_BYTES {
+                    return Err(std::io::Error::other(format!("over {MAX_BYTES} bytes")));
+                }
+                Ok(text)
             })
             .map_err(|e| format!("{ENV}: cannot read {}: {e}", path.display()))?;
         serde_json::from_slice(&text)
@@ -74,7 +88,10 @@ impl Fixture {
 #[cfg(unix)]
 fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
 }
 
 #[cfg(not(unix))]
@@ -170,6 +187,13 @@ mod tests {
                 Fixture::read(&link).unwrap_err().contains("cannot read"),
                 "a link was followed"
             );
+            // O_NONBLOCK: a FIFO opens without a writer, then the type check refuses it.
+            assert!(Fixture::read(&dir).unwrap_err().contains("not a regular file"));
+            assert!(
+                Fixture::read(Path::new("/dev/zero")).unwrap_err().contains("not a regular file")
+            );
+            std::fs::write(&file, vec![b' '; MAX_BYTES as usize + 1]).unwrap();
+            assert!(Fixture::read(&file).unwrap_err().contains("over"));
         }
         let _ = std::fs::remove_dir_all(dir);
     }
