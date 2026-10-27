@@ -16,7 +16,7 @@ function httpError(status) {
 function fakeGitHub({ parents = {}, branches = {}, labelExists = false, labelRace = false } = {}) {
   const issues = [];
   const labels = new Set(labelExists ? ['nightly-failure', 'rc-failure'] : []);
-  const hooks = { afterComment: null, beforeList: null };
+  const hooks = { afterComment: null, beforeList: null, hideFromList: () => false };
   const ancestors = (c) => {
     const seen = new Set();
     const stack = [c];
@@ -43,7 +43,7 @@ function fakeGitHub({ parents = {}, branches = {}, labelExists = false, labelRac
       },
       async listForRepo({ labels: label, state }) {
         if (hooks.beforeList) await hooks.beforeList();
-        return { data: issues.filter((i) => i.labels.includes(label) && i.state === state).map(view) };
+        return { data: issues.filter((i) => i.labels.includes(label) && i.state === state && !hooks.hideFromList(i)).map(view) };
       },
       async create({ title, labels: ls, body }) {
         const i = { number: issues.length + 1, title, labels: ls, body, state: 'open', state_reason: null, comments: [] };
@@ -62,6 +62,12 @@ function fakeGitHub({ parents = {}, branches = {}, labelExists = false, labelRac
         i.state = state;
         i.state_reason = state === 'closed' ? (state_reason || 'completed') : null;
         return { data: view(i) };
+      },
+    },
+    git: {
+      async listMatchingRefs({ ref }) {
+        const prefix = ref.replace(/^heads\//, '');
+        return { data: Object.keys(branches).filter((b) => b.startsWith(prefix)).map((b) => ({ ref: `refs/heads/${b}` })) };
       },
     },
     repos: {
@@ -229,4 +235,58 @@ test('an older run that fails after a newer one published opens no incident', as
   // No release yet: report.
   github.rest.repos.getReleaseByTag = async () => { throw httpError(404); };
   assert.equal(await fail(github, sha('d'), 'main', { releaseTag: 'nightly' }), 1);
+});
+
+test('an older RC line that fails after a newer line published opens no incident', async () => {
+  const { github, issues } = fakeGitHub({ parents: RC, branches: RC_BRANCHES });
+  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('4')} -->` } });
+  assert.equal(await fail(github, sha('2'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), null);
+  assert.equal(issues.length, 0);
+  // The newer line's own later failure is an incident.
+  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('2')} -->` } });
+  assert.equal(await fail(github, sha('4'), 'rc/v0.65.3', { ...rc, releaseTag: 'rc' }), 1);
+});
+
+test('a reporter retrying after its issue was closed as a duplicate checks the publication again', async () => {
+  const { github, issues, hooks } = fakeGitHub({ parents: MAIN });
+  let reads = 0;
+  github.rest.repos.getReleaseByTag = async () => {
+    reads += 1;
+    return { data: { body: reads === 1 ? '' : `<!-- cmux-published-sha: ${sha('d')} -->` } };
+  };
+  // A parallel reporter closes this reporter's new issue as a duplicate.
+  hooks.afterComment = null;
+  const realCreate = github.rest.issues.create;
+  github.rest.issues.create = async (args) => {
+    const result = await realCreate(args);
+    await github.rest.issues.update({ issue_number: result.data.number, state: 'closed', state_reason: 'not_planned' });
+    return result;
+  };
+  assert.equal(await fail(github, sha('b'), 'main', { releaseTag: 'nightly' }), null);
+  assert.equal(reads, 2);
+  assert.equal(open(issues).length, 0);
+});
+
+test('a lagging issue list is read again until it shows the new issue', async () => {
+  const { github, issues, hooks } = fakeGitHub({ parents: MAIN });
+  // Another reporter's issue #1 exists; the list hides both #1 and the new #2 twice.
+  await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('b')} ref=main -->` });
+  github.rest.issues.getLabel = async () => ({ data: {} });
+  let hidden = 0;
+  hooks.hideFromList = () => { hidden += 1; return hidden <= 3; };
+  const slept = [];
+  await fail(github, sha('c'), 'main', { sleep: async (ms) => slept.push(ms) });
+  assert.ok(slept.length >= 1);
+  assert.equal(open(issues).length, 1);
+  assert.equal(open(issues)[0].number, 1);
+});
+
+test('a close folds duplicates left open into the lowest incident first', async () => {
+  const { github, issues } = fakeGitHub({ parents: MAIN, labelExists: true });
+  await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('b')} ref=main -->` });
+  await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('d')} ref=main -->` });
+  assert.deepEqual(await publish(github, sha('c')), []);
+  assert.equal(issues[1].state, 'closed');
+  assert.equal(issues[0].state, 'open'); // d, carried over from #2, is newer than c
+  assert.deepEqual(await publish(github, sha('d')), [1]);
 });

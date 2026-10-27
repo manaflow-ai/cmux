@@ -146,17 +146,36 @@ export async function publishedCommit({ github, owner, repo, releaseTag }) {
   }
 }
 
+// Whether `published` is on an rc/ line newer than the failure's line (RC
+// lines are cut from main, so they diverge from one another).
+export async function onNewerRcLine({ github, owner, repo, published, failureRef }) {
+  const failed = rcVersion(failureRef);
+  if (!failed) return false;
+  const refs = await github.paginate(github.rest.git.listMatchingRefs, { owner, repo, ref: 'heads/rc/', per_page: 100 });
+  for (const { ref } of refs) {
+    const branch = ref.replace(/^refs\/heads\//, '');
+    const version = rcVersion(branch);
+    if (!version || compareVersions(version, failed) <= 0) continue;
+    const status = await compareStatus(github, owner, repo, published, branch);
+    if (status === 'ahead' || status === 'identical') return true;
+  }
+  return false;
+}
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Records a failure of `sha` on `ref` in the channel's one open incident.
 // With `releaseTag`, a failure the channel has already published past (an
-// older run that failed after a newer one published) is not an incident.
-export async function report({ github, owner, repo, channel, appName, ref, sha, body, releaseTag = null, log = () => {}, attempt = 1 }) {
+// older run that failed after a newer one published, or an older RC line
+// than the published one) is not an incident.
+export async function report({ github, owner, repo, channel, appName, ref, sha, body, releaseTag = null, log = () => {}, attempt = 1, sleep = pause }) {
   const label = `${channel}-failure`;
-  if (releaseTag && attempt === 1) {
+  if (releaseTag) {
     const published = await publishedCommit({ github, owner, repo, releaseTag });
     if (published && published !== sha.toLowerCase()) {
       const status = await compareStatus(github, owner, repo, sha, published);
-      if (status === 'ahead') {
-        log(`${releaseTag} already publishes ${published}, which includes ${sha}; no incident`);
+      if (status === 'ahead' || (status === 'diverged' && await onNewerRcLine({ github, owner, repo, published, failureRef: ref }))) {
+        log(`${releaseTag} already publishes ${published}, which supersedes ${sha} (${ref}); no incident`);
         return null;
       }
     }
@@ -171,7 +190,14 @@ export async function report({ github, owner, repo, channel, appName, ref, sha, 
   } else {
     const { data } = await github.rest.issues.create({ owner, repo, title: `${appName} build is failing on ${ref}`, labels: [label], body: text });
     issue = data;
-    open = await openIncidents(github, owner, repo, label);
+    // The issue list can lag a create. Read it until it shows this issue, so
+    // it also shows a parallel reporter's issue created before this one. A
+    // pair that still misses each other converges at the next report or close.
+    for (let tries = 1; ; tries += 1) {
+      open = await openIncidents(github, owner, repo, label);
+      if (open.some((other) => other.number === issue.number) || tries === 5) break;
+      await sleep(2000);
+    }
     if (open.length > 0 && open[0].number < issue.number) {
       // A parallel reporter opened an older incident: record there.
       await github.rest.issues.createComment({ owner, repo, issue_number: open[0].number, body: text });
@@ -186,7 +212,7 @@ export async function report({ github, owner, repo, channel, appName, ref, sha, 
   // or a parallel reporter closed it as a duplicate of an older incident.
   const { data: current } = await github.rest.issues.get({ owner, repo, issue_number: issue.number });
   if (current.state === 'closed' && current.state_reason === 'not_planned' && attempt < 3) {
-    return report({ github, owner, repo, channel, appName, ref, sha, body, releaseTag, log, attempt: attempt + 1 });
+    return report({ github, owner, repo, channel, appName, ref, sha, body, releaseTag, log, attempt: attempt + 1, sleep });
   }
   if (current.state === 'closed') {
     const resolutions = resolutionsIn(await texts(github, owner, repo, current));
@@ -218,7 +244,13 @@ export async function close({ github, owner, repo, channel, appName, ref, sha, r
   const label = `${channel}-failure`;
   const published = { sha: sha.toLowerCase(), ref };
   const closed = [];
-  for (const issue of await openIncidents(github, owner, repo, label)) {
+  // Duplicates that two reporters left open (a lagging list) fold into the
+  // lowest-numbered incident first, failures carried over.
+  const incidents = await openIncidents(github, owner, repo, label);
+  for (const duplicate of incidents.slice(1)) {
+    await closeDuplicate({ github, owner, repo, duplicate, canonical: incidents[0] });
+  }
+  for (const issue of incidents.slice(0, 1)) {
     const before = await texts(github, owner, repo, issue);
     const resolutions = [...resolutionsIn(before), published];
     // Unmarked, unparseable incidents close as before.
