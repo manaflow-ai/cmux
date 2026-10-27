@@ -2111,12 +2111,8 @@ export function VirtualTranscript({
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
   const followingRef = useRef(true);
-  /// WebKit rounds scrollTop to whole pixels. Keep the bounded fractional remainder of an anchor
-  /// correction so repeated late measurements do not accumulate a subpixel drift in the visible row.
-  const anchorRemainder = useRef(0);
   const follow = (next: boolean) => {
     followingRef.current = next;
-    anchorRemainder.current = 0;
     setFollowing(next);
   };
   const transcriptMounted = useRef(true);
@@ -2135,7 +2131,6 @@ export function VirtualTranscript({
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
-    if (!atLatest) anchorRemainder.current = 0;
     scrollRef.current = { top, delta: top - scrollRef.current.top };
     scrollPacer.current!.enqueue({ top, atLatest });
   };
@@ -3193,18 +3188,16 @@ export function VirtualTranscript({
         // so the row is found again by its id; at offset 0 too, when older history arrived above.
         // A row older history completed (a turn cut at the page's edge) has a new id: the next row
         // that kept its own anchors instead.
-      const anchorTop = top + anchorRemainder.current;
-      const nextTop = preserveScrollAnchorTop({
+        const nextTop = preserveScrollAnchorTop({
           oldLayout: old,
           newLayout: layout,
           oldRows,
           newRows: rows,
-        liveTop: anchorTop,
-        anchorTop,
+          liveTop: top,
+          anchorTop: top,
         });
         if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
           node.scrollTop = nextTop;
-        anchorRemainder.current = nextTop - node.scrollTop;
           // A layout correction is not wheel velocity. Publish its final offset in this commit,
           // before a row's measurement can render again against the old scroll state.
           scrollPacer.current?.cancel();
