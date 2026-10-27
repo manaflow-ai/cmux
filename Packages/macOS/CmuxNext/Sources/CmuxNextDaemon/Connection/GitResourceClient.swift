@@ -25,33 +25,44 @@ public struct GitResourceClient: Sendable {
     /// Runs `operation` with `params` (`path` plus the operation's fields)
     /// and returns its `result`.
     public func read(_ operation: String, params: [String: JSONValue]) async throws -> JSONValue {
-        try await connection.gitRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil)
-        }, timeout: Self.timeout)
+        try await request(operation, params: params, idempotencyKey: nil, timeout: Self.timeout, as: JSONValue.self)
     }
 
     /// Runs the mutation `operation` with `params` under `idempotencyKey` and
     /// returns its `MutationResult`. A retry with the same key and params
     /// replays the first result; it never commits or pushes twice.
     public func write(_ operation: String, params: [String: JSONValue], idempotencyKey: String) async throws -> JSONValue {
-        try await connection.gitRequest({ id in
+        try await request(operation, params: params, idempotencyKey: idempotencyKey, timeout: Self.writeTimeout, as: JSONValue.self)
+    }
+
+    /// Sends on the connection's actor and decodes the reply off it: a diff's reply can be 8 MiB
+    /// (cmux-tui `git_ops/diff.rs` `MAX_REPLY_PATCH_BYTES`), and on the control connection terminal
+    /// input and layout requests would wait behind its decode.
+    func request<R: Decodable & Sendable>(_ operation: String, params: [String: JSONValue], idempotencyKey: String?,
+                                          timeout: Duration, as type: R.Type) async throws -> R {
+        let response = try await connection.gitRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey)
-        }, timeout: Self.writeTimeout)
+        }, timeout: timeout)
+        return try await Self.decode(type, from: response)
+    }
+
+    @concurrent static func decode<R: Decodable & Sendable>(_ type: R.Type, from response: LineTransport.Response) async throws -> R {
+        try ResourceRequestEnvelope.decodeResult(type, from: response)
     }
 }
 
 extension DaemonConnection {
-    /// A git request: a quiet handoff holds it as any request, but never waits for it
+    /// A git request's send: a quiet handoff holds it as any request, but never waits for it
     /// (``quietHandoff(_:)``). A read or a push can run for minutes, and on the control connection
     /// a handoff waiting for it would hold every later command that long. A git request is safe
     /// to cut: the page reads again, and a write's retry with its key reports what the first did.
+    /// The reply comes back undecoded: ``GitResourceClient`` decodes it off this actor.
     func gitRequest(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
-                    timeout: Duration) async throws -> JSONValue {
+                    timeout: Duration) async throws -> LineTransport.Response {
         await waitOutHandoff()
         guard let ready else { throw DaemonError.notConnected }
-        let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout) { id in
+        return try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout) { id in
             try envelope(id).lineData()
         }
-        return try ResourceRequestEnvelope.decodeResult(JSONValue.self, from: response)
     }
 }
