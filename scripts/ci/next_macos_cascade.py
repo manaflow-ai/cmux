@@ -137,6 +137,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Mapping, Sequence
 
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+import simple_pool_picker as _picker_rule  # noqa: E402 - the one Blacksmith stall rule
+
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
 LABELS = (LARGE, SMALL)
@@ -151,13 +154,13 @@ HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
 # Only these, and never in a feed's run (FRESH_JOBS set): a DEV, nightly or promote path never takes hosted.
 HOSTED_JOBS = ("fast-tier", "swift-canary")
-STALL_MINUTES = 25
+# simple_pool_picker.blacksmith_stalled(), the one Blacksmith stall rule (10 min): every picker reads the same
+# figure. 2026-10-27: 82 jobs queued on the two macOS 26 labels (oldest 396 min) with 3 running.
+STALL_MINUTES = _picker_rule.BLACKSMITH_STALL_MINUTES
 IDLE_STALL_MINUTES = 5
-# A feed's compile (FRESH_JOBS) counts a Blacksmith label as full once its oldest queued job has waited this
-# long, before STALL_MINUTES: 2026-10-26 22:25Z to 01:30Z, 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on
-# 12 vCPU (oldest 165 min, no runner online) while a DEV Release compile queued there; the compile takes
-# the owned label instead, never hosted.
-FRESH_STALL_MINUTES = 15
+# A feed's compile (FRESH_JOBS) counts a stalled label as full too, never hosted: 2026-10-26 22:25Z to
+# 01:30Z, 92 jobs queued on 6 vCPU (oldest 148 min) while a DEV Release compile queued there.
+FRESH_STALL_MINUTES = STALL_MINUTES
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
@@ -338,14 +341,14 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
     the snapshot saw (`waits` less its `age`) with no runner online now."""
     return tuple(label for label in LABELS
                  if waiting.get(label, 0) > 0
-                 and (waits.get(label, 0.0) >= STALL_MINUTES
+                 and (_picker_rule.blacksmith_stalled(waiting.get(label, 0), waits.get(label, 0.0))
                       or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
 
 
 def fresh_stalled(waits: Mapping[str, float]) -> tuple[str, ...]:
     """The labels a feed's compile counts as full: an oldest queued wait of FRESH_STALL_MINUTES by now (seen()
     gives a wait only to a label with a queue)."""
-    return tuple(label for label in LABELS if waits.get(label, 0.0) >= FRESH_STALL_MINUTES)
+    return tuple(label for label in LABELS if _picker_rule.blacksmith_stalled(1, waits.get(label, 0.0)))
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
