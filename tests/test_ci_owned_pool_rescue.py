@@ -382,6 +382,13 @@ class Refusal(unittest.TestCase):
         failed_step = [dict(step, conclusion="failure") if step["conclusion"] == "cancelled" else step
                        for step in in_step["steps"]]
         self.assertFalse(rescue.refused({**in_step, "steps": failed_step}))
+        # Tests failed, then the runner was stopped in an `always()` upload: still the code's failure.
+        failed_then_stopped = in_step["steps"][:-2] + [{"name": "Run the fast tier", "conclusion": "failure"},
+                                                      {"name": "Upload logs", "conclusion": "cancelled"},
+                                                      {"name": "Complete job", "conclusion": "success"}]
+        failed_then_stopped = {**in_step, "steps": failed_then_stopped}
+        self.assertFalse(rescue.refused(failed_then_stopped))
+        self.assertEqual(rescue.decided_failures([failed_then_stopped]), ["cmux-next fast tier"])
         self.assertFalse(rescue.refused({**in_step, "conclusion": "cancelled"}))
         self.assertFalse(rescue.refused({**in_step, "labels": [BLACKSMITH]}))
 
@@ -2558,12 +2565,25 @@ class Sweeper(unittest.TestCase):
                                                                           status="completed", conclusion="failure",
                                                                           updated_at=stamp(-60))],
                        picker=[4], failed=[1, 2, 3, 4])
-        # Attempts 1 and 2 are watched once each; attempt 3 has had its owned retries; the marked run 4 is
-        # already watched through its marker.
+        # Attempts 1 and 2 are watched once each; attempt 3 has had its owned retries. The marked run 4 is
+        # watched through its marker and, once that watch has ended, taken up once more by the listing (a
+        # side lane's watch stops when the fleet accepted its jobs; a runner stopped later fails the run).
         self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0],
-                         [(1, 1, False), (2, 2, False), (4, 1, False)])
+                         [(1, 1, False), (2, 2, False), (4, 1, False), (4, 1, False)])
         # One listing per SIDE_FAILURE_TICKS ticks.
         self.assertEqual(api.failed_listings, 2)
+
+    def test_a_failed_marked_run_is_not_taken_up_while_its_watch_goes_on(self):
+        next_run = dict(path=".github/workflows/cmux-next.yml", status="completed", conclusion="failure",
+                        updated_at=stamp(-60))
+        api = SweepAPI([listed(4, **next_run)], picker=[4], failed=[4])
+
+        def forever(sleep):
+            while True:
+                sleep(0.01)
+        watched, outcomes = self.sweep(api, follow=forever, ticks=rescue.SIDE_FAILURE_TICKS + 1)
+        self.assertEqual(watched, [(4, 1, False)])
+        self.assertEqual(outcomes, {"handed over": 1})
 
     def test_a_failed_side_lane_run_whose_read_failed_is_tried_again(self):
         # adopt() could not read the run: the next listing adopts it, rather than the run being marked seen.

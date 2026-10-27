@@ -649,14 +649,16 @@ def refused(job: Mapping[str, Any]) -> bool:
         # server"), which it reports only after 10 minutes, so no length applies
         # (run 36420353579).
         return True
-    if any(step.get("conclusion") == "cancelled" for step in steps):
+    if any(step.get("conclusion") == "cancelled" for step in steps) and \
+            not any(step.get("conclusion") == "failure" for step in steps):
         # The runner was stopped mid-job ("The runner has received a shutdown signal",
         # then "The operation was canceled."): the step it was in is cancelled while the
         # job fails, whatever its length. Job 121926149188 (run 40424205219, PR #25241) and
         # four other open pull requests' cmux-next jobs failed so at 01:19Z on 2026-10-27,
         # in glaeda's hook and in "Run the fast tier". A failing step concludes failure, a
         # step's timeout-minutes too ("The action has timed out."), and a cancelled or
-        # timed-out job concludes cancelled, so only a stopped runner leaves this.
+        # timed-out job concludes cancelled, so only a stopped runner leaves this. A step
+        # that failed before the stop (tests, then a cleanup cut short) keeps the job the code's.
         return True
     # A helper build can precede Xcode selection, so neither elapsed time nor
     # earlier successful steps make a missing pin a source failure.
@@ -2034,6 +2036,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     ticks = 0
     refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
+    # The watch thread of each adopted run: a side lane's watch stops once the fleet accepted its jobs,
+    # and a runner stopped after that fails the run later, so the failed-run listing takes it up again.
+    watching: dict[int, threading.Thread] = {}
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
@@ -2104,6 +2109,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
+        watching[run_id] = thread
         return True
 
     while (now() - started).total_seconds() < sweep_seconds:
@@ -2144,8 +2150,12 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 ticks -= 1  # try again on the next tick
         ticks += 1
         for run_id, attempt in failed:
-            # A marked run's own watch (or the re-run listing) already follows it.
-            if (run_id, attempt) in failed_seen or (run_id, attempt) in rerun_seen or attempt <= 1 and run_id in seen:
+            # A marked run's own watch (or the re-run listing) already follows it. One whose watch has
+            # ended (it stopped once the fleet accepted the jobs, before a runner was stopped mid-job)
+            # is taken up again, once per attempt.
+            ended = run_id in watching and not watching[run_id].is_alive()
+            followed = (run_id, attempt) in rerun_seen or attempt <= 1 and run_id in seen
+            if (run_id, attempt) in failed_seen or followed and not ended:
                 continue
             if adopt(run_id, False, refusals_known=refusals_listed):
                 failed_seen.add((run_id, attempt))  # not before: a read that failed is tried again
