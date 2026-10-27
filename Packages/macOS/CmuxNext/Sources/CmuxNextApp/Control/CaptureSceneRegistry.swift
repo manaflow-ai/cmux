@@ -251,6 +251,13 @@ extension CaptureSceneRegistry {
             controller.state.selection.select(created.key, in: pane.id)
             _ = services.revealTab(created.key, intent: .focus)
             controller.sidebar.restore(width: 300, hidden: false)
+            guard let session = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession else {
+                return .object(["error": .string("auto-name fixture tab has no mirrored agent session"), "scene": .string(definition.name)])
+            }
+            let turns = AgentTurnStateStore.shared
+            if session.host != turns.localHost, !turns.mirroredHosts.contains(session.host) {
+                turns.mirroredHosts.insert(session.host)
+            }
             // The fixture supplies an acpmux summary. Only the production namer may write its title.
             let summary: [String: Any] = ["sessionId": Self.autoNameSession, "title": Self.generatedAutoName, "titleSource": "generated"]
             let title = AgentTurnStates.title(summary)
@@ -311,7 +318,6 @@ extension CaptureSceneRegistry {
         let sourceAuto = workspace.nameSource == .auto
         let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
         let sessionMatches = tab?.agentSession?.session == Self.autoNameSession
-        if let session = tab?.agentSession { AgentTurnStateStore.shared.localHost = session.host }
         let generatedMatches = tab?.agentSession.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == Self.generatedAutoName } ?? false
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
