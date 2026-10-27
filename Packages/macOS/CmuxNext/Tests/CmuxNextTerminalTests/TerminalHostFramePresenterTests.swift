@@ -1,4 +1,5 @@
 @testable import CmuxNextTerminal
+import QuartzCore
 import Testing
 
 /// The pre-commit present of resized terminals (p03-rendering-084): one pass per main run-loop turn with a
@@ -25,13 +26,13 @@ import Testing
     }
 
     @Test func oneScheduledPassPerTurnAsksEachResizedTerminalOnce() {
-        let turns = Turns()
-        let presenter = TerminalHostFramePresenter(schedule: { turns.schedule($0) })
+        let turns = Turns(), host = CALayer()
+        let presenter = TerminalHostFramePresenter(schedule: { _, body in turns.schedule(body) })
         let a = Terminal(), b = Terminal()
         // A divider drag step resizes both terminals, one of them twice (layout, then a fitted size).
-        presenter.sizeChanged(of: a) { a.presents += 1 }
-        presenter.sizeChanged(of: b) { b.presents += 1 }
-        presenter.sizeChanged(of: a) { a.presents += 1 }
+        presenter.sizeChanged(of: a, in: host) { a.presents += 1 }
+        presenter.sizeChanged(of: b, in: host) { b.presents += 1 }
+        presenter.sizeChanged(of: a, in: host) { a.presents += 1 }
         #expect(turns.due.count == 1, "one observer for the turn, however many resizes")
         turns.commit()
         #expect(a.presents == 1 && b.presents == 1)
@@ -42,19 +43,19 @@ import Testing
         #expect(turns.due.isEmpty && presenter.passes == 1)
 
         // The next resize schedules the next turn's pass.
-        presenter.sizeChanged(of: b) { b.presents += 1 }
+        presenter.sizeChanged(of: b, in: host) { b.presents += 1 }
         #expect(turns.due.count == 1)
         turns.commit()
         #expect(a.presents == 1 && b.presents == 2)
     }
 
     @Test func aTerminalReleasedBeforeTheCommitIsNotAsked() {
-        let turns = Turns()
-        let presenter = TerminalHostFramePresenter(schedule: { turns.schedule($0) })
+        let turns = Turns(), host = CALayer()
+        let presenter = TerminalHostFramePresenter(schedule: { _, body in turns.schedule(body) })
         let asked = Terminal()
         var terminal: Terminal? = Terminal()
         weak let released = terminal
-        if let terminal { presenter.sizeChanged(of: terminal) { [weak terminal] in if terminal != nil { asked.presents += 1 } } }
+        if let terminal { presenter.sizeChanged(of: terminal, in: host) { [weak terminal] in if terminal != nil { asked.presents += 1 } } }
         terminal = nil
         #expect(released == nil, "the pending present keeps its terminal alive")
         turns.commit()
@@ -65,10 +66,10 @@ import Testing
     /// The present itself never waits for a frame (Ghostty's never-waiting present); the pass adds only
     /// its own bookkeeping: 64 terminals in one pass stay far under a frame's main-thread budget.
     @Test func aPassOfManyTerminalsStaysUnderAMillisecond() {
-        let turns = Turns()
-        let presenter = TerminalHostFramePresenter(schedule: { turns.schedule($0) })
+        let turns = Turns(), host = CALayer()
+        let presenter = TerminalHostFramePresenter(schedule: { _, body in turns.schedule(body) })
         let terminals = (0..<64).map { _ in Terminal() }
-        for terminal in terminals { presenter.sizeChanged(of: terminal) { terminal.presents += 1 } }
+        for terminal in terminals { presenter.sizeChanged(of: terminal, in: host) { terminal.presents += 1 } }
         turns.commit()
         #expect(terminals.allSatisfy { $0.presents == 1 })
         #expect(presenter.longestPass < .milliseconds(1), "a pass took \(presenter.longestPass)")

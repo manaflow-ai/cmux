@@ -18,18 +18,23 @@ import QuartzCore
 /// (content/browser/renderer_host/delegated_frame_host.cc, `EmbedSurface`).
 ///
 /// Most resizes come from AppKit's layout, which runs inside Core Animation's commit (the display
-/// cycle): a run-loop observer added then would run after that commit, so the pass joins the open
-/// transaction (`CATransaction.addMainCommitHandler(forPhase: .preCommit)`). That also covers a resize
-/// made outside the display cycle: its implicit transaction commits at the end of the turn.
+/// cycle): a run-loop observer added then would run after that commit, and macOS has no public
+/// `CATransaction` commit handler. So the pass runs in the commit's own layer display
+/// (``MainCommitDisplayHook``, joined to the resized terminal's window): after AppKit's layout and
+/// display, before the encode. That also covers a resize made outside the display cycle: its implicit
+/// transaction commits at the end of the turn.
 ///
-/// The handler exists only in a transaction with a resized terminal: nothing runs at rest.
+/// The hook asks for a display only in a transaction with a resized terminal: nothing runs at rest.
 public final class TerminalHostFramePresenter {
-    /// Runs `body` once, ahead of the commit of the transaction open now.
-    typealias Schedule = @MainActor (_ body: @escaping @MainActor () -> Void) -> Void
+    /// Runs `body` once, ahead of the commit of the transaction open now that carries `host`'s tree.
+    typealias Schedule = @MainActor (_ host: CALayer, _ body: @escaping @MainActor () -> Void) -> Void
 
     private let schedule: Schedule
     /// Each resized terminal's present, by the terminal; each captures its terminal weakly.
     private var pending: [ObjectIdentifier: @MainActor () -> Void] = [:]
+    /// The host of the pass scheduled and not run yet; nil when none is. A resize in another window
+    /// schedules there again, so a window that commits nothing never holds the others' pass back.
+    private weak var scheduledHost: CALayer?
     private var scheduled = false
     /// The longest main-thread time one pass took (diagnostics and tests).
     private(set) var longestPass: Duration = .zero
@@ -37,10 +42,15 @@ public final class TerminalHostFramePresenter {
     private(set) var passes = 0
     private(set) var presents = 0
 
-    /// - Parameter schedule: runs a pass once, ahead of the commit that carries the new sizes (a
-    ///   pre-commit handler of the main thread's open transaction); tests run passes themselves.
-    init(schedule: @escaping Schedule = { body in CATransaction.addMainCommitHandler(forPhase: .preCommit, body) }) {
-        self.schedule = schedule
+    /// - Parameter schedule: runs a pass once, ahead of the commit that carries the new sizes; nil: inside
+    ///   that commit's layer display (``MainCommitDisplayHook``). Tests run passes themselves.
+    init(schedule: Schedule? = nil) {
+        if let schedule {
+            self.schedule = schedule
+        } else {
+            let hook = MainCommitDisplayHook()
+            self.schedule = { host, body in hook.run(in: host, body) }
+        }
     }
 
     /// Whether the pinned GhosttyNextKit's present never waits (`GHOSTTY_PRESENT_NEVER_WAITS`, Package.swift).
@@ -59,24 +69,28 @@ public final class TerminalHostFramePresenter {
     }
 
     /// `view` got a new size (or was shown again): its drawn frame goes into the commit that carries it.
+    /// A view outside a window is in no commit: its frame lands when drawn.
     func sizeChanged(of view: TerminalSurfaceView) {
-        sizeChanged(of: view) { [weak view] in
+        guard let host = view.window?.contentView?.layer else { return }
+        sizeChanged(of: view, in: host) { [weak view] in
             if let view { Self.presentDrawnFrame(of: view) }
         }
     }
 
-    /// `owner` got a new size: `present` runs once ahead of the open transaction's commit (the latest
-    /// one given for `owner`).
-    func sizeChanged(of owner: AnyObject, present: @escaping @MainActor () -> Void) {
+    /// `owner`, in `host`'s layer tree, got a new size: `present` runs once ahead of the commit of the
+    /// open transaction (the latest one given for `owner`).
+    func sizeChanged(of owner: AnyObject, in host: CALayer, present: @escaping @MainActor () -> Void) {
         pending[ObjectIdentifier(owner)] = present
-        guard !scheduled else { return }
+        guard !scheduled || scheduledHost !== host else { return }
         scheduled = true
-        schedule { [weak self] in self?.presentPending() }
+        scheduledHost = host
+        schedule(host) { [weak self] in self?.presentPending() }
     }
 
     /// One pass: each terminal resized since the last pass presents the frame it has.
     func presentPending() {
         scheduled = false
+        scheduledHost = nil
         let start = ContinuousClock.now
         let due = Array(pending.values)
         pending.removeAll(keepingCapacity: true)
