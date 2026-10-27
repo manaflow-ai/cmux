@@ -492,6 +492,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
     /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
     case energyRule = "energy-v2"
+    /// `memory.limit`: the app's memory pressure level, Memory Saver mode and debug override, which the daemon
+    /// votes next to its own level (`MemoryLimitRequest.capability`; cmux-tui-core server/memory_limit.rs).
+    case memoryLimit = "memory-limit-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -541,7 +544,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule:
+             .energyRule, .memoryLimit:
             return .optional
         }
     }

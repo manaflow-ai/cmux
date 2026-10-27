@@ -14,6 +14,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
@@ -84,6 +85,7 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        followDaemonMemoryLimit()  // CmuxNextDaemon (p07-memory-109)
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
         registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
@@ -120,6 +122,27 @@ struct AppMemoryConsumers {
     func registerDaemonCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryDaemonLimit` (default off): the local daemon, and through it acpmux, hear the coordinator's level,
+    /// Memory Saver mode and debug override on each change (`memory.limit`) and take the worse of their own level
+    /// and the app's, as Chrome's browser hands each child process its limit (`ChildMemoryConsumerRegistryHost`,
+    /// content/browser/memory_coordinator/README.md). A Cloud machine's daemon does not follow this Mac's memory.
+    func followDaemonMemoryLimit() {
+        guard services.features.isEnabled(.memoryDaemonLimit), services.daemon.isLocal else { return }
+        let coordinator = services.memoryCoordinator, daemon = services.daemon
+        let follow = DaemonMemoryLimitFollow(Self.memoryLimit(of: coordinator), store: daemon.store,
+                                             on: services.mainWork) { [weak daemon] request in
+            _ = await daemon?.run("memory.limit") { _ = try await $0.request(request) }
+        }
+        services.lifetimeFollowers.append(DaemonMemoryLimitLink(follow: follow, registry: coordinator) { [weak coordinator] in
+            coordinator.map { Self.memoryLimit(of: $0) } ?? MemoryLimitRequest(level: .normal, mode: .medium)
+        })
+    }
+
+    /// The limit `coordinator` acts on now: its level (the debug override folded in), mode and override.
+    static func memoryLimit(of coordinator: MemoryCoordinator) -> MemoryLimitRequest {
+        MemoryLimitRequest(level: coordinator.level, mode: coordinator.mode, pressureOverride: coordinator.pressureOverride)
     }
 
     /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store

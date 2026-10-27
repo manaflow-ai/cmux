@@ -71,6 +71,7 @@
     "local-conversations-v1",
     "loopback-forward-v1",
     "machine-identity-v1",
+    "memory-limit-v1",
     "notification-ack-v1",
     "notification-mark-unread-v1",
     "notification-source-v1",

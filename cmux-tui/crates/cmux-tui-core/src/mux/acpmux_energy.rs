@@ -10,24 +10,37 @@
 //! child as it starts
 //! (chrome/browser/performance_manager/public/user_tuning/battery_saver_mode_manager.h).
 //!
-//! The mode's watcher only queues an edge for the `mux-acpmux-energy` thread,
-//! which does the write, so `energy.set` stays a flip and a notify. The thread
-//! waits on its channel with no timeout: no wake while nothing changes. Its
-//! replies come back on the watch's connection, which reads past them.
+//! The app's memory limit (`memory.limit`, server/memory_limit.rs) goes the
+//! same way as `_acpmux/memory_limit {level, mode, override}` (p07-memory-109,
+//! `acpmux/src/memory_control.rs`): the limit the app holds as the watch
+//! connects, then each change, `level: null` once the app's limit went with
+//! its connection. acpmux votes it next to its own kernel source, as
+//! Chrome's `ChildMemoryConsumerRegistryHost` hands a child the browser's
+//! limit (content/browser/memory_coordinator/README.md).
+//!
+//! The mode's watcher and the memory relay only queue a change for the
+//! `mux-acpmux-energy` thread, which does the write, so `energy.set` and
+//! `memory.limit` stay a store and a notify. The thread waits on its channel
+//! with no timeout: no wake while nothing changes. Its replies come back on
+//! the watch's connection, which reads past them.
 
 use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use cmux_threads::ThreadQos;
-use serde_json::json;
+use serde_json::{Value, json};
 
+use crate::memory::DaemonMemory;
+use crate::server::memory_limit::WireLevel;
 use crate::wake::{EnergyMode, EnergyWatch};
 
 /// acpmux's Energy Saver method (`acpmux/src/rpc.rs`, `MUX_ENERGY`).
 pub(super) const METHOD: &str = "_acpmux/energy";
+/// acpmux's memory limit method (`acpmux/src/rpc.rs`, `MUX_MEMORY_LIMIT`).
+pub(super) const MEMORY_METHOD: &str = "_acpmux/memory_limit";
 const THREAD_NAME: &str = "mux-acpmux-energy";
 /// A write acpmux does not take within this long ends the relay's link.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(3);
@@ -37,25 +50,37 @@ enum Relay {
     Reached(UnixStream),
     /// The mode changed.
     Edge,
+    /// The app's memory limit changed.
+    MemoryLimit,
 }
 
 /// The relay thread's inbox and the mode watch that feeds it. Dropping it
 /// ends the thread.
 pub(super) struct AcpmuxEnergy {
-    inbox: Sender<Relay>,
+    /// The memory relay holds it weakly, so dropping this ends the thread.
+    inbox: Arc<Sender<Relay>>,
     _watch: EnergyWatch,
 }
 
 impl AcpmuxEnergy {
-    /// Starts the relay thread for `mode`.
-    pub(super) fn start(mode: &Arc<EnergyMode>) -> io::Result<Self> {
+    /// Starts the relay thread for `mode` and the app's limit in `memory`.
+    pub(super) fn start(mode: &Arc<EnergyMode>, memory: &Arc<DaemonMemory>) -> io::Result<Self> {
         let (inbox, relay) = mpsc::channel();
-        let edges = inbox.clone();
+        let inbox = Arc::new(inbox);
+        let edges = Sender::clone(&inbox);
         let watch = mode.watch(move || {
             let _ = edges.send(Relay::Edge);
         });
+        let limits: Weak<Sender<Relay>> = Arc::downgrade(&inbox);
+        // A second relay (a second chat watch) is refused: the first keeps it.
+        let _ = memory.relay_app_limit(Box::new(move || {
+            if let Some(inbox) = limits.upgrade() {
+                let _ = inbox.send(Relay::MemoryLimit);
+            }
+        }));
         let mode = Arc::clone(mode);
-        cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || run(&mode, &relay))?;
+        let memory = Arc::clone(memory);
+        cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || run(&mode, &memory, &relay))?;
         Ok(Self { inbox, _watch: watch })
     }
 
@@ -68,32 +93,63 @@ impl AcpmuxEnergy {
     }
 }
 
-/// The relay thread: writes the mode to the latest connection on each
-/// message, until every sender is gone.
-fn run(mode: &EnergyMode, relay: &Receiver<Relay>) {
+/// The relay thread: writes the mode and the app's memory limit to the
+/// latest connection on each message, until every sender is gone.
+fn run(mode: &EnergyMode, memory: &DaemonMemory, relay: &Receiver<Relay>) {
     let mut link: Option<UnixStream> = None;
     let mut sent: u64 = 0;
     while let Ok(message) = relay.recv() {
-        if let Relay::Reached(stream) = message {
-            link = stream.set_write_timeout(Some(WRITE_TIMEOUT)).is_ok().then_some(stream);
-        }
+        let (energy, limit) = match message {
+            Relay::Reached(stream) => {
+                link = stream.set_write_timeout(Some(WRITE_TIMEOUT)).is_ok().then_some(stream);
+                // A new acpmux hears the app's limit only while the app holds one.
+                (true, memory.app_limit().is_some())
+            }
+            Relay::Edge => (true, false),
+            Relay::MemoryLimit => (false, true),
+        };
         let Some(stream) = link.as_mut() else { continue };
-        sent += 1;
-        // The mode now, not the edge's: two quick edges both send the last value.
-        if send(stream, mode.is_saver(), sent).is_err() {
+        // The values now, not the change's: two quick changes both send the last.
+        let mut written = Ok(());
+        if energy {
+            sent += 1;
+            written = send(stream, "energy", sent, METHOD, json!({"saver": mode.is_saver()}));
+        }
+        if limit && written.is_ok() {
+            sent += 1;
+            written = send(stream, "memory", sent, MEMORY_METHOD, limit_params(memory));
+        }
+        if written.is_err() {
             link = None;
         }
     }
 }
 
-/// One `_acpmux/energy` request. Its id is a string, so the watch's reader
-/// never takes its reply for one of its own numbered calls.
-fn send(stream: &mut UnixStream, saver: bool, sent: u64) -> io::Result<()> {
+/// `_acpmux/memory_limit`'s params: the app's limit, or `level: null` while
+/// the app holds none.
+fn limit_params(memory: &DaemonMemory) -> Value {
+    let Some(limit) = memory.app_limit() else { return json!({"level": null}) };
+    json!({
+        "level": WireLevel::name(limit.level),
+        "mode": limit.mode,
+        "override": limit.pressure_override.map(WireLevel::name),
+    })
+}
+
+/// One request. Its id is a string, so the watch's reader never takes its
+/// reply for one of its own numbered calls.
+fn send(
+    stream: &mut UnixStream,
+    tag: &str,
+    sent: u64,
+    method: &str,
+    params: Value,
+) -> io::Result<()> {
     let request = json!({
         "jsonrpc": "2.0",
-        "id": format!("energy-{sent}"),
-        "method": METHOD,
-        "params": {"saver": saver},
+        "id": format!("{tag}-{sent}"),
+        "method": method,
+        "params": params,
     });
     stream.write_all(format!("{request}\n").as_bytes())?;
     stream.flush()
@@ -103,7 +159,9 @@ fn send(stream: &mut UnixStream, saver: bool, sent: u64) -> io::Result<()> {
 mod tests {
     use std::io::{BufRead, BufReader, ErrorKind};
 
-    use serde_json::Value;
+    use cmux_memory::PressureLevel;
+
+    use crate::memory::{AppLimit, SaverMode};
 
     use super::*;
 
@@ -122,7 +180,8 @@ mod tests {
     #[test]
     fn the_mode_goes_out_at_each_connection_and_on_each_edge() {
         let mode = EnergyMode::new(true);
-        let relay = AcpmuxEnergy::start(&mode).unwrap();
+        let memory = Arc::new(DaemonMemory::without_system_source());
+        let relay = AcpmuxEnergy::start(&mode, &memory).unwrap();
         let (daemon, acpmux) = UnixStream::pair().unwrap();
         let mut first = acpmux_end(acpmux);
         relay.reached(&daemon);
@@ -155,5 +214,45 @@ mod tests {
         second.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
         let mut line = String::new();
         assert!(second.read_line(&mut line).map_or(true, |read| read == 0), "{line}");
+    }
+
+    /// The app's memory limit (p07-memory-109) goes to acpmux on each change
+    /// and to a new acpmux as it connects; `level: null` once the app's
+    /// connection ended.
+    #[test]
+    fn the_apps_memory_limit_goes_out_on_each_change_and_at_connect() {
+        const APP: u64 = 3;
+        let mode = EnergyMode::new(false);
+        let memory = Arc::new(DaemonMemory::without_system_source());
+        let relay = AcpmuxEnergy::start(&mode, &memory).unwrap();
+        let (daemon, acpmux) = UnixStream::pair().unwrap();
+        let mut first = acpmux_end(acpmux);
+        relay.reached(&daemon);
+        assert_eq!(next(&mut first)["method"], METHOD, "no app limit yet: the mode only");
+
+        let critical = AppLimit {
+            level: PressureLevel::Critical,
+            mode: SaverMode::Medium,
+            pressure_override: Some(PressureLevel::Critical),
+        };
+        assert!(memory.set_app(APP, critical));
+        let pushed = next(&mut first);
+        assert_eq!(pushed["method"], MEMORY_METHOD);
+        assert_eq!(
+            pushed["params"],
+            json!({"level": "critical", "mode": "medium", "override": "critical"})
+        );
+        assert!(pushed["id"].is_string(), "{pushed}");
+
+        // A restarted acpmux hears the mode, then the limit the app holds.
+        let (daemon_again, acpmux_again) = UnixStream::pair().unwrap();
+        let mut second = acpmux_end(acpmux_again);
+        relay.reached(&daemon_again);
+        assert_eq!(next(&mut second)["method"], METHOD);
+        assert_eq!(next(&mut second)["params"]["level"], "critical");
+
+        // The app's connection ended: its limit went with it.
+        assert!(memory.client_left(APP));
+        assert_eq!(next(&mut second)["params"], json!({"level": null}));
     }
 }

@@ -68,7 +68,7 @@ impl Mux {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
-        let energy = AcpmuxEnergy::start(self.energy.mode());
+        let energy = AcpmuxEnergy::start(self.energy.mode(), &self.memory);
         if energy.is_err() {
             self.report_internal_diagnostic("acpmux energy relay not started");
         }

@@ -91,6 +91,9 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+    /// Its vote in the memory registry, once it sent the app's memory limit
+    /// (`memory_control.rs`); withdrawn when the connection ends.
+    pub(crate) memory_vote: std::sync::OnceLock<cmux_memory::Voter>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1093,6 +1096,7 @@ async fn serve_connection_from(
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
         media: crate::hub::media_handles::Handles::default(),
+        memory_vote: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1252,6 +1256,8 @@ async fn serve_connection_from(
     // session's kill. A leased peer must not keep reconnecting to a forward port its bridge already
     // closed, which another process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    // The app's memory limit lasts as long as the connection that sent it.
+    crate::memory_control::connection_ended(&conn.memory_vote);
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }

@@ -119,6 +119,15 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_ENERGY {
         return crate::energy_control::handle(&hub.maintenance, conn.origin, &params).await;
     }
+    // The app's memory limit (`memory_control.rs`): the unix socket and the local app only.
+    if m == crate::rpc::method::MUX_MEMORY_LIMIT {
+        return crate::memory_control::handle(
+            hub.memory(),
+            conn.origin,
+            &conn.memory_vote,
+            &params,
+        );
+    }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
         return super::requests::handle_request(hub, conn, m, params).await;

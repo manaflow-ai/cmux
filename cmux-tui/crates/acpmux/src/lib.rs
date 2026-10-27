@@ -61,6 +61,7 @@ pub mod login_env;
 pub mod mailbox;
 pub mod maintenance;
 pub mod memory;
+pub(crate) mod memory_control;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;

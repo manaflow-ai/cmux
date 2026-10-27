@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDaemonLimit",
+  "owner": "PL-memory",
+  "description": "The app sends its memory pressure level, Memory Saver mode and debug override to the local daemon on each change (memory.limit), and the daemon passes it on to acpmux; each takes the worse of its own level and the app's, so the app's critical level makes them release their caches at once.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}
