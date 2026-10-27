@@ -135,6 +135,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
 ]
@@ -163,6 +164,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
