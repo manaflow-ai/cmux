@@ -135,7 +135,13 @@ impl Brain {
                 (optchat_core::retracted(target), "retracted".to_owned())
             }
             (None, Some(at)) => (
-                optchat_core::edit_of(target, &message_text(message)),
+                optchat_core::edit_of(
+                    target,
+                    &super::reply_context::marked(
+                        self.reply_marker(message).as_deref(),
+                        &message_text(message),
+                    ),
+                ),
                 format!("edited@{at}"),
             ),
             (None, None) => return,
@@ -206,7 +212,10 @@ impl Brain {
                 self.settle_acks();
             }
         } else if message.edited_at.is_some() {
-            let text = message_text(message);
+            let text = super::reply_context::marked(
+                self.reply_marker(message).as_deref(),
+                &message_text(message),
+            );
             for q in self.queue.iter_mut().filter(|q| is_it(q)) {
                 q.text = super::images::logged_text(&text, &q.images);
             }
@@ -325,8 +334,19 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let logged =
-                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
+            let requires_approval = !self
+                .settings
+                .membership
+                .is_owner_message(summary, &message);
+            // A thread reply names its target in one short line (reply_context.rs).
+            let marker = self.reply_marker(&message);
+            let logged = super::files::logged_text(
+                &super::images::logged_text(
+                    &super::reply_context::marked(marker.as_deref(), &text),
+                    &images,
+                ),
+                &files,
+            );
             self.queue_with_images(
                 logged,
                 images,
@@ -334,10 +354,7 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    requires_approval: !self
-                        .settings
-                        .membership
-                        .is_owner_message(summary, &message),
+                    requires_approval,
                 },
             );
             // A waking message of the Chief conversation is a person's

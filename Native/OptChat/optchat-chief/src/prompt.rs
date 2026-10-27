@@ -40,14 +40,18 @@ const VIEW_END: &str = "A text too\nlong for one message is split over several i
 /// The spec's rule for delta entries that change an earlier line (5a.2).
 pub const DELTA_RULE: &str = "A line after </chat> that names an earlier line id (edit of, retracted, deleted) replaces what that line says.";
 
+/// The marker a thread reply's user message starts with (brain/reply_context.rs),
+/// and how a summary keeps it.
+pub const REPLY_RULE: &str = "A user message that starts with \"(reply to #<id>...)\" or \"(reply to <name>: ...)\" answers that message; a summary keeps it short, as \"re #<id>\".";
+
 /// What follows `</chat>` in a turn (spec 5a.2), with the spec's rule for
-/// entries that change an earlier line.
+/// entries that change an earlier line and the reply marker.
 pub fn delta_doc() -> String {
     format!(
         "After </chat> come the log entries since the view was made, oldest first,\n\
          one per line as id+1|kind: text (newlines as spaces), or id+1|edit of <id>: text,\n\
          id+1|retracted <id>, id+1|deleted <id>; the turn's new messages are the last\n\
-         user lines. {DELTA_RULE}"
+         user lines. {DELTA_RULE} {REPLY_RULE}"
     )
 }
 
