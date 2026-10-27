@@ -27,8 +27,13 @@ import Observation
     @ObservationIgnored private var runs: [UUID: (CloudCodexBrokerScope, Task<Void, any Error>)] = [:]
     @ObservationIgnored private var cleanupWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     @ObservationIgnored private var cleanupTimers: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var teardownTasks: [CloudCodexBrokerScope: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var signingOutScope: CloudCodexBrokerScope?
+    /// Policy availability is an immediate fence. The holder teardown runs
+    /// asynchronously, but new requests and in-flight writes observe this flag
+    /// through the scope callback before they can commit a VM file.
+    public private(set) var available = true
 
     /// Dependencies are injected; creating the adapter does not read credentials,
     /// start a process, or make a VM request.
@@ -59,8 +64,14 @@ import Observation
         try check(scope)
         let resolved = try await launch()
         try check(scope)
+        if let teardown = teardownTasks.removeValue(forKey: scope) { await teardown.value }
+        try check(scope)
         let current = currentScope
-        let broker = await registry.broker(for: scope, currentScope: { await current() },
+        let availability: @MainActor @Sendable () -> CloudCodexBrokerScope? = { [weak self] in
+            guard let self, self.available else { return nil }
+            return current()
+        }
+        let broker = await registry.broker(for: scope, currentScope: { await availability() },
             executable: resolved.executable, executablePrefix: resolved.prefix,
             codexExecutable: resolved.codex, home: home(for: scope))
         try check(scope)
@@ -95,6 +106,26 @@ import Observation
         let keep = currentScope()
         if keep != signingOutScope { signingOutScope = nil }
         for scope in scopes where scope != keep { await retire(scope) }
+    }
+
+    /// Fences broker use immediately when Cloud policy is disabled. Re-enabling
+    /// leaves the holder home on disk, so a later confirmed run can reuse its
+    /// refresh credential without another device login.
+    public func setAvailable(_ enabled: Bool) {
+        guard enabled != available else { return }
+        available = enabled
+        guard !enabled else { return }
+        for run in runs.values { run.1.cancel() }
+        let retiring = scopes
+        scopes.removeAll()
+        for scope in retiring {
+            let teardown = Task { [weak self, registry] in
+                let failed = await registry.remove(scope: scope)
+                guard let self else { return }
+                self.pendingCleanup.formUnion(failed)
+            }
+            teardownTasks[scope] = teardown
+        }
     }
 
     /// Called before deleting/unregistering a VM, while its transport still exists.
@@ -149,11 +180,15 @@ import Observation
     private func retire(_ scope: CloudCodexBrokerScope) async {
         for run in runs.values where run.0 == scope { run.1.cancel() }
         scopes.remove(scope)
-        pendingCleanup.formUnion(await registry.remove(scope: scope))
+        if let teardown = teardownTasks.removeValue(forKey: scope) {
+            await teardown.value
+        } else {
+            pendingCleanup.formUnion(await registry.remove(scope: scope))
+        }
     }
 
     private func check(_ scope: CloudCodexBrokerScope) throws {
-        guard !stopped, signingOutScope != scope, !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
+        guard !stopped, available, signingOutScope != scope, !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
         guard currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
     }
 }
