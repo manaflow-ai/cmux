@@ -33,7 +33,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// `cefPrefetchBehindFence`) does not read at once: ``post(_:on:)`` queues the
 /// read as ``WorkPriority/idle`` items on the files lane, which the startup
 /// best-effort fence holds, so a cold launch with no visible Chromium page reads
-/// no Chromium file before startup completes. A start someone waits for (a tab,
+/// no Chromium file before the reveal. A start someone waits for (a tab,
 /// a user feature) calls ``promote(on:)``: what is not read yet is read at
 /// ``WorkPriority/userBlocking`` (awaited items, which the fence never holds)
 /// and the idle reader stops after its current chunk. Readers claim chunks, so
@@ -158,7 +158,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
     }
 
     /// Queues the read of `layout` (the binary, then the resources) as ``WorkPriority/idle`` items of at most
-    /// ``itemBudget`` bytes on `work`'s files lane: the best-effort fence holds them until startup completes.
+    /// ``itemBudget`` bytes on `work`'s files lane: the best-effort fence holds them until the reveal.
     /// ``finished()`` returns when they, or a ``promote(on:)``, read everything. Once per prefetch; a later
     /// call queues nothing.
     func post(_ layout: CEFRuntimeLayout, on work: BackgroundWork) {

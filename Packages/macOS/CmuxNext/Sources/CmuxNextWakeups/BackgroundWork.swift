@@ -36,9 +36,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority. The app
-/// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
-/// ``LaunchFence/cap`` (``LaunchFence``). Both come after ``StartupPhase``'s reveal: startup completes after
-/// the settle, and the cap outlasts the reveal deadline.
+/// raises it once, with no cap, through ``raiseLaunchFence(cap:clock:)``, and lowers it at ``StartupPhase``'s
+/// reveal (``LaunchFence``).
 ///
 /// Every lane item is traced from its `fileID` and `line` post to its run (``TaskTrace``, Chrome's `TaskAnnotator`).
 ///
@@ -306,7 +305,7 @@ public final class BackgroundWork: Sendable {
     /// matching ``endBestEffortFence()``. Items that already run finish; higher priorities and awaited
     /// items are not held; held items keep their priority and QoS. Fences nest. Chrome:
     /// `ThreadPoolInstance::BeginBestEffortFence` (base/task/thread_pool/thread_pool_instance.h), raised
-    /// for startup and lowered at startup complete.
+    /// for startup and lowered after it (cmux lowers it at the reveal).
     public func beginBestEffortFence() {
         for lane in lanes { lane.fence() }
     }

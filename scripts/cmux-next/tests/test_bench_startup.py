@@ -286,15 +286,6 @@ class CompletionReasonTests(unittest.TestCase):
         self.assertEqual(bs.run_values(run), ["startup complete launchPhaseSettled"])
         self.assertIn(bs.STARTUP_COMPLETE, [mark for mark, _ in bs.MARKS], "startup_complete is a timed row")
 
-    def test_the_fence_cap_mark_is_no_completion_reason(self):
-        """p02-threads-114: a capped launch also sends the fence's cap mark; the reason stays the completion's."""
-        run = {"startup_complete.firstFrameCommitted": 3400.0, bs.STARTUP_COMPLETE: 3400.0,
-               "launch.best_effort_fence_capped": 3400.0}
-        self.assertEqual(bs.completion_reason(run), "firstFrameCommitted")
-        self.assertIn("  startup_complete: firstFrameCommitted 1 of 1 runs; 0 of 1 by the failsafe",
-                      bs.value_summary([run]))
-        self.assertIn("launch.best_effort_fence_capped", [row[1] for row in bs.table([run])], "a timed row")
-
     def test_the_summary_counts_reasons_and_the_failsafe(self):
         runs = [{"startup_complete.launchPhaseSettled": 900.0} for _ in range(8)]
         runs += [{"startup_complete.failsafe": 10000.0}, {"main_start": 3.0}]

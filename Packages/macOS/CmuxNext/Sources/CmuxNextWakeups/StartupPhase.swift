@@ -3,12 +3,12 @@
 ///
 /// - ``Phase/launching``: input, frame, userBlocking, visible and automation work run; background
 ///   work is held. Off main, the launch's best-effort fence (``BackgroundWork/LaunchFence``, raised
-///   in `main()`) holds posted best-effort and idle lane items, while user-visible and awaited lane
-///   work runs at once. It comes down at startup complete, after the settle, or at its cap, which
-///   outlasts the reveal deadline: no posted best-effort item starts before the reveal.
+///   in `main()` with no cap) holds posted best-effort and idle lane items, while user-visible and
+///   awaited lane work runs at once.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
 ///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when a window's
-///   first frame never comes. Background work opens.
+///   first frame never comes. Background work opens, and the launch order (`LaunchOrder`) lowers
+///   the best-effort fence here, so its held items start in post order; nothing else lowers it.
 /// - ``Phase/settled``: when every ``Reference`` is done (first frame, first daemon snapshot,
 ///   session restore, the visible page load-idle), or at the failsafe (10 s after launch). Work
 ///   held for the settle (``whenReached(_:_:)``; the idle class, task 005) opens.

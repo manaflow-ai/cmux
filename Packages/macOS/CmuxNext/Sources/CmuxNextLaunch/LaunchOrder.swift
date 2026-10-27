@@ -9,12 +9,12 @@ public import CmuxNextWakeups
 /// Chrome makes the same pair before the UI thread runs: `BrowserTaskExecutor` with its startup
 /// queues (content/browser/scheduler/browser_task_executor.cc) and the after-startup state
 /// (chrome/browser/after_startup_task_utils.cc), which lowers the thread pool's best-effort fence
-/// (`ThreadPoolInstance::EndBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) at
-/// startup complete. The fence is one pair: ``BestEffortFence`` raises it on the app's
+/// (`ThreadPoolInstance::EndBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) from
+/// the UI thread. The fence is one pair: ``BestEffortFence`` raises it on the app's
 /// ``BackgroundWork`` as soon as the lanes exist, and the order made on that fence lowers it at
-/// the completion, after the `startup_complete` marks. Its cap (``BackgroundWork/LaunchFence/cap``,
-/// 3 s) lowers it first when startup completes later; the completion then marks
-/// ``fenceCappedMark``.
+/// the startup phase's reveal (p06-scheduler-204, plans/cmux-next/chrome-parity/p06-scheduler.md
+/// section A: "Background and the fence open"). The fence has no off-main cap: the reveal deadline
+/// (1.5 s) bounds it, so no held best-effort item starts before the reveal.
 ///
 /// ```swift
 /// let work = BackgroundWork(hangs: hangWatch)
@@ -26,28 +26,20 @@ public import CmuxNextWakeups
 public struct LaunchOrder {
     /// The best-effort fence `main()` raises before the first launch read is posted (Chrome's
     /// `ThreadPoolInstance::BeginBestEffortFence`): idle and best-effort lane work waits until the
-    /// ``LaunchOrder`` made on it lowers it at startup complete, or its cap does.
+    /// ``LaunchOrder`` made on it lowers it at the reveal.
     public struct BestEffortFence: Sendable {
         /// The raised fence; the order lowers it.
         public let launch: BackgroundWork.LaunchFence
         /// The lanes the fence holds.
         public var background: BackgroundWork { launch.work }
 
-        /// Raises the fence on `background`, capped at `cap` on `clock`.
+        /// Raises the fence on `background`, with no cap: only the order's reveal (or shutdown) lowers it.
         ///
-        /// - Parameters:
-        ///   - background: The app's lanes.
-        ///   - cap: The longest the fence holds; default ``BackgroundWork/LaunchFence/cap``.
-        ///   - clock: The clock the cap sleeps on; tests pass a manual one.
-        public init(raisingOn background: BackgroundWork, cap: Duration = BackgroundWork.LaunchFence.cap,
-                    clock: any Clock<Duration> = ContinuousClock()) {
-            launch = background.raiseLaunchFence(cap: cap, clock: clock)
+        /// - Parameter background: The app's lanes.
+        public init(raisingOn background: BackgroundWork) {
+            launch = background.raiseLaunchFence(cap: nil)
         }
     }
-
-    /// The mark the completion sends when the cap lowered the fence first. It stays out of the
-    /// `startup_complete.` namespace, which holds only the completion's reason (bench-startup.py).
-    nonisolated public static let fenceCappedMark = "launch.best_effort_fence_capped"
 
     /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard);
     /// its ``MainWorkScheduler/startup`` phase is the launch's.
@@ -61,25 +53,27 @@ public struct LaunchOrder {
     #endif
 
     /// An order on schedulers made elsewhere (tests: hand-run frames and main hop); `startup` must
-    /// post its lane work to `fence`'s lanes. At startup complete it marks `startup_complete.<reason>`
-    /// (an instant mark, as task 007 sends the temperature) and then `startup_complete`, so a reader
-    /// that waits for `startup_complete` has the reason too; then it lowers the fence, so the held
-    /// idle and best-effort items start, or marks ``fenceCappedMark`` when the cap lowered it first.
-    /// A quit before completion never lowers it (shutdown lifts it).
+    /// post its lane work to `fence`'s lanes. At `mainWork`'s reveal it lowers the fence, so the held
+    /// idle and best-effort items start in post order within each priority; a phase that already
+    /// revealed lowers it here. Reveal actions queued before this init (the app's `launch.revealed`
+    /// mark) run first. A quit before the reveal never lowers it (shutdown lifts it). At startup
+    /// complete it marks `startup_complete.<reason>` (an instant mark, as task 007 sends the
+    /// temperature) and then `startup_complete`, so a reader that waits for `startup_complete` has
+    /// the reason too.
     ///
     /// - Parameters:
     ///   - fence: The fence `main()` raised.
-    ///   - mainWork: The main-thread scheduler.
+    ///   - mainWork: The main-thread scheduler; its ``MainWorkScheduler/startup`` phase lowers the fence.
     ///   - startup: The startup scheduler on `mainWork`.
     ///   - mark: Records a launch mark.
     public init(fence: BestEffortFence, mainWork: MainWorkScheduler, startup: StartupScheduler,
                 mark: @escaping @MainActor (String) -> Void) {
         self.mainWork = mainWork
         self.startup = startup
-        startup.whenComplete { [launch = fence.launch] completion in
+        mainWork.startup.whenReached(.revealed) { [launch = fence.launch] in _ = launch.lower() }
+        startup.whenComplete { completion in
             mark("startup_complete.\(completion.reason)")
             mark("startup_complete")
-            if !launch.lower() { mark(Self.fenceCappedMark) }
         }
         #if CMUX_PGO_PROFILE
         profileFlush = ProfileFlush(launchedOn: fence.background)
@@ -92,7 +86,7 @@ public struct LaunchOrder {
     /// screens) and before the delegate.
     ///
     /// - Parameters:
-    ///   - fence: The fence `main()` raised on the app's lanes; lowered at startup complete.
+    ///   - fence: The fence `main()` raised on the app's lanes; lowered at the reveal, after the `launch.revealed` mark.
     ///   - board: The main task board the budget publishes running work on; `main()` gives the same one to its
     ///     `BackgroundWork`, whose debug check reads the open input work there (p02-threads 112).
     ///   - input: The app's one input tap (p04-input.md 3 (A)): the budget's pending-input check observes it.
@@ -104,8 +98,9 @@ public struct LaunchOrder {
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
         displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
         displays.presents.observeCommits()
-        // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
-        // work for the settle. The marks are queued first, so each shows before the held work it opens.
+        // The launch's phases (p06-scheduler-006/007/204): background work and the lanes' best-effort
+        // fence wait for the reveal, idle work for the settle. The marks are queued first, so each
+        // shows before the held work it opens.
         let phase = StartupPhase()
         phase.whenReached(.revealed) { mark("launch.revealed") }
         phase.whenReached(.settled) { mark("launch.settled") }

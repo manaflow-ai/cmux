@@ -2,24 +2,26 @@ import CmuxNextCompat
 
 extension BackgroundWork {
     /// The launch's best-effort fence on one ``BackgroundWork``: raised once by ``BackgroundWork/raiseLaunchFence(cap:clock:)``
-    /// before the first launch read is posted, lowered once by ``lower()`` at startup complete (after the first
-    /// committed frame and the settle), or by its cap when startup has not completed by then.
+    /// before the first launch read is posted and lowered once by ``lower()``, or by its cap when one is given.
+    /// The app's launch order raises it with no cap and lowers it at ``StartupPhase``'s reveal
+    /// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 204): the reveal deadline bounds the hold on the main
+    /// thread, and an off-main cap could open the fence before the reveal.
     ///
     /// While it is up, posted ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items stay queued in post order;
     /// higher priorities and awaited items run at once. Chrome raises the same fence for startup
     /// (`ThreadPoolInstance::BeginBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) and lowers it at
-    /// startup complete (`EndBestEffortFence`, chrome/browser/after_startup_task_utils.cc). Chrome's backstop is
-    /// minutes; cmux caps the hold at ``cap`` (3 s), so a launch that never completes (no window, a page that never
-    /// loads) holds saves and caches for 3 s at most (plans/cmux-next/chrome-parity/p02-threads.md, task 114).
+    /// startup complete (`EndBestEffortFence`, chrome/browser/after_startup_task_utils.cc), from the UI thread, with no
+    /// thread-pool timer. A fence raised with a cap (default ``cap``, 3 s; plans/cmux-next/chrome-parity/p02-threads.md,
+    /// task 114) also comes down when the cap passes.
     ///
-    /// The cap is one one-shot ``DemandTimer`` that exists only while the fence is up: ``lower()`` and
+    /// The cap is one one-shot ``DemandTimer`` that is armed only while the fence is up: ``lower()`` and
     /// ``BackgroundWork/beginShutdown()`` cancel it. Shutdown also lifts the fence on the lanes, so block-shutdown
     /// items it held run (Chrome's `ThreadPoolImpl::Shutdown` sets `CanRunPolicy::kAll`).
     ///
     /// ```swift
     /// let work = BackgroundWork(hangs: hangWatch)
-    /// let fence = work.raiseLaunchFence()      // main(): before any launch read is posted
-    /// startup.whenComplete { _ in fence.lower() }
+    /// let fence = work.raiseLaunchFence(cap: nil)   // main(): before any launch read is posted
+    /// phase.whenReached(.revealed) { _ = fence.lower() }
     /// ```
     public final class LaunchFence: Sendable {
         /// The longest the launch fence holds best-effort and idle work.
@@ -27,15 +29,16 @@ extension BackgroundWork {
 
         /// The lanes the fence holds.
         public let work: BackgroundWork
-        /// Lowers the fence at ``cap`` when nothing lowered it before.
-        private let capTimer: DemandTimer
+        /// Lowers the fence at its cap when nothing lowered it before; nil for a fence raised with no cap.
+        private let capTimer: DemandTimer?
         /// True until the first ``lower()``.
         private let up = Atomic<Bool>(true)
 
-        fileprivate init(work: BackgroundWork, cap: Duration, clock: any Clock<Duration>) {
+        fileprivate init(work: BackgroundWork, cap: Duration?, clock: any Clock<Duration>) {
             self.work = work
-            capTimer = DemandTimer(owner: "launch.best-effort-fence.cap", clock: clock)
+            capTimer = cap.map { _ in DemandTimer(owner: "launch.best-effort-fence.cap", clock: clock) }
             work.beginBestEffortFence()
+            guard let cap, let capTimer else { return }
             capTimer.schedule(after: cap) { [weak self] in self?.lower() }
             // After the schedule, so a shutdown that already started cancels the cap here.
             work.holdLaunchCap(capTimer, for: ObjectIdentifier(self))
@@ -44,8 +47,8 @@ extension BackgroundWork {
         /// Whether the fence still holds best-effort and idle work (shutdown lifts it on the lanes either way).
         public var isUp: Bool { up.load(ordering: .acquiring) }
 
-        /// Whether the cap's timer is pending; false once the fence is down or shutdown started.
-        var capArmed: Bool { capTimer.isScheduled }
+        /// Whether the cap's timer is pending; false with no cap, once the fence is down, or once shutdown started.
+        public var capArmed: Bool { capTimer?.isScheduled ?? false }
 
         /// Lowers the fence, the first call only: cancels the cap and starts the held items in post order within each
         /// priority. Any thread.
@@ -54,7 +57,7 @@ extension BackgroundWork {
         @discardableResult
         public func lower() -> Bool {
             guard up.exchange(false, ordering: .acquiringAndReleasing) else { return false }
-            capTimer.cancel()
+            capTimer?.cancel()
             work.releaseLaunchCap(for: ObjectIdentifier(self))
             work.endBestEffortFence()
             return true
@@ -65,10 +68,11 @@ extension BackgroundWork {
     /// once, at its composition root, before the first launch read is posted.
     ///
     /// - Parameters:
-    ///   - cap: The longest the fence stays up; default ``LaunchFence/cap``.
+    ///   - cap: The longest the fence stays up; default ``LaunchFence/cap``; nil arms no timer, so only
+    ///     ``LaunchFence/lower()`` (or shutdown) lowers it.
     ///   - clock: The clock the cap sleeps on; tests pass a `ManualClock`.
     /// - Returns: The raised fence.
-    public func raiseLaunchFence(cap: Duration = LaunchFence.cap,
+    public func raiseLaunchFence(cap: Duration? = LaunchFence.cap,
                                  clock: any Clock<Duration> = ContinuousClock()) -> LaunchFence {
         LaunchFence(work: self, cap: cap, clock: clock)
     }

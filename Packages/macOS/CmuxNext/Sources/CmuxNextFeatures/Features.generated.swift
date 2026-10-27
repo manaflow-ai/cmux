@@ -146,12 +146,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
+    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
         index: 8,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
-        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
+        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
