@@ -39,10 +39,12 @@ extension MainThreadWatchdog {
         var cefState: UInt64 = 0
         let board = boardSink.withLock { $0 }
         var scope = board?.hangScope ?? .noTask
+        var startup = StartupStallTag(startupTasks?.read())
         let sampled = sampler?.sample { _ in
             stillBlocked = beatSequence.load(ordering: .acquiring) == beat
             cefState = crashKeys?.value(.cefState) ?? 0
             scope = board?.hangScope ?? .noTask
+            startup = StartupStallTag(startupTasks?.read())
         } ?? []
         let addresses = stillBlocked ? sampled : []
         let phase = stillBlocked ? Self.phaseLabel(cefState: cefState) : nil
@@ -50,8 +52,10 @@ extension MainThreadWatchdog {
         recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, phase: phase)
         if let sink {
             lastReportNanos = now
+            let reading = startup.reading
             sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase,
-                      attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now)))
+                      attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now),
+                      startupPhase: reading.stallPhase, startupTask: reading.stallPhase == nil ? nil : reading.taskName))
         }
     }
 
@@ -77,6 +81,10 @@ extension MainThreadWatchdog {
         /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
         /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
         public var attribution = HangAttribution(task: nil, turnNanos: 0)
+        /// The launch phase the hang ran in before startup completed (`startup_phase`, ``startupTasks``); nil after.
+        public var startupPhase: String?
+        /// The `main()` step or startup task running when sampled (`startup_task`); nil between tasks or after startup.
+        public var startupTask: String?
     }
 
     /// A hang episode's checkpoint or end, to its file (``HangEpisodeTracker/Event/began``

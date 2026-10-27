@@ -27,6 +27,8 @@ public struct CmuxNextApp {
         // listed with its phase and step (Chrome makes its HangWatcher at process start: base/threading/hang_watcher.h).
         // Its thread starts below, once the process may have a second one; it measures from here.
         let startupTag = StartupTaskTag()
+        // The one-thread steps up to the watchdog's start: one step, since a stall in them is listed only at the start.
+        startupTag.step("main.one_thread")
         let watchdog = MainThreadWatchdog(startupTasks: startupTag)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()

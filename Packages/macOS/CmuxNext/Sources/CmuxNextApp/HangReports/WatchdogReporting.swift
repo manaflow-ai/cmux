@@ -51,7 +51,8 @@ enum WatchdogReporting {
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
-            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
+            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass),
+                                startup: hang.startupPhase.map { HangSample.Startup(phase: $0, task: hang.startupTask) })
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
         // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
@@ -75,7 +76,10 @@ enum WatchdogReporting {
         }
         watchdog.onStall = { record in
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
-            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
+            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses,
+                                 startup: record.details["startup_phase"]?.stringValue.map {
+                                     HangSample.Startup(phase: $0, task: record.details["startup_task"]?.stringValue)
+                                 })
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).
         if let collector { services.inputFrameSignposts.committedKey = { collector.noteKeyFrame(durationMicros: $0) } }

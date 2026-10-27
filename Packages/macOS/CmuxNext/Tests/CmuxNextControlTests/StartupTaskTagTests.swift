@@ -154,16 +154,45 @@ import Testing
     @MainActor
     @Test func aStallBeforeTheStartIsMeasuredFromCreation() throws {
         let clock = ManualUptime()
+        let tag = StartupTaskTag()
+        tag.step("main.one_thread") // as main() does, before it makes the watchdog
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
-                                          startupTasks: StartupTaskTag(), uptime: clock.read)
+                                          startupTasks: tag, uptime: clock.read)
         clock.advance(by: .milliseconds(80))
         watchdog.start(measuringSinceCreation: true)
         defer { watchdog.stop() }
-        watchdog.beginStartupTurn()
+        watchdog.startupStep("main.warmup")
         let record = try #require(watchdog.log.records().first, "the 80 ms before start() was not listed")
         #expect(record.duration == .milliseconds(80))
         #expect(record.details["startup_phase"] == .string("main"), "with no stack sample, the tag at the stall's end")
-        #expect(record.details["startup_task"] == nil)
+        #expect(record.details["startup_task"] == .string("main.one_thread"), "the stall names the one-thread step")
+        #expect(tag.currentTask == "main.warmup")
+    }
+
+    /// AppKit sends applicationDidFinishLaunching inside a run-loop turn the heartbeat opened: the critical
+    /// phase's start changes only the tag, so a stall that crosses it is one record over the whole turn,
+    /// not two halves under the threshold.
+    @MainActor
+    @Test func theCriticalPhaseInsideARunLoopTurnDoesNotSplitIt() {
+        let clock = ManualUptime()
+        let tag = StartupTaskTag()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
+                                          startupTasks: tag, uptime: clock.read)
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            clock.advance(by: .milliseconds(40))
+            watchdog.beginCriticalPhase()
+            clock.advance(by: .milliseconds(40))
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        let records = watchdog.log.records()
+        #expect(records.count == 1, "the 40 ms + 40 ms turn was split at beginCriticalPhase()")
+        #expect(records.first?.duration == .milliseconds(80))
+        #expect(records.first?.details["startup_phase"] == .string("critical"))
+        #expect(tag.currentTask == "app.did_finish_launching")
     }
 
     @MainActor

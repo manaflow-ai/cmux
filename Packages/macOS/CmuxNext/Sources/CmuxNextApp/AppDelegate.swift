@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // AppKit's start (main()'s last step) ends as its own watchdog turn; the critical phase begins.
+        // The critical phase begins: stalls from here name it (the run-loop turn this runs in stays one watchdog turn).
         control.watchdog.beginCriticalPhase()
         defer { control.watchdog.endStartupStep() }
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.

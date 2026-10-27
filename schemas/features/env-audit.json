@@ -612,6 +612,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:272", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
+    "CMUX_NEXT_BENCH_LAUNCH_STALL_MS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:10", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:17", "kind": "via variable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BENCH_SHIPPING_DRAW": {
       "class": "devGated",
       "note": "Read only when isAutomationLaunch, which is false outside DEBUG builds.",

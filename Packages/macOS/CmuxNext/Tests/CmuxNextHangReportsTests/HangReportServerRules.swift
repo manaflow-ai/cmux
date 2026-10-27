@@ -35,7 +35,7 @@ struct HangReportServerRules {
         case 2:
             return HangRules(keys: hangKeys, sources: ["metrickit", "watchdog"], kinds: ["hang", "stall"])
         case 3:
-            return HangRules(keys: hangKeys.union(["blocking", "task", "thread"]),
+            return HangRules(keys: hangKeys.union(["blocking", "task", "thread", "startup"]),
                              sources: ["metrickit", "watchdog", "detector", "hangwatch"], kinds: ["hang", "stall", "blocking"])
         default:
             return nil
@@ -51,6 +51,9 @@ struct HangReportServerRules {
     /// Schema 3's `hangs[].thread` (p09-observability-068, wireSchema.ts `HangV3.thread` and `isPairedThread`): exactly
     /// on a hang-watch hang, the registration's name and kind.
     static let threadKeys: Set<String> = ["name", "kind"]
+    /// Schema 3's `hangs[].startup` (p08-startup-088): on a watchdog stall or hang only, the launch phase and the
+    /// optional task. wireSchema.ts `HangV3` lists it in a follow-up web change; schema 3 stays off until then.
+    static let startupKeys: Set<String> = ["phase", "task"]
 
     /// Every way `body` breaks the rules of the schema it names; empty when the server would take it.
     static func violations(in body: Data) -> [String] {
@@ -82,6 +85,17 @@ struct HangReportServerRules {
                 if !(task["owner"] is String) || !(task["class"] is String) { found.append("\(path).task fields") }
             } else {
                 found.append("\(path).task is not an object")
+            }
+        }
+        if let startup = hang["startup"] {
+            if source != "watchdog" { found.append("\(path).startup on a \(source) sample") }
+            if let startup = startup as? [String: Any] {
+                found += extraKeys(startup, allowed: startupKeys, at: "\(path).startup")
+                if !(startup["phase"] is String) || !(startup["task"] == nil || startup["task"] is String) {
+                    found.append("\(path).startup fields")
+                }
+            } else {
+                found.append("\(path).startup is not an object")
             }
         }
         // Schema 3: a thread object exactly on a hang-watch sample, which is a hang.

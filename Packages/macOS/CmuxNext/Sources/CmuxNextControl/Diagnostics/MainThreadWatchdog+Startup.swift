@@ -8,16 +8,20 @@ import CmuxNextWakeups
 /// completes names its launch phase and startup task (``startupTasks``, `startup_phase` and
 /// `startup_task` in `debug.hangs`).
 ///
-/// `main()` and the start of `applicationDidFinishLaunching` run while the main run loop does not, so
-/// the run-loop heartbeat cannot split them into turns. Each launch step is its own turn instead, as
-/// Chrome watches each task in its own scope (`base/threading/hang_watcher.h`, `WatchHangsInScope`).
+/// `main()` runs before the main run loop first runs, so the run-loop heartbeat cannot split it into
+/// turns. Each of its launch steps is its own turn instead, as Chrome watches each task in its own
+/// scope (`base/threading/hang_watcher.h`, `WatchHangsInScope`). AppKit sends
+/// `applicationDidFinishLaunching` from inside `-[NSApplication run]`, in a run-loop turn the heartbeat
+/// already opened: from the first heartbeat on, a step only changes the tag.
 extension MainThreadWatchdog {
-    /// Ends the main thread's work in progress and starts the next, for launch steps that run while
-    /// the main run loop does not: a stall of the work that ends is recorded now. It is no run-loop
-    /// wake: ``mainRunLoopWakes`` and the busy watchdog do not see it. Main thread only.
+    /// Ends the main thread's work in progress and starts the next, for `main()`'s launch steps before
+    /// the main run loop first runs: a stall of the work that ends is recorded now. It is no run-loop
+    /// wake: ``mainRunLoopWakes`` and the busy watchdog do not see it. After the first heartbeat it does
+    /// nothing, so a run-loop turn is never split. Main thread only.
     @MainActor
     public func beginStartupTurn() {
-        guard running.load(ordering: .relaxed), !mainAsleep.load(ordering: .acquiring) else { return }
+        guard running.load(ordering: .relaxed), !runLoopEntered.load(ordering: .relaxed),
+              !mainAsleep.load(ordering: .acquiring) else { return }
         let now = uptime()
         stamp(now: now, cpu: clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), endingWork: true)
         turnStartNanos.store(now, ordering: .relaxed)
@@ -30,9 +34,9 @@ extension MainThreadWatchdog {
         startupTasks?.step(name)
     }
 
-    /// AppKit called `applicationDidFinishLaunching`: the last `main()` step (AppKit's own start) ends as
-    /// its own turn, and the critical phase begins in the step `app.did_finish_launching`, which the
-    /// startup scheduler's critical tasks run inside.
+    /// AppKit called `applicationDidFinishLaunching`: the critical phase begins in the step
+    /// `app.did_finish_launching`, which the startup scheduler's critical tasks run inside. It only
+    /// changes the tag: the run-loop turn it is called in stays one turn (``beginStartupTurn()``).
     @MainActor
     public func beginCriticalPhase() {
         beginStartupTurn()

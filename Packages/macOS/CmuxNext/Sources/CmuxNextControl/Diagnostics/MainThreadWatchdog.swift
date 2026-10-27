@@ -155,6 +155,8 @@ public final class MainThreadWatchdog: Sendable {
     static let stallPair100: UInt64 = 1, stallPair250: UInt64 = 1 | 1 << 32
     static let count100Nanos = nanos(StallCounts.edge100), count250Nanos = nanos(StallCounts.edge250)
     let mainAsleep = Atomic<Bool>(true)
+    /// Set by the first heartbeat: the main run loop runs and owns the turns (``beginStartupTurn()``). Main thread.
+    let runLoopEntered = Atomic<Bool>(false)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
     let running = Atomic<Bool>(false)
@@ -359,6 +361,7 @@ public final class MainThreadWatchdog: Sendable {
         let now = uptime()
         let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
+        runLoopEntered.store(true, ordering: .relaxed)
         stamp(now: now, cpu: cpu, endingWork: !wasAsleep)
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
