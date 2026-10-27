@@ -372,15 +372,28 @@ impl Hub {
     /// Every agent still running in full access under the managed off ends now (a turn in
     /// progress ends with it), each under its session's spawn lock, checked again there. `off`:
     /// the caller's one read of MDM's off (`end_if_runs_full_access`).
+    ///
+    /// The wait for each spawn lock is bounded (review 1 of #26034): an operation that holds it
+    /// longer (a start ending an agent that does not end) keeps no push or background check from
+    /// the other sessions. That session's end stays pending (`full_access_end_pending`): its next
+    /// start ends the agent first, and the background check tries again once woken here; it
+    /// stops trying once it holds the lock.
     pub(super) async fn end_every_managed_full_access(&self, off: bool) {
         if !off {
             return;
         }
+        let wait = super::shutdown::SHUTDOWN_GRACE * 2;
         for session in self.sessions() {
-            if self.counts_as_full_access(&session).await {
-                let _spawning = session.spawn_lock.lock().await;
-                self.end_if_runs_full_access(&session, off).await;
+            if !self.counts_as_full_access(&session).await {
+                continue;
             }
+            let Ok(_spawning) = tokio::time::timeout(wait, session.spawn_lock.lock()).await else {
+                tracing::warn!(session = %session.id, "MDM forces full access off: its agent is busy starting or stopping; its end is tried again");
+                session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
+                self.idle_wake.notify_one();
+                continue;
+            };
+            self.end_if_runs_full_access(&session, off).await;
         }
     }
 
@@ -394,6 +407,11 @@ impl Hub {
     pub(super) async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
         let child = session.child.lock().await.take();
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
+        if child.is_some() {
+            // Ended on purpose, as a stop is (review 1 of #26034): its exit leaves the chat idle,
+            // not disconnected, and the next prompt starts an agent under the bound.
+            self.idle_unless_closed(session);
+        }
         if let Some(child) = child {
             // Bounded: a host whose link stopped reading never answers the terminate; it is then
             // ended by its nonce below (review 27 of #23322).
@@ -431,10 +449,21 @@ impl Hub {
             self.save_meta(session);
         }
         if ended {
+            // Its turn's end may have set another state meanwhile.
+            self.idle_unless_closed(session);
             tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
             self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
         }
         FullAccessEnd::Ended
+    }
+}
+
+impl Hub {
+    /// `session` is idle unless it was closed.
+    fn idle_unless_closed(&self, session: &Session) {
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Idle);
+        }
     }
 }
 
