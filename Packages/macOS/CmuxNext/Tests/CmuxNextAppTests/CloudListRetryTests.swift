@@ -1,5 +1,5 @@
 @testable import CmuxNextApp
-import CmuxNextDaemon
+import CmuxNextCloud
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -52,12 +52,12 @@ struct CloudListRetryTests {
         let retry = CloudListRetry(clock: ManualClock())
         var scheduled = 0
         // Each failure that finds no retry waiting spends one timed attempt.
-        for _ in 0..<(RetryPolicy.cloudList.timedRetries + 3) {
+        for _ in 0..<(CloudListRetry.timedRetries + 3) {
             retry.failed {}
             if retry.isScheduled { scheduled += 1 }
             retry.cancel()
         }
-        #expect(scheduled == RetryPolicy.cloudList.timedRetries)
+        #expect(scheduled == CloudListRetry.timedRetries)
         // Another account (or a list that landed) gets the whole budget again.
         retry.reset()
         retry.failed {}

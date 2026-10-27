@@ -394,7 +394,7 @@ final class CloudService {
     /// Whether the store holds a list the server answered, within `age`, for the user and team
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
-        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+        CloudListRetry.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
     private func reconcile(_ list: [CloudMachine]) {

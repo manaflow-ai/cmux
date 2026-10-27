@@ -1,30 +1,34 @@
-import CmuxNextDaemon
-import Foundation
+import CmuxNextWakeups
 
 /// Reads the machine list again after it failed (#25595). The list is read at sign-in or launch,
 /// after a mutation, on app activation and on wake; a launch while offline or while the API was down
 /// left every Cloud workspace without its machine (no terminal, no browser route) until the person
-/// switched apps. A failed read is now tried again on a capped backoff (``RetryPolicy/cloudList``),
-/// a bounded number of times: after that only the events above read it, never a fixed period.
+/// switched apps. A failed read is now tried again on a capped backoff (1 s growing to 30 s), at
+/// most ``timedRetries`` times: after that only the events above read it, never a fixed period.
 @MainActor
-final class CloudListRetry {
+public final class CloudListRetry {
+    /// Timed retries before only events read the list again (about 3 minutes).
+    public static let timedRetries = 10
+
     private let clock: any Clock<Duration>
-    private var pacer = RetryPacer(.cloudList)
+    private var backoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    private var failures = 0
     private var pending: Task<Void, Never>?
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
     }
 
     /// Whether a retry waits now.
-    var isScheduled: Bool { pending != nil }
+    public var isScheduled: Bool { pending != nil }
 
     /// A read failed: `read` runs again after the next backoff step, unless the budget is spent.
     /// A retry already waiting stays the only one.
-    func failed(read: @escaping @MainActor () async -> Void) {
-        guard pending == nil, let delay = pacer.failed() else { return }
-        let clock = clock
-        // task-owner: one retry at a time, cancelled by `succeeded` and `cancel`
+    public func failed(read: @escaping @MainActor () async -> Void) {
+        guard pending == nil, failures < Self.timedRetries else { return }
+        failures += 1
+        let delay = backoff.next(), clock = clock
+        // task-owner: one retry at a time, cancelled by `reset` and `cancel`
         pending = Task { [weak self] in
             // wakeup-allow: one capped backoff step after a failed list read, a bounded number of times
             guard (try? await clock.sleep(for: delay)) != nil, let self, !Task.isCancelled else { return }
@@ -35,25 +39,20 @@ final class CloudListRetry {
 
     /// A read landed, or the account's machines were dropped (sign-out, another account): no retry
     /// waits and the next failure starts the backoff over.
-    func reset() {
+    public func reset() {
         cancel()
-        pacer.reset()
+        failures = 0
+        backoff.reset()
     }
 
     /// No retry waits (signed out, the machines dropped).
-    func cancel() {
+    public func cancel() {
         pending?.cancel()
         pending = nil
     }
-}
 
-extension RetryPolicy {
-    /// A failed Cloud machine list: 1 s growing to 30 s, 10 timed attempts (about 3 minutes).
-    static let cloudList = RetryPolicy(initial: .seconds(1), maximum: .seconds(30), timedRetries: 10)
-}
-
-extension CloudService {
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+    /// Whether the list loaded at `loadedAt` for `loadedFor` is the current account's and younger than `age`.
+    public nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
         guard let loadedAt, loadedFor == account else { return false }
         return loadedAt.duration(to: now) < age
     }
