@@ -781,6 +781,13 @@ Options:
   --swift-disable-global-isel
                          Alias for --swift-frontend-workaround.
   -h, --help             Show this help.
+
+libghostty variant:
+  A sanitizer config (asan, tsan, ubsan) links the ReleaseSafe lab libghostty
+  (scripts/ensure-ghosttykit.sh --variant safe: Zig's safety checks trap in
+  libghostty); every other config links the pinned ReleaseFast GhosttyNextKit
+  and refuses CMUX_GHOSTTYKIT_VARIANT=safe. A tagged app records the variant in
+  Info.plist (CMUXGhosttyKitVariant).
 EOF
 }
 
@@ -1262,6 +1269,26 @@ if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   export CMUX_NEXT_TUI_MODE=tree
 fi
 
+# The libghostty variant (p10-stability-165) follows the config, which is in the
+# tag: sanitizer configs link the ReleaseSafe lab build, every other config (the
+# ones a shipped build uses included) the pinned ReleaseFast one and refuses
+# CMUX_GHOSTTYKIT_VARIANT=safe. Package.swift (Packages/Shared/CmuxGhosttyKit)
+# refuses the variant without a sanitizer config as well.
+GHOSTTYKIT_VARIANT="fast"
+if [[ -n "${SANITIZER:-}" ]]; then
+  GHOSTTYKIT_VARIANT="safe"
+fi
+if [[ -n "${CMUX_GHOSTTYKIT_VARIANT:-}" && "$CMUX_GHOSTTYKIT_VARIANT" != "$GHOSTTYKIT_VARIANT" ]]; then
+  echo "error: --config $BUILD_CONFIG_NAME links the $GHOSTTYKIT_VARIANT libghostty; it refuses CMUX_GHOSTTYKIT_VARIANT=$CMUX_GHOSTTYKIT_VARIANT (the safe variant is for --config asan, tsan or ubsan only)" >&2
+  exit 1
+fi
+export CMUX_GHOSTTYKIT_VARIANT="$GHOSTTYKIT_VARIANT"
+if [[ "$GHOSTTYKIT_VARIANT" == safe ]]; then
+  export CMUX_SANITIZER_CONFIG="$SANITIZER"
+else
+  unset CMUX_SANITIZER_CONFIG
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
@@ -1648,6 +1675,9 @@ if [[ "${CMUX_GHOSTTYKIT_PREPROVISIONED:-0}" == "1" ]]; then
   echo "==> Reusing caller-provisioned GhosttyKit.xcframework"
 else
   "$PWD/scripts/ensure-ghosttykit.sh"
+fi
+if [[ "$GHOSTTYKIT_VARIANT" == safe ]]; then
+  "$PWD/scripts/ensure-ghosttykit.sh" --variant safe
 fi
 
 if should_skip_ghostty_cli_helper_zig_build; then
@@ -2062,6 +2092,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       # reads this to tell them apart (p08-startup-006 reads it too).
       /usr/libexec/PlistBuddy -c 'Delete :CMUXBuildConfiguration' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXBuildConfiguration string ${BUILD_CONFIG_NAME}" "$INFO_PLIST"
+      # The libghostty it links: fast (the pinned ReleaseFast GhosttyNextKit) or safe (the ReleaseSafe lab build).
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXGhosttyKitVariant' "$INFO_PLIST" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CMUXGhosttyKitVariant string ${GHOSTTYKIT_VARIANT}" "$INFO_PLIST"
       # Keep Cloud dogfood policy in the artifact so Finder and HQ cache
       # restores enable both gates on the Mac that actually launches it.
       # The app additionally requires a compiled Debug identity before using it.

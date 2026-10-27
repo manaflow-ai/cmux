@@ -112,6 +112,28 @@ let package = Package(
     ]
 )
 
+// The ReleaseSafe lab variant (plans/cmux-next/chrome-parity/p10-stability.md,
+// task 165): the pinned commit and flavor built with -Doptimize=ReleaseSafe, so
+// Zig's bounds, overflow and null checks trap inside libghostty, as Chromium's
+// ASan bots keep CHECKs on. `scripts/ensure-ghosttykit.sh --variant safe` links
+// it at Variants/safe (gitignored), and scripts/reload.sh selects it for its
+// sanitizer configs only: CMUX_GHOSTTYKIT_VARIANT=safe with
+// CMUX_SANITIZER_CONFIG=asan|tsan|ubsan. Any other build, shipped ones included,
+// that asks for it stops here.
+let ghosttyKitVariant = Context.environment["CMUX_GHOSTTYKIT_VARIANT"] ?? ""
+let sanitizerConfig = Context.environment["CMUX_SANITIZER_CONFIG"] ?? ""
+switch ghosttyKitVariant {
+case "", "fast":
+    break
+case "safe" where ["asan", "tsan", "ubsan"].contains(sanitizerConfig):
+    package.targets.removeAll { $0.name == "GhosttyNextKit" }
+    package.targets.append(.binaryTarget(name: "GhosttyNextKit", path: "Variants/safe/GhosttyNextKit.xcframework"))
+case "safe":
+    fatalError("CMUX_GHOSTTYKIT_VARIANT=safe is a sanitizer lab build only (scripts/reload.sh --config asan|tsan|ubsan); CMUX_SANITIZER_CONFIG is '\(sanitizerConfig)'")
+default:
+    fatalError("CMUX_GHOSTTYKIT_VARIANT takes fast or safe, not '\(ghosttyKitVariant)'")
+}
+
 // BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
 // p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
 // stability-settings.json and run the lander instead of editing this block or a target's settings.

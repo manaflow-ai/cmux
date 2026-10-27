@@ -635,6 +635,11 @@ path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_ghosttykit_safe_variant.py"
+lane = "manual"
+reason = "Runs on Linux with a stub Zig; agents run it themselves (no new CI tests, Lawrence 2026-10-23): python3 -m unittest tests/test_ensure_ghosttykit_safe_variant.py."
+
+[[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
 lane = "linux-guard"
 
