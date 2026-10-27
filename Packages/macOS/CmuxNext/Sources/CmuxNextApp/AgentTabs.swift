@@ -432,7 +432,6 @@ final class AgentTabStore {
         model.onCloudCredentialTransfer = { [weak self, weak model] request in
             guard let self, let model, model.sessionId == request.sessionID,
                   let record = self.lookup(self.resolve(provisional))?.record,
-                  record.host == "registry:" + request.machineID,
                   record.harness == request.provider.rawValue,
                   let transfer = self.cloudCredentialTransfer else { return false }
             return await transfer(self.resolve(provisional), request)

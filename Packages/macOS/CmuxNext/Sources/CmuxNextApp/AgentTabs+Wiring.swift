@@ -167,7 +167,7 @@ extension AgentTabStore {
         }
         tabs.cloudCredentialTransfer = { [weak services] chat, request in
             guard let services else { return false }
-            return await CloudCredentialRecovery.run(chat: chat, request: request, services: services)
+            return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
@@ -242,6 +242,7 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
