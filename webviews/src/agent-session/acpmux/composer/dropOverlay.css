@@ -140,12 +140,14 @@
   font-size: var(--text-body);
   font-weight: var(--weight-emphasis, 600);
   line-height: 17px;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-drop-hint {
   color: var(--agent-muted, color-mix(in srgb, var(--agent-text) 62%, transparent));
   font-size: var(--text-caption);
   line-height: 14px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-hint {
   color: color-mix(in srgb, var(--acpmux-drop-tone) 80%, var(--agent-text));

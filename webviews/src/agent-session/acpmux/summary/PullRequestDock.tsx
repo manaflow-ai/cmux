@@ -13,9 +13,7 @@ import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
-
-import { Popover } from "../../../ui/Popover";
-import { usePopoverTrigger } from "../../../ui/popoverTrigger";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
 
 const SHOWN = 2;
 export type PullRequestDockMode = "compact" | "none" | "collapsed" | "full";
@@ -102,8 +100,6 @@ export function PullRequestDock({
   const [expanded, setExpanded] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const count = useRef<HTMLButtonElement>(null);
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
-  const trigger = usePopoverTrigger(expanded, setExpanded);
   const disclosure = useRef<HTMLButtonElement>(null);
   const listId = useId();
   // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
@@ -122,6 +118,14 @@ export function PullRequestDock({
   }, [refocus]);
   const mode = configuredMode();
   const compact = mode === "compact" && !!onOpenChanges;
+  useEscapeCloses(
+    compact && expanded,
+    () => {
+      setExpanded(false);
+      disclosure.current?.focus();
+    },
+    '.ui-popup, [role="dialog"], [role="menu"], [role="listbox"]',
+  );
   const prs = (compact ? changes : all.filter((pr) => pr.opened && !ended(pr, live)))
     .filter((pr) => !dismissed.includes(pr.url))
     .reverse();
@@ -186,39 +190,20 @@ export function PullRequestDock({
           </button>
           {prs.length > 0 && (
             <button
-              ref={(element) => {
-                disclosure.current = element;
-                setAnchor(element);
-              }}
+              ref={disclosure}
               type="button"
               className="acpmux-pr-dock__count acpmux-pr-dock__disclosure"
               aria-label={t("prDock.label")}
-              aria-haspopup="dialog"
               aria-expanded={expanded}
               aria-controls={listId}
-              {...trigger}
+              onClick={() => setExpanded(!expanded)}
             >
               <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             </button>
           )}
         </div>
       )}
-      {compact ? (
-        <Popover
-          open={expanded && prs.length > 0}
-          onOpenChange={setExpanded}
-          anchor={anchor}
-          label={t("prDock.label")}
-          className="acpmux-pr-dock__popover"
-          side="top"
-          initialFocus={list}
-          finalFocus={prs.length > 0 ? disclosure : count}
-        >
-          {bars}
-        </Popover>
-      ) : (
-        bars
-      )}
+      {(!compact || expanded) && bars}
       {displayMode === "full" && prs.length > SHOWN && (
         <button
           type="button"
