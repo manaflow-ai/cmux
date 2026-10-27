@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
-"""Newest-wins publication for one classic channel (nightly or rc).
+"""One writer at a time for a classic channel (nightly or rc), newest first.
 
 Main and rc push runs build in parallel, so their continuations
 (auto-resume-nightly-notarization.yml) reach publication in any order. A
 concurrency group would replace a pending publisher, so the writers instead
-share an R2 lease, and the newest build wins:
+share an R2 lease, and waiting writers queue by build:
 
-  - A claim record (CLAIM_KEY) names the highest build that has started to
-    publish. A publisher raises it to its own build before it waits. One
-    older than the claim steps aside without taking the lease, so the newest
-    build never waits behind older contenders, only behind the one holder
-    that took the lease before it claimed.
-  - That holder yields: before each write it runs `check`, which answers
-    `yield` once a newer build has claimed, and the job skips its remaining
-    writes. The newest build rewrites every feed, tag and note after it.
-  - The lease is short (LEASE_TTL on R2's clock) and a heartbeat renews it
-    while its job lives, so a holder keeps it through any rate-limit wait,
-    and a holder that dies frees it within LEASE_TTL. `check` fails the job
-    when it no longer holds the lease, so it never writes without it.
+  - A claim record (CLAIM_KEY) names the newest waiting build. A waiter
+    renews it while it waits (it goes stale CLAIM_TTL after its waiter stops),
+    and only the newest live claimant tries for the lease. So the newest
+    build waits only for the writer that already holds the lease, never for
+    older contenders, and a claimant that fails or dies frees the queue: the
+    next build claims and takes its turn. An older build that gets the lease
+    after a newer one published is refused by the publish job's own guards.
+  - A holder never yields part way: it finishes its publication, so the
+    feeds, tag and release notes always describe one build.
+  - A heartbeat renews the lease (LEASE_TTL on R2's clock) while its job
+    lives, so a holder keeps it through any rate-limit wait. Each renewal
+    writes new bytes, so the lease's ETag changes and a waiter that read it
+    expired cannot then take it. `check` runs before each write and fails the
+    job when the lease is gone. A holder whose job died frees it LEASE_TTL
+    later. Another writer can take a lease from a live holder only after
+    every renewal failed for LEASE_TTL while R2 answered that writer.
 
-    classic_publish_lease.py acquire --build N --skip-env NAME [--no-claim]
-        Prints `proceed` (the lease is held and the heartbeat runs) or
-        `yield` (a newer build has claimed; nothing is held, and NAME=true is
-        written to GITHUB_ENV so the job's write steps skip). --no-claim:
-        compare with the claim without raising it (the delta republish,
-        which follows its own build's publication).
-    classic_publish_lease.py check --build N --skip-env NAME
-        Prints `proceed` or `yield` (and writes NAME=true); exits 1 when the
-        lease was lost.
+    classic_publish_lease.py acquire --build N
+        Waits for its turn (LEASE_WAIT seconds at most), takes the lease and
+        starts the heartbeat. Exits 1 when the wait runs out.
+    classic_publish_lease.py check
+        Renews the lease; exits 1 when this job no longer holds it.
     classic_publish_lease.py release
-        Stops the heartbeat and releases the lease.
+        Stops the heartbeat, releases the lease and withdraws the claim.
 
 Reads LEASE_KEY, CLAIM_KEY, LEASE_OWNER and RUNNER_TEMP, and r2_cas.py's
-R2 variables, from the environment. LEASE_WAIT (seconds) bounds the wait.
+R2 variables, from the environment.
 """
 
 from __future__ import annotations
@@ -51,36 +51,78 @@ _spec = importlib.util.spec_from_file_location("r2_cas", Path(__file__).with_nam
 r2_cas = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(r2_cas)
 
-LEASE_TTL = 600  # seconds on R2's clock
-RENEW_EVERY = 60
-CLAIM_TRIES = 20
+LEASE_TTL = 1800  # seconds on R2's clock
+RENEW_EVERY = 20
+CLAIM_TTL = 120  # a waiter renews its claim every POLL seconds
+POLL = 10
 
 
-def _pid_file() -> Path:
-    return Path(os.environ["RUNNER_TEMP"]) / "classic-publish-lease.pid"
+def _pid_file(env=os.environ) -> Path:
+    return Path(env["RUNNER_TEMP"]) / "classic-publish-lease.pid"
 
 
-def claimed(key: str) -> tuple[str | None, int]:
-    etag, body = r2_cas.get(key)
+def _json(body: bytes) -> dict:
     try:
-        build = int(json.loads(body or b"{}").get("build", 0))
-    except (ValueError, AttributeError, TypeError):
-        build = 0
-    return etag, build
+        value = json.loads(body or b"{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
-def claim(key: str, build: int, owner: str) -> bool:
-    """Raises the claim to build. False when a newer build already holds it."""
-    for _ in range(CLAIM_TRIES):
-        etag, current = claimed(key)
-        if current > build:
-            return False
-        if current == build:
-            return True
-        body = json.dumps({"build": build, "run": owner}).encode()
-        if r2_cas.put(key, body, etag=etag, cache_control="no-store", content_type="application/json"):
-            return True
-    raise RuntimeError(f"the claim at {key} kept changing; giving up after {CLAIM_TRIES} tries")
+def _put(key: str, value: dict, etag: str | None) -> bool:
+    # A fresh nonce in every write: R2's ETag follows the bytes.
+    body = json.dumps({**value, "nonce": time.time_ns()}).encode()
+    return r2_cas.put(key, body, etag=etag, cache_control="no-store", content_type="application/json")
+
+
+def live_claim(key: str) -> tuple[str | None, dict]:
+    """The claim's ETag and value; the value is {} when no waiter holds it."""
+    etag, body, age = r2_cas.read(key)
+    claim = _json(body)
+    if etag is None or claim.get("withdrawn") or age > CLAIM_TTL:
+        return etag, {}
+    return etag, claim
+
+
+def withdraw(key: str, owner: str) -> None:
+    etag, claim = live_claim(key)
+    if claim.get("owner") == owner:
+        _put(key, {"withdrawn": True}, etag)  # a lost race means another waiter claimed
+
+
+def acquire(build: int, env=os.environ, clock=time.monotonic, sleep=time.sleep, heartbeat=None) -> None:
+    lease, claim_key, owner = env["LEASE_KEY"], env["CLAIM_KEY"], env["LEASE_OWNER"]
+    deadline = clock() + int(env.get("LEASE_WAIT", "18000"))
+    while True:
+        etag, claim = live_claim(claim_key)
+        claimed = int(claim.get("build", 0) or 0)
+        if claim.get("owner") == owner or claimed < build:
+            # This build is the newest waiter: claim (or renew the claim).
+            if not _put(claim_key, {"build": build, "owner": owner}, etag):
+                sleep(1)  # another waiter wrote first; read again
+                continue
+            turn = True
+        else:
+            turn = claimed == build  # the same build (a rerun) may contend too
+        if turn and r2_cas.lock(lease, owner, LEASE_TTL, 0):
+            withdraw(claim_key, owner)
+            (heartbeat or start_heartbeat)(lease, owner)
+            return
+        if clock() >= deadline:
+            withdraw(claim_key, owner)
+            raise RuntimeError(f"no turn at the {lease} lease within the wait")
+        sleep(POLL)
+
+
+def renew(key: str, owner: str) -> bool:
+    """Renews the lease; True while this owner holds it. The heartbeat and
+    `check` both renew, so one may lose the conditional write to the other
+    while the lease is still this owner's."""
+    etag, body, _ = r2_cas.read(key)
+    lease = _json(body)
+    if etag is None or lease.get("owner") != owner or lease.get("released"):
+        return False
+    return _put(key, {"owner": owner}, etag) or r2_cas.holds(key, owner)
 
 
 def start_heartbeat(key: str, owner: str) -> None:
@@ -92,73 +134,40 @@ def start_heartbeat(key: str, owner: str) -> None:
     _pid_file().write_text(str(process.pid))
 
 
-def stop_heartbeat() -> None:
+def stop_heartbeat(env=os.environ) -> None:
     try:
-        pid = int(_pid_file().read_text())
+        pid = int(_pid_file(env).read_text())
     except (OSError, ValueError):
         return
     try:
         os.kill(pid, signal.SIGTERM)  # the heartbeat this job started
     except ProcessLookupError:
         pass
-    _pid_file().unlink(missing_ok=True)
-
-
-def keep(key: str, owner: str) -> bool:
-    """Renews the lease; True while this owner holds it. The heartbeat and
-    `check` both renew, so one may lose the conditional write to the other
-    (412) while the lease is still this owner's."""
-    return r2_cas.renew(key, owner) or r2_cas.holds(key, owner)
+    _pid_file(env).unlink(missing_ok=True)
 
 
 def heartbeat(key: str, owner: str, sleep=time.sleep) -> None:
-    # Stops when the lease is released or lost, or when the job ends (the
-    # runner ends the job's processes).
+    # Stops when the lease is released or taken, or when the job ends (the
+    # runner ends the job's processes). A failed renewal is retried on the
+    # next beat, well inside LEASE_TTL.
     while True:
         sleep(RENEW_EVERY)
         try:
-            if not keep(key, owner):
+            if not renew(key, owner):
                 return
-        except Exception:  # a transient error; the next beat retries well inside the TTL
+        except Exception:
             continue
 
 
-def acquire(build: int, *, raise_claim: bool, env=os.environ) -> str:
-    lease, claim_key, owner = env["LEASE_KEY"], env["CLAIM_KEY"], env["LEASE_OWNER"]
-    if raise_claim:
-        if not claim(claim_key, build, owner):
-            return "yield"
-    elif claimed(claim_key)[1] > build:
-        return "yield"
-    if not r2_cas.lock(lease, owner, LEASE_TTL, int(env.get("LEASE_WAIT", "9000"))):
-        raise RuntimeError("the lease stayed held for the whole wait")
-    if claimed(claim_key)[1] > build:  # a newer build claimed while this one waited
-        r2_cas.unlock(lease, owner)
-        return "yield"
-    start_heartbeat(lease, owner)
-    return "proceed"
-
-
-def check(build: int, env=os.environ) -> str:
-    lease, claim_key, owner = env["LEASE_KEY"], env["CLAIM_KEY"], env["LEASE_OWNER"]
-    # Renewing proves the lease is still this job's and restarts its age, so
-    # the write that follows starts with a full TTL even if a beat was missed.
-    if not keep(lease, owner):
+def check(env=os.environ) -> None:
+    if not renew(env["LEASE_KEY"], env["LEASE_OWNER"]):
         raise RuntimeError("this job no longer holds the publication lease; refusing to write")
-    return "yield" if claimed(claim_key)[1] > build else "proceed"
 
 
 def release(env=os.environ) -> None:
-    stop_heartbeat()
+    stop_heartbeat(env)
     r2_cas.unlock(env["LEASE_KEY"], env["LEASE_OWNER"])
-
-
-def _skip(name: str, verdict: str) -> str:
-    if verdict == "yield":
-        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-            env.write(f"{name}=true\n")
-        print("A newer build has claimed this channel's publication; this job skips its writes", file=sys.stderr)
-    return verdict
+    withdraw(env["CLAIM_KEY"], env["LEASE_OWNER"])
 
 
 def main(argv: list[str]) -> int:
@@ -166,11 +175,7 @@ def main(argv: list[str]) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     a = sub.add_parser("acquire")
     a.add_argument("--build", type=int, required=True)
-    a.add_argument("--no-claim", action="store_true")
-    a.add_argument("--skip-env", required=True)
-    c = sub.add_parser("check")
-    c.add_argument("--build", type=int, required=True)
-    c.add_argument("--skip-env", required=True)
+    sub.add_parser("check")
     sub.add_parser("release")
     h = sub.add_parser("heartbeat")
     h.add_argument("--key", required=True)
@@ -178,9 +183,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "acquire":
-            print(_skip(args.skip_env, acquire(args.build, raise_claim=not args.no_claim)))
+            acquire(args.build)
         elif args.command == "check":
-            print(_skip(args.skip_env, check(args.build)))
+            check()
         elif args.command == "release":
             release()
         else:

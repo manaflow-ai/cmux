@@ -116,9 +116,10 @@ def test_nightly_push_runs_never_share_a_build_group() -> None:
 
 
 def test_classic_publishers_write_only_while_they_hold_the_lease() -> None:
-    # Newest wins through scripts/ci/classic_publish_lease.py: every write
-    # comes after the job took the lease, re-checks it (and yields to a newer
-    # build) right before writing, and the lease is released whatever happens.
+    # One writer at a time, newest first (scripts/ci/classic_publish_lease.py):
+    # every write comes after the job took the lease, renews it right before
+    # writing (failing the job if it was lost), and the lease is released
+    # whatever happens.
     document = load(WORKFLOWS / "auto-resume-nightly-notarization.yml")
     keys = set()
     writes = ("live_appcast_build.py \"https://", "publish-release-assets.py", "upload-r2-object.py",

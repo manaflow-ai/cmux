@@ -1,13 +1,14 @@
-"""Newest-wins classic publication (scripts/ci/classic_publish_lease.py).
+"""One classic publisher at a time, newest first (scripts/ci/classic_publish_lease.py).
 
-Runs the real r2_cas lease logic against an in-memory R2 with ETags and ages.
+Runs the real r2_cas lease logic against an in-memory R2 whose ETags, like
+R2's, follow the bytes, and whose objects age on R2's clock.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,17 +19,17 @@ lease = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lease)
 r2 = lease.r2_cas
 
+LEASE = "nightly/locks/publish-lease.json"
+CLAIM = "nightly/locks/publish-claim.json"
+
 
 class FakeR2:
     def __init__(self):
         self.objects: dict[str, tuple[str, bytes, float]] = {}
-        self.version = 0
         self.refuse_next_put = False
 
     def read(self, key):
-        if key not in self.objects:
-            return None, b"", 0.0
-        return self.objects[key]
+        return self.objects.get(key, (None, b"", 0.0))
 
     def put(self, key, body, *, etag, cache_control, content_type):
         current = self.objects.get(key)
@@ -37,8 +38,7 @@ class FakeR2:
             return False
         if (etag is None and current is not None) or (etag is not None and (current is None or current[0] != etag)):
             return False
-        self.version += 1
-        self.objects[key] = (f'"{self.version}"', body, 0.0)
+        self.objects[key] = (f'"{hashlib.md5(body).hexdigest()}"', body, 0.0)
         return True
 
     def age(self, key, seconds):
@@ -49,105 +49,130 @@ class FakeR2:
         return json.loads(self.objects[key][1])
 
 
-ENV = {"LEASE_KEY": "nightly/locks/publish-lease.json", "CLAIM_KEY": "nightly/locks/publish-claim.json",
-       "LEASE_OWNER": "run-a", "LEASE_WAIT": "0"}
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
 
 
 class ClassicPublishLeaseTests(unittest.TestCase):
     def setUp(self):
         self.fake = FakeR2()
-        self.saved = (r2.read, r2.put, lease.start_heartbeat)
+        self.saved = (r2.read, r2.put)
         r2.read, r2.put = self.fake.read, self.fake.put
-        self.heartbeats = []
-        lease.start_heartbeat = lambda key, owner: self.heartbeats.append(owner)
+        self.beats = []
+        self.tmp = tempfile.TemporaryDirectory()
 
     def tearDown(self):
-        r2.read, r2.put, lease.start_heartbeat = self.saved
+        r2.read, r2.put = self.saved
+        self.tmp.cleanup()
 
-    def env(self, owner):
-        return {**ENV, "LEASE_OWNER": owner}
+    def env(self, owner, wait=0):
+        return {"LEASE_KEY": LEASE, "CLAIM_KEY": CLAIM, "LEASE_OWNER": owner, "LEASE_WAIT": str(wait),
+                "RUNNER_TEMP": self.tmp.name}
 
-    def test_the_newest_build_claims_and_holds(self):
-        self.assertEqual(lease.acquire(100, raise_claim=True, env=self.env("a")), "proceed")
-        self.assertEqual(self.fake.json(ENV["CLAIM_KEY"])["build"], 100)
-        self.assertTrue(r2.holds(ENV["LEASE_KEY"], "a"))
-        self.assertEqual(self.heartbeats, ["a"])
+    def acquire(self, build, owner, wait=0, on_sleep=None):
+        clock = Clock()
 
-    def test_an_older_build_steps_aside_without_taking_the_lease(self):
-        lease.claim(ENV["CLAIM_KEY"], 200, "b")
-        self.assertEqual(lease.acquire(100, raise_claim=True, env=self.env("a")), "yield")
-        self.assertNotIn(ENV["LEASE_KEY"], self.fake.objects)
-        self.assertEqual(self.fake.json(ENV["CLAIM_KEY"])["build"], 200)
+        def sleep(seconds):
+            clock.now += seconds
+            if on_sleep:
+                on_sleep(clock.now)
 
-    def test_a_rerun_of_the_claimed_build_proceeds(self):
-        lease.claim(ENV["CLAIM_KEY"], 100, "a1")
-        self.assertEqual(lease.acquire(100, raise_claim=True, env=self.env("a2")), "proceed")
+        lease.acquire(build, env=self.env(owner, wait), clock=clock, sleep=sleep,
+                      heartbeat=lambda key, who: self.beats.append(who))
 
-    def test_a_holder_yields_at_its_next_write_once_a_newer_build_claims(self):
-        lease.acquire(100, raise_claim=True, env=self.env("a"))
-        self.assertEqual(lease.check(100, env=self.env("a")), "proceed")
-        lease.claim(ENV["CLAIM_KEY"], 200, "b")
-        self.assertEqual(lease.check(100, env=self.env("a")), "yield")
+    def claim(self, build, owner, age=0.0):
+        lease._put(CLAIM, {"build": build, "owner": owner}, self.fake.read(CLAIM)[0])
+        self.fake.age(CLAIM, age)
 
-    def test_a_waiter_that_a_newer_build_overtook_releases_and_yields(self):
-        lease.acquire(100, raise_claim=True, env=self.env("a"))
-        lease.claim(ENV["CLAIM_KEY"], 150, "b")  # b claimed; a still holds
-        # c (build 120) claimed before b, then waited; it gets the lease once a releases.
-        r2.unlock(ENV["LEASE_KEY"], "a")
-        self.assertEqual(lease.acquire(120, raise_claim=False, env=self.env("c")), "yield")
-        self.assertFalse(r2.holds(ENV["LEASE_KEY"], "c"))
-        self.assertEqual(lease.acquire(150, raise_claim=True, env=self.env("b")), "proceed")
+    def test_the_newest_waiter_takes_the_lease_and_withdraws_its_claim(self):
+        self.acquire(100, "a")
+        self.assertTrue(r2.holds(LEASE, "a"))
+        self.assertEqual(self.beats, ["a"])
+        self.assertTrue(self.fake.json(CLAIM)["withdrawn"])
 
-    def test_a_held_lease_blocks_and_an_abandoned_one_frees_after_the_ttl(self):
-        lease.acquire(100, raise_claim=True, env=self.env("a"))
+    def test_an_older_waiter_never_takes_the_lease_while_a_newer_one_waits(self):
+        self.claim(200, "b")
         with self.assertRaises(RuntimeError):
-            lease.acquire(200, raise_claim=True, env=self.env("b"))
-        self.fake.age(ENV["LEASE_KEY"], lease.LEASE_TTL + 1)  # a died: no heartbeat
-        self.assertEqual(lease.acquire(200, raise_claim=True, env=self.env("b")), "proceed")
+            self.acquire(100, "a")
+        self.assertNotIn(LEASE, self.fake.objects)
+        self.assertEqual(self.fake.json(CLAIM)["build"], 200)  # a's timeout did not withdraw b's claim
+
+    def test_the_newest_build_waits_only_for_the_holder(self):
+        self.acquire(100, "a")  # an older build already holds the lease
+        self.acquire(200, "b", wait=600, on_sleep=lambda now: now >= 30 and lease.release(self.env("a")))
+        self.assertTrue(r2.holds(LEASE, "b"))
+
+    def test_a_claim_from_a_failed_or_dead_waiter_frees_the_queue(self):
+        self.claim(200, "b")
+        lease.withdraw(CLAIM, "b")  # b's release withdrew it
+        self.acquire(100, "a")
+        self.assertTrue(r2.holds(LEASE, "a"))
+        lease.release(self.env("a"))
+        self.claim(300, "c", age=lease.CLAIM_TTL + 1)  # c died while waiting
+        self.acquire(150, "d")
+        self.assertTrue(r2.holds(LEASE, "d"))
+
+    def test_a_waiter_whose_wait_runs_out_withdraws_its_claim(self):
+        self.acquire(100, "a")
         with self.assertRaises(RuntimeError):
-            lease.check(100, env=self.env("a"))  # a never writes without the lease
+            self.acquire(200, "b", wait=60)
+        self.assertTrue(self.fake.json(CLAIM)["withdrawn"])
+        lease.release(self.env("a"))
+        self.acquire(150, "c")
+        self.assertTrue(r2.holds(LEASE, "c"))
+
+    def test_a_renewal_changes_the_etag_so_a_waiter_that_read_it_expired_cannot_take_it(self):
+        self.acquire(100, "a")
+        self.fake.age(LEASE, lease.LEASE_TTL + 1)
+        expired_etag = self.fake.read(LEASE)[0]
+        self.assertTrue(lease.renew(LEASE, "a"))  # a's heartbeat, between b's read and b's write
+        self.assertNotEqual(self.fake.read(LEASE)[0], expired_etag)
+        self.assertFalse(r2.put(LEASE, json.dumps({"owner": "b"}).encode(), etag=expired_etag,
+                                cache_control="no-store", content_type="application/json"))
+        self.assertTrue(r2.holds(LEASE, "a"))
+
+    def test_an_abandoned_lease_frees_after_the_ttl_and_its_holder_never_writes_again(self):
+        self.acquire(100, "a")
+        with self.assertRaises(RuntimeError):
+            self.acquire(200, "b")
+        self.fake.age(LEASE, lease.LEASE_TTL + 1)  # a's job died: no heartbeat
+        self.acquire(200, "b")
+        self.assertTrue(r2.holds(LEASE, "b"))
+        with self.assertRaises(RuntimeError):
+            lease.check(self.env("a"))
 
     def test_check_renews_and_tolerates_losing_the_write_to_the_heartbeat(self):
-        lease.acquire(100, raise_claim=True, env=self.env("a"))
-        self.fake.age(ENV["LEASE_KEY"], lease.LEASE_TTL - 5)
-        self.assertEqual(lease.check(100, env=self.env("a")), "proceed")
-        self.assertEqual(self.fake.read(ENV["LEASE_KEY"])[2], 0.0)  # renewed
+        self.acquire(100, "a")
+        self.fake.age(LEASE, lease.LEASE_TTL - 5)
+        lease.check(self.env("a"))
+        self.assertEqual(self.fake.read(LEASE)[2], 0.0)
         self.fake.refuse_next_put = True  # the heartbeat renewed between the read and the write
-        self.assertEqual(lease.check(100, env=self.env("a")), "proceed")
-
-    def test_the_delta_republish_compares_with_the_claim_without_raising_it(self):
-        lease.claim(ENV["CLAIM_KEY"], 100, "a")
-        self.assertEqual(lease.acquire(90, raise_claim=False, env=self.env("d")), "yield")
-        self.assertEqual(self.fake.json(ENV["CLAIM_KEY"])["build"], 100)
-        self.assertEqual(lease.acquire(100, raise_claim=False, env=self.env("d")), "proceed")
+        lease.check(self.env("a"))
 
     def test_the_heartbeat_keeps_a_live_lease_and_stops_once_it_is_gone(self):
-        lease.acquire(100, raise_claim=True, env=self.env("a"))
+        self.acquire(100, "a")
         beats = []
 
         def sleep(_):
             beats.append(1)
             if len(beats) == 3:
-                self.fake.refuse_next_put = True  # check renewed first: still held
+                self.fake.refuse_next_put = True
             if len(beats) == 5:
-                r2.unlock(ENV["LEASE_KEY"], "a")
+                r2.unlock(LEASE, "a")
 
-        lease.heartbeat(ENV["LEASE_KEY"], "a", sleep=sleep)
+        lease.heartbeat(LEASE, "a", sleep=sleep)
         self.assertEqual(len(beats), 5)
 
-    def test_a_yield_tells_the_job_to_skip_its_writes(self):
-        with tempfile.NamedTemporaryFile("r+", suffix=".env") as env_file:
-            saved = os.environ.get("GITHUB_ENV")
-            os.environ["GITHUB_ENV"] = env_file.name
-            try:
-                self.assertEqual(lease._skip("ALREADY_PUBLISHED", "yield"), "yield")
-                self.assertEqual(lease._skip("ALREADY_PUBLISHED", "proceed"), "proceed")
-            finally:
-                if saved is None:
-                    del os.environ["GITHUB_ENV"]
-                else:
-                    os.environ["GITHUB_ENV"] = saved
-            self.assertEqual(Path(env_file.name).read_text(), "ALREADY_PUBLISHED=true\n")
+    def test_release_frees_the_lease_for_the_next_waiter(self):
+        self.acquire(100, "a")
+        lease.release(self.env("a"))
+        self.assertFalse(r2.holds(LEASE, "a"))
+        self.acquire(90, "b")
+        self.assertTrue(r2.holds(LEASE, "b"))
 
 
 if __name__ == "__main__":

@@ -27,11 +27,6 @@ correct with R2's conditional requests instead.
     r2_cas.py holds --key KEY --owner ID
         Exits 0 while ID holds the lease, 3 when it does not.
 
-    r2_cas.py renew --key KEY --owner ID
-        Rewrites the lease (a conditional PUT) while ID still holds it, so its
-        age on R2's clock starts again: a heartbeat for a holder whose hold
-        has no fixed bound. Exits 3 when ID no longer holds it.
-
     r2_cas.py unlock --key KEY --owner ID
         Marks the lease released (a conditional PUT; R2 does not document
         conditional DELETE) while it still names ID and holds the bytes read.
@@ -148,14 +143,6 @@ def holds(key: str, owner: str) -> bool:
     return etag is not None and lease.get("owner") == owner and not lease.get("released")
 
 
-def renew(key: str, owner: str) -> bool:
-    etag, body, _ = read(key)
-    lease = _lease(body)
-    if etag is None or lease.get("owner") != owner or lease.get("released"):
-        return False
-    return _store(key, {"owner": owner}, etag)
-
-
 def unlock(key: str, owner: str) -> bool:
     etag, body, _ = read(key)
     lease = _lease(body)
@@ -188,9 +175,6 @@ def main(argv: list[str]) -> int:
     hd = sub.add_parser("holds")
     hd.add_argument("--key", required=True)
     hd.add_argument("--owner", required=True)
-    rn = sub.add_parser("renew")
-    rn.add_argument("--key", required=True)
-    rn.add_argument("--owner", required=True)
     ul = sub.add_parser("unlock")
     ul.add_argument("--key", required=True)
     ul.add_argument("--owner", required=True)
@@ -212,8 +196,6 @@ def main(argv: list[str]) -> int:
         return 0 if lock(args.key, args.owner, args.ttl, args.wait) else CONFLICT
     if args.command == "holds":
         return 0 if holds(args.key, args.owner) else CONFLICT
-    if args.command == "renew":
-        return 0 if renew(args.key, args.owner) else CONFLICT
     unlock(args.key, args.owner)
     return 0
 
