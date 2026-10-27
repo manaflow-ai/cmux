@@ -279,7 +279,7 @@ impl Mirror {
                     self.pending.push((remote, tries + 1));
                 }
                 Err(e) => {
-                    (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session))
+                    (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session));
                 }
             }
         }
@@ -391,10 +391,10 @@ impl Mirror {
             "generation": generation,
             "lines": lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
         });
-        if send_meta || track.last_seq == 0 {
-            if let Some(fields) = body.as_object_mut() {
-                fields.insert("meta".to_owned(), meta.clone());
-            }
+        if (send_meta || track.last_seq == 0)
+            && let Some(fields) = body.as_object_mut()
+        {
+            fields.insert("meta".to_owned(), meta.clone());
         }
         match reply(api.call("append", &body)) {
             Reply::Ok(v) => {
