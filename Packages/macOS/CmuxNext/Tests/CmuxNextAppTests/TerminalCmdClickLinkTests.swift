@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextTerminal
 import Foundation
 import GhosttyNextKit
@@ -185,6 +187,41 @@ import Testing
         try await h.hover(10, 1)
         h.session.clickLinkForTesting(column: 10, row: 1)
         #expect(h.opens.texts == [url, url])
+    }
+
+    @Test func aGithubPullRequestUsesTheCmuxBrowserUnlessAnExternalRuleMatches() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/26079"))
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero,
+                                                     modifierFlags: [.command], timestamp: 2,
+                                                     windowNumber: 0, context: nil, eventNumber: 1,
+                                                     clickCount: 1, pressure: 0))
+        let stale = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero,
+                                                     modifierFlags: [.command, .shift], timestamp: 1,
+                                                     windowNumber: 0, context: nil, eventNumber: 0,
+                                                     clickCount: 1, pressure: 0))
+        try #require(class_getInstanceVariable(NSApplication.self, "_currentEvent") != nil)
+        NSApp.setValue(stale, forKey: "currentEvent")
+        defer { NSApp.setValue(nil, forKey: "currentEvent") }
+
+        var opened: [URL] = []
+        let previousOpenInCmux = LinkRouter.shared.openInCmux
+        LinkRouter.shared.openInCmux = { url, _, _ in opened.append(url) }
+        defer { LinkRouter.shared.openInCmux = previousOpenInCmux }
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        session.delegate = services.terminalDelegate
+        defer { io.finish() }
+        services.inputDispatch.dispatching(click) {
+            #expect(services.terminalDelegate.terminalSession(session, open: url))
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(opened == [url])
+
+        let router = LinkRouter()
+        router.routing = { LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: ["/pull/"]) }
+        #expect(router.target(for: url) == .system, "urlsToAlwaysOpenExternally must still win")
     }
 
     @Test func aPrintedPathKeepsItsLineAndColumn() {
