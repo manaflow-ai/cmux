@@ -60,6 +60,7 @@ pub(super) fn test_host_shared_with_budget(
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -85,6 +86,7 @@ pub(super) fn test_host_shared_with_budget(
         group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
+        trace_control: shared::host_trace::HostTraceQueue::default(),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

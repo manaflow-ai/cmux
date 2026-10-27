@@ -7,7 +7,7 @@ public struct PutSessionRequest: DaemonRequest {
         public var session: SessionRecord
         public var created: Bool
     }
-    public static let command = "put-session"
+    public static let commandName: DaemonCommandName = "put-session"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var machineName: String?
@@ -23,6 +23,11 @@ public struct PutSessionRequest: DaemonRequest {
         self.transport = transport
         self.capabilities = capabilities
         self.followWith = followWith
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", machineName = "machine_name", sessionName = "session_name", transport
+        case capabilities, followWith = "follow_with"
     }
 }
 
@@ -48,11 +53,15 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
             self.workspaceKey = workspaceKey
             self.group = group
         }
+
+        enum CodingKeys: String, CodingKey {
+            case workspaceKey = "workspace_key", group
+        }
     }
     public struct Response: Decodable, Sendable, Equatable {
         public var imported: Bool
     }
-    public static let command = "import-session-organization"
+    public static let commandName: DaemonCommandName = "import-session-organization"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var groups: [Group]
@@ -61,6 +70,10 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
         self.sessionID = sessionID
         self.groups = groups
         self.workspaces = workspaces
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", groups, workspaces
     }
 }
 
@@ -71,12 +84,16 @@ public struct ForgetSessionRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var changed: Bool
     }
-    public static let command = "forget-session"
+    public static let commandName: DaemonCommandName = "forget-session"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var force: Bool
     public init(sessionID: String, force: Bool) {
         self.sessionID = sessionID
         self.force = force
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", force
     }
 }

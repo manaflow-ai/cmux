@@ -25,7 +25,7 @@ final class AgentChatPullRequest {
     /// Asks again while the answer's checks run.
     @ObservationIgnored private let refresh = DemandTimer(owner: "header-pull-request-checks")
 
-    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+    init(reader: AgentChatPullRequestReader, freshness: Duration = .seconds(60)) {
         self.reader = reader
         self.freshness = freshness
     }
@@ -60,7 +60,7 @@ final class AgentChatPullRequest {
                 return ask(cwd)
             }
             guard badge?.checks.state == "pending" else { return }
-            refresh.schedule(after: freshness) { @MainActor [weak self] in
+            refresh.scheduleOnMain(after: freshness) { [weak self] in
                 guard let self, answer?.cwd == cwd, asking == nil else { return }
                 ask(cwd)
             }

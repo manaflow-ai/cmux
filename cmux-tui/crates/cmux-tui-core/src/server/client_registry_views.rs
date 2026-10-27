@@ -9,6 +9,7 @@ use super::ClientRegistry;
 use super::ClientSizeUpdate;
 use super::DaemonHandoffReservation;
 use super::DetachedSurface;
+use super::MessageWriter;
 use super::OutboundStream;
 use super::RETIRED_VIEW_LEASE_CAPACITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
@@ -376,6 +377,26 @@ impl ClientRegistry {
         }
     }
 
+    /// The writer of `client` and every attach stream it holds on `surface`,
+    /// committed or pending: the views (leases) of one client that a kick of
+    /// its participant on this terminal ends.
+    pub(super) fn surface_view_streams(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(MessageWriter, Vec<(u64, OutboundStream)>)> {
+        let state = self.state.lock().recover_poison();
+        let record = state.clients.get(&client)?;
+        let attached = record.attached.get(&surface)?;
+        let streams = attached
+            .streams
+            .iter()
+            .chain(&attached.pending_streams)
+            .map(|(stream, outbound)| (*stream, outbound.clone()))
+            .collect();
+        Some((record.writer.clone(), streams))
+    }
+
     pub(super) fn detach_surface(
         &self,
         client: u64,
@@ -626,12 +647,14 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
-    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
-        *self.detach_waker.lock().recover_poison() = Some(Box::new(waker));
+    /// Adds a waker every detach calls (the idle-close reaper, the
+    /// cold-scrollback worker).
+    pub(crate) fn add_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        self.detach_wakers.lock().recover_poison().push(Box::new(waker));
     }
 
     pub(super) fn notify_detach(&self) {
-        if let Some(waker) = self.detach_waker.lock().recover_poison().as_ref() {
+        for waker in self.detach_wakers.lock().recover_poison().iter() {
             waker();
         }
     }

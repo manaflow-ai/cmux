@@ -1,32 +1,42 @@
 import AppKit
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 extension HomeService {
     /// Points the Chief home's links at this app (ChiefAppLinks): on Home
-    /// open and whenever the app becomes active after Home opened.
+    /// open and whenever the app becomes active after Home opened. The
+    /// endpoint read and the link renames run off the main actor; the
+    /// published socket comes back as background work (recipe R-hop).
     func publishAppLinks() {
         let home = chief.home
         let control = services.environment.launch.socketPath
         let local = services.machines.local.connection
-        // task-owner: one endpoint read, then two link renames; ends at once
-        Task { [weak self] in
+        let work = services.work, mainWork = services.mainWork
+        // task-owner: one endpoint read, then two link renames on the files lane; ends with them
+        work.task(.bestEffort) { [weak self] in
             let daemon = await local?.endpoint?.socketPath
-            ChiefAppLinks.publish(home: home, controlSocket: control, daemonSocket: daemon)
-            self?.publishedDaemonSocket = daemon ?? self?.publishedDaemonSocket
+            try await work.run(.bestEffort, mayBlock: .files) {
+                ChiefAppLinks.publish(home: home, controlSocket: control, daemonSocket: daemon)
+            }
+            mainWork.postFromAnyThread(.background, owner: "HomeService.appLinks") { [weak self] in
+                guard let self else { return }
+                publishedDaemonSocket = daemon ?? publishedDaemonSocket
+            }
         }
     }
 
-    /// Republishes the links when this app becomes active again.
+    /// Republishes the links when this app becomes active again: one app-wide notice subscription
+    /// (`AppEvents`), and the work is posted in the background class.
     func observeActivation() {
         guard activationObserver == nil else { return }
-        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                                                    object: nil, queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor per activation
-            Task { @MainActor [weak self] in
-                guard let self, self.homeOpened else { return }
-                self.publishAppLinks()
-                self.requests.refresh()
+        let mainWork = services.mainWork
+        // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
+        activationObserver = services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "HomeService.appLinks") { [weak self] in
+            mainWork.post(.background, owner: "HomeService.appLinks") { [weak self] in
+                guard let self, homeOpened else { return }
+                publishAppLinks()
+                requests.refresh()
             }
         }
     }

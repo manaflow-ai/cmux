@@ -39,6 +39,18 @@ public final class DropOutlineRing {
     /// Opacity of the ring color filling the rect (0: no fill).
     public private(set) var fillOpacity: CGFloat = 0
 
+    /// How the ring's moves run on Core Animation.
+    public enum Springs {
+        /// A spring from the presented value that replaces the running one (`MotionGate.set`).
+        case replacing
+        /// Additive `RenderSpring` retargets: the velocity carries over and nothing reads the
+        /// presentation layer. `shownIn` is the view that shows the ring.
+        case additive(shownIn: NSView)
+    }
+
+    /// The key paths a move springs.
+    private static let movedKeyPaths = ["bounds", "position", "cornerRadius"]
+
     public init() {
         layer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "opacity": NSNull(),
                          "borderColor": NSNull(), "borderWidth": NSNull()]
@@ -49,7 +61,8 @@ public final class DropOutlineRing {
     /// Moves the ring to `rect` (growing in from `appearInset` of its size
     /// when hidden). `refused` draws it in the danger color.
     public func show(_ rect: CGRect, cornerRadius: CGFloat, refused: Bool = false, animated: Bool,
-                     spring: MotionSpring = .track, appearInset: CGFloat = 0.03, fillOpacity: CGFloat = 0) {
+                     spring: MotionSpring = .track, appearInset: CGFloat = 0.03, fillOpacity: CGFloat = 0,
+                     springs: Springs = .replacing) {
         Motion.withoutAnimation { layer.borderWidth = DropOutlineTunables.width.value }
         if refused != isRefused || self.rect == nil || fillOpacity != self.fillOpacity {
             isRefused = refused
@@ -59,9 +72,9 @@ public final class DropOutlineRing {
         guard self.rect != rect else { return }
         let appearing = self.rect == nil
         if appearing {
-            place(rect.insetBy(dx: rect.width * appearInset, dy: rect.height * appearInset), cornerRadius, animated: false, spring)
+            place(rect.insetBy(dx: rect.width * appearInset, dy: rect.height * appearInset), cornerRadius, animated: false, spring, springs)
         }
-        place(rect, cornerRadius, animated: animated, spring)
+        place(rect, cornerRadius, animated: animated, spring, springs)
         if appearing || layer.opacity < 1 {
             if animated { Motion.panes.set(layer, "opacity", to: NSNumber(value: 1), fade: .fadeIn) } else { setNow("opacity", NSNumber(value: 1)) }
         }
@@ -83,22 +96,38 @@ public final class DropOutlineRing {
         }
     }
 
-    private func place(_ rect: CGRect, _ radius: CGFloat, animated: Bool, _ spring: MotionSpring) {
-        let bounds = NSValue(rect: CGRect(origin: .zero, size: rect.size))
-        let position = NSValue(point: CGPoint(x: rect.midX, y: rect.midY))
-        let corner = NSNumber(value: Double(max(0, min(radius, min(rect.width, rect.height) / 2))))
+    private func place(_ rect: CGRect, _ radius: CGFloat, animated: Bool, _ spring: MotionSpring, _ springs: Springs) {
+        let size = rect.size, center = CGPoint(x: rect.midX, y: rect.midY)
+        let corner = max(0, min(radius, min(rect.width, rect.height) / 2))
+        let bounds = NSValue(rect: CGRect(origin: .zero, size: size))
+        let position = NSValue(point: center)
+        let cornerValue = NSNumber(value: Double(corner))
         guard animated else {
             setNow("bounds", bounds)
             setNow("position", position)
-            setNow("cornerRadius", corner)
+            setNow("cornerRadius", cornerValue)
             return
         }
-        Motion.panes.set(layer, "bounds", to: bounds, spring: spring)
-        Motion.panes.set(layer, "position", to: position, spring: spring)
-        Motion.panes.set(layer, "cornerRadius", to: corner, spring: spring)
+        switch springs {
+        case .replacing:
+            // An additive spring left on a key path would add to the replacing one's value.
+            for keyPath in Self.movedKeyPaths { RenderSpring.stop(layer, keyPath) }
+            Motion.panes.set(layer, "bounds", to: bounds, spring: spring)
+            Motion.panes.set(layer, "position", to: position, spring: spring)
+            Motion.panes.set(layer, "cornerRadius", to: cornerValue, spring: spring)
+        case .additive(let view):
+            // A replacing spring would pin the presented value to its own end (`RenderSpring`).
+            for keyPath in Self.movedKeyPaths { layer.removeAnimation(forKey: keyPath) }
+            Motion.panes.renderSpring(spring).animateGroup([
+                RenderSpring.Move(layer, .boundsSize, to: size),
+                RenderSpring.Move(layer, .position, to: center),
+                RenderSpring.Move(layer, .cornerRadius, to: corner),
+            ], in: view)
+        }
     }
 
     private func setNow(_ keyPath: String, _ value: Any) {
+        RenderSpring.stop(layer, keyPath)
         layer.removeAnimation(forKey: keyPath)
         Motion.withoutAnimation { layer.setValue(value, forKeyPath: keyPath) }
     }

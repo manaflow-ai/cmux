@@ -56,6 +56,7 @@ pub(crate) struct WorkspaceCommitReceipt {
 impl WorkspaceRegistry {
     /// Validate a workspace registry commit and read what it needs.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn prepare_workspace_commit(
         &self,
         mutation: &WorkspaceMutation,
@@ -98,6 +99,7 @@ impl WorkspaceRegistry {
     /// it runs and the caller does not hold the connection, else locally. A
     /// borrowed `extra` cannot leave this thread, so it commits locally.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_workspace_registry(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -165,6 +167,7 @@ impl WorkspaceCommitIntent {
     /// The body of a workspace registry commit inside the caller's
     /// transaction. `extra` (borrowed, local commits only) replaces the
     /// intent's own extra rows.
+    #[track_caller]
     pub(super) fn apply(
         &self,
         tx: &Transaction<'_>,

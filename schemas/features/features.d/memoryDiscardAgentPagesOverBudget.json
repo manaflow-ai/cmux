@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDiscardAgentPagesOverBudget",
+  "owner": "PL-memory",
+  "description": "Hidden agent chat pages are held to a count sized from the Mac's memory: past it, the least recently shown idle chat hidden at least 10 seconds lets its page go at once and keeps its tab and session, as after the hibernation timeout; a chat whose agent works or waits on the person keeps its page.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

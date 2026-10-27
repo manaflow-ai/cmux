@@ -65,6 +65,14 @@ final class StubHub: @unchecked Sendable {
     var baseURL: URL { URL(string: "https://\(host)")! }
     var requests: [RecordedRequest] { lock.withLock { recorded } }
 
+    /// The requests since the last drain, forgotten here: a long run that shares one stub keeps none.
+    func drainRequests() -> [RecordedRequest] {
+        lock.withLock {
+            defer { recorded = [] }
+            return recorded
+        }
+    }
+
     func setHandler(_ handler: @escaping Handler) { lock.withLock { self.handler = handler } }
 
     func answer(_ request: RecordedRequest) -> (Int, String) {

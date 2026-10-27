@@ -1,6 +1,7 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalFind
+public import CmuxNextWakeups
 import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
@@ -19,7 +20,7 @@ public final class TerminalHostView: NSView {
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
-    private let scroller = TerminalScroller()
+    let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -38,7 +39,11 @@ public final class TerminalHostView: NSView {
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
         get { restartAction }
-        set { restartAction = newValue; syncRestartButton(); needsLayout = true }
+        set {
+            let offered = offersRestart // each tab switch sets it again (`TerminalTabContent.make`)
+            restartAction = newValue; syncRestartButton()
+            if offersRestart != offered { needsLayout = true }
+        }
     }
 
     /// The first cell's top-left in this view's coordinates (top-left
@@ -67,7 +72,7 @@ public final class TerminalHostView: NSView {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
             }
-            needsLayout = true
+            needsLayout = true // invalidate: another accessory (the guard above) takes its room
         }
     }
 
@@ -83,12 +88,45 @@ public final class TerminalHostView: NSView {
         return CGRect(x: bounds.minX, y: bounds.minY + accessory, width: bounds.width, height: max(0, bounds.height - accessory))
     }
 
-    private var configObserver: (any NSObjectProtocol)?
-    private var transparencyObserver: (any NSObjectProtocol)?
+    /// The runtime's config revision (``GhosttyRuntime/configRevision``).
+    private let configRevision: GhosttyConfigRevision
+    /// Follows ``configRevision`` while the terminal's node is visible (``followConfig(_:on:)``).
+    private var configWatch: VisibleObservation<UInt64>?
+    /// Layouts a config change asked for, the first apply included (tests).
+    package private(set) var configLayouts = 0
+    /// Display option changes (``followAppearance(_:node:)``).
+    private var transparencyWatch: AppearanceSignals.Subscription?
+    /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the terminal).
+    private var appearanceSignals = DesignSettings.shared.signals
+    /// The terminal's tab in the visibility tree, held while it follows it.
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this terminal (tests: a hidden terminal gets none).
+    package private(set) var appearanceCalls = 0
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
-    init() {
+    /// The app's main-thread scheduler: the find bar's presence, the scrollbar, the find bar and the
+    /// TextBox follow their models through it, one apply per frame.
+    let mainWork: MainWorkScheduler
+    /// The terminal's tab's node (`TabContentCache.node(for:)`), visible while a visible pane selects
+    /// the tab. While it is hidden, the watches of the find bar, the scrollbar and the TextBox track
+    /// nothing; when it shows, they read once. So a hidden terminal's output does no view work.
+    /// nil: the host has no tab (tests and fixtures), and its watches apply while hidden too.
+    let node: VisibilityNode?
+    /// Installs the find bar the first time find opens (``attachFind(_:)``); nil once it is installed.
+    private var findPresence: FrameObservation<Bool>?
+    /// The current surface's scrollbar (``followScrollbar(of:)``).
+    private(set) var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
+
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - node: The terminal's tab node; nil when the host has no tab.
+    ///   - configRevision: The runtime's config revision (``GhosttyRuntime/configRevision``).
+    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil,
+         configRevision: GhosttyConfigRevision = GhosttyRuntime.shared.configRevision) {
+        self.mainWork = mainWork
+        self.node = node
+        self.configRevision = configRevision
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -99,19 +137,28 @@ public final class TerminalHostView: NSView {
         // frame of a drag solves no constraints here.
         addSubview(banner)
         addSubview(scroller, positioned: .below, relativeTo: banner)
-        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true } // invalidate: a new style, another width
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        // A config reload can change window-padding-x.
-        configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.needsLayout = true }
-        }
-        // Reduce Transparency turns the window opaque or see-through without a theme change.
-        transparencyObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.paintBackground() }
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden terminal repaints once
+    /// when it shows, not on each change. The pane that shows the terminal calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+    }
+
+    /// Reduce Transparency turns the window opaque or see-through without a theme change.
+    private func observeAppearance() {
+        transparencyWatch = appearanceSignals.subscribe([.displayOptions], viewNode: visibilityNode, owner: "TerminalHostView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            paintBackground()
         }
     }
 
@@ -120,29 +167,36 @@ public final class TerminalHostView: NSView {
     /// The find bar is built the first time find opens, not with the
     /// terminal: its glass panel, stack and buttons cost about 5 ms of main
     /// thread per new terminal (R81 trace), most of a 120 Hz frame.
+    /// Cmd-F is a person's change: its apply runs in that key's input-response pass, so the bar shows
+    /// in the key's own frame.
     func attachFind(_ find: TerminalFindController) {
         if find.isPresented { return installFindBar(find) }
-        withObservationTracking {
-            _ = find.isPresented
-        } onChange: { [weak self, weak find] in
-            Task { @MainActor in
-                guard let self, let find else { return }
-                self.attachFind(find)
-            }
+        findPresence = FrameObservation(owner: "Terminal.findPresence", delivery: .visible(node), on: mainWork) { [weak find] in
+            find?.isPresented ?? false
+        } onChange: { [weak self, weak find] presented in
+            guard presented, let self, let find else { return }
+            self.installFindBar(find)
         }
     }
 
     private func installFindBar(_ find: TerminalFindController) {
+        findPresence?.cancel()
+        findPresence = nil
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
-        let bar = TerminalFindBarView(find: find)
+        let bar = TerminalFindBarView(find: find, mainWork: mainWork, node: node)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
-        needsLayout = true
+        needsLayout = true // invalidate: a new find bar (the guard above) to frame
     }
 
     /// The link status label over the terminal (hidden while connected).
-    var statusText: String? {
+    public var statusText: String? {
         banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+    }
+
+    /// The dead-tab overlay shows "Restart Shell Here" (`debug.surfaces`).
+    public var offersRestart: Bool {
+        restartButton.map { !$0.isHidden } ?? false
     }
 
     func showStatus(_ status: TerminalConnectionStatus) {
@@ -157,7 +211,7 @@ public final class TerminalHostView: NSView {
             retryButton = button
         }
         retryButton?.show(status)
-        needsLayout = true
+        needsLayout = true // invalidate: a status event (one per change) changes the banner and its buttons
     }
 
     /// Builds the restart button once the shell has ended and the App gave an action.
@@ -190,30 +244,21 @@ public final class TerminalHostView: NSView {
             sizedForChip = chip
         }
         sizedForChip?.show(sizedFor)
-        needsLayout = true
+        needsLayout = true // invalidate: another chip text (the guard above)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
         banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
-        needsLayout = true
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
-        needsLayout = true
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
-            if let transparencyObserver { NSWorkspace.shared.notificationCenter.removeObserver(transparencyObserver) }
-        }
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     @available(*, unavailable)
@@ -235,14 +280,16 @@ public final class TerminalHostView: NSView {
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
     /// every change, while the surface is the current one.
     private func followScrollbar(of surfaceView: TerminalSurfaceView) {
+        scrollbarWatch?.cancel()
+        scrollbarWatch = nil
         guard current === surfaceView, let model = surfaceView.session?.model else { return }
-        let bar = withObservationTracking { model.scrollbar } onChange: { [weak self, weak surfaceView] in
-            Task { @MainActor in
-                guard let self, let surfaceView else { return }
-                self.followScrollbar(of: surfaceView)
-            }
+        let watch = FrameObservation(owner: "Terminal.scrollbar", delivery: .visible(node), on: mainWork) { [weak model] in
+            model?.scrollbar
+        } onChange: { [weak self] bar in
+            self?.scroller.update(bar)
         }
-        scroller.update(bar)
+        scrollbarWatch = watch
+        scroller.update(watch.value)
     }
 
     /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
@@ -360,6 +407,27 @@ public final class TerminalHostView: NSView {
         super.viewDidChangeEffectiveAppearance()
         paintBackground()
     }
+
+    /// Lays the host out again after each config change (it can change window-padding-x), only
+    /// while `node`, the terminal's tab node, is visible: a reload does no work for a hidden
+    /// terminal, and showing it reads the revision once and lays out if it moved.
+    ///
+    /// - Parameters:
+    ///   - node: The terminal's tab node (`TabContentCache.node(for:)`).
+    ///   - work: The app's main-thread scheduler.
+    public func followConfig(_ node: VisibilityNode, on work: MainWorkScheduler) {
+        configWatch?.cancel()
+        configWatch = VisibleObservation(node, owner: "TerminalHost.config", on: work) { [configRevision] in
+            configRevision.value
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            configLayouts += 1
+            needsLayout = true // invalidate: a new config revision (the observation applies on a change only)
+        }
+    }
+
+    /// Tracking callbacks of the config observation (tests prove a hidden host has none).
+    package var configTrackingCallbacks: Int { configWatch?.trackingCallbacks ?? 0 }
 
     /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
     /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).

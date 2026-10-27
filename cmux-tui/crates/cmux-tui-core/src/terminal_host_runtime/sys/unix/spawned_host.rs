@@ -1,20 +1,20 @@
 //! Launch-time ownership of a terminal-host process (cx-ko2e
-//! `SpawnedHostProcess` seam, Unix side): the std child of the host the
-//! daemon started, exact-killed and waited if the launch is not committed.
-//! Moved from `shared/attachment.rs` unchanged.
+//! `SpawnedHostProcess` seam, Unix side): the child of the host the daemon
+//! started (`cmux_process`), exact-killed and waited if the launch is not
+//! committed.
 
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub(crate) struct SpawnedHostProcess {
-    pub(crate) child: Option<std::process::Child>,
+    pub(crate) child: Option<cmux_process::Child>,
 }
 
 impl SpawnedHostProcess {
     /// Wrap a just-spawned host, taking its bootstrap pipes first. Missing
     /// pipes are an error after the wrap, so the host is killed and waited.
     pub(crate) fn with_pipes(
-        mut child: std::process::Child,
+        mut child: cmux_process::Child,
     ) -> (Self, Option<std::process::ChildStdin>, Option<std::process::ChildStdout>) {
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
@@ -42,20 +42,16 @@ impl SpawnedHostProcess {
         false
     }
 
+    /// Whether the host ended within `timeout` (an exit event, not a poll).
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
-        let deadline = Instant::now().checked_add(timeout);
-        loop {
-            let Some(child) = self.child.as_mut() else { return true };
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    self.child.take();
-                    return true;
-                }
-                Ok(None) if deadline.is_none_or(|deadline| Instant::now() < deadline) => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Ok(None) | Err(_) => return false,
+        let Some(child) = self.child.as_mut() else { return true };
+        // wakeup-allow: deadline the caller's one bound on the host's exit; the exit ends the wait first
+        match child.wait_timeout(timeout) {
+            Ok(Some(_)) => {
+                self.child.take();
+                true
             }
+            Ok(None) | Err(_) => false,
         }
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The replies the relay filters itself (ad349), of ``AcpmuxPaneMethods``: read-only requests
@@ -68,7 +69,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered
     /// result. An error keeps only its code and message.
     static func filteredReply(_ object: [String: Any], shape: ReplyShape, pageID: String) -> String {
-        let id = (try? JSONSerialization.jsonObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
+        let id = (try? JSONSerialization.blockingJSONObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
         var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
         if let error = object["error"] as? [String: Any] {
             reply["error"] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]

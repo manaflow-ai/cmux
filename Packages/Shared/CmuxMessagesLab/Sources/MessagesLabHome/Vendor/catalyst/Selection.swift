@@ -152,8 +152,8 @@ struct ShortTextGeometry: RowTextGeometry {
         var j = r.location
         while j < NSMaxRange(r) {
             let c = ns.rangeOfComposedCharacterSequence(at: j)
-            let a = CTLineGetOffsetForStringIndex(ct, c.location - r.location, nil)
-            let b = CTLineGetOffsetForStringIndex(ct, min(r.length, NSMaxRange(c) - r.location), nil)
+            let a = ct.offset(forStringIndex: c.location - r.location)
+            let b = ct.offset(forStringIndex: min(r.length, NSMaxRange(c) - r.location))
             if x >= min(a, b) && x < max(a, b) { return c.location }
             j = NSMaxRange(c)
         }
@@ -180,9 +180,9 @@ struct ShortTextGeometry: RowTextGeometry {
             var x0: CGFloat = 0, x1: CGFloat = SelectionLook.newlineTail
             if lr.length > 0 {
                 let ct = ctLine(i)
-                x0 = CTLineGetOffsetForStringIndex(ct, s - lr.location, nil)
+                x0 = ct.offset(forStringIndex: s - lr.location)
                 x1 = e > NSMaxRange(lr) ? line.width + SelectionLook.newlineTail
-                    : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lr.location), nil)
+                    : ct.offset(forStringIndex: min(lr.length, e - lr.location))
             }
             out.append(CGRect(x: Fixture.bubblePadX + x0, y: y, width: max(1, x1 - x0), height: Fixture.lineHeight))
         }
@@ -298,7 +298,7 @@ enum SelWords {
 /// Selection look constants (measured against real Messages; SELECTION.md).
 enum SelectionLook {
     /// Width of the highlight past a selected hard line end.
-    static var newlineTail: CGFloat = 4
+    static let newlineTail: CGFloat = 4 // cmux: let (no shared mutable state)
 }
 
 // MARK: Copy
@@ -391,7 +391,6 @@ extension SelText {
 extension SelectionLook {
     /// An attachment's line in the plain text: empty, as Messages (its rich text carries the image).
     /// Decided 2026-10-07: an attachment copies as a localized placeholder ("\t[Photo]",
-    /// "\t[File: name]"); `placeholders = false` gives Messages' empty line.
-    static var placeholders = true
-    static func attachmentPlain(_ placeholder: String) -> String { placeholders ? "\t" + placeholder : "" }
+    /// "\t[File: name]"). cmux: no `placeholders` switch (nothing turned it off; Messages' empty line is not used).
+    static func attachmentPlain(_ placeholder: String) -> String { "\t" + placeholder }
 }

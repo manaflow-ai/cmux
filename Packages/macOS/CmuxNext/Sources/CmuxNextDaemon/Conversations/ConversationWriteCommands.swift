@@ -6,7 +6,7 @@ import Foundation
 /// `conversation-create`: idempotent by `idempotencyKey`.
 public struct CreateConversationRequest: DaemonRequest {
     public typealias Response = ConversationCreated
-    public static let command = "conversation-create"
+    public static let commandName: DaemonCommandName = "conversation-create"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var idempotencyKey: String
     /// Omitted: the owner stamps the connection's principal.
@@ -28,7 +28,7 @@ public struct CreateConversationRequest: DaemonRequest {
 /// `conversation-op`: one typed op; the reply and the event carry `transaction`.
 public struct ConversationOpRequest: DaemonRequest {
     public typealias Response = ConversationOpResult
-    public static let command = "conversation-op"
+    public static let commandName: DaemonCommandName = "conversation-op"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var idempotencyKey: String
@@ -53,7 +53,7 @@ public struct ConversationOpRequest: DaemonRequest {
 /// `conversation-typing`: ephemeral, never stored.
 public struct ConversationTypingRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "conversation-typing"
+    public static let commandName: DaemonCommandName = "conversation-typing"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var actor: String?

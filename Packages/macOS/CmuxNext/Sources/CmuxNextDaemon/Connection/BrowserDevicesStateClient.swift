@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 /// Browser device emulation (browser-devices-v1, cx-ocbf3): the daemon owns
@@ -7,17 +8,17 @@ import Foundation
 extension StateResourceClient {
     /// `browser.devices.list`: `{chrome, devices}`, each device Chrome's JSONV1 object plus `origin`.
     public func browserDevices() async throws -> JSONValue {
-        try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "browser.devices.list", params: [:], idempotencyKey: nil)
-        }, as: JSONValue.self)
+        try await stateRead(V2BrowserDevicesListRequest())
     }
 
     /// `browser.tab.emulate`: `device` by title, `orientation` as the daemon names it (nil is the device's first).
     public func emulateTab(_ tab: ResourceID, device: String?, orientation: String?) async throws {
-        var params: [String: JSONValue] = ["tab": .string(tab.rawValue)]
-        if let device { params["device"] = .string(device) }
-        if let orientation { params["orientation"] = .string(orientation) }
-        _ = try await stateMutation("browser.tab.emulate", params)
+        try await stateMutation(Self.emulateRequest(tab, device: device, orientation: orientation))
+    }
+
+    static func emulateRequest(_ tab: ResourceID, device: String?, orientation: String?) -> V2BrowserTabEmulateRequest {
+        V2BrowserTabEmulateRequest(tab: selector(tab), device: device,
+                                   orientation: orientation.map { V2BrowserTabEmulateRequest.Orientation(rawValue: $0) })
     }
 
     /// A fit on (`browser.tab.emulate {fit}`: "16:9" is a layout as wide as the view at 16:9 at its
@@ -25,7 +26,7 @@ extension StateResourceClient {
     /// `browser.tab.emulate.clear`).
     public func setTabFit(_ tab: ResourceID, fit: String?) async throws {
         guard let fit else { return try await clearTabEmulation(tab) }
-        _ = try await stateMutation("browser.tab.emulate", ["tab": .string(tab.rawValue), "fit": .string(fit)])
+        try await stateMutation(V2BrowserTabEmulateRequest(tab: Self.selector(tab), fit: fit))
     }
 
     /// A device menu choice: nil `device` clears (`browser.tab.emulate.clear`), an empty one re-orients
@@ -37,6 +38,6 @@ extension StateResourceClient {
 
     /// `browser.tab.emulate.clear`.
     public func clearTabEmulation(_ tab: ResourceID) async throws {
-        _ = try await stateMutation("browser.tab.emulate.clear", ["tab": .string(tab.rawValue)])
+        try await stateMutation(V2BrowserTabEmulateClearRequest(tab: Self.selector(tab)))
     }
 }

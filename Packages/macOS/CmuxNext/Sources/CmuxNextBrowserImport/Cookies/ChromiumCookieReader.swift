@@ -41,7 +41,7 @@ public struct ChromiumCookieReader {
                 result.undecryptable += 1
                 return true
             }
-            let expires = row.int64(10) != 0 ? BrowserTime().chromium(row.int64(5)) : nil
+            let expires = row.int64(10) != 0 ? BrowserTime().chromiumExpiry(row.int64(5)) : nil
             let cookie = ImportedCookie(
                 name: row.string(1) ?? "", value: value, domain: host, path: row.string(4) ?? "/",
                 secure: row.int64(6) != 0, httpOnly: row.int64(7) != 0, sameSite: self.sameSite(row.int64(8)),

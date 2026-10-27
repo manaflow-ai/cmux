@@ -14,10 +14,18 @@ extension EnvironmentValues {
 public struct AppSceneView: View {
     let model: AppSceneModel
     let bundleDirectory: URL?
+    let bundleImages: AppBundleImageCache
 
-    public init(model: AppSceneModel, bundleDirectory: URL? = nil) {
+    /// Makes the view.
+    ///
+    /// - Parameters:
+    ///   - model: The mounted scene.
+    ///   - bundleDirectory: Where the scene's `Image(src)` files are.
+    ///   - bundleImages: The apps client's decoded bundle images.
+    public init(model: AppSceneModel, bundleDirectory: URL? = nil, bundleImages: AppBundleImageCache) {
         self.model = model
         self.bundleDirectory = bundleDirectory
+        self.bundleImages = bundleImages
     }
 
     public var body: some View {
@@ -32,6 +40,7 @@ public struct AppSceneView: View {
             }
         }
         .environment(\.appBundleDirectory, bundleDirectory)
+        .environment(\.appBundleImages, bundleImages)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

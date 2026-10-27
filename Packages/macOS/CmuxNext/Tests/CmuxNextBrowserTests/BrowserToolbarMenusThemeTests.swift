@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The browser toolbar's own menus (Reload, Back and Forward history, Emulate Device) are standard
 /// macOS menus like the right-click menus (Lawrence 2026-10-23): every row is a plain AppKit row
@@ -25,7 +26,7 @@ import Testing
         let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
         let entries = (0...back).map { BrowserNavigationEntry(url: URL(string: "https://example.com/\($0)"), title: "Page \($0)") }
         tab.navigation = BrowserNavigationList(entries: entries, current: back)
-        return (BrowserChromeView(tab: tab), tab)
+        return (BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil), tab)
     }
 
     @Test func reloadMenuRowsAreNativeAndRun() throws {

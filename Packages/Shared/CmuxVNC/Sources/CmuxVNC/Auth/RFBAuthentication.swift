@@ -1,7 +1,6 @@
 import CommonCrypto
 import CryptoKit
 import Foundation
-import Security
 
 /// Classic VNC authentication (security type 2, RFC 6143 section 7.2.2):
 /// DES-ECB over the 16-byte challenge, keyed by the first 8 password bytes
@@ -67,13 +66,13 @@ struct AppleDHAuthentication {
         return block
     }
 
+    /// Secret bytes (the DH private key, the credential padding) from
+    /// SystemRandomNumberGenerator: the OS CSPRNG (arc4random_buf on Apple platforms), as
+    /// Chromium's crypto::RandBytes reads the OS generator (crypto/random.cc), with no
+    /// pointer into the array.
     static func randomBytes(_ count: Int) -> [UInt8] {
-        var bytes = [UInt8](repeating: 0, count: count)
-        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
-            var generator = SystemRandomNumberGenerator()
-            for index in bytes.indices { bytes[index] = UInt8.random(in: 0 ... 255, using: &generator) }
-        }
-        return bytes
+        var generator = SystemRandomNumberGenerator()
+        return (0 ..< max(count, 0)).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
     }
 }
 
@@ -86,15 +85,12 @@ struct CipherECB {
         var output = [UInt8](repeating: 0, count: plaintext.count)
         let capacity = output.count
         var moved = 0
-        let status = key.withUnsafeBytes { keyBytes in
-            plaintext.withUnsafeBytes { input in
-                output.withUnsafeMutableBytes { out in
-                    CCCrypt(CCOperation(kCCEncrypt), algorithm, CCOptions(kCCOptionECBMode),
-                            keyBytes.baseAddress, key.count, nil, input.baseAddress, plaintext.count,
-                            out.baseAddress, capacity, &moved)
-                }
-            }
-        }
+        // SAFETY: CCCrypt reads key.count bytes of `key` and plaintext.count bytes of `plaintext`
+        // (the counts passed), takes no IV in ECB mode, writes at most `capacity` = output.count
+        // bytes into `output` and one Int into `moved`; Swift keeps every array and `moved` alive
+        // and in place for this call only, and CCCrypt keeps no pointer after it returns.
+        let status = unsafe CCCrypt(CCOperation(kCCEncrypt), algorithm, CCOptions(kCCOptionECBMode),
+                                    key, key.count, nil, plaintext, plaintext.count, &output, capacity, &moved)
         guard status == kCCSuccess else { return nil }
         return Array(output.prefix(moved))
     }

@@ -1,5 +1,9 @@
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
 /// painted draws the one at its size, so Cmd-T never shows an empty pane. Each size keeps its own,
@@ -8,6 +12,11 @@ import CmuxNextWakeups
 /// what they show: a change of the chat list or of the picked model drops them (and every page's
 /// own remembered frame, `AgentPageRedraw`), so no page ever draws old chats or an old model; a
 /// frame's size and appearance must match the pane's.
+///
+/// A memory consumer (`agent-new-tab-frames`): each frame is a whole pane's bitmap, so the
+/// coordinator's limit scales how many are kept (``sizes`` at 100 %) and a release drops the oldest.
+/// A dropped frame is taken again 400 ms after the next New Tab page paints; while the limit keeps
+/// none (critical pressure), no frame is taken at all.
 @MainActor
 public final class AgentPaneNewTabFrame {
     public static let shared = AgentPaneNewTabFrame()
@@ -23,9 +32,12 @@ public final class AgentPaneNewTabFrame {
     public private(set) var content = Content()
     /// Bumped on every content change: a frame from an older generation shows old content.
     public private(set) var generation: UInt64 = 0
-    private var frames: [(image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)] = []
-    /// Frames kept: the sizes of a split workspace's panes and of the whole area.
+    private var frames: [(image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64, bytes: Int)] = []
+    /// Frames kept at the full memory limit: the sizes of a split workspace's panes and of the whole area.
     static let sizes = 4
+    /// Frames kept at the coordinator's current limit.
+    private var keptFrames = AgentPaneNewTabFrame.sizes
+    private var memoryRegistration: MemoryConsumerRegistration?
 
     public init() {}
 
@@ -37,8 +49,20 @@ public final class AgentPaneNewTabFrame {
     /// Keeps `image` as the frame at `size` and `appearance`, the newest one.
     func store(_ image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64) {
         frames.removeAll { $0.size == size && $0.appearance == appearance }
-        frames.append((image, size, appearance, generation))
-        if frames.count > Self.sizes { frames.removeFirst(frames.count - Self.sizes) }
+        frames.append((image, size, appearance, generation, Self.bytes(of: image)))
+        if frames.count > keptFrames { frames.removeFirst(frames.count - keptFrames) }
+    }
+
+    /// How many frames are held now.
+    var frameCount: Int { frames.count }
+
+    /// Whether a frame taken now would be kept: false while the limit keeps none, so a capture takes
+    /// no snapshot that ``store(_:size:appearance:generation:)`` would drop at once.
+    var capturesFrames: Bool { keptFrames > 0 }
+
+    /// The bitmap bytes of a page snapshot: its largest representation, 4 bytes a pixel.
+    private static func bytes(of image: NSImage) -> Int {
+        image.representations.map { $0.pixelsWide * $0.pixelsHigh * 4 }.max() ?? 0
     }
 
     /// What one page draws: the chat list and model it last drew, and how many answers it got.
@@ -66,10 +90,10 @@ public final class AgentPaneNewTabFrame {
     /// areas left clear: what the next New Tab page draws until it paints. Only when no frame with
     /// today's content, size and appearance is held, and the page draws today's content (it drew an
     /// answer one page frame before the capture, and none came meanwhile); one capture per page at a
-    /// time, never of a hidden page (perf-tabs I6).
+    /// time, never of a hidden page (perf-tabs I6), and none while the memory limit keeps no frame.
     public func capture(_ view: AgentPaneView, in host: NSView) {
         let redraw = view.redraw
-        guard !redraw.givesNewTabFrame else { return }
+        guard capturesFrames, !redraw.givesNewTabFrame else { return }
         redraw.givesNewTabFrame = true
         view.model.whenPainted { [weak self, weak view, weak host, weak redraw] in
             let settle = DemandTimer(owner: "newTab.frame.settle")
@@ -80,11 +104,14 @@ public final class AgentPaneNewTabFrame {
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
                 let takenAt = self.generation, before = self.shows(view.model)
-                guard size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
+                guard self.capturesFrames, size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
                 // One page frame first: an answer handed to the page before this is drawn by then.
-                await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
-                guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
-                      let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
+                // A page that drops its frame callback releases `done` (AgentPageRedraw): abandoned, nothing to capture.
+                let framed: Void? = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+                    redraw.afterNextFrame { done.resume(returning: ()) }
+                }
+                guard framed != nil, self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host),
+                      host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
                 self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
             }
@@ -119,5 +146,38 @@ public final class AgentPaneNewTabFrame {
         content[keyPath: field] = value
         generation &+= 1
         frames = []
+    }
+}
+
+extension AgentPaneNewTabFrame: MemoryConsumer {
+    /// Large (a pane-sized bitmap each), only memory, and taken again by the next New Tab paint.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .large, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        keptFrames = limit.scale(Self.sizes)
+    }
+
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        let kept = slice.limit.scale(Self.sizes)
+        while frames.count > kept {
+            if slice.isExpired { return .more }
+            frames.removeFirst()
+        }
+        return .done
+    }
+
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: frames.reduce(0) { $0 + $1.bytes }, entries: frames.count)
+    }
+
+    /// Registers the frames with the app's memory coordinator (`agent-new-tab-frames`); this keeps
+    /// the registration.
+    ///
+    /// - Parameter registry: The memory coordinator.
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration = MemoryConsumerRegistration(
+            name: "agent-new-tab-frames", traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 }

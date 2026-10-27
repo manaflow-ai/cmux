@@ -27,9 +27,6 @@ public nonisolated struct Feature: Sendable, Hashable {
 
         /// Whether local Labs and Debug overrides apply (DEV and NIGHTLY).
         public var allowsLocalOverrides: Bool { self != .release }
-
-        /// Whether field-trial arms apply (Nightly studies only).
-        public var allowsFieldTrials: Bool { self == .nightly }
     }
 
     /// What a feature is for (the registry's `kind`).
@@ -43,7 +40,7 @@ public nonisolated struct Feature: Sendable, Hashable {
     }
 
     /// The process whose behavior the feature changes.
-    public enum Process: String, Sendable, CaseIterable {
+    public enum TargetProcess: String, Sendable, CaseIterable {
         case app
         case daemon
         case both
@@ -102,7 +99,7 @@ public nonisolated struct Feature: Sendable, Hashable {
     /// One sentence: what turning the feature on changes (Labs page, reports).
     public let description: String
     public let kind: Kind
-    public let process: Process
+    public let process: TargetProcess
     /// The Chromium `base::Feature` passed to CEF, for process `chromium` only.
     public let chromiumFeature: String?
     public let defaults: FeatureDefaults
@@ -116,6 +113,10 @@ public nonisolated struct Feature: Sendable, Hashable {
     public let sticky: Bool
     /// The feature has a tested live-teardown path.
     public let runtimeMutable: Bool
+    /// The Debug tunables and environment switches this feature took over
+    /// (`replaces` in its file): a replaced tunable the developer set is the
+    /// feature's local override (resolution step 3).
+    public let replaces: [String]
 
     /// The generated registry (`Features.generated.swift`) calls this with
     /// every label, in this order (schemas/features/README.md).
@@ -125,14 +126,15 @@ public nonisolated struct Feature: Sendable, Hashable {
         owner: String,
         description: String,
         kind: Kind,
-        process: Process,
+        process: TargetProcess,
         chromiumFeature: String?,
         defaults: FeatureDefaults,
         expires: String?,
         params: [FeatureParamSpec],
         stories: [String],
         sticky: Bool,
-        runtimeMutable: Bool
+        runtimeMutable: Bool,
+        replaces: [String] = []
     ) {
         self.index = index
         self.name = name
@@ -147,6 +149,17 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.stories = stories
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
+        self.replaces = replaces
+    }
+
+    /// Duration param `name`'s value, to the microsecond: its declared default, since params have no
+    /// override source yet. Nil when the feature declares no duration param of that name.
+    public func durationParam(_ name: String) -> Duration? {
+        for param in params where param.name == name {
+            // Whole microseconds: `.seconds(0.2)` would carry the double's error into the attoseconds.
+            if case let .duration(seconds, _, _) = param.value { return .microseconds(Int64((seconds * 1_000_000).rounded())) }
+        }
+        return nil
     }
 }
 

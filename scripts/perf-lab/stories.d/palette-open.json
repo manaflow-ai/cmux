@@ -1,0 +1,23 @@
+{
+  "id": "palette-open",
+  "tier": "T1",
+  "description": "Command Palette (Cmd-Shift-P) and Go to Workspace (Cmd-P) open, Chromium arm: key-down to the committed first frame and its stages, from a terminal, a Chromium page (strip focus, and the page window as key window), a Markdown file and Home (palette-open-stages.py).",
+  "command": ["scripts/cmux-next/palette-open-stages.py", "--engines", "chromium", "--no-gate", "--story", "palette-open"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "(terminal|chromium|chromium-page-window|markdown|home)\\.(cmd-shift-p|cmd-p)\\.key", "unit": "ms",
+     "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/floor"}},
+    {"name": "(terminal|chromium|chromium-page-window|markdown|home)\\.(cmd-shift-p|cmd-p)\\.(input|model|panel|present|commit|rpc)",
+     "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 180,
+  "needs": ["debug:debug.timings", "debug:debug.key", "debug:debug.tab_drag"],
+  "hot_paths": ["palette-key"],
+  "owner": "Performance Lead",
+  "component": "Palette>Open"
+}

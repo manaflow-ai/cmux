@@ -7,8 +7,9 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
-  url: "cmux-agent://pane/index.html",
+// The agent page on the page host's WebKit, the one page that frames renders.
+const dom = new JSDOM('<!doctype html><html data-engine="webkit"><div id=root></div></html>', {
+  url: "cmux-page://cmux.agent/index.html",
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
@@ -87,7 +88,7 @@ test("a closed cmux-render fence draws as a render card named by its page's titl
   expect(host.querySelector("iframe")).toBeNull();
   act(() => button("Run")!.click());
   const frame = host.querySelector("iframe")!;
-  expect(frame.getAttribute("src")).toBe("cmux-agent://render/frame");
+  expect(frame.getAttribute("src")).toBe("cmux-page://cmux.agent/__render/frame");
   expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
   // The prose around the fence still draws.
   expect(host.textContent).toContain("Run it to turn the model.");

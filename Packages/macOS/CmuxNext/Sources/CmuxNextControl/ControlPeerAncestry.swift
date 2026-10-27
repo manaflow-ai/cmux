@@ -12,9 +12,12 @@ struct ControlPeerAncestry: Sendable {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        // SAFETY: sysctl reads the 4 names of `mib` and writes at most `size` bytes (one kinfo_proc) into `info`
+        // and the size it wrote into `size`; all three are locals live for the call.
+        guard unsafe sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(clamping: MAXPATHLEN) * 4)
-        let length = proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
+        // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+        let length = unsafe proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
         let path = length > 0 ? String(decoding: buffer.prefix(Int(clamping: length)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil
         return (info.kp_eproc.e_ppid, path)
     }

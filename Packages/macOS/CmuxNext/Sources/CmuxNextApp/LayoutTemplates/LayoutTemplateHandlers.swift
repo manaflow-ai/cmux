@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextWakeups
 import Foundation
 
 /// Layout templates (`LayoutTemplateLibrary`): Save Layout as Template… (`saveLayoutTemplate`),
@@ -13,7 +14,7 @@ import Foundation
 enum LayoutTemplateHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        Task { await services.layoutTemplates.load() }
+        services.layoutTemplates.beginLoad()  // off main on the repository's actor; the list lands in one visible task
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak services] source in
             guard source == ActionSuggestions.layoutTemplates else { return suggestions?(source) ?? [] }
@@ -21,7 +22,7 @@ enum LayoutTemplateHandlers {
         }
         registry.bind("saveLayoutTemplate", run: { try save(context, $0) })
         registry.bind("palette.layout.open", run: { open(context, $0) })
-        services.palette.sources.actionPages["manageLayouts"] = { [weak services] in services.map(managePage) }
+        services.palettes.sources.actionPages["manageLayouts"] = { [weak services] in services.map(managePage) }
         registry.bind("manageLayouts", run: { _ in
             guard !services.layoutTemplates.templates.isEmpty else { throw ActionFailure.invalidTarget(LayoutTemplateStrings.noTemplates) }
             services.palette.show(page: managePage(services), relativeTo: context.activeWindow?.window)
@@ -33,13 +34,14 @@ enum LayoutTemplateHandlers {
         let workspace = try context.workspace(invocation).model
         let name = (invocation["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ActionFailure.invalidTarget(LayoutTemplateStrings.nameRequired) }
-        let blueprint = WorkspaceBlueprint(workspace), library = context.services.layoutTemplates
-        context.services.registry.track(Task { @MainActor in
-            do {
-                try await library.save(name: name, blueprint: blueprint)
-                return nil
-            } catch {
-                return ActionWorkFailure("save layout template", error)
+        let blueprint = WorkspaceBlueprint(workspace), library = context.services.layoutTemplates, mainWork = context.services.mainWork
+        // R-hop: the save is awaited off main (the library's list update is its own userBlocking task); the action's
+        // result is made in one userBlocking task, the rest of the save.
+        context.services.registry.track(Task { @concurrent in
+            let failure: (any Error)?
+            do { try await library.save(name: name, blueprint: blueprint); failure = nil } catch { failure = error }
+            return await mainWork.apply(.userBlocking, owner: "saveLayoutTemplate") {
+                failure.map { ActionWorkFailure("save layout template", $0) }
             }
         })
     }
@@ -53,6 +55,7 @@ enum LayoutTemplateHandlers {
         let row = invocation.target.flatMap { $0.kind == .workspace ? services.workspace(id: $0.id) : nil }
         let daemon = row.flatMap { services.machines.daemon(forWorkspace: $0.id) } ?? services.activeDaemon
         let target = windows.targetWindow(preferring: row.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id)
+        // main-hop-allow: the action's tracked work awaits the library's load and WorkspaceStructureHandlers.build (main-actor async: it sends the new workspace's creates to the daemon), and refuses in its resume
         services.registry.track(Task { @MainActor in
             await library.load()
             guard let template = library.template(named: requested) else {
@@ -66,6 +69,11 @@ enum LayoutTemplateHandlers {
                                                           on: daemon, into: target, label: "new workspace from template",
                                                           services: services, tracks: false).value
         })
+    }
+
+    /// Why a rename to `name` failed, in words.
+    private static func renameRefusal(_ error: any Error, name: String) -> String {
+        (error as? LayoutTemplateRepository.Failure) == .nameTaken ? LayoutTemplateStrings.nameTaken(name) : String(describing: error)
     }
 
     /// Manage Layout Templates: one row per template; Return builds a workspace from it, the
@@ -82,7 +90,7 @@ enum LayoutTemplateHandlers {
     }
 
     private static func item(for template: LayoutTemplate, services: AppServices) -> PaletteItem {
-        let library = services.layoutTemplates, registry = services.registry, id = template.id
+        let library = services.layoutTemplates, registry = services.registry, id = template.id, mainWork = services.mainWork
         let panes = template.blueprint.screens.flatMap(\.columns).map(\.root.paneCount).reduce(0, +)
         let rename = PaletteTextInputSpec(
             id: "layoutTemplate.rename:\(id)", title: LayoutTemplateStrings.renameTitle,
@@ -94,11 +102,13 @@ enum LayoutTemplateHandlers {
                     registry.refuse(LayoutTemplateStrings.nameRequired)
                     return
                 }
-                Task { @MainActor in
-                    do { try await library.rename(id, to: name) } catch LayoutTemplateRepository.Failure.nameTaken {
-                        registry.refuse(LayoutTemplateStrings.nameTaken(name))
-                    } catch {
-                        registry.refuse(String(describing: error))
+                // task-owner: one rename, ended by the repository's write. R-hop: awaited off main; a refusal shows in one
+                // userBlocking task (the rest of the person's rename).
+                Task { @concurrent in
+                    do { try await library.rename(id, to: name) } catch {
+                        mainWork.postFromAnyThread(.userBlocking, owner: "layoutTemplate.rename") {
+                            registry.refuse(LayoutTemplateHandlers.renameRefusal(error, name: name))
+                        }
                     }
                 }
             })

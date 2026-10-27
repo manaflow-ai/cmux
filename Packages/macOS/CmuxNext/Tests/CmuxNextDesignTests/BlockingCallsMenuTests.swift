@@ -34,5 +34,40 @@ struct BlockingCallsMenuTests {
         #expect(reset === resetRow)
         #expect(reset.title != "debug.blockingCalls.reset")
     }
+
+    /// Debug records a new site instead of stopping (p02-threads-006): the item carries a badge with the
+    /// number of sites nobody looked at, from the Debug menu's open until the submenu opens.
+    @Test func aNewSiteBadgesTheItemUntilTheSubmenuOpens() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        let menu = BlockingCallsMenu(detector: BlockingDetector(table: table), resetItem: { nil })
+        let debugMenu = NSMenu(title: "Debug")
+        menu.attach(to: debugMenu)
+        let item = try #require(debugMenu.items.last)
+        let submenu = try #require(item.submenu)
+        menu.menuNeedsUpdate(debugMenu)
+        #expect(item.badge == nil)
+
+        await BlockingViolationTable.$scoped.withValue(table) {
+            Self.blockAtOneSite()
+            _ = FileManager.checked.fileExists(atPath: "/tmp")
+        }
+        await table.flush()
+        menu.menuNeedsUpdate(debugMenu)
+        #expect(item.badge?.itemCount == 2)
+
+        menu.menuNeedsUpdate(submenu)
+        #expect(item.badge == nil)
+        // A site that blocks again is not new.
+        await BlockingViolationTable.$scoped.withValue(table) { Self.blockAtOneSite() }
+        await table.flush()
+        menu.menuNeedsUpdate(debugMenu)
+        #expect(item.badge == nil)
+        #expect(table.sites.count == 2)
+    }
+
+    /// One seam call on the main thread, always at the same call site.
+    private static func blockAtOneSite() {
+        _ = FileManager.checked.fileExists(atPath: "/")
+    }
 }
 #endif

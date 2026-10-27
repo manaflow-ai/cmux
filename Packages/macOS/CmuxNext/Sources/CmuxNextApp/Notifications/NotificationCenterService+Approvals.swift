@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -13,13 +14,17 @@ extension NotificationCenterService {
         desktop.onApprove = { [weak self] id, surface, allow in
             self?.answerApproval(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), allow: allow)
         }
-        // A Chief hand's waiting request: the same banner, posted and withdrawn by the hands service (cx-om025).
-        services.cloud.hands.texts = AgentApprovalBanners.handTexts
-        services.cloud.hands.onPending = { [weak self] approval, name in
+    }
+
+    /// A Chief hand's waiting request: the same banner, posted and withdrawn by the hands service (cx-om025).
+    /// Cloud's start wires it (`AppServices.startCloudNow`), before the hands can start.
+    func followHandApprovals(_ hands: HandsService) {
+        hands.texts = AgentApprovalBanners.handTexts
+        hands.onPending = { [weak self] approval, name in
             self?.desktop.post(id: approval.key, title: AgentApprovalBanners.handTitle(name), body: approval.summary, surface: nil,
                                workspace: nil, defaultSound: true, approval: true)
         }
-        services.cloud.hands.onSettled = { [weak self] approval, _ in self?.desktop.withdraw([approval.key]) }
+        hands.onSettled = { [weak self] approval, _ in self?.desktop.withdraw([approval.key]) }
     }
 
     /// Runs `post` with the chat's pending permission when `notification` is an agent's ask (a

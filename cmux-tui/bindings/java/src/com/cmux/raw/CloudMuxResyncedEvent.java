@@ -13,11 +13,14 @@ import java.util.Objects;
 /** Immutable cloud-mux-resynced event. Protocol v12; streams: subscribe. */
 public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<String> account;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Object pending;
     private final UInt64 seq;
 
     private CloudMuxResyncedEvent(Builder builder) {
         this.account = builder.account;
+        this.cause = builder.cause;
         if (!builder.pendingSet) throw new IllegalArgumentException("pending is required");
         this.pending = builder.pending == null ? null : Wire.immutableJson(builder.pending);
         if (!builder.seqSet) throw new IllegalArgumentException("seq is required");
@@ -27,6 +30,7 @@ public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent,
     public static Builder builder() { return new Builder(); }
 
     public Field<String> account() { return account; }
+    public Field<EventCause> cause() { return cause; }
     public Object pending() { return pending; }
     public UInt64 seq() { return seq; }
     @Override public String event() { return "cloud-mux-resynced"; }
@@ -38,6 +42,10 @@ public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent,
         Object rawAccount = Wire.optional(object, "account");
         if (!Wire.isMissing(rawAccount)) {
             builder.account(Wire.string(rawAccount, "CloudMuxResyncedEvent.account"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawPending = Wire.required(object, "pending");
         builder.pending(rawPending == null ? null : Wire.immutableJson(rawPending));
@@ -51,6 +59,7 @@ public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent,
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "cloud-mux-resynced");
         Wire.put(object, "account", account);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "pending", pending);
         Wire.put(object, "seq", seq);
         return Collections.unmodifiableMap(object);
@@ -59,17 +68,18 @@ public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent,
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudMuxResyncedEvent that)) return false;
-        return Objects.equals(account, that.account) && Objects.equals(pending, that.pending) && Objects.equals(seq, that.seq);
+        return Objects.equals(account, that.account) && Objects.equals(cause, that.cause) && Objects.equals(pending, that.pending) && Objects.equals(seq, that.seq);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(account, pending, seq); }
+    public int hashCode() { return Objects.hash(account, cause, pending, seq); }
 
     @Override
     public String toString() { return "CloudMuxResyncedEvent" + toWire(); }
 
     public static final class Builder {
         private Field<String> account = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Object pending;
         private boolean pendingSet;
         private UInt64 seq;
@@ -77,6 +87,10 @@ public final class CloudMuxResyncedEvent implements WireValue, DeltaStreamEvent,
 
         public Builder account(String value) {
             this.account = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder pending(Object value) {

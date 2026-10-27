@@ -24,6 +24,7 @@ extension HomeHostView {
         let control = chiefControl
         guard showsChiefOnScreen, !control.isHosted, let window else { return NSSound.beep() }
         // task-owner: one chief.stop {all}, then the toast; ends with the answer
+        // main-hop-allow: userBlocking rest of the person's Option-click (p06 rule 2): it awaits the main-actor HomeChiefControl; post has no userBlocking class
         Task { @MainActor [weak window] in
             switch await control.stopAll() {
             case .failure:
@@ -36,6 +37,7 @@ extension HomeHostView {
                 let handle = CmuxToastCenter.shared.show(toast, in: window)
                 handle.onAction = {
                     // task-owner: one chief.stop {restart}; ends with its answer
+                    // main-hop-allow: userBlocking rest of the person's Restart click (p06 rule 2): it awaits the main-actor HomeChiefControl; post has no userBlocking class
                     Task { @MainActor in if await control.restart(names) != nil { NSSound.beep() } }
                 }
             }

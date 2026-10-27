@@ -13,7 +13,8 @@ final class BookmarkBarItemView: NSView {
     /// any other reason paint at once.
     private var fadesNextFill = false
     private var tracking: NSTrackingArea?
-    var onClick: ((BookmarkBarItemView, NSEvent) -> Void)?
+    /// A click (its release), or nil for an accessibility press, which opens with no modifiers.
+    var onClick: ((BookmarkBarItemView, NSEvent?) -> Void)?
     var onDragStart: ((BookmarkBarItemView, NSEvent) -> Void)?
     var onContextMenu: ((BookmarkBarItemView) -> NSMenu?)?
     private var downEvent: NSEvent?
@@ -24,6 +25,7 @@ final class BookmarkBarItemView: NSView {
         self.node = node
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         icon.image = image
         icon.imageScaling = .scaleProportionallyDown
@@ -112,9 +114,10 @@ final class BookmarkBarItemView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { onContextMenu?(self) }
 
+    /// VoiceOver's press opens the bookmark as a plain click does, with no modifiers: AppKit's
+    /// current event then is whatever the person did last, not this press.
     override func accessibilityPerformPress() -> Bool {
-        guard let event = NSApp.currentEvent else { return false }
-        onClick?(self, event)
+        onClick?(self, nil)
         return true
     }
 

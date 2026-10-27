@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "cefMergedEvents",
+  "owner": "PL-motion-cef",
+  "description": "A Chromium tab's address, title, favicon and progress events apply once per frame: as visible work for a shown tab, as background work for a hidden one, whose progress waits until it shows. Commits, dialogs and crashes stay in order.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-24",
+  "process": "app",
+  "params": [],
+  "stories": ["omnibar", "idle-tabs"],
+  "sticky": false,
+  "runtimeMutable": false
+}

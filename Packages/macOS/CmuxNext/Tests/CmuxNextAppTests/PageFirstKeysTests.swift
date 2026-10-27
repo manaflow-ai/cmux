@@ -8,7 +8,9 @@ import Testing
 /// it opens cmux cmd f instead of the one inside google sheet, need to fix in general"). In a
 /// Chromium tab, Find, Find Next / Previous and the page's content shortcuts go to the page first;
 /// cmux runs its action only when Chromium reports that the page did not handle the key (no
-/// `preventDefault`). Window-level keys (Cmd-T, Cmd-W, Cmd-N, Cmd-1 to Cmd-9) stay with cmux.
+/// `preventDefault`). Window-level keys (Cmd-T, Cmd-W, Cmd-N, Cmd-L, Cmd-1 to Cmd-9) stay with cmux.
+/// The Chromium Host's pages give the same facts once their host reports unhandled keys
+/// (`CEFTab.hostedPageHasKeys`, p01-process-030).
 @MainActor @Suite struct PageFirstKeysTests {
     nonisolated struct Key: CustomStringConvertible, Sendable {
         var name: String
@@ -30,6 +32,7 @@ import Testing
         Key(name: "Cmd-T", characters: "t", keyCode: 17),
         Key(name: "Cmd-W", characters: "w", keyCode: 13),
         Key(name: "Cmd-N", characters: "n", keyCode: 45),
+        Key(name: "Cmd-L", characters: "l", keyCode: 37),
     ] + zip(1...9, [18, 19, 20, 21, 23, 22, 26, 28, 25] as [UInt16]).map { Key(name: "Cmd-\($0)", characters: "\($0)", keyCode: $1) }
 
     /// Every action bound, recording what ran.
@@ -83,6 +86,17 @@ import Testing
         guard case .run = try Self.decision(key, facts: Self.chromium) else {
             Issue.record("\(key) did not run its cmux action first")
             return
+        }
+    }
+
+    /// A page's own chord with no cmux action in a browser page (Cmd-K) reaches the page first, so
+    /// its `preventDefault` keeps it; in the Chromium Host it comes back only if left unhandled
+    /// (p01-process-030).
+    @Test func aPageChordWithNoCmuxActionReachesThePage() throws {
+        let decision = try Self.decision(Key(name: "Cmd-K", characters: "k", keyCode: 40), facts: Self.chromium)
+        switch decision {
+        case .deliver, .offerToPage: break
+        default: Issue.record("Cmd-K did not reach the page first: \(decision)")
         }
     }
 

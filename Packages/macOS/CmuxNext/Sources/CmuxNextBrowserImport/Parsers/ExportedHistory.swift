@@ -15,6 +15,9 @@ public struct ExportedHistory: Sendable {
 
     public let format: Format
     public let entries: [ImportedHistoryEntry]
+    /// Rows left out: an address that is not importable, a missing or corrupt time. Rows merged into
+    /// their URL's entry, or past `limit`, are not counted.
+    public let skipped: ImportSkipCounts
 
     /// Whether `head` (a file's first bytes) looks like one of the formats.
     public static func looksLikeHistory(_ head: String) -> Bool {
@@ -34,17 +37,25 @@ public struct ExportedHistory: Sendable {
             return nil
         }
         var byURL: [URL: ImportedHistoryEntry] = [:]
+        var skipped = ImportSkipCounts()
         for row in rows {
-            guard let text = row["url"] as? String, let url = ImportableURL.parse(text) else { continue }
-            let microseconds = (row["time_usec"] as? NSNumber)?.doubleValue ?? 0
-            let visit = Date(timeIntervalSince1970: microseconds / 1_000_000)
+            guard let text = row["url"] as? String, let url = ImportableURL.parse(text) else {
+                skipped.notImportable += 1
+                continue
+            }
+            // A visit with no time, or one outside years 1-9999, is counted as the database readers count it.
+            guard let microseconds = (row["time_usec"] as? NSNumber)?.doubleValue, microseconds > 0,
+                  let visit = BrowserTime().unix(microseconds / 1_000_000) else {
+                skipped.badTime += 1
+                continue
+            }
             let visits = format == .safari ? max((row["visit_count"] as? NSNumber)?.intValue ?? 1, 1) : 1
             let title = (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             guard var entry = byURL[url] else {
                 byURL[url] = ImportedHistoryEntry(url: url, title: title, visitCount: visits, lastVisit: visit)
                 continue
             }
-            entry.visitCount += visits
+            entry.addVisits(visits)
             if visit > entry.lastVisit {
                 entry.lastVisit = visit
                 entry.title = title ?? entry.title
@@ -53,5 +64,6 @@ public struct ExportedHistory: Sendable {
         }
         self.format = format
         entries = Array(byURL.values.sorted { $0.lastVisit > $1.lastVisit }.prefix(max(limit, 0)))
+        self.skipped = skipped
     }
 }

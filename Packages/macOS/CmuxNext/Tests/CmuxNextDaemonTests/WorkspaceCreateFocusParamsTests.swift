@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -9,20 +10,20 @@ import Testing
 /// refuses the field and focuses every new workspace anyway.
 struct WorkspaceCreateFocusParamsTests {
     @Test func focusIsSentToADaemonThatServesIt() {
-        let params = StateResourceClient.workspaceCreateParams(
+        let request = StateResourceClient.workspaceCreateRequest(
             name: nil, ephemeral: true, terminal: true, focus: true, daemonSupportsFocus: true)
-        #expect(params == ["initial_content": .string("terminal"), "ephemeral": .bool(true), "focus": .bool(true)])
+        #expect(request == V2WorkspaceCreateRequest(ephemeral: true, focus: true, initialContent: .terminal))
     }
 
     @Test func anOlderDaemonGetsNoFocusField() {
-        let params = StateResourceClient.workspaceCreateParams(
+        let request = StateResourceClient.workspaceCreateRequest(
             name: "showcase", ephemeral: false, terminal: false, focus: true, daemonSupportsFocus: false)
-        #expect(params == ["initial_content": .string("empty"), "name": .string("showcase")])
+        #expect(request == V2WorkspaceCreateRequest(initialContent: .empty, name: "showcase"))
     }
 
     @Test func aBackgroundCreationSendsNoFocus() {
-        let params = StateResourceClient.workspaceCreateParams(
+        let request = StateResourceClient.workspaceCreateRequest(
             name: nil, ephemeral: false, terminal: true, focus: false, daemonSupportsFocus: true)
-        #expect(params["focus"] == nil)
+        #expect(request.focus == nil)
     }
 }

@@ -3,6 +3,9 @@ public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation
 import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import ObjectiveC
 public import WebKit
 
@@ -33,7 +36,10 @@ extension PageWebView {
         });
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
-        let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
+        let firstMouse = JSONValue.bool(webKitPieces?.view.acceptsFirstMouse(for: nil)
+            ?? (descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse))
+        // Opened hidden and not shown yet: no document and no renderer (PageWebView+FirstShow.swift).
+        if awaitsFirstShow { return ["error": "page not shown yet", "awaits_first_show": true, "accepts_first_mouse": firstMouse] }
         guard let text = await callPageFunction(script) as? String,
               case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
             return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
@@ -94,7 +100,7 @@ extension PageWebView {
     /// verb only.
     public func debugKillWebContent() -> Bool {
         let selector = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: selector) else { return false }
+        guard let webView = webKitPieces?.view, webView.responds(to: selector) else { return false }
         webView.perform(selector)
         return true
     }
@@ -175,6 +181,77 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// This page's fields of a `debug.webui` row (``WebUICensus``): what the host knows of the
+    /// page's state and what reached it while hidden.
+    nonisolated public struct Census: Equatable, Sendable {
+        /// `chromium` while a Chromium page shows the document, else `webkit`.
+        public var engine: String
+        /// The person cannot see the page: the engine was told it is hidden (no window or a hidden
+        /// ancestor), or it waits in a spare's parking view. Chrome counts no spare renderer as
+        /// visible (`WebContents::GetVisibility`, content/public/browser/web_contents.h).
+        public var hidden: Bool
+        /// The visibility the host last gave the engine; a parked spare is visible to its engine.
+        public var engineVisible: Bool
+        /// Seconds since the page was last hidden; nil while it shows.
+        public var hiddenForSeconds: Double?
+        /// The document has not finished loading.
+        public var loading: Bool
+        /// Parked in ``PageHostPool``'s parking view.
+        public var parked: Bool
+        /// Made by ``PageHostPool`` (may be rebound to another page).
+        public var pooled: Bool
+        /// Router events delivered while hidden (``PageRouter/debugDeliveriesWhileHidden``).
+        public var deliveriesWhileHidden: Int
+        /// Native script pushes (theme, glass, document attributes) while hidden.
+        public var pushesWhileHidden: Int
+        /// Reloads after a crash (``PageCrashRecovery/reloads``); a crash while hidden waits for the show.
+        public var crashReloads = 0
+    }
+
+    /// The page's `debug.webui` fields now.
+    public var census: Census {
+        Census(engine: chromiumSession != nil ? "chromium" : "webkit",
+               hidden: router.debugPageHidden, engineVisible: censusState.engineVisible,
+               hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
+               loading: !loaded, parked: isParkedSpare, pooled: isPooled,
+               deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
+               pushesWhileHidden: censusState.pushesWhileHidden, crashReloads: crash.reloads)
+    }
+
+    /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
+    public func resetCensusCounters() {
+        router.debugDeliveriesWhileHidden = 0
+        censusState.pushesWhileHidden = 0
+    }
+
+    /// Records the visibility the host just gave the engine.
+    func noteCensusVisibility(_ visible: Bool) {
+        censusState.engineVisible = visible
+        updateCensusHidden()
+    }
+
+    /// A parking view took `subview` in (`parked`) or lets it go: every page view in it is parked
+    /// or not. A New Tab spare's page sits inside its agent pane view, which is what moves.
+    public static func noteCensusParked(_ parked: Bool, in subview: NSView) {
+        guard let page = subview as? PageWebView else {
+            for child in subview.subviews { noteCensusParked(parked, in: child) }
+            return
+        }
+        page.censusState.parked = parked
+        page.updateCensusHidden()
+    }
+
+    /// The hidden flag the counters read, and when the page was hidden.
+    private func updateCensusHidden() {
+        let hidden = !censusState.engineVisible || censusState.parked
+        router.debugPageHidden = hidden
+        if !hidden {
+            censusState.hiddenSince = nil
+        } else if censusState.hiddenSince == nil {
+            censusState.hiddenSince = now()
+        }
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
@@ -222,38 +299,44 @@ extension PageWebView {
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
+        if awaitsFirstShow { return false } // nothing drawn yet
         if let page = chromiumSession?.page {
             guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
                   let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
                   let png = Data(base64Encoded: base64) else { return false }
             return (try? png.write(to: url)) != nil
         }
+        guard let webView = webKitPieces?.view else { return false } // a Chromium page on its way drew nothing
         keepRenderingWhenCovered()
-        let image: NSImage? = await withCheckedContinuation { continuation in
+        let image: NSImage? = try? await withOnceContinuation { (continuation: OnceContinuation<NSImage?, OnceContinuationError>) in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
         }
-        guard let image, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        guard let image = image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: url)) != nil
     }
 
     /// Whether pages keep drawing in an occluded window: automation launches only
-    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
+    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`), never with
+    /// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (``WindowDrawPolicy/drawsOccludedWindows(_:)``: an energy
+    /// bench measures the user's draw).
     /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
     /// so a live check can prove the user path (a covered window that comes back redraws).
     nonisolated public static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
         // The one automation rule for every window surface (terminals, pages).
-        return WindowDrawPolicy.isAutomationLaunch(environment)
+        return WindowDrawPolicy.drawsOccludedWindows(environment)
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
-    /// build behind other windows still renders.
-    func keepRenderingWhenCovered() {
-        Self.keepRenderingWhenCovered(webView)
+    /// build behind other windows still renders (`debug.agent_pane` asks it of the chat it drives).
+    /// A Chromium page follows the view's own visibility (``PageChromiumPage/setVisible(_:)``), so
+    /// only the WebKit view needs it; a Chromium page with no WebKit engine has none to ask.
+    public func keepRenderingWhenCovered() {
+        if let webView = webKitPieces?.view { Self.keepRenderingWhenCovered(webView) }
     }
 
-    /// The same for a web view no `PageWebView` owns (the agent pane's own, cx-zjtn.6).
+    /// The same for a web view no `PageWebView` owns.
     public static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }

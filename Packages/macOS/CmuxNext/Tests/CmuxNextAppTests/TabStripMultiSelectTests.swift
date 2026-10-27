@@ -15,7 +15,7 @@ import Testing
 
         init(tabs: Int = 6) {
             model = TabStripModel(tabs: (0..<tabs).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t1"))
-            strip = TabStripView(model: model)
+            strip = TabStripView.testing(model: model)
             strip.dragsWindowFromEmptySpace = false
             strip.frame = NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight)
             window.contentView = strip

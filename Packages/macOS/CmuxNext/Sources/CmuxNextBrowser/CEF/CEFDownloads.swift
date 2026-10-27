@@ -34,7 +34,12 @@ nonisolated enum CEFDownloadEvent: Equatable, Sendable {
 /// What `CEFDownloads` needs from the shim (`cmux_shim_download_*`); tests
 /// pass a fake.
 struct CEFDownloadShim {
-    /// Starts a download of a URL with a tab's request context.
+    /// Starts a download of a URL with a tab's request context. False, with
+    /// nothing sent, when the client knows the tab's browser is gone; true
+    /// once sent to a live one. The op itself is one-way: DOWNLOAD_STARTED
+    /// reports the start, as `DownloadManager::DownloadUrl`
+    /// (content/public/browser/download_manager.h) returns nothing, so the
+    /// answer is the same in both backends.
     var start: (_ browser: Int32, _ url: String) -> Bool
     /// Answers DOWNLOAD_STARTED (by token) with a path; "" cancels.
     var answer: (_ id: Int32, _ path: String) -> Void
@@ -87,6 +92,8 @@ final class CEFDownloads {
     }
 
     /// Downloads `url` with tab `browser`'s session into the Downloads folder.
+    /// True once sent to a live browser (``CEFDownloadShim/start``); false
+    /// for a gone one, so Retry of a download whose tab closed keeps its row.
     func download(_ url: String, browser: Int32) -> Bool {
         guard Self.isDownloadable(url) else {
             logger.error("download refused: not a web URL")
@@ -103,14 +110,16 @@ final class CEFDownloads {
     }
 
     /// Downloads `url` with tab `browser`'s session into `destination`, a
-    /// file the person chose.
+    /// file the person chose. True once sent to a live browser, as `download`.
     func save(_ url: URL, to destination: URL, browser: Int32) -> Bool {
         let address = url.absoluteString
         guard Self.isDownloadable(address), let shim = shim() else { return false }
         chosen.append((browser, address, destination))
         if chosen.count > 16 { chosen.removeFirst(chosen.count - 16) }
         guard shim.start(browser, address) else {
-            chosen.removeAll { $0.browser == browser && $0.url == address && $0.destination == destination }
+            if let index = chosen.lastIndex(where: { $0.browser == browser && $0.url == address && $0.destination == destination }) {
+                chosen.remove(at: index)
+            }
             return false
         }
         return true
@@ -225,8 +234,14 @@ extension CEFDownloads {
         let downloads = CEFDownloads { [weak runtime] () -> CEFDownloadShim? in
             guard let shim = runtime?.shim else { return nil }
             return CEFDownloadShim(
-                start: { browser, url in url.withCString { shim.downloadURL(browser, $0) } == 1 },
-                answer: { id, path in _ = path.withCString { shim.downloadContinue(id, $0) } },
+                // Liveness is the runtime's own (a closed tab leaves `tabsByBrowser` in its close
+                // turn); the op's answer is not read, a stand-in in host mode.
+                start: { [weak runtime] browser, url in
+                    guard let tab = runtime?.tabsByBrowser[browser], !tab.isClosed else { return false }
+                    _ = shim.downloadURL(browser, url)
+                    return true
+                },
+                answer: { id, path in _ = shim.downloadContinue(id, path) },
                 control: { id, command in _ = shim.downloadControl(id, command) }
             )
         }

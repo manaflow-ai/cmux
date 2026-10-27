@@ -25,7 +25,7 @@
 //!   start with the data intact, not quarantine every upgraded machine;
 //! - lock contention and I/O errors.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
@@ -70,7 +70,7 @@ pub(crate) fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
 }
 
 fn has_data(path: &Path) -> bool {
-    fs::metadata(path).map(|metadata| metadata.is_file() && metadata.len() > 0).unwrap_or(false)
+    files::metadata(path).map(|metadata| metadata.is_file() && metadata.len() > 0).unwrap_or(false)
 }
 
 /// The sidecars that hold data while the database file itself is missing.
@@ -136,7 +136,7 @@ pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<Registr
         .parent()
         .with_context(|| format!("workspace registry has no directory: {}", db_path.display()))?;
     let recovery_root = session_dir.join(REGISTRY_RECOVERY_DIR);
-    fs::create_dir_all(&recovery_root).with_context(|| {
+    files::create_dir_all(&recovery_root).with_context(|| {
         format!("create registry recovery directory {}", recovery_root.display())
     })?;
     let _ = crate::platform::restrict_directory(&recovery_root);
@@ -146,11 +146,11 @@ pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<Registr
     let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
     for source in sources.into_iter().filter(|source| source.exists()) {
         let destination = recovery_dir.join(source.file_name().unwrap_or_default());
-        if let Err(error) = fs::rename(&source, &destination) {
+        if let Err(error) = files::rename(&source, &destination) {
             for (original, kept) in moved.iter().rev() {
-                let _ = fs::rename(kept, original);
+                let _ = files::rename(kept, original);
             }
-            let _ = fs::remove_dir(&recovery_dir);
+            let _ = files::remove_dir(&recovery_dir);
             return Err(error).with_context(|| {
                 format!("move {} aside to {}", source.display(), destination.display())
             });
@@ -170,7 +170,7 @@ fn unique_recovery_dir(recovery_root: &Path) -> anyhow::Result<PathBuf> {
     for attempt in 0u32..100 {
         let name = if attempt == 0 { millis.to_string() } else { format!("{millis}-{attempt}") };
         let candidate = recovery_root.join(name);
-        match fs::create_dir(&candidate) {
+        match files::create_dir(&candidate) {
             Ok(()) => {
                 let _ = crate::platform::restrict_directory(&candidate);
                 return Ok(candidate);

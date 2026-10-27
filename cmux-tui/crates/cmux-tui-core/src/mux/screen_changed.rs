@@ -11,12 +11,14 @@ static LAYOUT_EMIT: Mutex<()> = Mutex::new(());
 
 impl Mux {
     /// Emit `screen-changed` (full screen and its index) for each screen.
+    #[track_caller]
     pub(crate) fn emit_screen_changed(&self, screens: &[ScreenId]) {
         self.emit_screen_changed_for_transaction(screens, None);
     }
 
     /// [`Self::emit_screen_changed`] for a request that carried a client
     /// transaction, which every delta it causes echoes.
+    #[track_caller]
     pub(crate) fn emit_screen_changed_for_transaction(
         &self,
         screens: &[ScreenId],

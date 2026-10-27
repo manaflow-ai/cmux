@@ -1,0 +1,9 @@
+# The nightly for the Rust sanitizer and Miri lane (cmux-tui/scripts/sanitize.sh),
+# pinned apart from the workspace toolchain: cmux-tui/rust-toolchain.toml stays
+# stable. -Zsanitizer, -Zbuild-std and Miri exist only on nightly. Move the date
+# on purpose, in its own commit, after one green lane run on the new date.
+# Install: cmux-tui/scripts/sanitize.sh --install --list
+[toolchain]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["rust-src", "miri"]

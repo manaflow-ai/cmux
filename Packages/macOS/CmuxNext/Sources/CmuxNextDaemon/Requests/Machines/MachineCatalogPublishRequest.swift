@@ -8,7 +8,7 @@ public nonisolated struct MachineCatalogPublishRequest: DaemonRequest {
     /// The owner's publication acknowledgement.
     public typealias Response = JSONValue
     /// The internal publication handshake; discovery still uses `machine.list/get`.
-    public static let command = "machine-catalog-publish"
+    public static let commandName: DaemonCommandName = "machine-catalog-publish"
     /// Older owners receive no publication command.
     public static let requiredCapability: String? = "machine-catalog-publish-v1"
     /// Identity fence for the captured local owner.
@@ -27,5 +27,9 @@ public nonisolated struct MachineCatalogPublishRequest: DaemonRequest {
         self.expectedMachineID = expectedMachineID
         self.sequence = sequence
         self.machines = machines
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", sequence, machines
     }
 }

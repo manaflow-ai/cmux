@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
@@ -18,7 +19,7 @@ extension TerminalSurfaceView {
             model.title = title
         case .pwd(let pwd):
             model.workingDirectory = pwd.isEmpty ? nil : pwd
-            bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
+            bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)
         case .ringBell:
             model.bellCount += 1
             if let delegate = session.delegate {
@@ -31,8 +32,8 @@ extension TerminalSurfaceView {
                 return delegate.terminalSession(session, openLink: text)
             }
             guard let url = Self.url(from: text) else { return false }
-            // Never the blocking open: Ghostty holds the renderer lock here.
-            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+            // Never on this thread: Ghostty holds the renderer lock here.
+            NSWorkspace.shared.openInBackground(url)
         case .mouseShape(let shape):
             // Over a link with Command held the hand stays (TerminalLinkPointer).
             let cursor = Self.cursor(for: shape)
@@ -56,7 +57,7 @@ extension TerminalSurfaceView {
         case .childExited:
             model.hasExited = true
         case .secureInput(let mode):
-            TerminalSecureInput.apply(mode, for: self)
+            secureInput.apply(mode, for: ObjectIdentifier(self))
         case .readOnly(let readOnly):
             model.isReadOnly = readOnly
         case .keySequence(let active):

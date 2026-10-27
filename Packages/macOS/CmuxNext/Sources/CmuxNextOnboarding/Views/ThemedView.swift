@@ -12,6 +12,7 @@ class ThemedView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
     }

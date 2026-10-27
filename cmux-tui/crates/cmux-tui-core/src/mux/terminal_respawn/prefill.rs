@@ -157,6 +157,7 @@ impl Mux {
     /// What respawned terminal `terminal_id` types on its new prompt, if
     /// anything: the resume command a person set for it, else its agent's
     /// resume, only with `resume_agents` (the setting) and a POSIX shell.
+    #[track_caller]
     pub(in crate::mux) fn respawn_prefill(
         &self,
         terminal_id: &str,
@@ -178,6 +179,7 @@ impl Mux {
     /// Set (`Some`) or clear (`None`) the resume command of one hosted
     /// terminal (`terminal_id` is the stable host id) and return the stored
     /// command. A respawn of the terminal types it on the new prompt.
+    #[track_caller]
     pub fn set_terminal_resume_command(
         &self,
         terminal_id: &str,
@@ -190,6 +192,7 @@ impl Mux {
     }
 
     /// The resume command of one hosted terminal, if one is set.
+    #[track_caller]
     pub fn terminal_resume_command(&self, terminal_id: &str) -> anyhow::Result<Option<String>> {
         self.workspace_registry
             .lock()

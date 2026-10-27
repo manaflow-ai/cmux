@@ -860,6 +860,11 @@ Dropped, with reasons:
   cmux --ref`; replay (vm.sh --replay, test id, fuzz input) N=3; post the first bad commit to the issue.
 - Acceptance: Never resubmits after a wait timeout; 1-2 of 3 repro = flaky, not blamed.
 - Test phase: pytest with fake builds; one real bisect of 90b3fd18b69..29804bacb09^ (Crash D) on macOS 26.
+- Deferred: the fuzz-input replay. No allowlisted fleet step script runs `cargo fuzz` (hq controller
+  `ciStepScripts`), and the fuzz workspace (cmux-tui/fuzz, task 017) is not on the branch, so no commit has a
+  target to replay. Add `fuzz-input:CRATE_DIR:TARGET:INPUT` after 017 lands and the controller allows its
+  single-input script. Until then, replay such a finding as a regression test (`test:PACKAGE:FILTER`). The bisect
+  lays that test from the runner ref over each older commit.
 
 #### p10-stability-006 hq stability cron
 - Files: cmuxterm-hq: build-fleet/cmd/controller/stability_cron.go, stability_cron_test.go
@@ -963,9 +968,13 @@ Dropped, with reasons:
   passes `-rss_limit_mb=2048 -malloc_limit_mb=256 -timeout=2` by default; an OOM or timeout is a finding.
 - Acceptance: Main workspace Cargo.toml/Cargo.lock unchanged; each target builds with `cargo fuzz build`.
 - Test phase: Testbox `scripts/cmux-next/rust-fuzz.sh --all --seconds 600`.
+- Landing order: 018 landed first and created the workspace (Cargo.toml with the release profile above, Cargo.lock,
+  rust-toolchain.toml on nightly-2026-10-20). 017 edits those three files in place: it adds its six `[[bin]]` entries,
+  its dependencies and their lock delta, and rust-fuzz.sh. It never adds them again or changes the pin or profile
+  without saying why. 019-021, 176 and 181 do the same: `[[bin]]` entries, dependencies and the lock delta only.
 
 #### p10-stability-018 Rust fuzz batch 2
-- Files: cmux-tui/fuzz/fuzz_targets/
+- Files: cmux-tui/fuzz/fuzz_targets/, and the workspace files of 017 (it landed first; see 017's landing order)
 - Change: cmux-rd-proto (bulk, clock, datagram, feedback, frame, input decode), cmux-transport (relay_frame, probe, stun
   parse_binding_success), cmux-link (dial parse_request/parse_line, stamp parse), cmux-wg packet paths.
 - Acceptance: One target per decoder, each with a seed corpus.
@@ -1083,6 +1092,12 @@ Dropped, with reasons:
   record polls > 2 ms with spawn location into the hang JSONL. RUSTFLAGS only in the lab lane.
 - Acceptance: Default builds unchanged; no Cargo.lock change in this task.
 - Test phase: acpmux under the lab profile with a sleeping task records one slow poll.
+- Scope as built: the acpmux daemon's runtime (`$ACPMUX_HOME/hangs.jsonl`) and the cmux-tui owner's remote
+  daemon worker (`owner-hangs-<session>.jsonl`; the mux server runs on threads, covered by 032's scopes). The
+  first slow poll per spawn site is a `slow_poll` record; the totals are one `slow_poll_summary` when the
+  watch ends. Time in compensated `block_in_place` calls is not counted. Not watched, on purpose: acpmux's
+  agent host (its own process, no hang log yet), CLI subcommands and short block_on-only runtimes (no tasks);
+  other crates' `cmux-stability` features stay unused until a runtime there is watched.
 
 #### p10-stability-034 stability-health.py
 - Files: scripts/cmux-next/stability-health.py, scripts/cmux-next/tests/test_stability_health.py
@@ -1534,7 +1549,7 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 
 #### p10-stability-146 Chromium host kind in child-crash-e2e (F2)
 - Files: scripts/cmux-next/child-crash-e2e.py
-- Change: Kind `host`: with browserHost.helperPrototype on, SIGKILL the host and navigate to
+- Change: Kind `host`: with browserHost.helper on, SIGKILL the host and navigate to
   chrome://inducebrowsercrashforrealz; cmux stays up, pages show the crash page and reload after restart.
 - Acceptance: Skips with a clear reason when the build lacks the host. Test: `child-crash-e2e.py --only host`.
 

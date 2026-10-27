@@ -29,6 +29,14 @@ Run it with "browser": {"freezeHiddenTabs": 5} and once each with
 "keepNeighborTabsAwake": 0 (before) and 1 (after). Prints PERF-NEIGHBOR lines:
 the app's own switch time (debug.tab_switch) and the time until the page runs
 script again (live_ms), plus the app's cold-show and prewarm counts.
+
+--attribute (p14-energy-096) attributes each window's power as idle-budget.py's
+power-visible session does (scripts/perf-bench/power_attribution.py): billed
+energy per process (CPU + billed - serviced), owners per kind and thread that
+sum to within 10% of the app's coalition total, WindowServer's own energy with
+`sudo -n`. Prints POWER-BREAKDOWN, POWER-OWNER, POWER-UNNAMED and
+POWER-WINDOWSERVER lines per scenario. The Chrome comparison (POWER-OVER) is
+idle-budget.py --sessions power-visible,chrome-power-visible.
 """
 from __future__ import annotations
 
@@ -45,7 +53,9 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench"))
 import bench_memory as bm  # noqa: E402  (launch, App, owned, end_bundle)
+import power_attribution  # noqa: E402  (--attribute: who spends the window's power, billed energy included)
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 MB = 1048576.0
@@ -127,13 +137,35 @@ def powermetrics(seconds: float):
     return found
 
 
-def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False):
-    """Energy, CPU and wakeups of every owned process over `seconds`."""
+def power_window(app_pid: int, bundle: str):
+    """A power_attribution.PowerWindow over the app's owned processes, classified by bench_memory's kinds."""
+    kinds: dict[str, str] = {}
+
+    def pids():
+        found = bm.owned(app_pid, bundle)
+        kinds.update({cmd: kind for kind, cmd in found.values()})
+        return {pid: cmd for pid, (_kind, cmd) in found.items()}
+
+    return power_attribution.PowerWindow(app_pid, pids, lambda cmd, _pid=None: kinds.get(cmd, "other"))
+
+
+def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False,
+            attribute: bool = False):
+    """Energy, CPU and wakeups of every owned process over `seconds`; with `attribute`, its power owners."""
+    # PowerWindow's subprocesses (ps, sudo) run before `start` and after the end counters, outside both brackets.
+    window = power_window(app_pid, bundle) if attribute else None
+    if window:
+        window.prepare()
     start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
+    if window:
+        window.begin()
     started = time.monotonic()
     pm_result = {}
-    pm = threading.Thread(target=lambda: pm_result.update(powermetrics(seconds) or {}), daemon=True)
-    pm.start()
+    # An attributed window runs no subprocess: an app launched by the bench shares its coalition, and a
+    # subprocess that exits inside the window would add its energy to the total with no owner.
+    pm = None if attribute else threading.Thread(target=lambda: pm_result.update(powermetrics(seconds) or {}), daemon=True)
+    if pm:
+        pm.start()
     sampler = None
     if during:
         during(seconds)
@@ -148,11 +180,16 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(seconds / 2)  # test script: second half of the measured window
-    pm.join(timeout=seconds + 40)
+    if window:
+        window.end()
+    if pm:
+        pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
+    ends = {pid: counters(pid) for pid in start}
+    raw = window.finish() if window else None
     kinds: dict[str, dict] = {}
     for pid, (kind, first) in start.items():
-        last = counters(pid)
+        last = ends[pid]
         if first is None or last is None:
             continue
         entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0})
@@ -172,6 +209,10 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
               f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+    if raw is not None:
+        result["power"] = power_attribution.attribute(raw)
+        for line in power_attribution.report_lines(label, result["power"]):
+            print(line, flush=True)
     app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
     if sampler:
         sampler.wait(timeout=60)
@@ -290,8 +331,13 @@ def main():
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
+    parser.add_argument("--attribute", action="store_true",
+                        help="attribute each window's power to owners (billed energy, per thread, WindowServer); "
+                        "no powermetrics or --sample-idle inside an attributed window")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.attribute and args.sample_idle:
+        parser.error("--attribute and --sample-idle: a sample inside the window is an unowned subprocess in the app's coalition")
     scenarios = args.scenarios.split(",")
     base = serve()
     signal.signal(signal.SIGTERM, bm.interrupted)
@@ -322,7 +368,8 @@ def main():
 
     def settle_measure(label: str, during=None, settle: float | None = None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
-        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle))
+        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle,
+                               attribute=args.attribute))
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={powermetrics(1) is not None}", flush=True)

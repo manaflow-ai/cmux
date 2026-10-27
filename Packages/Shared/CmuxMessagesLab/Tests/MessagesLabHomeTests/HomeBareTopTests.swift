@@ -18,14 +18,13 @@ import Testing
         let mask = try #require(demo.clip.layer.mask)
         let size = demo.clip.bounds.size
         let w = max(1, Int(size.width)), h = max(1, Int(size.height))
-        let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+        let ctx = try #require(CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: mask.frame.minX, y: mask.frame.minY)
         mask.render(in: ctx)
-        let data = try #require(ctx.data)
-        let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+        let px = try #require(ctx.bitmapBytes())
         return ys.map { y in
             let row = min(h - 1, max(0, Int(y)))
             return CGFloat(px[row * w * 4 + (w / 2) * 4 + 3]) / 255

@@ -3,7 +3,7 @@ import Foundation
 /// Divider drag. Reuse one `transaction` per gesture so undo coalesces.
 public struct SetSplitRatioRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-split-ratio"
+    public static let commandName: DaemonCommandName = "set-split-ratio"
     public var split: SplitID
     /// Clamped by the daemon to 0.05...0.95.
     public var ratio: Double
@@ -18,7 +18,7 @@ public struct SetSplitRatioRequest: DaemonRequest {
 /// Column width drag (`viewport-column-resize-v1`).
 public struct SetColumnWidthRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-viewport-pane-width"
+    public static let commandName: DaemonCommandName = "set-viewport-pane-width"
     public var pane: PaneID
     /// 0.1...1.0 of the viewport.
     public var width: Double
@@ -43,7 +43,7 @@ public struct UndoLayoutRequest: DaemonRequest {
             case closesPanes = "closes_panes"
         }
     }
-    public static let command = "undo-layout"
+    public static let commandName: DaemonCommandName = "undo-layout"
     public var pane: PaneID
     public var revision: UInt64?
     public var confirmClose: Bool?
@@ -51,5 +51,9 @@ public struct UndoLayoutRequest: DaemonRequest {
         self.pane = pane
         self.revision = revision
         self.confirmClose = confirmClose
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case pane, revision, confirmClose = "confirm_close"
     }
 }

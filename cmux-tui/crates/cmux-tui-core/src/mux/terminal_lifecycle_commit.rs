@@ -6,6 +6,7 @@ use super::*;
 /// deliberately re-reads under the registry writer mutex and uses the
 /// terminal revision as a CAS: a GUI move committed while a host launch or
 /// adoption was in flight can never be overwritten by a stale row clone.
+#[track_caller]
 pub(super) fn commit_terminal_lifecycle(
     registry: &mut WorkspaceRegistry,
     event_kind: &str,
@@ -58,6 +59,7 @@ pub(super) type AdoptingCommit = (Vec<Result<(), String>>, Option<u64>);
 /// (plans/cmux-next/service-start-PERF.md 5b). Each result is that
 /// terminal's own; a failed one keeps its row. Returns the last revision
 /// committed, if any.
+#[track_caller]
 pub(super) fn commit_terminals_adopting(
     registry: &mut WorkspaceRegistry,
     terminals: &[(RegistryTerminal, String)],

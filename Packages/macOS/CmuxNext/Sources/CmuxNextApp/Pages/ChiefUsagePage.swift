@@ -30,7 +30,8 @@ enum ChiefUsagePageTab {
                 guard let tool else { return nil }
                 return try await tool.run(arguments, muxHome: muxHome)
             }
-            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)])
+            return services?.webUI.open(PageOpenRequest(descriptor: .chiefUsage,
+                                                        routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)]))
         })
         registry.bind(actionID, unavailable: {
             hasLocalChief ? nil : ChiefUsagePageProvider.noLocalChief

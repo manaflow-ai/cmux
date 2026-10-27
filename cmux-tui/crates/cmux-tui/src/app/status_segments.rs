@@ -124,7 +124,7 @@ pub(super) fn run_status_segment_loop(worker: StatusSegmentWorker) {
     let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
         worker;
     let mut pending_notify = false;
-    let mut unreaped: Option<std::process::Child> = None;
+    let mut unreaped: Option<cmux_process::Child> = None;
     while !stop.is_raised() {
         // A previous command stuck in uninterruptible kernel I/O survives
         // SIGKILL; never stack another process behind it, and reap it once
@@ -224,7 +224,7 @@ pub(super) fn run_status_command(
     argv: &[String],
     timeout: Duration,
     stop: &StatusWorkerStop,
-) -> (String, Option<std::process::Child>) {
+) -> (String, Option<cmux_process::Child>) {
     const MAX_STATUS_OUTPUT_CHARS: usize = 200;
     let (captured, stuck_child) = capture_status_output(argv, timeout, stop);
     let text = String::from_utf8_lossy(&captured);

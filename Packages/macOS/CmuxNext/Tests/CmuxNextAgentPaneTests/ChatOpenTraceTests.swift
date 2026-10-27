@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextTrace
 @testable import CmuxNextWakeups
 import Testing
 
@@ -88,6 +89,29 @@ struct ChatOpenTraceTests {
         #expect(!trace.isArmed)
         trace.mark(.loadingLeft)
         #expect(record?.milliseconds(.loadingLeft) == nil)
+    }
+
+    @Test func aLaunchTraceStartsAtTheProcessStartOnTheUptimeClock() {
+        // The kernel's start is 250 ms of wall time before a pairing read at uptime 5 s.
+        let clock = LaunchClock(reader: .init(
+            processStartWallNanos: { 1_000_000_000_000 },
+            wallNanos: { 1_000_250_000_000 },
+            uptimeNanos: { 5_000_000_000 },
+            pageins: { nil }
+        ))
+        #expect(abs(ChatOpenTrace.processStart(clock) - 4.75) < 1e-9)
+    }
+
+    @Test func aLaunchTraceWithNoKernelStartStartsNow() {
+        let clock = LaunchClock(reader: .init(
+            processStartWallNanos: { nil },
+            wallNanos: { 1_000_000_000_000 },
+            uptimeNanos: { 5_000_000_000 },
+            pageins: { nil }
+        ))
+        let before = ChatOpenTrace.now()
+        let start = ChatOpenTrace.processStart(clock)
+        #expect(start >= before && start <= ChatOpenTrace.now())
     }
 }
 #endif

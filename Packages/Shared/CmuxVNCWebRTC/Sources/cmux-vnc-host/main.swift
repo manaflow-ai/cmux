@@ -80,7 +80,9 @@ func printQR(_ text: String) {
     let context = CIContext()
     let width = Int(image.extent.width), height = Int(image.extent.height)
     var pixels = [UInt8](repeating: 255, count: width * height * 4)
-    context.render(image, toBitmap: &pixels, rowBytes: width * 4, bounds: image.extent, format: .RGBA8, colorSpace: nil)
+    // SAFETY: the bitmap is width x height RGBA8 at rowBytes width * 4, so Core Image writes at
+    // most width * 4 * height bytes, exactly pixels.count, into the array during this call only.
+    unsafe context.render(image, toBitmap: &pixels, rowBytes: width * 4, bounds: image.extent, format: .RGBA8, colorSpace: nil)
     func dark(_ x: Int, _ y: Int) -> Bool {
         guard x >= 0, y >= 0, x < width, y < height else { return false }
         return pixels[((height - 1 - y) * width + x) * 4] < 128
@@ -103,7 +105,8 @@ print("cmux VNC host: \(pairing.name) → \(targetHost):\(targetPort)")
 print("Pair the cmux VNC app by scanning this code or opening the link on the iPhone:\n")
 printQR(pairing.link.absoluteString)
 print("\n\(pairing.link.absoluteString)\n")
-setvbuf(stdout, nil, _IOLBF, 0)
+// SAFETY: the C library's live stdout stream; a nil buffer makes stdio allocate its own.
+unsafe setvbuf(stdout, nil, _IOLBF, 0)
 
 let log: @Sendable (String) -> Void = { line in print("[\(Date().formatted(date: .omitted, time: .standard))] \(line)") }
 if options.capture {

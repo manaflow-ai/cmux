@@ -20,6 +20,9 @@ extension PageWebView {
         guard isPooled, PageServedHosts.pooledDescriptors.contains(descriptor), PageWebView.servedRoot(for: descriptor) != nil else {
             return false
         }
+        let target = descriptor.url(route: route)
+        let sameDocument = webView.url.map { Self.sameDocumentURL($0, target) } ?? false
+        traceOpenRequested(sameDocument ? .claim : .load)
         router.rebind(descriptor: descriptor, routes: routes)
         // The new claim gets no gesture the person made for the previous one.
         (webView as? PageWKWebView)?.forgetUserActivation()
@@ -33,8 +36,7 @@ extension PageWebView {
         touched = false
         reinstallPageScripts(documentAttributes: documentAttributes)
         installDocumentStartTheme()
-        let target = descriptor.url(route: route)
-        guard let current = webView.url, Self.sameDocumentURL(current, target) else {
+        guard sameDocument else {
             noteLoadedClaim()
             loaded = false
             paintedUptime = nil // the new document has not painted; a pane holds until it does
@@ -87,6 +89,6 @@ extension PageWebView {
         }
         return true;
         """
-        _ = try? await webView.callAsyncJavaScript(script, contentWorld: .page)
+        _ = try? await webView.callAsyncJavaScript(script, contentWorld: .page) // MQ12 allowed: a parked spare never freezes
     }
 }

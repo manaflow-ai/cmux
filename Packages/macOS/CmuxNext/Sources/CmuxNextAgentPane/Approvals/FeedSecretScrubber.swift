@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Replaces known secret shapes in notification text with `[redacted]`
@@ -46,10 +47,10 @@ nonisolated enum FeedSecretScrubber {
         guard !text.isEmpty else { return text }
         var out = text
         for pattern in whole {
-            out = pattern.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: marker)
+            out = pattern.blockingRegexReplacingMatches(in: out, withTemplate: marker)
         }
         for pattern in [bearer, valued].compactMap({ $0 }) {
-            out = pattern.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "$1\(marker)")
+            out = pattern.blockingRegexReplacingMatches(in: out, withTemplate: "$1\(marker)")
         }
         return out
     }

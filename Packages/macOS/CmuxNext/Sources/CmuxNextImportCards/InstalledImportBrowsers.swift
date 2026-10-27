@@ -11,11 +11,13 @@ public nonisolated struct InstalledImportBrowsers: Sendable {
     /// Launch Services' app for a bundle id.
     public var appURL: @Sendable (String) -> URL?
 
-    public init(appURL: @escaping @Sendable (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }) {
+    /// - Parameter appURL: Launch Services' app for a bundle id: a blocking query, so ``locate()`` runs on the system
+    ///   lane (`WorkspaceQuerying.application(withBundleIdentifier:)`).
+    public init(appURL: @escaping @Sendable (String) -> URL?) {
         self.appURL = appURL
     }
 
-    /// The installed browsers and their apps, in offer order (any thread).
+    /// The installed browsers and their apps, in offer order (blocking: off the main thread and the pool).
     public func locate() -> [(browser: ImportBrowser, app: URL)] {
         let candidates = ImportBrowser.allCases.filter { browser in
             browser.kind == .browser && !browser.refusesSessionData && [.chromium, .firefox, .safari].contains(browser.family)

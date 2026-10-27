@@ -113,6 +113,7 @@ fn touches_pinned(applied: &Applied) -> bool {
 
 impl Mux {
     /// Commit `ops` of `operation` under `mutation`'s idempotency key.
+    #[track_caller]
     pub(crate) fn state_sidebar_apply(
         &self,
         mutation: &WorkspaceMutation,

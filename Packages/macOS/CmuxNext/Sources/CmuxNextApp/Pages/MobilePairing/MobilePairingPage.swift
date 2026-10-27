@@ -1,13 +1,15 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextPages
 
 extension PageDescriptor {
     /// The Mobile Pairing page (webviews/src/pages/mobile-pairing): cmux-page://cmux.mobile-pairing/.
     /// It reads the phone host's status and runs two actions: Sign In and Settings > Accounts.
     static let mobilePairing = PageDescriptor(
-        id: "cmux.mobile-pairing", resource: "mobile-pairing", namespaces: ["cmux.mobilePairing."],
-        nativeOps: [PageNativeOp.actionRun], actions: ["palette.auth.signIn", "accounts.show"])
+        id: "cmux.mobile-pairing", resource: "mobile-pairing", processGroup: .privileged, namespaces: ["cmux.mobilePairing."],
+        nativeOps: [PageNativeOp.actionRun], actions: ["palette.auth.signIn", "accounts.show"],
+        opTables: [PageOpTable(namespace: "cmux.mobilePairing.", read: ["status", "changes"], act: ["setAllowed"])])
 }
 
 extension InternalPageID {
@@ -29,9 +31,14 @@ final class MobilePairingPageService: InternalPageProvider {
     }
 
     private weak var services: AppServices?
+    /// Each tab's page while it lives, with its `cmux.mobilePairing.` provider (for its keep reasons).
+    private var pages: [String: (page: PageWebView, provider: MobilePairingPageProvider)] = [:]
+    /// Opens a tab's page (default: `services.webUI`; tests pass their own engine).
+    private let openPage: ((PageOpenRequest) -> PageWebView?)?
 
-    init(services: AppServices) {
+    init(services: AppServices, openPage: ((PageOpenRequest) -> PageWebView?)? = nil) {
         self.services = services
+        self.openPage = openPage
     }
 
     /// Opens the page in the active window; automation (`focus` false) opens it without moving focus.
@@ -51,8 +58,34 @@ final class MobilePairingPageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),
                       PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .mobilePairing, routes: routes) else { return NSView() }
+        let request = PageOpenRequest(descriptor: .mobilePairing, routes: routes)
+        guard let page = openPage?(request) ?? services.webUI.open(request) else { return NSView() }
         native.anchor = { [weak page] in page }
+        pages[key] = (page, provider)
         return page
+    }
+
+    func tabClosed(_ key: String) { close(key) }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). A hidden
+    /// page's code cannot be scanned, and the page reads the status and mints a code when it is
+    /// made, so the code it showed is not worth its memory.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// A pairing step the person started in the page (Phone Access on or off) keeps it until it
+    /// answers: a discard would cancel the call and the page that shows its end.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        (pages[key]?.provider.personCallsInFlight ?? 0) > 0 ? [.inProgress] : []
+    }
+
+    /// The tab stays and its page goes, closed as at ``tabClosed(_:)``.
+    func viewDiscarded(_ key: String) { close(key) }
+
+    /// Ends tab `key`'s page: its routes (the `changes` watch), bridge and engine page.
+    private func close(_ key: String) {
+        guard let page = pages.removeValue(forKey: key)?.page else { return }
+        if let services { services.webUI.close(page) } else { page.close() }
     }
 }

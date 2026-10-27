@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -159,7 +160,7 @@ final class AgentDialogDesk {
             throw ControlError(code: "person_required", message: Self.text("agentDialogs.notPerson",
                 "acpmux did not take this app's person proof; answer the question in cmux"), data: ["request_id": .string(id)])
         }
-        guard let data = try? built.params.data(), let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        guard let data = try? built.params.data(), let reply = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] else {
             throw ControlError(code: "internal", message: Self.text("agentDialogs.encodeFailed", "The answer could not be encoded"))
         }
         try await respond(line, reply, id: id)

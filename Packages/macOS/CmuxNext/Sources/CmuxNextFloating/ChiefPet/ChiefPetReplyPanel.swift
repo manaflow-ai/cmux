@@ -24,6 +24,8 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         ? Glass.makeOverlayPanel(cornerRadius: ChiefPetReplyPanel.size.height / 2)
         : Glass.makePanel(style: .regular, cornerRadius: ChiefPetReplyPanel.size.height / 2, interactive: true)
     private(set) var targets: [ChiefPetReplyTarget] = []
+    /// The key down this panel is dispatching: Return's `doCommandBy` reads Command from it.
+    private(set) var dispatchingKeyDown: NSEvent?
 
     init() {
         super.init(contentRect: NSRect(origin: .zero, size: Self.size),
@@ -123,7 +125,7 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
             guard let target else { return true }
-            let command = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
+            let command = dispatchingKeyDown?.modifierFlags.contains(.command) ?? false
             onSubmit?(target, field.stringValue, command)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -132,6 +134,14 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         default:
             return false
         }
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .keyDown else { return super.sendEvent(event) }
+        let outer = dispatchingKeyDown
+        dispatchingKeyDown = event
+        defer { dispatchingKeyDown = outer }
+        super.sendEvent(event)
     }
 
     override func cancelOperation(_ sender: Any?) {

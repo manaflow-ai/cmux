@@ -37,13 +37,12 @@ final class RFBReader {
         return Array(buffer[offset ..< offset + count])
     }
 
-    /// Hands `count` contiguous bytes to `body`, then consumes them.
-    func withBytes<R>(_ count: Int, _ body: (UnsafeBufferPointer<UInt8>) throws -> R) async throws -> R {
+    /// Hands `count` buffered bytes to `body` as a slice of the read buffer (no copy;
+    /// its indices start at the slice's `startIndex`), then consumes them.
+    func withBytes<R>(_ count: Int, _ body: (ArraySlice<UInt8>) throws -> R) async throws -> R {
         try await ensure(count)
         defer { offset += count }
-        return try buffer.withUnsafeBufferPointer { all in
-            try body(UnsafeBufferPointer(rebasing: all[offset ..< offset + count]))
-        }
+        return try body(buffer[offset ..< offset + count])
     }
 
     func skip(_ count: Int) async throws {

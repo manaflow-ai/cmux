@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextPopups
+import CmuxNextWakeups
 import Foundation
 import os
 import Testing
@@ -33,6 +35,7 @@ import Testing
         let windows = WebAuthSessionWindows(
             host: host, logger: Logger(subsystem: "com.cmuxterm.tests", category: "webauth"),
             profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder(),
+            mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap(),
             present: { panels.present($0, $1) }
         )
         let broker = WebAuthSessionBroker(opener: windows)

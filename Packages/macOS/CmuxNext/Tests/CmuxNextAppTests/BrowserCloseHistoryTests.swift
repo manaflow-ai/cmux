@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextDaemon
+import CmuxNextInput
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ struct BrowserCloseHistoryTests {
     static func tracked(_ daemon: Daemon, store: @escaping @MainActor () async -> Bool = { true })
         async throws -> (BrowserTabService, MockBrowserTab, TabModel)
     {
-        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
+        let service = BrowserTabService(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), mainWork: linklessMainWork())
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: a.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "cef"))
         service.tabModel = { $0 == tab.id ? tab : nil }

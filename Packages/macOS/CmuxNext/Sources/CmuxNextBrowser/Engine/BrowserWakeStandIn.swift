@@ -22,4 +22,12 @@ public import CoreGraphics
     /// - Returns: False when the page cannot show a stand-in now (nothing covers it).
     @discardableResult
     func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool
+    /// The cap this page needs instead of the App's paint cap; nil takes the App's. A stream that
+    /// connects again before its first frame needs longer than a page that paints
+    /// (`BrowserWakeCover.reconnectCap`).
+    var wakeCoverCap: Duration? { get }
+}
+
+extension BrowserWakeStandIn {
+    public var wakeCoverCap: Duration? { nil }
 }

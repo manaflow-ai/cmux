@@ -10,7 +10,7 @@ import Testing
     private let audit = AccessibilityAudit()
 
     @Test func theNewTabPlusSaysHoldForMoreAndShowsItsShortcut() {
-        let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "zsh")], selectedID: TabID("t0")))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "zsh")], selectedID: TabID("t0")))
         #expect(strip.newTabButton.themedToolTip == Strings.newTabHoldHint)
         #expect(strip.newTabButton.accessibilityLabel() == Strings.axNewTab)
 
@@ -28,7 +28,7 @@ import Testing
 
     /// The screen bar's + makes a screen: it keeps no New Tab tooltip.
     @Test func aStripCanDropThePlusTooltip() {
-        let strip = TabStripView(model: TabStripModel())
+        let strip = TabStripView.testing(model: TabStripModel())
         strip.newTabToolTip = nil
         strip.newTabShortcut = { "⌘T" }
         strip.newTabButton.isHovered = true

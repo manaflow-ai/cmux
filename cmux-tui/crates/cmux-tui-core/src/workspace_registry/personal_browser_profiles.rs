@@ -179,6 +179,7 @@ pub(crate) fn resolve_browser_profile_id_in(
 impl WorkspaceRegistry {
     /// Resolve a browser profile by its stable id or exact display name.
     /// Stable ids take precedence; ambiguous names are rejected.
+    #[track_caller]
     pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
         let connection = self.connection.get();
         resolve_browser_profile_id_in(&connection, value)
@@ -187,6 +188,7 @@ impl WorkspaceRegistry {
     /// Create a browser profile at `index` (default last). An existing id
     /// returns the stored record with `false`, so a retried import finds
     /// the profile it made.
+    #[track_caller]
     pub fn create_browser_profile(
         &mut self,
         input: BrowserProfileInput,
@@ -228,6 +230,7 @@ impl WorkspaceRegistry {
     }
 
     /// Rename, recolor or change the icon of a browser profile.
+    #[track_caller]
     pub fn update_browser_profile(
         &mut self,
         id: &str,
@@ -299,6 +302,7 @@ impl WorkspaceRegistry {
     }
 
     /// Move a browser profile to an insertion index among browser profiles.
+    #[track_caller]
     pub fn move_browser_profile(
         &mut self,
         id: &str,
@@ -334,6 +338,7 @@ impl WorkspaceRegistry {
     /// Delete a browser profile (never `default`), clear every workspace
     /// and room default that names it, and delete its bookmarks. The app
     /// removes the engine data.
+    #[track_caller]
     pub fn delete_browser_profile(&mut self, id: &str) -> anyhow::Result<BrowserProfileDeletion> {
         validate_browser_profile_ref(id)?;
         anyhow::ensure!(

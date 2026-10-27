@@ -1,7 +1,9 @@
 @testable import CmuxNextAgentPane
 import AppKit
+import CmuxNextPages
 import CmuxNextRemoteFetch
 import CmuxNextSettings
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -154,7 +156,7 @@ struct AgentPaneMediaNoAutoActionTests {
 
         // Load video: one fetch, played from the pane's own media URL.
         let clickedVideo = await Self.ask(pane, "media.load", ["src": video], click: true)
-        #expect(Self.src(clickedVideo)?.hasPrefix("cmux-agent://pane/__media/") == true, "\(clickedVideo)")
+        #expect(Self.src(clickedVideo)?.hasPrefix("cmux-page://cmux.agent/__media/") == true, "\(clickedVideo)")
         #expect(pane.media.all == [URL(string: video)!])
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
     }
@@ -332,7 +334,7 @@ struct AgentPaneMediaNoAutoActionTests {
 
         let video = await Self.ask(pane, "media.load", ["src": clip.path])
         let played = try #require(Self.src(video))
-        #expect(played.hasPrefix("cmux-agent://pane/__media/"))
+        #expect(played.hasPrefix("cmux-page://cmux.agent/__media/"))
         let playedURL = try #require(URL(string: played))
         #expect(AgentPaneMediaGrants.shared.file(for: playedURL)?.resolvingSymlinksInPath() == clip.resolvingSymlinksInPath())
         // Neither a web page nor an image plays as media: `media.load` grants only what the pane plays.
@@ -471,11 +473,10 @@ struct AgentPaneMediaNoAutoActionTests {
     @Test(.timeLimit(.minutes(1))) func anSVGFileInTheProjectLeavesThePaneOnlyAsItsRebuiltCopy() async throws {
         let pane = try Self.pane()
         let svg = pane.project.appendingPathComponent("drawing.svg"), broken = pane.project.appendingPathComponent("broken.svg")
-        let shot = pane.project.appendingPathComponent("shot.png"), page = pane.project.appendingPathComponent("index.html")
+        let shot = pane.project.appendingPathComponent("shot.png")
         try Data(Self.hostileSVG.utf8).write(to: svg)
         try Data("<svg><a href='cmux://x'>".utf8).write(to: broken)
         try Self.png.write(to: shot)
-        try Data("<html></html>".utf8).write(to: page)
         let svgSource = "data:image/svg+xml;base64," + Data(Self.hostileSVG.utf8).base64EncodedString()
 
         // Show in Finder from the viewer: an SVG's copy, never the file the agent wrote; a PNG is still its own file.
@@ -489,7 +490,8 @@ struct AgentPaneMediaNoAutoActionTests {
         let refused = await Self.ask(pane, "file.drag", ["path": broken.path])
         #expect(Self.errorCode(refused) != nil, "\(refused)")
         // A path chip's Save As…: the same file as the drag.
-        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page)))
+        let page = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: pane.model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
         for file in [svg, shot] {
             let save = try #require(view.pathMenuItems(file.path)?.first { $0.title == AgentPaneMenuStrings.saveAs })
             let saved = await withCheckedContinuation { (done: CheckedContinuation<URL, Never>) in
@@ -511,21 +513,22 @@ struct AgentPaneMediaNoAutoActionTests {
     }
 
     @Test func nothingInAReplyNavigatesThePaneOrReachesTheAppByItself() {
-        let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
         let hostile = [
             "cmux://workspace/ws_0123456789abcdef0123456789abcdef", "cmux-dev-tag://session/abc", "https://example.com/",
             "file:///etc/passwd", "javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zy8+", "vscode://file/x",
-            "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/other.html",
+            "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/other.html", "cmux-agent://pane/index.html",
+            "cmux-page://cmux.agent/__media/0123.mp4", "cmux-page://cmux.other/index.html",
         ].compactMap(URL.init(string:))
         for url in hostile {
             // Not clicked (script, an SVG's onload, a meta refresh): cancelled in the main frame and in a frame.
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: false) == .cancel, "\(url)")
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true, mainFrame: false) == .cancel, "\(url)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: false) == .cancel, "\(url)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: true, mainFrame: false) == .cancel, "\(url)")
         }
         for text in ["file:///etc/passwd", "javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zy8+", "vscode://file/x",
-                     "cmux://auth-callback", "cmux-agent://pane/__media/0123.mp4"] {
+                     "cmux://auth-callback", "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/index.html",
+                     "cmux-page://cmux.agent/__media/0123.mp4"] {
             let url = URL(string: text)!
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true) == .cancel, "\(text)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: true) == .cancel, "\(text)")
         }
         // Even a link WebKit calls clicked opens nothing without the person's own gesture.
         let gestures = AgentPaneUserGestures()

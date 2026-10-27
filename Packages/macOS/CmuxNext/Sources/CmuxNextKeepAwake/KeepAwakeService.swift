@@ -16,16 +16,20 @@ public final class KeepAwakeService {
         didSet { if policy != oldValue { apply() } }
     }
     private var activity: (any NSObjectProtocol)?
-    private let power = PowerSourceMonitor()
     /// The setting and agent-work observation; app lifetime, cancelled never.
     private var observation: Task<Void, Never>?
 
-    /// Follows the setting, local agent work and the power source. Call once
-    /// the settings controller exists; a second call does nothing.
+    /// A service with nothing asking (the app's is ``shared``; tests make their own).
+    public init() {}
+
+    /// Whether the idle-sleep hold is taken now.
+    public var isHolding: Bool { activity != nil }
+
+    /// Follows the setting and local agent work. Call once the settings
+    /// controller exists; a second call does nothing. The power source comes
+    /// from the App (``setOnBattery(_:)``).
     public func start(settings: SettingsController, store: DaemonStore) {
         guard observation == nil else { return }
-        power.onChange = { [weak self] onBattery in self?.policy.onBattery = onBattery }
-        policy.onBattery = power.start()
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             for await (sessions, working) in ObservationStream({
@@ -37,6 +41,11 @@ public final class KeepAwakeService {
                 self?.policy = next
             }
         }
+    }
+
+    /// The Mac runs on battery now (the App's energy monitor, at launch and on each change).
+    public func setOnBattery(_ onBattery: Bool) {
+        policy.onBattery = onBattery
     }
 
     /// Phones can reach this Mac now (`MobileHostService.isServing`).

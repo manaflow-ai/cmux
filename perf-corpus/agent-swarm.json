@@ -1,0 +1,128 @@
+{
+  "schema": "cmux-perf-corpus-story/v1",
+  "id": "agent-swarm",
+  "tier": "T1",
+  "status": "planned",
+  "planned": "Recorded by the recorder (task 116) on a bench build; story task 117 adds the agent transcripts of the acpmux fake-agent harness (task 114).",
+  "description": "40 workspaces with 12 streaming agents and the sidebar ticking; typing at 8 keys/s, a workspace switch every 3 s and Cmd-T/Cmd-W pairs.",
+  "owner": "PL-perf-lab",
+  "duration_ms": 180000,
+  "layout": {
+    "snapshot": null,
+    "workspaces": 40
+  },
+  "input": {
+    "blob": null
+  },
+  "pty": [],
+  "web_archive": null,
+  "agents": [
+    {
+      "surface": "@w0.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w1.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w2.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w3.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w4.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w5.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w6.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w7.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w8.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w9.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w10.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    },
+    {
+      "surface": "@w11.p0.t1",
+      "agent": "acp-replay",
+      "transcript": null
+    }
+  ],
+  "checkpoints": [
+    {
+      "t_ms": 0,
+      "name": "layout-imported",
+      "focus": null,
+      "surfaces": null
+    },
+    {
+      "t_ms": 90000,
+      "name": "midpoint",
+      "focus": null,
+      "surfaces": null
+    },
+    {
+      "t_ms": 180000,
+      "name": "end",
+      "focus": null,
+      "surfaces": null
+    }
+  ],
+  "metrics": [
+    {
+      "name": "corpus\\.agent_swarm\\.key_to_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.agent_swarm\\.switch_to_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.agent_swarm\\.dropped_frames",
+      "unit": "count",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.agent_swarm\\.main_turn",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.agent_swarm\\.hangs",
+      "unit": "count",
+      "better": "lower"
+    }
+  ]
+}

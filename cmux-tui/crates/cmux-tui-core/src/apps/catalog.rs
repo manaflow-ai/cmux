@@ -3,6 +3,7 @@
 //! of default first-party apps. Every package passes the one manifest v2
 //! validator (`cmux-app-manifest`) before the supervisor knows it.
 
+use cmux_threads::checked::fs as files;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -195,7 +196,7 @@ impl Package {
         if !path.starts_with(&root) {
             return None;
         }
-        std::fs::read(path).ok()
+        files::read(path).ok()
     }
 
     /// `strings/<locale>.json` falling back to English.
@@ -272,7 +273,7 @@ impl Sources {
         // a user-writable directory.
         let exe_dir = std::env::current_exe()
             .ok()
-            .and_then(|exe| std::fs::canonicalize(exe).ok())
+            .and_then(|exe| files::canonicalize(exe).ok())
             .and_then(|exe| exe.parent().map(Path::to_path_buf));
         // From the daemon's own bundle; the override counts only inside it (cx-0uo1, cx-e0cs).
         let first_party = crate::first_party_dir::current();
@@ -326,7 +327,7 @@ pub fn load(sources: &Sources) -> Catalog {
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
-        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        let Ok(entries) = files::read_dir(&root) else { continue };
         let mut paths: Vec<PathBuf> = entries
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -46,6 +47,7 @@ struct PasswordManagerRouteTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-pwroute-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })

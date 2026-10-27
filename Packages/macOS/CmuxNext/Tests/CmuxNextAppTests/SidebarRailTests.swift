@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// The thin sidebar (`sidebar.style` = rail; Lawrence 2026-10-21: "make a minimal custom design for
@@ -93,7 +94,7 @@ struct SidebarRailTests {
         let model = SidebarModel()
         model.width = 260
         model.style = .rail
-        let container = SidebarContainerView(model: model)
+        let container = SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         container.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         container.restore(width: 260, presentation: .shown)
         #expect(container.widthConstraint.constant == SidebarRailLayout.Metrics().railWidth)

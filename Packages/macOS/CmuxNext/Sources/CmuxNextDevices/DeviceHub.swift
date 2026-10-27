@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+public import CmuxNextWakeups
 
 /// The signed-in user's devices as this app sees them: who is online, who
 /// shares Mac Screen, permissions, relays, requests waiting for an answer,
@@ -63,9 +64,9 @@ public final class DeviceHub {
 
     public init(client: DeviceHubClient, socket: DeviceHubSocket? = nil, secrets: any RelaySecretStore, deviceName: String,
                 platform: DevicePlatform = .macos, renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                energy: EnergyPolicySource? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
-        self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
+        self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client), energy: energy)
         vault = RelaySecretVault(store: secrets)
         self.deviceName = deviceName
         self.platform = platform
@@ -77,11 +78,11 @@ public final class DeviceHub {
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
     /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String,
-                              tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
+                              tokens: any DeviceHubAccountTokenProvider, energy: EnergyPolicySource? = nil) async throws -> DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
-                         renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
+                         renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) }, energy: energy)
     }
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave

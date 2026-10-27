@@ -1,0 +1,19 @@
+{
+  "id": "sidebar-scroll-release",
+  "tier": "T1",
+  "description": "Sidebar wheel scroll on the shipped Release flags at 1,000 workspaces with 50 ticking terminals (sidebar-rows-perf-release.py, real HID wheel through cua-driver, no debug methods): Animation Hitches total per gesture and every app update of the valid recordings, ticks off and on, and the app CPU per tick without input.",
+  "command": ["scripts/cmux-next/sidebar-rows-perf-release.py", "--repeats", "3", "--profile-runs", "0"],
+  "session": "stress",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "sidebar_scroll_release\\.[0-9]+\\.(noticks|ticks)\\.(hitch_total|app_update)", "unit": "ms",
+     "better": "lower"},
+    {"name": "sidebar_scroll_release\\.[0-9]+\\.ticks\\.app_cpu_per_tick", "unit": "us", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": [],
+  "owner": "a590",
+  "component": "Sidebar>Scroll"
+}

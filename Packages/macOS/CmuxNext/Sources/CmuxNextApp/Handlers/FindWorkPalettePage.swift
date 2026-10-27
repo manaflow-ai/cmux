@@ -41,7 +41,7 @@ struct FindWorkPalettePage {
 
     /// Every workspace the palette knows, those needing attention first (most unread first).
     func workspaceItems() -> [PaletteItem] {
-        guard let source = services.palette.sources.workspaces else { return [] }
+        guard let source = services.palettes.sources.workspaces else { return [] }
         let all = source.workspaces.enumerated().sorted { lhs, rhs in
             (lhs.element.unreadCount, -lhs.offset) > (rhs.element.unreadCount, -rhs.offset)
         }.map(\.element)

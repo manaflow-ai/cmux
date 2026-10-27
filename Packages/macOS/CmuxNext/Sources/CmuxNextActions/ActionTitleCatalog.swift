@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The localization key and English text behind each action title, read
@@ -24,7 +25,7 @@ public nonisolated struct ActionTitleCatalog: Sendable {
         var byTableKey: [String: Entry] = [:]
         var byEnglish: [String: [Entry]] = [:]
         for catalog in catalogs {
-            let file = try JSONDecoder().decode(StringCatalogFile.self, from: catalog.data)
+            let file = try JSONDecoder().blockingDecode(StringCatalogFile.self, from: catalog.data)
             for (key, string) in file.strings {
                 let english = string.localizations?[file.sourceLanguage]?.stringUnit?.value ?? key
                 let entry = Entry(table: catalog.table, key: key, english: english)

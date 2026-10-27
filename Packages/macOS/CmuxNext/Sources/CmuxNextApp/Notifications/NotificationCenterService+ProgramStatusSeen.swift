@@ -17,7 +17,7 @@ extension NotificationCenterService {
     /// agent chat's turns are acpmux's (`unread`, cx-n8ou): its pane says
     /// whether it shows the chat.
     func followViewedProgramStatus(_ store: DaemonStore) -> Task<Void, Never> {
-        Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
+        Task { [weak self] in // task-owner: start() keeps the handle in tasks
             for await _ in ObservationStream({ [weak self] in self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: []) }) {
                 guard let self else { return }
                 let viewed = self.viewedTabs(store)

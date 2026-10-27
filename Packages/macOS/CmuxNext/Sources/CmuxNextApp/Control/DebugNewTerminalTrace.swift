@@ -63,7 +63,8 @@ enum DebugNewTerminalTrace {
 
     /// Closes the traced tab the way a script does; false when it is not in the local daemon's store.
     private static func close(_ record: NewTerminalTrace.Record, _ services: AppServices) -> Bool {
-        guard let surface = record.surface, let tab = services.locateTab(surface: SurfaceID(rawValue: surface)) else { return false }
+        // The local daemon's surface index: one dictionary read (`DaemonStore.tab(surface:)`), untracked.
+        guard let surface = record.surface, let tab = services.daemon.store.tab(surface: SurfaceID(rawValue: surface)) else { return false }
         return services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id),
                                                                                  origin: .script))
     }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The `cmux.rd/1` control messages (JSON on the stream carrier's type-1
@@ -133,6 +134,6 @@ nonisolated extension RemoteRdControl: Codable {
 
     /// Parses a type-1 stream frame payload.
     public static func parse(_ json: Data) throws -> RemoteRdControl {
-        try JSONDecoder().decode(RemoteRdControl.self, from: json)
+        try JSONDecoder().blockingDecode(RemoteRdControl.self, from: json)
     }
 }

@@ -1,0 +1,19 @@
+{
+  "id": "tab-switch-stages",
+  "tier": "T1",
+  "description": "Warm tab switch stages in one pane (terminal, Chromium, WebKit, Markdown, terminal): Ctrl-Tab, Ctrl-Shift-Tab and strip clicks, per stage (apply, commit, input + commit) and the async daemon confirm (debug.tab_switch).",
+  "command": ["scripts/cmux-next/tab-switch-stages.py", "--rounds", "6"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "tab_switch_stages\\.(ctrl_tab|ctrl_shift_tab|click)\\.[A-Za-z0-9_-]+\\.(apply|commit|e2e)", "unit": "ms", "better": "lower"},
+    {"name": "tab_switch_stages\\.(ctrl_tab|ctrl_shift_tab|click)\\.confirm", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.tab_switch", "debug:debug.tab_drag"],
+  "hot_paths": ["tab-switch"],
+  "owner": "PL-switch",
+  "component": "Tabs>Switch"
+}

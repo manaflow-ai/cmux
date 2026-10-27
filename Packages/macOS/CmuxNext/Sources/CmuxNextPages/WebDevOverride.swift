@@ -13,9 +13,10 @@ import CmuxNextCompat
 ///   serves) and the agent pane (`/agent-pane/`) load their files from it and keep their own
 ///   origins, so the host bridge and trust stay the shipped ones. A request the server cannot
 ///   answer falls back to the bundled file, so a stopped server leaves the bundled pages.
-/// - `overlay`: built bundles in `pages/<resource>/`, `agent-pane/` and `webviews-app/`
-///   (`scripts/cmux-next/web-overlay.sh install` swaps them in and then writes `manifest.json`).
-///   A surface whose folder or entry is missing there keeps its bundled files.
+/// - `overlay`: built bundles in `pages/<resource>/`, `agent-pane/`, `webviews-app/` and
+///   `agent-activity/` (`scripts/cmux-next/web-overlay.sh install` swaps them in and then writes
+///   `manifest.json`), and the shared chunks they import in `pages/_shared/`
+///   (``sharedOverlayRoot``). A surface whose folder or entry is missing there keeps its bundled files.
 ///
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
@@ -89,7 +90,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// value, an empty override for invalid JSON or `"enabled": false`. `server` must pass
     /// ``PageDevServer/loopbackURL(_:)``; `overlay` is an absolute path or one under `~`.
     public static func parse(_ data: Data, home: URL) -> WebDevOverride {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               (object["enabled"] as? Bool) ?? true
         else { return WebDevOverride() }
         var value = WebDevOverride()
@@ -132,6 +133,24 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         guard FileManager.default.fileExists(atPath: root.appending(path: entry).path) else { return nil }
         return root
     }
+
+    /// The overlay's copy of the shared chunks (`pages/_shared`, served as `cmux-page://cmux.shared/`)
+    /// with symlinks resolved, nil without an overlay or when it holds no pages. Every web tree imports
+    /// React from there, so an overlay page's shared files come from the same install as the page
+    /// (`web-overlay.sh` installs a surface that imports them only with its pages).
+    /// ``PageSchemeHandler/sharedReply(to:origin:mainDocument:page:)`` serves a file from here before
+    /// the bundle's copy.
+    public var sharedOverlayRoot: URL? {
+        guard let overlay else { return nil }
+        let root = overlay.appending(path: Self.sharedOverlayPath, directoryHint: .isDirectory)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.checked.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        return root
+    }
+
+    /// Where ``sharedOverlayRoot`` sits in an overlay.
+    static let sharedOverlayPath = "pages/_shared"
 
     /// The overlay folder of `page`, served from `root` when bundled: `pages/<resource>` for a page
     /// of this module's bundle, else the bundled folder's own name (`webviews-app`, `agent-pane`).

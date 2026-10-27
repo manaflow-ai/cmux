@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -10,9 +11,9 @@ import Testing
 @MainActor @Suite(.serialized) struct TerminalHiddenResizeTests {
     @Test func layoutChangesOfAHiddenTerminalSizeNothingUntilItIsShownThenOnce() async throws {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
+        GhosttyRuntime.startedForTests()
         let io = GridRecordingTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)

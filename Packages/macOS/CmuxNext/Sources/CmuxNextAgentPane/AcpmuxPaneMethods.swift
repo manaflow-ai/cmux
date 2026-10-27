@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The frames the agent pane may send to acpmux through the host's socket (``AgentPaneTransport``).
@@ -163,7 +164,7 @@ nonisolated enum AcpmuxPaneMethods {
             let (method, id) = identity(text)
             return refuse(.duplicateKey, method, id)
         }
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else { return refuse(.invalidFrame, nil, nil) }
         let id = object["id"].flatMap(rawID)
         // Only the keys the pane sends (cx-6o0): a `result` or `error` would make a request read as
@@ -297,7 +298,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
     /// Parsed every time: a substring test would miss an escaped method name.
     public static func needsGesture(_ text: String, options: AcpmuxPermissionOptions) -> Bool {
-        needsGesture((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any], options: options)
+        needsGesture((try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any], options: options)
     }
 
     static func needsGesture(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
@@ -363,7 +364,7 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// A frame's method and raw JSON-RPC id, for a refusal.
     static func identity(_ text: String) -> (method: String?, id: String?) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (nil, nil) }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return (nil, nil) }
         return (object["method"] as? String, object["id"].flatMap(rawID))
     }
 

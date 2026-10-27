@@ -77,7 +77,7 @@ struct MacScreenDevicesKeychainTests {
         #expect(hub.relays.count == 2)
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         pages.hub = hub

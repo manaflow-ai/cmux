@@ -1,6 +1,2102 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.memory.saver.unavailable.featureOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver is a Labs feature that is turned off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة ميزة تجريبية متوقفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije je Labs funkcija koja je isključena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse er en Labs-funktion, der er slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Arbeitsspeicher-Sparmodus ist eine Labs-Funktion, die ausgeschaltet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ahorro de memoria es una función de Labs que está desactivada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'économiseur de mémoire est une fonctionnalité Labs désactivée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il risparmio memoria è una funzione Labs disattivata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバーはオフになっている Labs 機能です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំគឺជាមុខងារ Labs ដែលត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드는 꺼져 있는 Labs 기능입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing er en Labs-funksjon som er slått av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci to funkcja Labs, która jest wyłączona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A economia de memória é um recurso do Labs que está desativado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти — функция Labs, и она выключена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำเป็นฟีเจอร์ Labs ที่ปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu, kapalı olan bir Labs özelliğidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті — функція Labs, і її вимкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ là một tính năng Labs đang tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序是一项已关闭的 Labs 功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能是一項已關閉的 Labs 功能。"
+          }
+        }
+      }
+    },
+    "settings.group.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدء التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokretanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចាប់ផ្ដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchamianie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicialização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปิดใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlatma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Windows from a Saved Picture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح النوافذ من صورة محفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvaraj prozore iz sačuvane slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn vinduer fra et gemt billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster aus gespeichertem Bild öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir ventanas desde una imagen guardada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les fenêtres depuis une image enregistrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri le finestre da un'immagine salvata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存した画像からウインドウを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកបង្អួចពីរូបភាពដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 이미지로 창 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne vinduer fra et lagret bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieraj okna z zapisanego obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir janelas a partir de uma imagem salva"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать окна из сохранённого снимка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดหน้าต่างจากภาพที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereleri kayıtlı bir görüntüden aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкривати вікна зі збереженого знімка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở cửa sổ từ ảnh đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从保存的画面打开窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從儲存的畫面開啟視窗"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows appear at once when cmux opens"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر النوافذ فورًا عند فتح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozori se pojavljuju odmah kada se cmux otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduer vises med det samme, når cmux åbner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster erscheinen sofort, wenn cmux startet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ventanas aparecen al instante cuando cmux se abre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fenêtres s'affichent aussitôt à l'ouverture de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le finestre compaiono subito all'apertura di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を開くとウインドウがすぐに表示されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចបង្ហាញភ្លាមៗ ពេល cmux បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 열면 창이 바로 나타납니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduer vises med en gang når cmux åpnes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okna pojawiają się od razu po otwarciu cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As janelas aparecem na hora quando o cmux abre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окна появляются сразу при открытии cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างแสดงทันทีเมื่อเปิด cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux açılınca pencereler hemen görünür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікна з'являються одразу під час відкриття cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ hiện ngay khi cmux mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 cmux 时窗口立即出现"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 cmux 時視窗立即出現"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At quit, cmux saves a picture of each window on this Mac and shows it while the window opens next time. Pictures can show terminal text and web pages. Incognito windows, password entry and protected video are never saved. Off deletes the pictures."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإنهاء، يحفظ cmux صورة لكل نافذة على هذا الـ Mac ويعرضها أثناء فتح النافذة في المرة التالية. قد تُظهر الصور نص الطرفية وصفحات الويب. لا تُحفظ أبدًا نوافذ التصفح المتخفي أو إدخال كلمات المرور أو الفيديو المحمي. يؤدي الإيقاف إلى حذف الصور."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pri zatvaranju cmux sačuva sliku svakog prozora na ovom Macu i prikazuje je dok se prozor sljedeći put otvara. Slike mogu prikazivati tekst terminala i web stranice. Inkognito prozori, unos lozinki i zaštićeni video nikad se ne čuvaju. Isključivanje briše slike."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux afsluttes, gemmer det et billede af hvert vindue på denne Mac og viser det, mens vinduet åbner næste gang. Billederne kan vise terminaltekst og websider. Inkognitovinduer, indtastning af adgangskoder og beskyttet video gemmes aldrig. Slået fra slettes billederne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Beenden speichert cmux ein Bild jedes Fensters auf diesem Mac und zeigt es, während sich das Fenster beim nächsten Mal öffnet. Die Bilder können Terminaltext und Webseiten zeigen. Inkognito-Fenster, Passworteingaben und geschützte Videos werden nie gespeichert. Aus löscht die Bilder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al salir, cmux guarda una imagen de cada ventana en este Mac y la muestra mientras la ventana se abre la próxima vez. Las imágenes pueden mostrar texto de la terminal y páginas web. Nunca se guardan ventanas de incógnito, la escritura de contraseñas ni el vídeo protegido. Desactivado borra las imágenes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À la fermeture, cmux enregistre une image de chaque fenêtre sur ce Mac et l'affiche pendant l'ouverture de la fenêtre la fois suivante. Les images peuvent montrer du texte de terminal et des pages web. Les fenêtres de navigation privée, la saisie de mots de passe et les vidéos protégées ne sont jamais enregistrées. Désactivé supprime les images."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All'uscita, cmux salva un'immagine di ogni finestra su questo Mac e la mostra mentre la finestra si apre la volta successiva. Le immagini possono mostrare testo del terminale e pagine web. Finestre in incognito, inserimento di password e video protetti non vengono mai salvati. Disattivato elimina le immagini."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了時に cmux はこの Mac 上の各ウインドウの画像を保存し、次回ウインドウを開く間に表示します。画像にはターミナルのテキストや Web ページが含まれることがあります。シークレットウインドウ、パスワード入力、保護されたビデオは保存されません。オフにすると画像を削除します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលចាកចេញ cmux រក្សាទុករូបភាពនៃបង្អួចនីមួយៗនៅលើ Mac នេះ ហើយបង្ហាញវាពេលបង្អួចកំពុងបើកនៅលើកក្រោយ។ រូបភាពអាចបង្ហាញអត្ថបទ terminal និងទំព័របណ្ដាញ។ បង្អួចអនាមិក ការបញ្ចូលពាក្យសម្ងាត់ និងវីដេអូដែលត្រូវបានការពារ មិនដែលត្រូវបានរក្សាទុកទេ។ ការបិទនឹងលុបរូបភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료할 때 cmux는 이 Mac에서 각 창의 이미지를 저장하고, 다음에 창이 열리는 동안 보여 줍니다. 이미지에는 터미널 텍스트와 웹 페이지가 담길 수 있습니다. 시크릿 창, 암호 입력, 보호된 비디오는 저장하지 않습니다. 끄면 이미지를 삭제합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux avsluttes, lagrer det et bilde av hvert vindu på denne Macen og viser det mens vinduet åpnes neste gang. Bildene kan vise terminaltekst og nettsider. Inkognitovinduer, passordinntasting og beskyttet video lagres aldri. Av sletter bildene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy zamykaniu cmux zapisuje obraz każdego okna na tym Macu i pokazuje go podczas następnego otwierania okna. Obrazy mogą zawierać tekst terminala i strony internetowe. Okna incognito, wpisywanie haseł i chronione wideo nigdy nie są zapisywane. Wyłączenie usuwa obrazy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao sair, o cmux salva uma imagem de cada janela neste Mac e a mostra enquanto a janela abre da próxima vez. As imagens podem mostrar texto do terminal e páginas da web. Janelas anônimas, digitação de senhas e vídeo protegido nunca são salvos. Desativado apaga as imagens."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При выходе cmux сохраняет снимок каждого окна на этом Mac и показывает его, пока окно открывается в следующий раз. Снимки могут содержать текст терминала и веб-страницы. Окна инкогнито, ввод паролей и защищённое видео никогда не сохраняются. Выключение удаляет снимки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อออก cmux จะบันทึกภาพของแต่ละหน้าต่างไว้ใน Mac เครื่องนี้ และแสดงภาพนั้นระหว่างที่หน้าต่างเปิดครั้งถัดไป ภาพอาจแสดงข้อความในเทอร์มินัลและหน้าเว็บ หน้าต่างไม่ระบุตัวตน การป้อนรหัสผ่าน และวิดีโอที่มีการป้องกันจะไม่ถูกบันทึกเลย การปิดจะลบภาพเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkışta cmux bu Mac'teki her pencerenin bir görüntüsünü kaydeder ve pencere bir sonraki açılışında yüklenirken onu gösterir. Görüntüler terminal metni ve web sayfaları içerebilir. Gizli pencereler, parola girişi ve korumalı video asla kaydedilmez. Kapalı olması görüntüleri siler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час виходу cmux зберігає знімок кожного вікна на цьому Mac і показує його, поки вікно відкривається наступного разу. Знімки можуть містити текст термінала та вебсторінки. Вікна інкогніто, введення паролів і захищене відео ніколи не зберігаються. Вимкнення видаляє знімки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi thoát, cmux lưu ảnh của từng cửa sổ trên máy Mac này và hiển thị ảnh đó trong lúc cửa sổ mở ở lần sau. Ảnh có thể chứa văn bản terminal và trang web. Cửa sổ ẩn danh, thao tác nhập mật khẩu và video được bảo vệ không bao giờ được lưu. Tắt sẽ xóa các ảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出时，cmux 会在这台 Mac 上保存每个窗口的画面，并在下次窗口打开期间显示它。画面可能包含终端文本和网页。无痕窗口、密码输入和受保护的视频永远不会被保存。关闭后会删除这些画面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束時，cmux 會在這台 Mac 上儲存每個視窗的畫面，並在下次視窗開啟期間顯示。畫面可能包含終端機文字和網頁。無痕視窗、密碼輸入和受保護的影片絕不會被儲存。關閉後會刪除這些畫面。"
+          }
+        }
+      }
+    },
+    "settings.group.pointerInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pointer Input"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unos pokazivača"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markørinput"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigereingabe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada del puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie du pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input del puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポインタ入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ចូលទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포인터 입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pekerinndata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaźnik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada do ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ввод указателем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนข้อมูลด้วยตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşaretçi Girişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введення вказівником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập bằng con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指针输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標輸入"
+          }
+        }
+      }
+    },
+    "settings.input.resampleDrags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smooth Divider Drags"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سحب سلس للفواصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glatko povlačenje razdjelnika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jævn trækning af skillelinjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trennlinien gleichmäßig ziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastre suave de divisores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glissement fluide des séparateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascinamento fluido dei divisori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区切り線をなめらかにドラッグ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អូសបន្ទាត់ខណ្ឌឱ្យរលូន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구분선 부드럽게 끌기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jevn draing av skillelinjer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Płynne przeciąganie separatorów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastar divisores com suavidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плавное перетаскивание разделителей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากเส้นแบ่งอย่างลื่นไหล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayırıcıları Akıcı Sürükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плавне перетягування роздільників"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kéo đường chia mượt mà"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑拖动分隔线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑拖曳分隔線"
+          }
+        }
+      }
+    },
+    "settings.input.resampleDrags.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dragged divider or pane edge is drawn where the pointer was at each frame's time, so it moves at an even pace. Snaps and where it lands still follow the pointer exactly. Reduce Motion turns it off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرسم الفاصل أو حافة اللوحة المسحوبة حيث كان المؤشر في وقت كل إطار، فيتحرك بوتيرة منتظمة. تبقى نقاط الالتقاط ومكان التوقف تتبع المؤشر بدقة. يوقفه خيار تقليل الحركة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povučeni razdjelnik ili rub okna crta se tamo gdje je pokazivač bio u trenutku svakog kadra, pa se kreće ujednačeno. Privlačenje i mjesto gdje se zaustavi i dalje tačno prate pokazivač. Smanjenje pokreta to isključuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En skillelinje eller rudekant, du trækker, tegnes der, hvor markøren var på hvert billedes tidspunkt, så den bevæger sig i et jævnt tempo. Fastgørelse og hvor den lander følger stadig markøren præcist. Reducer bevægelse slår det fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine gezogene Trennlinie oder Bereichskante wird dort gezeichnet, wo der Zeiger zum Zeitpunkt jedes Frames war, sodass sie sich gleichmäßig bewegt. Einrasten und die Endposition folgen weiterhin genau dem Zeiger. „Bewegung reduzieren“ schaltet es aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un divisor o borde de panel arrastrado se dibuja donde estaba el puntero en el momento de cada fotograma, así se mueve a un ritmo uniforme. Los ajustes y el lugar donde queda siguen exactamente al puntero. Reducir movimiento lo desactiva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un séparateur ou un bord de panneau que vous faites glisser est dessiné là où était le pointeur au moment de chaque image, il avance donc à un rythme régulier. Les aimantations et sa position finale suivent toujours exactement le pointeur. Réduire les animations le désactive."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un divisore o un bordo di riquadro trascinato viene disegnato dove si trovava il puntatore all'istante di ogni fotogramma, così si muove a ritmo costante. Gli agganci e la posizione finale seguono comunque esattamente il puntatore. Riduci movimento lo disattiva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグ中の区切り線やペインの端は、各フレームの時刻にポインタがあった位置に描画されるため、一定のペースで動きます。スナップと最終的な位置は引き続きポインタに正確に従います。視差効果を減らすをオンにするとオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាត់ខណ្ឌ ឬគែមផ្ទាំងដែលកំពុងអូស ត្រូវបានគូរនៅកន្លែងដែលទ្រនិចស្ថិតនៅពេលនៃស៊ុមនីមួយៗ ដូច្នេះវាផ្លាស់ទីក្នុងល្បឿនស្មើ។ ការភ្ជាប់ និងទីតាំងដែលវាឈប់ នៅតែតាមទ្រនិចយ៉ាងត្រឹមត្រូវ។ កាត់បន្ថយចលនា បិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌고 있는 구분선이나 패널 가장자리는 각 프레임 시점에 포인터가 있던 위치에 그려지므로 일정한 속도로 움직입니다. 스냅과 최종 위치는 여전히 포인터를 정확히 따릅니다. 동작 줄이기를 켜면 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En skillelinje eller rutekant du drar, tegnes der pekeren var på tidspunktet for hver ramme, så den beveger seg i jevnt tempo. Festing og hvor den lander følger fortsatt pekeren nøyaktig. Reduser bevegelse slår det av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeciągany separator lub krawędź panelu jest rysowany tam, gdzie był wskaźnik w chwili każdej klatki, więc porusza się w równym tempie. Przyciąganie i miejsce, w którym się zatrzyma, nadal dokładnie podążają za wskaźnikiem. Ograniczenie ruchu wyłącza tę opcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um divisor ou borda de painel arrastado é desenhado onde o ponteiro estava no momento de cada quadro, então ele se move em ritmo constante. Os encaixes e o lugar onde ele para continuam seguindo o ponteiro com exatidão. Reduzir movimento desativa isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетаскиваемый разделитель или край панели рисуется там, где был указатель в момент каждого кадра, поэтому он движется равномерно. Привязки и место остановки по-прежнему точно следуют за указателем. «Уменьшить движение» отключает это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นแบ่งหรือขอบบานหน้าต่างที่ลากจะถูกวาดในตำแหน่งที่ตัวชี้อยู่ ณ เวลาของแต่ละเฟรม จึงเคลื่อนที่ด้วยจังหวะสม่ำเสมอ การสแนปและตำแหน่งที่หยุดยังคงตามตัวชี้อย่างแม่นยำ ลดการเคลื่อนไหวจะปิดการทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sürüklenen bir ayırıcı veya bölme kenarı, işaretçinin her karenin zamanında bulunduğu yere çizilir, böylece eşit bir hızla hareket eder. Yapışmalar ve bırakıldığı yer yine işaretçiyi tam olarak izler. Hareketi Azalt bunu kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетягуваний роздільник або край панелі малюється там, де був вказівник у момент кожного кадру, тож він рухається рівномірно. Прилипання та місце зупинки й далі точно слідують за вказівником. «Зменшити рух» вимикає це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đường chia hoặc cạnh ô đang kéo được vẽ tại vị trí con trỏ ở thời điểm của mỗi khung hình, nên nó di chuyển với nhịp đều. Điểm hít và vị trí dừng vẫn theo đúng con trỏ. Giảm chuyển động sẽ tắt tính năng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动中的分隔线或窗格边缘会绘制在每一帧时刻指针所在的位置，因此移动节奏均匀。吸附和最终位置仍然精确跟随指针。开启“减弱动态效果”时会关闭此功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖曳中的分隔線或窗格邊緣會繪製在每一影格時刻指標所在的位置，因此移動節奏均勻。吸附和最終位置仍然精確跟隨指標。開啟「減少動態效果」時會關閉此功能。"
+          }
+        }
+      }
+    },
+    "settings.input.resampleFrameAheadMs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag Prediction Ahead"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقّع السحب مسبقًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predviđanje povlačenja unaprijed"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forudsigelse af træk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugvorhersage im Voraus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predicción de arrastre adelantada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anticipation du glissement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previsione del trascinamento in anticipo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグの先読み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការទស្សន៍ទាយការអូសទុកមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌기 미리 예측"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forutsigelse av draing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyprzedzanie przeciągania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previsão antecipada do arrasto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опережающее предсказание перетаскивания"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คาดการณ์การลากล่วงหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sürükleme Tahmini"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Випереджальне передбачення перетягування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dự đoán kéo trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动超前预测"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖曳超前預測"
+          }
+        }
+      }
+    },
+    "settings.input.resampleFrameAheadMs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draws a dragged divider this far ahead of the frame, guessed from the pointer's speed. 0 does not guess ahead. Snaps and where it lands still follow the real pointer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسم الفاصل المسحوب متقدمًا على الإطار بهذا القدر، تقديرًا من سرعة المؤشر. القيمة 0 لا تتوقع مسبقًا. تبقى نقاط الالتقاط ومكان التوقف تتبع المؤشر الفعلي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crta povučeni razdjelnik ovoliko ispred kadra, procijenjeno iz brzine pokazivača. 0 ne predviđa unaprijed. Privlačenje i mjesto gdje se zaustavi i dalje prate stvarni pokazivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner en trukket skillelinje så meget foran billedet, gættet ud fra markørens hastighed. 0 gætter ikke frem. Fastgørelse og hvor den lander følger stadig den rigtige markør."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet eine gezogene Trennlinie so weit vor dem Frame, geschätzt aus der Zeigergeschwindigkeit. 0 schätzt nicht voraus. Einrasten und die Endposition folgen weiterhin dem echten Zeiger."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja un divisor arrastrado este tiempo por delante del fotograma, estimado a partir de la velocidad del puntero. 0 no se adelanta. Los ajustes y el lugar donde queda siguen al puntero real."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dessine un séparateur que vous faites glisser avec cette avance sur l'image, estimée d'après la vitesse du pointeur. 0 n'anticipe pas. Les aimantations et sa position finale suivent toujours le pointeur réel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna un divisore trascinato con questo anticipo sul fotogramma, stimato dalla velocità del puntatore. 0 non anticipa. Gli agganci e la posizione finale seguono comunque il puntatore reale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグ中の区切り線を、ポインタの速度から推定してフレームよりこの時間だけ先に描画します。0 では先読みしません。スナップと最終的な位置は引き続き実際のポインタに従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គូរបន្ទាត់ខណ្ឌដែលកំពុងអូសទៅមុខស៊ុមប៉ុណ្ណេះ ដោយប៉ាន់ស្មានពីល្បឿនទ្រនិច។ 0 មិនទស្សន៍ទាយទុកមុនទេ។ ការភ្ជាប់ និងទីតាំងដែលវាឈប់ នៅតែតាមទ្រនិចពិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌고 있는 구분선을 포인터 속도로 추정하여 프레임보다 이만큼 앞서 그립니다. 0이면 미리 예측하지 않습니다. 스냅과 최종 위치는 여전히 실제 포인터를 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner en skillelinje du drar så langt foran rammen, anslått ut fra pekerens hastighet. 0 anslår ikke fremover. Festing og hvor den lander følger fortsatt den virkelige pekeren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje przeciągany separator z takim wyprzedzeniem względem klatki, szacowanym na podstawie prędkości wskaźnika. 0 nie wyprzedza. Przyciąganie i miejsce zatrzymania nadal podążają za rzeczywistym wskaźnikiem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha um divisor arrastado com esta antecedência em relação ao quadro, estimada pela velocidade do ponteiro. 0 não antecipa. Os encaixes e o lugar onde ele para continuam seguindo o ponteiro real."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует перетаскиваемый разделитель на столько впереди кадра, оценивая по скорости указателя. 0 — без опережения. Привязки и место остановки по-прежнему следуют за реальным указателем."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วาดเส้นแบ่งที่ลากล่วงหน้าเฟรมเท่านี้ โดยประมาณจากความเร็วของตัวชี้ ค่า 0 จะไม่คาดการณ์ล่วงหน้า การสแนปและตำแหน่งที่หยุดยังคงตามตัวชี้จริง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sürüklenen ayırıcıyı, işaretçinin hızından tahmin ederek kareden bu kadar ileride çizer. 0 ileriyi tahmin etmez. Yapışmalar ve bırakıldığı yer yine gerçek işaretçiyi izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює перетягуваний роздільник на стільки попереду кадру, оцінюючи за швидкістю вказівника. 0 — без випередження. Прилипання та місце зупинки й далі слідують за справжнім вказівником."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẽ đường chia đang kéo trước khung hình một khoảng như vậy, ước tính từ tốc độ con trỏ. 0 không dự đoán trước. Điểm hít và vị trí dừng vẫn theo con trỏ thật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据指针速度推算，将拖动中的分隔线绘制在比当前帧提前这么多的位置。0 表示不提前预测。吸附和最终位置仍然跟随真实指针。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據指標速度推算，將拖曳中的分隔線繪製在比目前影格提前這麼多的位置。0 表示不提前預測。吸附和最終位置仍然跟隨真實指標。"
+          }
+        }
+      }
+    },
+    "settings.group.energy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energy Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موفّر الطاقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda energije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energiesparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de energía"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur d'énergie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio energetico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省エネルギー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីសន្សំថាមពល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에너지 절약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie energii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de energia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия энергии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดพลังงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enerji Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія енергії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm năng lượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节能模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節能模式"
+          }
+        }
+      }
+    },
+    "settings.energy.saver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energy Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موفّر الطاقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda energije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energiesparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de energía"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur d'énergie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio energetico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省エネルギー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីសន្សំថាមពល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에너지 절약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie energii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de energia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия энергии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดพลังงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enerji Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія енергії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm năng lượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节能模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節能模式"
+          }
+        }
+      }
+    },
+    "settings.energy.saver.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use less power on battery and in Low Power Mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استهلاك طاقة أقل عند استخدام البطارية وفي وضع الطاقة المنخفضة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manje energije na bateriji i u načinu niske potrošnje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug mindre strøm på batteri og i Strømsparetilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger Energie im Batteriebetrieb und im Stromsparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa menos energía con batería y en modo de bajo consumo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consomme moins sur batterie et en mode économie d'énergie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meno consumi a batteria e in modalità risparmio energetico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリー使用時と低電力モードで電力を節約"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើថាមពលតិចពេលប្រើថ្ម និងក្នុងរបៀបថាមពលទាប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배터리 사용 시와 저전력 모드에서 전력 절약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk mindre strøm på batteri og i strømsparingsmodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mniej energii na baterii i w trybie niskiego zużycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa menos energia na bateria e no Modo de Pouca Energia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меньше энергии от батареи и в режиме энергосбережения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้พลังงานน้อยลงเมื่อใช้แบตเตอรี่และในโหมดพลังงานต่ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilde ve Düşük Güç Modu'nda daha az enerji kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Менше енергії від батареї та в режимі енергозбереження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng ít điện hơn khi dùng pin và ở Chế độ nguồn điện thấp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用电池和低电量模式时更省电"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用電池和低耗電模式時更省電"
+          }
+        }
+      }
+    },
+    "settings.choice.energy.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.choice.energy.onBattery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Battery"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند استخدام البطارية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na bateriji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På batteri"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Batteriebetrieb"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con batería"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur batterie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A batteria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリー使用時"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលប្រើថ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배터리 사용 시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På batteri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na baterii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na bateria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "От батареи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อใช้แบตเตอรี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Від батареї"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi dùng pin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用电池时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用電池時"
+          }
+        }
+      }
+    },
+    "settings.energy.saver.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energy Saver makes cmux use less power: web pages you are not using draw at most 30 frames per second, background animations stop, and timers and background checks run less often. Typing, scrolling and the animations you start are not slowed. Automatic: on in Low Power Mode, on battery below 20%, or on battery while the Mac is hot. On Battery: on whenever the Mac runs on battery. Always: always on. Off: never on. Turn Off for Now keeps it off until you plug in the Mac or change this setting."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجعل موفّر الطاقة cmux يستهلك طاقة أقل: صفحات الويب التي لا تستخدمها ترسم 30 إطارًا في الثانية كحد أقصى، وتتوقف الرسوم المتحركة في الخلفية، وتعمل المؤقتات وعمليات التحقق في الخلفية بوتيرة أقل. لا تتباطأ الكتابة والتمرير والرسوم المتحركة التي تبدأها. تلقائي: يعمل في وضع الطاقة المنخفضة، أو عند استخدام البطارية بشحن أقل من 20%، أو عند استخدام البطارية وجهاز Mac ساخن. عند استخدام البطارية: يعمل كلما عمل جهاز Mac على البطارية. دائمًا: يعمل دائمًا. إيقاف: لا يعمل أبدًا. يُبقيه «إيقاف الآن» متوقفًا حتى توصل جهاز Mac بالكهرباء أو تغيّر هذا الإعداد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda energije smanjuje potrošnju energije u cmuxu: web stranice koje ne koristite crtaju najviše 30 sličica u sekundi, pozadinske animacije se zaustavljaju, a tajmeri i pozadinske provjere rade rjeđe. Kucanje, pomicanje i animacije koje pokrenete nisu usporeni. Automatski: uključeno u načinu niske potrošnje, na bateriji ispod 20 posto ili na bateriji dok je Mac vruć. Na bateriji: uključeno kad god Mac radi na bateriji. Uvijek: uvijek uključeno. Isključeno: nikad uključeno. „Isključi zasad“ ga drži isključenim dok ne priključite Mac na napajanje ili ne promijenite ovu postavku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparer får cmux til at bruge mindre strøm: websider, du ikke bruger, tegner højst 30 billeder i sekundet, baggrundsanimationer stopper, og timere og baggrundstjek kører sjældnere. Indtastning, rulning og animationer, du selv starter, bliver ikke langsommere. Automatisk: til i Strømsparetilstand, på batteri under 20 procent eller på batteri, mens Mac'en er varm. På batteri: til, når Mac'en kører på batteri. Altid: altid til. Fra: aldrig til. Slå fra indtil videre holder den slået fra, indtil du sætter Mac'en til strøm eller ændrer denne indstilling."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Energiesparmodus senkt den Energieverbrauch von cmux: Webseiten, die du gerade nicht benutzt, zeichnen höchstens 30 Bilder pro Sekunde, Hintergrundanimationen halten an, und Timer sowie Prüfungen im Hintergrund laufen seltener. Tippen, Scrollen und Animationen, die du startest, werden nicht verlangsamt. Automatisch: an im Stromsparmodus, im Batteriebetrieb unter 20 Prozent oder im Batteriebetrieb, wenn der Mac heiß ist. Im Batteriebetrieb: an, sobald der Mac mit Batterie läuft. Immer: immer an. Aus: nie an. Vorerst ausschalten hält ihn aus, bis du den Mac ans Stromnetz anschließt oder diese Einstellung änderst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ahorro de energía hace que cmux consuma menos: las páginas web que no estás usando dibujan como máximo 30 fotogramas por segundo, las animaciones de fondo se detienen y los temporizadores y las comprobaciones en segundo plano se ejecutan con menos frecuencia. Escribir, desplazarte y las animaciones que inicias no se ralentizan. Automático: activado en modo de bajo consumo, con batería por debajo del 20 por ciento o con batería cuando el Mac está caliente. Con batería: activado siempre que el Mac funcione con batería. Siempre: siempre activado. Desactivado: nunca activado. Desactivar por ahora lo mantiene desactivado hasta que conectes el Mac a la corriente o cambies este ajuste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'économiseur d'énergie réduit la consommation de cmux : les pages web que vous n'utilisez pas affichent au plus 30 images par seconde, les animations d'arrière-plan s'arrêtent, et les minuteurs et vérifications en arrière-plan s'exécutent moins souvent. La saisie, le défilement et les animations que vous lancez ne sont pas ralentis. Automatique : activé en mode économie d'énergie, sur batterie sous 20 %, ou sur batterie quand le Mac chauffe. Sur batterie : activé dès que le Mac fonctionne sur batterie. Toujours : toujours activé. Désactivé : jamais activé. Désactiver pour l'instant le garde désactivé jusqu'à ce que vous branchiez le Mac ou modifiiez ce réglage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il risparmio energetico fa consumare meno a cmux: le pagine web che non stai usando disegnano al massimo 30 fotogrammi al secondo, le animazioni in background si fermano e i timer e i controlli in background vengono eseguiti meno spesso. La digitazione, lo scorrimento e le animazioni che avvii non vengono rallentati. Automatico: attivo in modalità risparmio energetico, a batteria sotto il 20 per cento o a batteria quando il Mac è caldo. A batteria: attivo ogni volta che il Mac funziona a batteria. Sempre: sempre attivo. Disattivato: mai attivo. Disattiva per ora lo tiene spento finché non colleghi il Mac all'alimentazione o cambi questa impostazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省エネルギーは cmux の消費電力を抑えます。使っていない Web ページは毎秒最大 30 フレームで描画され、バックグラウンドのアニメーションは止まり、タイマーとバックグラウンドの確認の実行回数が減ります。入力、スクロール、自分で始めたアニメーションは遅くなりません。自動: 低電力モードのとき、バッテリー残量が 20% 未満のバッテリー使用時、または Mac が熱いときのバッテリー使用時にオン。バッテリー使用時: Mac がバッテリーで動作しているときは常にオン。常に: 常にオン。オフ: オンになりません。「今はオフにする」を使うと、Mac を電源に接続するかこの設定を変更するまでオフのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីសន្សំថាមពលធ្វើឱ្យ cmux ប្រើថាមពលតិចជាងមុន៖ ទំព័របណ្ដាញដែលអ្នកមិនកំពុងប្រើគូរបានយ៉ាងច្រើន 30 ស៊ុមក្នុងមួយវិនាទី ចលនាផ្ទៃខាងក្រោយឈប់ ហើយកម្មវិធីកំណត់ម៉ោង និងការពិនិត្យផ្ទៃខាងក្រោយដំណើរការតិចដងជាងមុន។ ការវាយ ការរំកិល និងចលនាដែលអ្នកចាប់ផ្ដើមមិនយឺតទេ។ ស្វ័យប្រវត្តិ៖ បើកក្នុងរបៀបថាមពលទាប ពេលប្រើថ្មក្រោម 20% ឬពេលប្រើថ្មខណៈ Mac ក្ដៅ។ ពេលប្រើថ្ម៖ បើករាល់ពេលដែល Mac ដំណើរការដោយថ្ម។ ជានិច្ច៖ បើកជានិច្ច។ បិទ៖ មិនដែលបើក។ «បិទសិន» រក្សាវាឱ្យបិទ រហូតដល់អ្នកដោតឆ្នាំងសាក Mac ឬប្ដូរការកំណត់នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에너지 절약은 cmux의 전력 사용을 줄입니다. 사용하지 않는 웹 페이지는 초당 최대 30프레임으로 그려지고, 백그라운드 애니메이션은 멈추며, 타이머와 백그라운드 확인은 덜 자주 실행됩니다. 입력, 스크롤, 직접 시작한 애니메이션은 느려지지 않습니다. 자동: 저전력 모드일 때, 배터리 잔량이 20% 미만인 배터리 사용 중, 또는 Mac이 뜨거울 때의 배터리 사용 중에 켜집니다. 배터리 사용 시: Mac이 배터리로 작동할 때마다 켜집니다. 항상: 항상 켜집니다. 끔: 켜지지 않습니다. '지금은 끄기'를 사용하면 Mac을 전원에 연결하거나 이 설정을 바꿀 때까지 꺼진 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energisparing får cmux til å bruke mindre strøm: nettsider du ikke bruker, tegner høyst 30 bilder per sekund, bakgrunnsanimasjoner stopper, og tidtakere og bakgrunnssjekker kjører sjeldnere. Skriving, rulling og animasjoner du starter selv, blir ikke tregere. Automatisk: på i strømsparingsmodus, på batteri under 20 prosent eller på batteri mens Macen er varm. På batteri: på når Macen går på batteri. Alltid: alltid på. Av: aldri på. Slå av inntil videre holder den avslått til du kobler Macen til strøm eller endrer denne innstillingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie energii sprawia, że cmux zużywa mniej energii: strony internetowe, których nie używasz, rysują najwyżej 30 klatek na sekundę, animacje w tle się zatrzymują, a liczniki czasu i sprawdzenia w tle działają rzadziej. Pisanie, przewijanie i animacje, które uruchamiasz, nie zwalniają. Automatycznie: włączone w trybie niskiego zużycia energii, na baterii poniżej 20 procent lub na baterii, gdy Mac jest gorący. Na baterii: włączone zawsze, gdy Mac działa na baterii. Zawsze: zawsze włączone. Wyłączone: nigdy się nie włącza. „Wyłącz na razie” utrzymuje je wyłączone, dopóki nie podłączysz Maca do zasilania lub nie zmienisz tego ustawienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A economia de energia faz o cmux gastar menos energia: páginas da web que você não está usando desenham no máximo 30 quadros por segundo, as animações em segundo plano param e os temporizadores e as verificações em segundo plano rodam com menos frequência. Digitar, rolar e as animações que você inicia não ficam mais lentos. Automático: ativado no Modo de Pouca Energia, na bateria abaixo de 20 por cento ou na bateria quando o Mac está quente. Na bateria: ativado sempre que o Mac usa a bateria. Sempre: sempre ativado. Desativado: nunca ativado. Desativar por enquanto o mantém desativado até você conectar o Mac à energia ou mudar este ajuste."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия энергии снижает энергопотребление cmux: веб-страницы, которыми вы не пользуетесь, рисуют не более 30 кадров в секунду, фоновые анимации останавливаются, а таймеры и фоновые проверки выполняются реже. Ввод текста, прокрутка и анимации, которые вы запускаете, не замедляются. Автоматически: включается в режиме энергосбережения, от батареи при заряде ниже 20% или от батареи, когда Mac горячий. От батареи: включается всегда, когда Mac работает от батареи. Всегда: всегда включена. Выкл.: никогда не включается. «Выключить пока» оставляет её выключенной, пока вы не подключите Mac к питанию или не измените эту настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดพลังงานทำให้ cmux ใช้พลังงานน้อยลง: หน้าเว็บที่คุณไม่ได้ใช้จะวาดได้ไม่เกิน 30 เฟรมต่อวินาที แอนิเมชันเบื้องหลังจะหยุด และตัวจับเวลากับการตรวจสอบเบื้องหลังจะทำงานน้อยลง การพิมพ์ การเลื่อน และแอนิเมชันที่คุณเริ่มเองจะไม่ช้าลง อัตโนมัติ: เปิดในโหมดพลังงานต่ำ เมื่อใช้แบตเตอรี่ที่เหลือต่ำกว่า 20% หรือเมื่อใช้แบตเตอรี่ขณะที่ Mac ร้อน เมื่อใช้แบตเตอรี่: เปิดทุกครั้งที่ Mac ใช้แบตเตอรี่ ทุกครั้ง: เปิดตลอดเวลา ปิด: ไม่เปิดเลย ปิดไว้ก่อน จะปิดไว้จนกว่าคุณจะเสียบสายชาร์จ Mac หรือเปลี่ยนการตั้งค่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enerji Tasarrufu, cmux'un daha az enerji kullanmasını sağlar: kullanmadığınız web sayfaları saniyede en fazla 30 kare çizer, arka plan animasyonları durur, zamanlayıcılar ve arka plan denetimleri daha seyrek çalışır. Yazma, kaydırma ve sizin başlattığınız animasyonlar yavaşlamaz. Otomatik: Düşük Güç Modu'nda, pilde %20'nin altındayken veya pildeyken Mac ısındığında açık. Pilde: Mac pille çalıştığı her zaman açık. Her Zaman: her zaman açık. Kapalı: hiçbir zaman açılmaz. Şimdilik Kapat, Mac'i prize takana veya bu ayarı değiştirene kadar kapalı tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія енергії зменшує енергоспоживання cmux: вебсторінки, якими ви не користуєтеся, малюють щонайбільше 30 кадрів на секунду, фонові анімації зупиняються, а таймери та фонові перевірки виконуються рідше. Введення тексту, прокручування та анімації, які ви запускаєте, не сповільнюються. Автоматично: вмикається в режимі енергозбереження, від батареї із зарядом нижче 20% або від батареї, коли Mac гарячий. Від батареї: вмикається щоразу, коли Mac працює від батареї. Завжди: завжди ввімкнена. Вимк.: ніколи не вмикається. «Вимкнути поки що» тримає її вимкненою, доки ви не підключите Mac до живлення або не зміните це налаштування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm năng lượng giúp cmux dùng ít điện hơn: các trang web bạn không dùng chỉ vẽ tối đa 30 khung hình mỗi giây, hoạt ảnh nền dừng lại, và bộ hẹn giờ cùng các lần kiểm tra nền chạy thưa hơn. Gõ phím, cuộn và các hoạt ảnh bạn tự bắt đầu không bị chậm lại. Tự động: bật ở Chế độ nguồn điện thấp, khi dùng pin dưới 20%, hoặc khi dùng pin lúc máy Mac nóng. Khi dùng pin: bật mỗi khi máy Mac chạy bằng pin. Luôn luôn: luôn bật. Tắt: không bao giờ bật. Tắt tạm thời giữ nó tắt cho đến khi bạn cắm sạc máy Mac hoặc thay đổi cài đặt này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节能模式让 cmux 更省电：你未在使用的网页每秒最多绘制 30 帧，后台动画停止，计时器和后台检查运行得更少。打字、滚动和你启动的动画不会变慢。自动：在低电量模式下、使用电池且电量低于 20% 时，或使用电池且 Mac 发热时开启。使用电池时：只要 Mac 使用电池运行就开启。始终：始终开启。关闭：从不开启。“暂时关闭”会让它保持关闭，直到你为 Mac 接通电源或更改此设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節能模式讓 cmux 更省電：你未在使用的網頁每秒最多繪製 30 幀，背景動畫停止，計時器和背景檢查執行得更少。打字、捲動和你啟動的動畫不會變慢。自動：在低耗電模式下、使用電池且電量低於 20% 時，或使用電池且 Mac 發熱時開啟。使用電池時：只要 Mac 使用電池運作就開啟。永遠：永遠開啟。關閉：永不開啟。「暫時關閉」會讓它保持關閉，直到你為 Mac 接上電源或更改此設定。"
+          }
+        }
+      }
+    },
     "settings.deviceHub.url": {
       "extractionState": "manual",
       "localizations": {
@@ -141945,127 +144041,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبقى علامات التبويب على جانبي علامة التبويب المعروضة محمّلة وتعمل، فيكون التبديل إليها فوريًا. القيمة 0 توقفه. ضغط الذاكرة ووضع الطاقة المنخفضة يوقفانه."
+            "value": "تبقى علامات التبويب على جانبي علامة التبويب المعروضة محمّلة وتعمل، فيكون التبديل إليها فوريًا. القيمة 0 توقفه. ضغط الذاكرة ووضع الطاقة المنخفضة وموفّر الطاقة توقفه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kartice sa svake strane prikazane kartice ostaju učitane i rade, pa je prelazak na njih trenutan. 0 isključuje. Nedostatak memorije i način niske potrošnje ga isključuju."
+            "value": "Kartice sa svake strane prikazane kartice ostaju učitane i rade, pa je prelazak na njih trenutan. 0 isključuje. Nedostatak memorije, način niske potrošnje i Ušteda energije ga isključuju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Faner på hver side af den viste fane forbliver indlæst og kørende, så skift til dem sker med det samme. 0 slår det fra. Hukommelsespres og strømbesparelse slår det fra."
+            "value": "Faner på hver side af den viste fane forbliver indlæst og kørende, så skift til dem sker med det samme. 0 slår det fra. Hukommelsespres, strømbesparelse og Energisparer slår det fra."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tabs links und rechts vom angezeigten Tab bleiben geladen und aktiv, sodass der Wechsel sofort erfolgt. 0 schaltet es aus. Speicherdruck und Stromsparmodus schalten es aus."
+            "value": "Tabs links und rechts vom angezeigten Tab bleiben geladen und aktiv, sodass der Wechsel sofort erfolgt. 0 schaltet es aus. Speicherdruck, Stromsparmodus und Energiesparmodus schalten es aus."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+            "value": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure, Low Power Mode and Energy Saver turn it off."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las pestañas a cada lado de la pestaña visible siguen cargadas y en marcha, así cambiar a ellas es instantáneo. 0 lo desactiva. La presión de memoria y el modo de bajo consumo lo desactivan."
+            "value": "Las pestañas a cada lado de la pestaña visible siguen cargadas y en marcha, así cambiar a ellas es instantáneo. 0 lo desactiva. La presión de memoria, el modo de bajo consumo y el Ahorro de energía lo desactivan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les onglets de chaque côté de l’onglet affiché restent chargés et actifs : y passer est instantané. 0 désactive. La pression mémoire et le mode Économie d’énergie le désactivent."
+            "value": "Les onglets de chaque côté de l’onglet affiché restent chargés et actifs : y passer est instantané. 0 désactive. La pression mémoire, le mode Économie d’énergie et l’Économiseur d’énergie le désactivent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le schede ai lati della scheda mostrata restano caricate e attive, così passarci è immediato. 0 lo disattiva. La pressione sulla memoria e la modalità di risparmio energetico lo disattivano."
+            "value": "Le schede ai lati della scheda mostrata restano caricate e attive, così passarci è immediato. 0 lo disattiva. La pressione sulla memoria, la modalità di risparmio energetico e Risparmio energetico lo disattivano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "表示中のタブの両側にあるタブを読み込んだまま動かし続けるので、すぐに切り替えられます。0でオフ。メモリ不足時と低電力モードではオフになります。"
+            "value": "表示中のタブの両側にあるタブを読み込んだまま動かし続けるので、すぐに切り替えられます。0でオフ。メモリ不足時、低電力モード、省エネルギーではオフになります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងនៅសងខាងផ្ទាំងដែលកំពុងបង្ហាញ នៅតែផ្ទុក និងដំណើរការ ដូច្នេះការប្ដូរទៅវាគឺភ្លាមៗ។ 0 បិទវា។ សម្ពាធអង្គចងចាំ និងរបៀបថាមពលទាបបិទវា។"
+            "value": "ផ្ទាំងនៅសងខាងផ្ទាំងដែលកំពុងបង្ហាញ នៅតែផ្ទុក និងដំណើរការ ដូច្នេះការប្ដូរទៅវាគឺភ្លាមៗ។ 0 បិទវា។ សម្ពាធអង្គចងចាំ របៀបថាមពលទាប និងកម្មវិធីសន្សំថាមពលបិទវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "표시 중인 탭 양쪽의 탭이 로드된 채로 실행되므로 즉시 전환할 수 있습니다. 0이면 끕니다. 메모리 부족과 저전력 모드에서는 꺼집니다."
+            "value": "표시 중인 탭 양쪽의 탭이 로드된 채로 실행되므로 즉시 전환할 수 있습니다. 0이면 끕니다. 메모리 부족, 저전력 모드, 에너지 절약에서는 꺼집니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Faner på hver side av den viste fanen forblir lastet og kjører, så bytte til dem skjer umiddelbart. 0 slår det av. Minnepress og strømsparingsmodus slår det av."
+            "value": "Faner på hver side av den viste fanen forblir lastet og kjører, så bytte til dem skjer umiddelbart. 0 slår det av. Minnepress, strømsparingsmodus og Energisparing slår det av."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Karty po obu stronach wyświetlanej karty pozostają wczytane i działają, więc przełączanie na nie jest natychmiastowe. 0 wyłącza. Brak pamięci i tryb niskiego zużycia energii wyłączają tę funkcję."
+            "value": "Karty po obu stronach wyświetlanej karty pozostają wczytane i działają, więc przełączanie na nie jest natychmiastowe. 0 wyłącza. Brak pamięci, tryb niskiego zużycia energii i Oszczędzanie energii wyłączają tę funkcję."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As abas de cada lado da aba exibida continuam carregadas e em execução, então alternar para elas é instantâneo. 0 desativa. Pressão de memória e o Modo de Pouca Energia desativam."
+            "value": "As abas de cada lado da aba exibida continuam carregadas e em execução, então alternar para elas é instantâneo. 0 desativa. Pressão de memória, o Modo de Pouca Energia e a Economia de energia desativam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки по обе стороны от показанной остаются загруженными и работают, поэтому переход на них мгновенный. 0 выключает. При нехватке памяти и в режиме энергосбережения выключается."
+            "value": "Вкладки по обе стороны от показанной остаются загруженными и работают, поэтому переход на них мгновенный. 0 выключает. При нехватке памяти, в режиме энергосбережения и при Экономии энергии выключается."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บทั้งสองข้างของแท็บที่แสดงอยู่จะยังโหลดและทำงานอยู่ จึงสลับไปได้ทันที 0 คือปิด แรงกดดันหน่วยความจำและโหมดพลังงานต่ำจะปิดฟีเจอร์นี้"
+            "value": "แท็บทั้งสองข้างของแท็บที่แสดงอยู่จะยังโหลดและทำงานอยู่ จึงสลับไปได้ทันที 0 คือปิด แรงกดดันหน่วยความจำ โหมดพลังงานต่ำ และประหยัดพลังงานจะปิดฟีเจอร์นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gösterilen sekmenin iki yanındaki sekmeler yüklü ve çalışır kalır, böylece onlara geçiş anında olur. 0 kapatır. Bellek baskısı ve Düşük Güç Modu bunu kapatır."
+            "value": "Gösterilen sekmenin iki yanındaki sekmeler yüklü ve çalışır kalır, böylece onlara geçiş anında olur. 0 kapatır. Bellek baskısı, Düşük Güç Modu ve Enerji Tasarrufu bunu kapatır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки з обох боків від показаної лишаються завантаженими й працюють, тож перехід на них миттєвий. 0 вимикає. Брак пам’яті та режим енергозбереження вимикають це."
+            "value": "Вкладки з обох боків від показаної лишаються завантаженими й працюють, тож перехід на них миттєвий. 0 вимикає. Брак пам’яті, режим енергозбереження та Економія енергії вимикають це."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các tab ở hai bên tab đang hiển thị vẫn được tải và chạy, nên chuyển sang chúng diễn ra tức thì. 0 để tắt. Áp lực bộ nhớ và Chế độ nguồn điện thấp sẽ tắt tính năng này."
+            "value": "Các tab ở hai bên tab đang hiển thị vẫn được tải và chạy, nên chuyển sang chúng diễn ra tức thì. 0 để tắt. Áp lực bộ nhớ, Chế độ nguồn điện thấp và Tiết kiệm năng lượng sẽ tắt tính năng này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "当前标签页两侧的标签页保持加载并运行，切换过去即刻完成。0 为关闭。内存压力和低电量模式下会关闭。"
+            "value": "当前标签页两侧的标签页保持加载并运行，切换过去即刻完成。0 为关闭。内存压力、低电量模式和节能模式下会关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "目前分頁兩側的分頁保持載入並執行，切換過去即刻完成。0 為關閉。記憶體壓力與低耗電模式下會關閉。"
+            "value": "目前分頁兩側的分頁保持載入並執行，切換過去即刻完成。0 為關閉。記憶體壓力、低耗電模式與節能模式下會關閉。"
           }
         }
       }
@@ -169800,6 +171896,1578 @@
           "stringUnit": {
             "state": "translated",
             "value": "標籤頁"
+          }
+        }
+      }
+    },
+    "settings.group.terminalTyping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kucanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indtastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tippen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escritura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Digitazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការវាយអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriving"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pisanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Digitação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gõ phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Echo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الصدى التنبؤي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prediktivni eho"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forudsigende ekko"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorausschauendes Echo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco predictivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écho prédictif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco predittivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "予測エコー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេកូព្យាករណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "예측 에코"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prediktivt ekko"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewidywane echo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco preditivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предиктивное эхо"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงสะท้อนเชิงคาดการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tahmini yankı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передбачуване відлуння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phản hồi dự đoán"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "预测回显"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預測回顯"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show typing before a slow echo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الكتابة قبل وصول الصدى البطيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži kucanje prije sporog eha"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis indtastning før et langsomt ekko"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Getipptes vor einem langsamen Echo zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar lo escrito antes de un eco lento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la saisie avant un écho lent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la digitazione prima di un'eco lenta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遅いエコーの前に入力を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការវាយមុនអេកូយឺត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "느린 에코 전에 입력 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis skriving før et tregt ekko"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj pisanie przed wolnym echem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar a digitação antes de um eco lento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать ввод до медленного эха"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสิ่งที่พิมพ์ก่อนเสียงสะท้อนที่ช้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yavaş yankıdan önce yazılanı göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати введення до повільного відлуння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện nội dung gõ trước phản hồi chậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回显较慢时先显示输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回顯較慢時先顯示輸入"
+          }
+        }
+      }
+    },
+    "settings.choice.predictiveEchoRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote and Slow Terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفيات البعيدة والبطيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljeni i spori terminali"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksterne og langsomme terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernte und langsame Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminales remotos y lentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaux distants et lents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminali remoti e lenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リモートと遅いターミナル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណាល់ពីចម្ងាយ និងយឺត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 및 느린 터미널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksterne og trege terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale zdalne i wolne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminais remotos e lentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённые и медленные терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลระยะไกลและที่ช้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak ve yavaş terminaller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалені та повільні термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal từ xa và chậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程和较慢的终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端和較慢的終端機"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض الأحرف التي تكتبها قبل أن يعيدها المضيف، باهتة ومسطّرة، كما يفعل mosh. يختفي التخمين الذي لا يؤكده الصدى. الطرفيات البعيدة والبطيئة: للطرفيات على جهاز آخر وعندما يكون الصدى بطيئًا. دائمًا: في كل طرفية. لا يعمل أبدًا أثناء تركيب طريقة الإدخال للنص أو عند تشغيل الإدخال الآمن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje znakove koje kucate prije nego što ih host vrati kao eho, zatamnjene i podvučene, kao mosh. Pretpostavka koju eho ne potvrdi nestaje. Udaljeni i spori terminali: za terminale na drugom računaru i kada je eho spor. Uvijek: u svakom terminalu. Nikad dok metoda unosa sastavlja tekst ili je sigurni unos uključen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser de tegn, du skriver, før værten sender dem tilbage som ekko, nedtonet og understreget, som mosh gør. Et gæt, som ekkoet ikke bekræfter, forsvinder. Eksterne og langsomme terminaler: for terminaler på en anden maskine og når ekkoet er langsomt. Altid: i alle terminaler. Aldrig mens en inputmetode sammensætter tekst, eller sikker indtastning er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die getippten Zeichen gedimmt und unterstrichen an, bevor der Host sie als Echo zurückgibt, wie mosh. Eine Vermutung, die das Echo nicht bestätigt, verschwindet. Entfernte und langsame Terminals: für Terminals auf einem anderen Rechner und bei langsamem Echo. Immer: in jedem Terminal. Nie, während eine Eingabemethode Text zusammensetzt oder die sichere Eingabe aktiv ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra los caracteres que escribes antes de que el host los devuelva como eco, atenuados y subrayados, como hace mosh. Una suposición que el eco no confirma desaparece. Terminales remotos y lentos: para terminales en otra máquina y cuando el eco es lento. Siempre: en todos los terminales. Nunca mientras un método de entrada compone texto o la entrada segura está activada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche les caractères que vous tapez avant que l'hôte ne les renvoie en écho, estompés et soulignés, comme mosh. Une supposition que l'écho ne confirme pas disparaît. Terminaux distants et lents : pour les terminaux sur une autre machine et quand l'écho est lent. Toujours : dans chaque terminal. Jamais pendant qu'une méthode de saisie compose du texte ou que la saisie sécurisée est activée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i caratteri digitati prima che l'host li restituisca come eco, attenuati e sottolineati, come fa mosh. Un'ipotesi che l'eco non conferma scompare. Terminali remoti e lenti: per i terminali su un'altra macchina e quando l'eco è lenta. Sempre: in ogni terminale. Mai mentre un metodo di input compone testo o l'input sicuro è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホストがエコーを返す前に、入力した文字を mosh と同じように薄い色と下線で表示します。エコーで確認されなかった予測は消えます。リモートと遅いターミナル: 別のマシンのターミナルと、エコーが遅いとき。常に: すべてのターミナル。入力メソッドで文字を変換中のときやセキュア入力がオンのときは表示しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញតួអក្សរដែលអ្នកវាយ មុនពេលម៉ាស៊ីនបម្រើបញ្ជូនអេកូមកវិញ ដោយព្រាលៗ និងមានបន្ទាត់ពីក្រោម ដូច mosh ។ ការទស្សន៍ទាយដែលអេកូមិនបញ្ជាក់ នឹងបាត់ទៅ។ ទែមីណាល់ពីចម្ងាយ និងយឺត៖ សម្រាប់ទែមីណាល់នៅលើម៉ាស៊ីនផ្សេង និងពេលអេកូយឺត។ ជានិច្ច៖ នៅក្នុងទែមីណាល់ទាំងអស់។ មិនដែលបង្ហាញ ពេលវិធីបញ្ចូលកំពុងផ្សំអត្ថបទ ឬពេលបើកការបញ្ចូលសុវត្ថិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 에코를 보내기 전에 입력한 문자를 mosh처럼 흐리게 밑줄을 그어 표시합니다. 에코로 확인되지 않은 추측은 사라집니다. 원격 및 느린 터미널: 다른 컴퓨터의 터미널과 에코가 느릴 때. 항상: 모든 터미널에서. 입력기가 글자를 조합하는 중이거나 보안 입력이 켜져 있을 때는 표시하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser tegnene du skriver før verten sender dem tilbake som ekko, nedtonet og understreket, slik mosh gjør. En gjetning som ekkoet ikke bekrefter, forsvinner. Eksterne og trege terminaler: for terminaler på en annen maskin og når ekkoet er tregt. Alltid: i alle terminaler. Aldri mens en inndatametode setter sammen tekst eller sikker inndata er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje wpisywane znaki, przyciemnione i podkreślone, zanim host odeśle je jako echo, tak jak mosh. Przypuszczenie, którego echo nie potwierdzi, znika. Terminale zdalne i wolne: dla terminali na innym komputerze i gdy echo jest wolne. Zawsze: w każdym terminalu. Nigdy, gdy metoda wprowadzania składa tekst lub włączone jest bezpieczne wprowadzanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra os caracteres que você digita antes que o host os devolva como eco, esmaecidos e sublinhados, como o mosh faz. Um palpite que o eco não confirma desaparece. Terminais remotos e lentos: para terminais em outra máquina e quando o eco é lento. Sempre: em todos os terminais. Nunca enquanto um método de entrada compõe texto ou a entrada segura está ativada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает набранные символы до того, как хост вернёт их эхом, приглушёнными и подчёркнутыми, как это делает mosh. Догадка, которую эхо не подтвердило, исчезает. Удалённые и медленные терминалы: для терминалов на другом компьютере и при медленном эхе. Всегда: в любом терминале. Никогда, пока метод ввода составляет текст или включён безопасный ввод."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงอักขระที่คุณพิมพ์ก่อนที่โฮสต์จะส่งเสียงสะท้อนกลับมา โดยแสดงแบบจางและขีดเส้นใต้ เหมือนที่ mosh ทำ การคาดเดาที่เสียงสะท้อนไม่ยืนยันจะหายไป เทอร์มินัลระยะไกลและที่ช้า: สำหรับเทอร์มินัลบนเครื่องอื่นและเมื่อเสียงสะท้อนช้า เสมอ: ในทุกเทอร์มินัล ไม่แสดงเลยขณะที่วิธีป้อนข้อมูลกำลังประกอบข้อความหรือเปิดการป้อนข้อมูลแบบปลอดภัยอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazdığınız karakterleri, ana makine yankı olarak geri göndermeden önce mosh gibi soluk ve altı çizili gösterir. Yankının doğrulamadığı bir tahmin kaybolur. Uzak ve yavaş terminaller: başka bir makinedeki terminaller için ve yankı yavaş olduğunda. Her zaman: her terminalde. Bir giriş yöntemi metin oluştururken veya güvenli giriş açıkken asla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує введені символи до того, як хост поверне їх відлунням, приглушеними та підкресленими, як це робить mosh. Здогад, який відлуння не підтвердило, зникає. Віддалені та повільні термінали: для терміналів на іншому комп'ютері та коли відлуння повільне. Завжди: у кожному терміналі. Ніколи, поки метод введення складає текст або ввімкнено безпечне введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện các ký tự bạn gõ trước khi máy chủ gửi phản hồi về, mờ và gạch chân, như mosh. Một dự đoán mà phản hồi không xác nhận sẽ biến mất. Terminal từ xa và chậm: cho terminal trên máy khác và khi phản hồi chậm. Luôn luôn: trong mọi terminal. Không bao giờ khi bộ gõ đang soạn văn bản hoặc khi bật nhập liệu an toàn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主机回显之前，像 mosh 一样以暗淡并带下划线的方式显示你输入的字符。回显未确认的猜测会消失。远程和较慢的终端：用于另一台机器上的终端以及回显较慢时。始终：在所有终端中。输入法正在组字或安全输入开启时从不显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主機回顯之前，像 mosh 一樣以暗淡並帶底線的方式顯示你輸入的字元。回顯未確認的猜測會消失。遠端和較慢的終端機：用於另一台機器上的終端機以及回顯較慢時。永遠：在所有終端機中。輸入法正在組字或安全輸入開啟時從不顯示。"
+          }
+        }
+      }
+    },
+    "settings.group.memorySaver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsspeicher-Sparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能"
+          }
+        }
+      }
+    },
+    "settings.memory.saver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsspeicher-Sparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能"
+          }
+        }
+      }
+    },
+    "settings.memory.saver.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frees memory from hidden pages, conversations and workspaces you are not using. Moderate waits longest, Maximum frees memory soonest, and Balanced is in between. Off frees memory only when the Mac runs low on memory. Browser tabs follow Hibernate Hidden Tabs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحرر الذاكرة من الصفحات والمحادثات ومساحات العمل المخفية التي لا تستخدمها. «معتدل» ينتظر أطول مدة، و«أقصى» يحرر الذاكرة في أسرع وقت، و«متوازن» بينهما. «إيقاف» يحرر الذاكرة فقط عندما تنخفض ذاكرة جهاز Mac. تتبع علامات تبويب المتصفح إعداد «إسبات علامات التبويب المخفية»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobađa memoriju od skrivenih stranica, razgovora i radnih prostora koje ne koristite. Umjereno čeka najduže, Maksimalno oslobađa memoriju najranije, a Uravnoteženo je između. Isključeno oslobađa memoriju samo kada Macu ponestaje memorije. Kartice preglednika prate postavku Hiberniraj skrivene kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør hukommelse fra skjulte sider, samtaler og arbejdsområder, du ikke bruger. Moderat venter længst, Maksimal frigør hukommelse hurtigst, og Afbalanceret ligger midt imellem. Fra frigør kun hukommelse, når Mac'en er ved at løbe tør for hukommelse. Browserfaner følger Dvale for skjulte faner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt Speicher von ausgeblendeten Seiten, Unterhaltungen und Arbeitsbereichen frei, die du nicht nutzt. Moderat wartet am längsten, Maximal gibt Speicher am frühesten frei, und Ausgewogen liegt dazwischen. Aus gibt Speicher nur frei, wenn der Arbeitsspeicher des Mac knapp wird. Browser-Tabs folgen der Einstellung Verborgene Tabs ruhen lassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria de las páginas, conversaciones y espacios de trabajo ocultos que no usas. Moderado espera más tiempo, Máximo libera memoria antes y Equilibrado queda en medio. Desactivado solo libera memoria cuando al Mac le queda poca memoria. Las pestañas del navegador siguen el ajuste Hibernar pestañas ocultas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libère la mémoire des pages, conversations et espaces de travail masqués que vous n'utilisez pas. Modéré attend le plus longtemps, Maximal libère la mémoire le plus tôt, et Équilibré se situe entre les deux. Désactivé ne libère la mémoire que lorsque le Mac en manque. Les onglets du navigateur suivent le réglage Mettre en veille les onglets masqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria da pagine, conversazioni e spazi di lavoro nascosti che non usi. Moderato attende più a lungo, Massimo libera memoria prima e Bilanciato sta nel mezzo. Disattivato libera memoria solo quando il Mac ne ha poca. Le schede del browser seguono l'impostazione Iberna le schede nascoste."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使っていない非表示のページ、会話、ワークスペースのメモリを解放します。「控えめ」は最も長く待ち、「最大」は最も早くメモリを解放し、「バランス」はその中間です。「オフ」は Mac のメモリが不足したときだけメモリを解放します。ブラウザのタブは「非表示のタブを休止」の設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចេញអង្គចងចាំពីទំព័រ ការសន្ទនា និងកន្លែងធ្វើការដែលលាក់ ដែលអ្នកមិនកំពុងប្រើ។ «មធ្យម» រង់ចាំយូរបំផុត «អតិបរមា» បញ្ចេញអង្គចងចាំឆាប់បំផុត ហើយ «តុល្យភាព» នៅចន្លោះ។ «បិទ» បញ្ចេញអង្គចងចាំតែពេល Mac ខ្វះអង្គចងចាំប៉ុណ្ណោះ។ ផ្ទាំងកម្មវិធីរុករកធ្វើតាមការកំណត់ «ផ្អាកផ្ទាំងដែលលាក់»។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하지 않는 숨겨진 페이지, 대화, 작업 공간의 메모리를 확보합니다. '보통'은 가장 오래 기다리고, '최대'는 가장 빨리 메모리를 확보하며, '균형'은 그 중간입니다. '끔'은 Mac의 메모리가 부족할 때만 메모리를 확보합니다. 브라우저 탭은 '숨겨진 탭 휴면' 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør minne fra skjulte sider, samtaler og arbeidsområder du ikke bruker. Moderat venter lengst, Maksimal frigjør minne raskest, og Balansert ligger imellom. Av frigjør bare minne når Macen har lite minne igjen. Nettleserfaner følger Dvale for skjulte faner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalnia pamięć ukrytych stron, rozmów i obszarów roboczych, których nie używasz. Umiarkowane czeka najdłużej, Maksymalne zwalnia pamięć najwcześniej, a Zrównoważone jest pośrodku. Wyłączone zwalnia pamięć tylko wtedy, gdy Macowi zaczyna jej brakować. Karty przeglądarki działają według ustawienia Usypiaj ukryte karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memória de páginas, conversas e espaços de trabalho ocultos que você não está usando. Moderado espera mais, Máximo libera memória mais cedo e Equilibrado fica no meio. Desativado só libera memória quando o Mac está com pouca memória. As abas do navegador seguem o ajuste Hibernar abas ocultas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождает память скрытых страниц, разговоров и рабочих пространств, которыми вы не пользуетесь. «Умеренная» ждёт дольше всего, «Максимальная» освобождает память раньше всего, а «Сбалансированная» — посередине. «Выкл.» освобождает память, только когда у Mac заканчивается память. Вкладки браузера следуют настройке «Усыплять скрытые вкладки»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คืนหน่วยความจำจากหน้า การสนทนา และพื้นที่ทำงานที่ซ่อนอยู่ซึ่งคุณไม่ได้ใช้ ปานกลางรอนานที่สุด สูงสุดคืนหน่วยความจำเร็วที่สุด และสมดุลอยู่ตรงกลาง ปิดจะคืนหน่วยความจำเฉพาะเมื่อ Mac มีหน่วยความจำเหลือน้อย แท็บเบราว์เซอร์ทำตามการตั้งค่าพักแท็บที่ซ่อนอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanmadığınız gizli sayfaların, konuşmaların ve çalışma alanlarının belleğini boşaltır. Ilımlı en uzun bekler, Maksimum belleği en erken boşaltır, Dengeli ise ikisinin arasındadır. Kapalı, belleği yalnızca Mac'in belleği azaldığında boşaltır. Tarayıcı sekmeleri Gizli Sekmeleri Uyut ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняє пам’ять прихованих сторінок, розмов і робочих просторів, якими ви не користуєтеся. «Помірна» чекає найдовше, «Максимальна» звільняє пам’ять найраніше, а «Збалансована» — посередині. «Вимк.» звільняє пам’ять, лише коли Mac бракує пам’яті. Вкладки браузера дотримуються налаштування «Присипляти приховані вкладки»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng bộ nhớ từ các trang, cuộc trò chuyện và không gian làm việc bị ẩn mà bạn không dùng. Vừa phải chờ lâu nhất, Tối đa giải phóng bộ nhớ sớm nhất, và Cân bằng ở giữa. Tắt chỉ giải phóng bộ nhớ khi máy Mac sắp hết bộ nhớ. Tab trình duyệt theo cài đặt Ngủ đông tab bị ẩn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放你未在使用的隐藏页面、对话和工作区占用的内存。“适中”等待最久，“最大”最早释放内存，“平衡”介于两者之间。“关闭”只在 Mac 内存不足时释放内存。浏览器标签页遵循“休眠隐藏的标签页”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放你未在使用的隱藏頁面、對話和工作區占用的記憶體。「適中」等待最久，「最大」最早釋放記憶體，「平衡」介於兩者之間。「關閉」只在 Mac 記憶體不足時釋放記憶體。瀏覽器標籤頁遵循「休眠隱藏的標籤頁」設定。"
+          }
+        }
+      }
+    },
+    "settings.memory.saver.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free memory from content you are not using"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الذاكرة من المحتوى الذي لا تستخدمه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobađa memoriju od sadržaja koji ne koristite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør hukommelse fra indhold, du ikke bruger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speicher von Inhalten freigeben, die du nicht nutzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria del contenido que no usas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libère la mémoire du contenu que vous n'utilisez pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria dai contenuti che non usi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使っていないコンテンツのメモリを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចេញអង្គចងចាំពីខ្លឹមសារដែលអ្នកមិនកំពុងប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하지 않는 콘텐츠의 메모리 확보"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør minne fra innhold du ikke bruker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalnia pamięć zajętą przez nieużywane treści"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memória do conteúdo que você não está usando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать память от неиспользуемого содержимого"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คืนหน่วยความจำจากเนื้อหาที่คุณไม่ได้ใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanmadığınız içeriklerin belleğini boşaltır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти пам’ять від вмісту, яким ви не користуєтеся"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng bộ nhớ từ nội dung bạn không dùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放你未在使用的内容占用的内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放你未在使用的內容占用的記憶體"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.conservative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderate"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معتدل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umjereno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modéré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មធ្យម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umiarkowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Умеренная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปานกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ilımlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помірна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vừa phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適中"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوازن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uravnoteženo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbalanceret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equilibrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équilibré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilanciato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バランス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តុល្យភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "균형"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balansert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrównoważone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equilibrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбалансированная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สมดุล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dengeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збалансована"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cân bằng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平衡"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平衡"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.aggressive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Massimo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksymalne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
           }
         }
       }

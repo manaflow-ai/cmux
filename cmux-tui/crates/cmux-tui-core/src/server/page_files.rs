@@ -9,6 +9,7 @@
 //! is served: path segments are plain names (no `..`, no dot files, no
 //! percent escapes), and the resolved file must stay under the bundle root.
 
+use cmux_threads::checked::fs as files;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -16,12 +17,12 @@ use std::path::{Path, PathBuf};
 /// Largest request head the listener reads before it decides. Browsers send
 /// every 127.0.0.1 cookie (cookies ignore the port), so a handshake head can
 /// be large; a bigger one gets 431.
-pub(super) const REQUEST_HEAD_MAX_BYTES: usize = 64 * 1024;
+pub(crate) const REQUEST_HEAD_MAX_BYTES: usize = 64 * 1024;
 /// Largest page file served.
 const PAGE_FILE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// One parsed HTTP request head.
-pub(super) struct RequestHead {
+pub(crate) struct RequestHead {
     pub method: String,
     pub target: String,
     headers: Vec<(String, String)>,
@@ -37,6 +38,12 @@ impl RequestHead {
             .collect()
     }
 
+    /// Every field name, in order, as sent.
+    #[cfg(any(test, feature = "fuzz"))]
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.headers.iter().map(|(name, _)| name.as_str())
+    }
+
     /// Whether the request asks for a WebSocket upgrade.
     pub fn is_websocket_upgrade(&self) -> bool {
         self.values("upgrade").iter().any(|value| value.trim().eq_ignore_ascii_case("websocket"))
@@ -46,14 +53,27 @@ impl RequestHead {
 /// Reads up to the end of the request head. Returns every byte read (the
 /// head and anything after it, for the WebSocket handshake to replay) and the
 /// parsed head; None for a closed, oversized or malformed request.
-pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, RequestHead)> {
+pub(crate) fn read_request_head(
+    stream: &mut (impl Read + Write),
+) -> Option<(Vec<u8>, RequestHead)> {
+    read_request_head_within(stream, REQUEST_HEAD_MAX_BYTES)
+}
+
+/// `read_request_head` with the head limit `max_bytes`, past which it answers
+/// 431. Generic over the stream and the limit so the fuzz target (cmux-tui/fuzz
+/// `page_request_head`) drives it with in-memory reads and reaches the 431
+/// branch with short inputs.
+pub(crate) fn read_request_head_within(
+    stream: &mut (impl Read + Write),
+    max_bytes: usize,
+) -> Option<(Vec<u8>, RequestHead)> {
     let mut bytes = Vec::with_capacity(1024);
     let mut chunk = [0u8; 4096];
     let end = loop {
         if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
             break end;
         }
-        if bytes.len() >= REQUEST_HEAD_MAX_BYTES {
+        if bytes.len() >= max_bytes {
             let _ = stream.write_all(&plain(431, "Request Header Fields Too Large"));
             return None;
         }
@@ -64,16 +84,58 @@ pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, Requ
         bytes.extend_from_slice(chunk.get(..read)?);
     };
     let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
+    // Lines end only at CRLF; a bare CR or LF, or any other control byte but
+    // HTAB, makes the head malformed (RFC 9112 sections 2.2 and 5.5).
+    if head
+        .split("\r\n")
+        .any(|line| line.bytes().any(|byte| byte.is_ascii_control() && byte != b'\t'))
+    {
+        return None;
+    }
     let mut lines = head.split("\r\n");
+    // request-line = method SP request-target SP HTTP-version, exactly three
+    // parts (RFC 9112 section 3); the method is a token (RFC 9110 section 9.1).
+    // Chromium's embedded server splits it into the same three parts
+    // (net/server/http_server.cc, ParseHeaders).
     let mut request_line = lines.next()?.split(' ');
-    let method = request_line.next()?.to_owned();
-    let target = request_line.next()?.to_owned();
+    let (method, target, version) =
+        (request_line.next()?, request_line.next()?, request_line.next()?);
+    if request_line.next().is_some()
+        || !is_token(method)
+        || target.is_empty()
+        || !is_http1_version(version)
+    {
+        return None;
+    }
     let mut headers = Vec::new();
     for line in lines {
+        // field-line = field-name ":" OWS field-value OWS (RFC 9112 section 5).
+        // The name is a token, so whitespace before the colon (section 5.1)
+        // or at the line start, obs-fold (section 5.2), makes it malformed.
         let (name, value) = line.split_once(':')?;
-        headers.push((name.trim().to_owned(), value.trim().to_owned()));
+        if !is_token(name) {
+            return None;
+        }
+        headers.push((name.to_owned(), value.trim_matches([' ', '\t']).to_owned()));
     }
-    Some((bytes, RequestHead { method, target, headers }))
+    let parsed = RequestHead { method: method.to_owned(), target: target.to_owned(), headers };
+    Some((bytes, parsed))
+}
+
+/// A non-empty run of `tchar` (RFC 9110 section 5.6.2).
+fn is_token(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+}
+
+/// `HTTP/1.` and one digit (RFC 9112 section 2.3): the listener speaks
+/// HTTP/1.x only.
+fn is_http1_version(version: &str) -> bool {
+    version
+        .strip_prefix("HTTP/1.")
+        .is_some_and(|minor| minor.len() == 1 && minor.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Answers one page file request and closes the connection.
@@ -105,6 +167,7 @@ fn respond(
     };
     let Ok(body) = read_file(&file) else { return plain(404, "Not Found") };
     let content_type = content_type(&file);
+    let body = with_shared_chunks_here(body, content_type);
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
          X-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\n\
@@ -166,14 +229,44 @@ fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     if !segments.iter().all(|segment| plain(segment)) {
         return None;
     }
-    let root = root.canonicalize().ok()?;
+    let root = files::canonicalize(root).ok()?;
     let file = segments.iter().fold(root.clone(), |path, segment| path.join(segment));
-    let file = file.canonicalize().ok()?;
-    (file.starts_with(&root) && file.is_file()).then_some(file)
+    let file = files::canonicalize(file).ok()?;
+    let is_file = files::metadata(&file).is_ok_and(|metadata| metadata.is_file());
+    (file.starts_with(&root) && is_file).then_some(file)
+}
+
+/// The origin the app's pages import their shared chunks from (build-pages.mjs
+/// `SHARED_ORIGIN`, CmuxNextPages `PageID.sharedOrigin`), and the path of the
+/// same chunks (the bundle's `_shared/`) on this listener.
+const SHARED_CHUNK_ORIGIN: &[u8] = b"cmux-page://cmux.shared/";
+const SHARED_CHUNK_PATH: &[u8] = b"/pages/_shared/";
+
+/// `body` with every shared chunk URL of a page or script named by its path
+/// on this listener, since a browser has no cmux-page:// scheme; any other
+/// file unchanged.
+fn with_shared_chunks_here(body: Vec<u8>, content_type: &str) -> Vec<u8> {
+    let names_chunks =
+        content_type.starts_with("text/html") || content_type.starts_with("text/javascript");
+    if !names_chunks || !body.windows(SHARED_CHUNK_ORIGIN.len()).any(|w| w == SHARED_CHUNK_ORIGIN) {
+        return body;
+    }
+    let mut served = Vec::with_capacity(body.len());
+    let mut rest = body.as_slice();
+    while let Some(at) =
+        rest.windows(SHARED_CHUNK_ORIGIN.len()).position(|w| w == SHARED_CHUNK_ORIGIN)
+    {
+        let (before, after) = rest.split_at(at);
+        served.extend_from_slice(before);
+        served.extend_from_slice(SHARED_CHUNK_PATH);
+        rest = after.get(SHARED_CHUNK_ORIGIN.len()..).unwrap_or_default();
+    }
+    served.extend_from_slice(rest);
+    served
 }
 
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+    let file = files::open(path)?;
     if file.metadata()?.len() > PAGE_FILE_MAX_BYTES {
         return Err(std::io::Error::other("page file too large"));
     }
@@ -223,11 +316,14 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
         return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
-    let resolved = std::fs::canonicalize(&exe).ok();
+    let resolved = files::canonicalize(&exe).ok();
     [Some(exe), resolved]
         .into_iter()
         .flatten()
         .filter_map(|exe| exe.parent()?.parent().map(PathBuf::from))
         .flat_map(|root| PAGE_BUNDLE_LAYOUTS.map(|layout| root.join(layout)))
-        .find(|dir| dir.is_dir())
+        .find(|dir| files::metadata(dir).is_ok_and(|metadata| metadata.is_dir()))
 }
+
+#[cfg(test)]
+mod tests;

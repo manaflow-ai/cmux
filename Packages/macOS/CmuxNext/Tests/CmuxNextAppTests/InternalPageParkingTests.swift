@@ -25,9 +25,9 @@ import WebKit
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "notes.md"),
-                                                                     TabItem(id: TabID("other"), title: "Other")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "notes.md"),
+                                                                             TabItem(id: TabID("other"), title: "Other")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         window.orderFrontRegardless()

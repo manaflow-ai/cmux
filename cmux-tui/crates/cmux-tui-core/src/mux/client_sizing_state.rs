@@ -90,9 +90,146 @@ pub(super) struct TerminalSizingEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct SizingMember {
     pub(super) client: u64,
+    /// The view whose viewport is the participant's: the connection's most
+    /// recently active view of the terminal (its geometry view).
     pub(super) placement: SurfaceId,
+    /// Every placement of the terminal this participant views: only
+    /// `placement`, except under [`ParticipantScheme::PerApp`], where all of a
+    /// connection's views of one terminal are leases of one participant.
+    pub(super) views: BTreeSet<SurfaceId>,
+    /// A view that joined before its first report while the geometry view
+    /// had one: it becomes the geometry view with that report, so the
+    /// participant never drops to no viewport between attach and report.
+    pub(super) joining: Option<SurfaceId>,
     /// Relay sub-view name; `None` for the connection's own view.
     pub(super) view: Option<String>,
+}
+
+impl SizingMember {
+    pub(super) fn own_view(client: u64, placement: SurfaceId) -> Self {
+        Self { client, placement, views: BTreeSet::from([placement]), joining: None, view: None }
+    }
+
+    pub(super) fn sub_view(client: u64, placement: SurfaceId, view: &str) -> Self {
+        Self {
+            client,
+            placement,
+            views: BTreeSet::from([placement]),
+            joining: None,
+            view: Some(view.to_string()),
+        }
+    }
+
+    /// Makes `placement` one of this participant's views and its geometry
+    /// view (a view's attach, claim or input is activity).
+    pub(super) fn focus_view(&mut self, placement: SurfaceId) {
+        self.views.insert(placement);
+        self.placement = placement;
+        self.joining = None;
+    }
+
+    /// Adds a newly attached view. With a report (or when the geometry view
+    /// has none) it is the geometry view now; else it is once it reports.
+    pub(super) fn join_view(&mut self, placement: SurfaceId, reports: impl Fn(SurfaceId) -> bool) {
+        if reports(placement) || !reports(self.placement) {
+            self.focus_view(placement);
+        } else {
+            self.views.insert(placement);
+            self.joining = Some(placement);
+        }
+    }
+
+    /// Notes that `placement` reported: a joining view takes the geometry.
+    pub(super) fn note_report(&mut self, placement: SurfaceId) {
+        if self.joining == Some(placement) {
+            self.focus_view(placement);
+        }
+    }
+
+    /// The geometry view `placement` released its report: another view with
+    /// a report, if any, takes the geometry.
+    pub(super) fn yield_geometry(
+        &mut self,
+        placement: SurfaceId,
+        reports: impl Fn(SurfaceId) -> bool,
+    ) {
+        if self.placement != placement {
+            return;
+        }
+        if let Some(next) =
+            self.views.iter().copied().find(|view| *view != placement && reports(*view))
+        {
+            self.focus_view(next);
+        }
+    }
+
+    /// Leaves `placement` out of this participant. When it was the geometry
+    /// view, the next view with a report (else any view) takes its place.
+    /// Returns whether the participant still has a view.
+    pub(super) fn leave_view(
+        &mut self,
+        placement: SurfaceId,
+        reports: impl Fn(SurfaceId) -> bool,
+    ) -> bool {
+        self.views.remove(&placement);
+        if self.joining == Some(placement) {
+            self.joining = None;
+        }
+        if self.placement == placement
+            && let Some(next) = self
+                .views
+                .iter()
+                .copied()
+                .find(|view| reports(*view))
+                .or_else(|| self.views.first().copied())
+        {
+            self.placement = next;
+        }
+        !self.views.is_empty()
+    }
+}
+
+/// The daemon feature that makes every view of one connection a lease of one
+/// participant per terminal (schemas/features/features.d/terminalSizingPerApp.json).
+pub(crate) const PARTICIPANT_PER_APP_FEATURE: &str = "terminalSizingPerApp";
+
+/// How a connection's own views of one terminal map to sizing participants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ParticipantScheme {
+    /// One participant per (connection, placement): `c<client>`, or
+    /// `c<client>@<placement>` for a projected placement.
+    #[default]
+    PerPlacement,
+    /// One participant per (connection, terminal), `c<client>`: an app's
+    /// views are leases of one client, as tmux sizes per client and not per
+    /// pane. The participant's viewport is its most recently active view's;
+    /// its other views crop, pan or scale the grid as another device's do.
+    PerApp,
+}
+
+impl ParticipantScheme {
+    /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable wins).
+    pub(crate) fn from_env() -> Self {
+        Self::from_enabled(cmux_features::listed_in_env(PARTICIPANT_PER_APP_FEATURE))
+    }
+
+    pub(crate) fn from_enabled(per_app: bool) -> Self {
+        if per_app { Self::PerApp } else { Self::PerPlacement }
+    }
+
+    /// Host participant id of one client's own view of one terminal placement.
+    pub(crate) fn view_participant_id(
+        self,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+        client: u64,
+    ) -> String {
+        match self {
+            Self::PerApp => format!("c{client}"),
+            Self::PerPlacement if placement == runtime => format!("c{client}"),
+            Self::PerPlacement => format!("c{client}@{placement}"),
+        }
+    }
 }
 
 /// Identity of one control connection for the sizing engine.
@@ -110,6 +247,7 @@ pub(crate) struct ClientSizingIdentity {
 
 /// Where a size-state publication goes after the sizing lock is released.
 pub(super) struct SizeStatePublication {
+    pub(super) scheme: ParticipantScheme,
     pub(super) runtime: SurfaceId,
     pub(super) placements: Vec<SurfaceId>,
     pub(super) state: Arc<TerminalSizingState>,
@@ -140,12 +278,11 @@ pub(super) struct ClientSizingState {
     pub(super) host_policy: Option<host_policy::HostSizePolicy>,
     /// The settings revision `host_policy` was read at.
     pub(super) host_policy_revision: Option<u64>,
-}
-
-/// Host participant id of one client's view of one terminal placement. The
-/// runtime's own placement keeps the short `c<client>` form.
-pub(crate) fn view_participant_id(runtime: SurfaceId, placement: SurfaceId, client: u64) -> String {
-    if placement == runtime { format!("c{client}") } else { format!("c{client}@{placement}") }
+    /// How own views map to participants, fixed for the daemon's life.
+    pub(super) participant_scheme: ParticipantScheme,
+    /// Counts [`Self::visible_terminals`] publications, so an older one never
+    /// replaces a newer one (the Kitty share, `mux/kitty_share.rs`).
+    pub(super) visibility_publications: u64,
 }
 
 pub(super) fn entry_owns(
@@ -165,6 +302,54 @@ pub(crate) fn sub_view_participant_id(client: u64, view: &str) -> String {
 }
 
 impl ClientSizingState {
+    pub(super) fn with_scheme(participant_scheme: ParticipantScheme) -> Self {
+        Self { participant_scheme, ..Self::default() }
+    }
+
+    /// Host participant id of `client`'s own view of `placement`.
+    pub(super) fn view_participant_id(
+        &self,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+        client: u64,
+    ) -> String {
+        self.participant_scheme.view_participant_id(runtime, placement, client)
+    }
+
+    /// Whether `client` has a retained report for `placement`.
+    pub(super) fn has_report(&self, placement: SurfaceId, client: u64) -> bool {
+        self.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client))
+    }
+
+    /// `client`'s retained report for `placement` as an engine viewport.
+    pub(super) fn view_report(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+    ) -> Option<TerminalGridSize> {
+        self.surfaces
+            .get(&placement)
+            .and_then(|viewers| viewers.get(&client))
+            .map(|&(cols, rows)| TerminalGridSize::new(cols, rows))
+    }
+
+    /// The own-view member that `client`'s view of `placement` belongs to:
+    /// its participant's current member, or a new one with only this view.
+    pub(super) fn own_view_member(
+        &self,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+        client: u64,
+    ) -> SizingMember {
+        let id = self.view_participant_id(runtime, placement, client);
+        self.terminal_sizing
+            .get(&runtime)
+            .and_then(|entry| entry.members.get(&id))
+            .filter(|member| member.view.is_none() && member.client == client)
+            .cloned()
+            .unwrap_or_else(|| SizingMember::own_view(client, placement))
+    }
+
     pub(super) fn next_size_order(&mut self) -> u64 {
         self.next_size_order = self.next_size_order.wrapping_add(1).max(1);
         self.next_size_order
@@ -213,17 +398,19 @@ impl ClientSizingState {
     }
 
     /// Whether this client's view of `surface` currently sets a dimension of
-    /// the runtime's shared grid.
+    /// the runtime's shared grid: its participant is an owner and `surface`
+    /// is that participant's geometry view.
     pub(super) fn owns_terminal_geometry(
         &self,
         runtime: SurfaceId,
         surface: SurfaceId,
         client: u64,
     ) -> bool {
-        let id = view_participant_id(runtime, surface, client);
-        self.terminal_sizing
-            .get(&runtime)
-            .is_some_and(|entry| entry.engine.state().owners.contains(&id))
+        let id = self.view_participant_id(runtime, surface, client);
+        self.terminal_sizing.get(&runtime).is_some_and(|entry| {
+            entry.engine.state().owners.contains(&id)
+                && entry.members.get(&id).is_none_or(|member| member.placement == surface)
+        })
     }
 
     /// Connections whose views or relay sub-views set a dimension of the grid.
@@ -244,12 +431,28 @@ impl ClientSizingState {
         }
     }
 
+    /// The terminal runtimes a client's size lease shows now (a live size
+    /// report of one of their placements), with this publication's order.
+    /// O(reported placements): the panes on screen, not the session.
+    pub(super) fn visible_terminals(&mut self) -> (u64, HashSet<SurfaceId>) {
+        self.visibility_publications += 1;
+        let visible = self
+            .surfaces
+            .iter()
+            .filter(|(_, reporters)| !reporters.is_empty())
+            .filter_map(|(placement, _)| self.terminal_runtime_by_placement.get(placement))
+            .copied()
+            .collect();
+        (self.visibility_publications, visible)
+    }
+
     pub(super) fn take_size_state_publications(&mut self) -> Vec<SizeStatePublication> {
         std::mem::take(&mut self.pending_size_states)
             .into_iter()
             .filter_map(|runtime| {
                 let entry = self.terminal_sizing.get(&runtime)?;
                 Some(SizeStatePublication {
+                    scheme: self.participant_scheme,
                     runtime,
                     placements: entry.placements.iter().copied().collect(),
                     state: Arc::new(entry.engine.state().clone()),

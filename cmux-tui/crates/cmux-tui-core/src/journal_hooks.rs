@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
@@ -7,21 +8,15 @@ use std::io::Write;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(all(test, target_os = "linux"))]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(any(not(unix), all(test, target_os = "linux")))]
-use std::process::Command;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+#[cfg(any(not(unix), all(test, target_os = "linux")))]
+use cmux_process::Command;
+use cmux_process::Stdio;
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
-#[cfg(windows)]
-use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -127,7 +122,7 @@ struct WindowsHookJob {
 
 #[cfg(windows)]
 impl WindowsHookJob {
-    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+    fn assign(child: &cmux_process::Child) -> std::io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -170,7 +165,7 @@ impl WindowsHookJob {
         }
     }
 
-    fn terminate_and_wait(&self, child: &mut std::process::Child) {
+    fn terminate_and_wait(&self, child: &mut cmux_process::Child) {
         self.terminate_descendants();
         let _ = child.kill();
         let _ = child.wait();
@@ -178,7 +173,7 @@ impl WindowsHookJob {
 }
 
 #[cfg(windows)]
-fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
+fn resume_suspended_hook_child(child: &cmux_process::Child) -> std::io::Result<()> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -306,12 +301,15 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     }
     let weak = Arc::downgrade(mux);
     let thread_runtime = runtime.clone();
-    let spawned =
-        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-session-journal-hooks",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
             run_dispatcher(weak, &mut claim, thread_runtime);
-        });
+        },
+    );
     if let Err(error) = spawned {
         runtime.finish();
         mux.release_journal_hook_dispatcher();
@@ -372,9 +370,13 @@ fn start_delivery_workers(
         let completions = completion_tx.clone();
         let journal = journal.clone();
         let runtime = runtime.clone();
-        let spawned = std::thread::Builder::new()
-            .name(format!("journal-hook-worker-{index}"))
-            .spawn(move || run_delivery_worker(&jobs, &completions, &journal, &runtime));
+        let spawned = cmux_threads::spawn(
+            format!("journal-hook-worker-{index}"),
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                run_delivery_worker(&jobs, &completions, &journal, &runtime);
+            },
+        );
         match spawned {
             Ok(handle) => {
                 capacity += 1;
@@ -395,7 +397,7 @@ fn run_delivery_worker(
     runtime: &JournalHookRuntime,
 ) {
     loop {
-        let job = match jobs.lock().recover_poison().recv() {
+        let job = match waits::recv(&jobs.lock().recover_poison()) {
             Ok(job) => job,
             Err(_) => return,
         };
@@ -598,7 +600,7 @@ impl DeliveryWorkers {
         let sender = std::mem::replace(&mut self.sender, closed);
         drop(sender);
         for handle in self.handles.drain(..) {
-            if handle.join().is_err() {
+            if waits::join(handle).is_err() {
                 eprintln!("cmux-tui: journal hook worker panicked during shutdown");
             }
         }
@@ -929,14 +931,18 @@ fn execute_delivery_with_shutdown(
         )
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .qos_ceiling(cmux_threads::HELPER_CHILD);
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     if let Some(session_id) = session_id {
         command.env("CMUX_JOURNAL_SESSION_ID", session_id);
     }
     #[cfg(unix)]
-    tree.configure(&mut command);
+    if let Err(error) = tree.configure(&mut command) {
+        return (None, Some(format!("prepare hook process scope: {error}")));
+    }
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
@@ -1131,7 +1137,7 @@ fn wait_hook_stdin_writable(
 
 #[cfg(windows)]
 fn execute_hook_child_portable(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     mut stdin: std::process::ChildStdin,
     input: &[u8],
     process_group: u32,
@@ -1142,34 +1148,38 @@ fn execute_hook_child_portable(
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
-    let writer =
-        match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(move || {
+    let writer = match cmux_threads::spawn(
+        "journal-hook-stdin",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let result = stdin.write_all(&input);
             drop(stdin);
             let _ = write_result_sender.send(result);
-        }) {
-            Ok(writer) => writer,
-            Err(error) => {
-                job.terminate_and_wait(child);
-                return (None, Some(format!("start hook stdin writer: {error}")));
-            }
-        };
+        },
+    ) {
+        Ok(writer) => writer,
+        Err(error) => {
+            job.terminate_and_wait(child);
+            return (None, Some(format!("start hook stdin writer: {error}")));
+        }
+    };
 
     loop {
         if cancelled.load(Ordering::Acquire) {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return hook_shutdown_result();
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
         }
-        match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
+        match waits::recv_timeout(&write_result_receiver, remaining.min(Duration::from_millis(10)))
+        {
             Ok(Ok(())) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return wait_for_hook_exit_windows(
                     child,
                     process_group,
@@ -1180,25 +1190,25 @@ fn execute_hook_child_portable(
                 );
             }
             Ok(Err(error)) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 job.terminate_and_wait(child);
                 return (None, Some(format!("write hook event: {error}")));
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 job.terminate_and_wait(child);
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return (None, Some("hook stdin writer stopped without a result".into()));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                 Ok(Some(status)) => {
                     job.terminate_descendants();
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return hook_exit_result(status, process_group);
                 }
                 Ok(None) => {}
                 Err(error) => {
                     job.terminate_and_wait(child);
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return (None, Some(format!("wait for hook executable: {error}")));
                 }
             },
@@ -1208,7 +1218,7 @@ fn execute_hook_child_portable(
 
 #[cfg(windows)]
 fn wait_for_hook_exit_windows(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     process_group: u32,
     deadline: Instant,
     timeout: Duration,
@@ -1281,7 +1291,7 @@ fn hook_exit_result(
     (code, error)
 }
 
-fn terminate_hook_child(child: &mut std::process::Child) {
+fn terminate_hook_child(child: &mut cmux_process::Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -1491,7 +1501,7 @@ mod tests {
                 .stderr(Stdio::null())
                 .process_group(0);
             let mut tree = UnixProcessScope::prepare().unwrap();
-            tree.configure(&mut command);
+            tree.configure(&mut command).unwrap();
             let mut child = command.spawn().unwrap();
             tree.bind(child.id()).unwrap();
             let mut signal = accepted_receiver

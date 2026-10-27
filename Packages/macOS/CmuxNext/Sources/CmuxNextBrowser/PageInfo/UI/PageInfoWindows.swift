@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The windows one bubble opens. Each exists at most once per pane and is
 /// reused (brought forward) when opened again.
@@ -9,6 +10,11 @@ final class PageInfoWindows {
     private var siteData: SiteDataWindow?
     /// The shell window the bubble belongs to (`WindowPlacement`).
     var parentWindow: () -> NSWindow? = { nil }
+    private let mainWork: MainWorkScheduler
+
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
 
     func showCertificate(_ chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
         certificate?.close()
@@ -23,7 +29,7 @@ final class PageInfoWindows {
             return present(siteSettings)
         }
         siteSettings?.close()
-        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, send: send)
+        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, mainWork: mainWork, send: send)
         siteSettings = window
         present(window)
     }
@@ -33,6 +39,7 @@ final class PageInfoWindows {
         let window = SiteDataWindow(site: site, send: send)
         siteData = window
         present(window)
+        // main-hop-allow: pageInfoSiteData is the engine's main-actor async read of the profile's data store; the task only starts it and fills the window it opened
         Task { [weak window] in
             let data = await provider.pageInfoSiteData(pageHost: site.host)
             window?.show(data)

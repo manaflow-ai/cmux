@@ -8,6 +8,7 @@ impl WorkspaceRegistry {
     /// latch is first-writer-wins (a replayed store is a no-op); a later
     /// generation of the same terminal (the next loss after an L2 respawn)
     /// replaces it. Returns whether a snapshot row was written.
+    #[track_caller]
     pub(crate) fn put_terminal_exit_snapshot(
         &mut self,
         terminal_id: &str,

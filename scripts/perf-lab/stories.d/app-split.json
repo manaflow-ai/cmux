@@ -1,0 +1,17 @@
+{
+  "id": "app-split",
+  "tier": "T1",
+  "description": "Cmd-D (action.run splitRight) in a launched app, 12 splits of the shown workspace's terminal pane, each closed again: the action.run reply wait and the time until snapshot.get lists the new pane (app-split-bench.py).",
+  "command": ["scripts/cmux-next/app-split-bench.py", "--story", "app-split", "--label", "lab"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "app_split\\.(action_run_wait|snapshot_has_pane)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Layout>Split"
+}

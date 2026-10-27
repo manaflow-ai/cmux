@@ -65,9 +65,9 @@ public struct SpawnOptions: Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case cwd, cols, rows, argv, command, name, env, keep, terminalID
+        case cwd, cols, rows, argv, command, name, env, keep, terminalID = "terminal_id"
         case shellArgs = "shell_args"
-        case paneID, tabID, splitID
+        case paneID = "pane_id", tabID = "tab_id", splitID = "split_id"
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -89,7 +89,7 @@ public struct SpawnOptions: Sendable, Hashable {
 
 public struct NewTabRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-tab"
+    public static let commandName: DaemonCommandName = "new-tab"
     public var pane: PaneID?
     public var options: SpawnOptions
     public init(pane: PaneID?, options: SpawnOptions = SpawnOptions()) {
@@ -106,7 +106,7 @@ public struct NewTabRequest: TerminalSpawningRequest {
 
 public struct NewScreenRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-screen"
+    public static let commandName: DaemonCommandName = "new-screen"
     public var workspace: WorkspaceHandle?
     public var size: CellSize?
     public init(workspace: WorkspaceHandle?, size: CellSize? = nil) {

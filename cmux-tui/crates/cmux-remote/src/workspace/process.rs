@@ -1479,9 +1479,12 @@ impl ProcessManager {
         #[cfg(not(unix))]
         {
             let reader_events = events.clone();
-            let reader_thread = std::thread::Builder::new()
-                .name(format!("cmux-remote-pty-{id}"))
-                .spawn(move || {
+            // Terminal output the person waits for: UserInitiated, not the
+            // closed user-interactive list (threading-model.md).
+            let reader_thread = cmux_threads::spawn(
+                format!("cmux-remote-pty-{id}"),
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
                     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
                     loop {
                         match reader.read(&mut buffer) {
@@ -1489,13 +1492,15 @@ impl ProcessManager {
                             Ok(read) => reader_events.publish_output(id, false, &buffer[..read]),
                         }
                     }
-                })
-                .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+                },
+            )
+            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             let (status_tx, status_rx) = oneshot::channel();
             let thread_record = record.clone();
-            std::thread::Builder::new()
-                .name(format!("cmux-remote-pty-wait-{id}"))
-                .spawn(move || {
+            cmux_threads::spawn(
+                format!("cmux-remote-pty-wait-{id}"),
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     let _pty_slot = pty_slot;
                     let mut child = pending_child.take();
                     let status = child.wait();
@@ -1508,8 +1513,9 @@ impl ProcessManager {
                     close_record_master(&thread_record);
                     events.publish_exit(id, outcome);
                     let _ = status_tx.send(outcome);
-                })
-                .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+                },
+            )
+            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
@@ -2405,9 +2411,9 @@ async fn wait_and_reap_pty_child(
     child: &mut dyn Child,
     child_events: &mut tokio::signal::unix::Signal,
 ) -> std::io::Result<ExitOutcome> {
-    if let Some(native_child) = child.downcast_mut::<std::process::Child>() {
+    if let Some(native_child) = child.downcast_mut::<cmux_pty::NativePtyChild>() {
         loop {
-            match target.try_reap(|| native_child.try_wait()) {
+            match target.try_reap(|| native_child.try_wait_native()) {
                 Ok(Some(status)) => return Ok(exit_outcome(status)),
                 Ok(None) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,

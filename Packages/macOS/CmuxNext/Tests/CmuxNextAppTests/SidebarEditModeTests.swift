@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): Edit Sidebar makes its items
@@ -29,6 +30,8 @@ import Testing
             region.onRemoveItem = { [unowned self] in removed.append($0) }
             region.frame = NSRect(x: 0, y: 0, width: 240, height: 360)
             region.update(content, width: 240)
+            // The wiggle runs only while the item shows (LoopVisibility): a window that reads visible.
+            _ = WindowVisibilitySource.of(window, name: "editModeTest") { _ in .visible }
             window.contentView = region
             window.orderFrontRegardless()
             region.layoutSubtreeIfNeeded()
@@ -96,6 +99,44 @@ import Testing
         let still = try band.view(Self.link)
         #expect(still.removeButton != nil)
         #expect(still.layer?.animation(forKey: SidebarItemRowView.wiggleKey) == nil, "an item wiggles under Reduce Motion")
+    }
+
+    /// Edit mode is a mode the person entered and the wiggle is its sign, so Energy Saver leaves it
+    /// (p14-energy-027); a motion change in the mode (Reduce Motion here) starts or stops it at once,
+    /// through the edit bar's one subscription.
+    @Test func theWiggleKeepsItsSaverAndFollowsAMotionChangeInEditMode() throws {
+        let design = DesignSettings.shared
+        let saver = design.energySaver
+        defer {
+            design.energySaver = saver
+            Motion.reduceMotionOverride = nil
+        }
+        Motion.reduceMotionOverride = false
+        design.energySaver = true
+        guard Motion.sidebar.animatesBlinks else { return } // this run turned the sidebar's motion off
+        let band = Band()
+        defer { band.window.orderOut(nil) }
+        band.region.isEditing = true
+        let link = try band.view(Self.link)
+        #expect(link.layer?.animation(forKey: SidebarItemRowView.wiggleKey) != nil, "the saver stopped edit mode's wiggle")
+
+        Motion.reduceMotionOverride = true
+        band.region.restartWiggles()
+        link.layoutSubtreeIfNeeded()
+        #expect(link.layer?.animation(forKey: SidebarItemRowView.wiggleKey) == nil, "the wiggle runs on under Reduce Motion")
+        Motion.reduceMotionOverride = false
+        band.region.restartWiggles()
+        link.layoutSubtreeIfNeeded()
+        #expect(link.layer?.animation(forKey: SidebarItemRowView.wiggleKey) != nil, "the wiggle does not come back after Reduce Motion")
+
+        // The sidebar's edit bar holds the mode's one motion subscription and reaches the regions.
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let before = design.signals.subscriberCount(.motion)
+        sidebar.setEditingItems(true)
+        let bar = try #require(sidebar.editBar)
+        #expect(design.signals.subscriberCount(.motion) == before + 1, "edit mode does not follow the motion settings")
+        #expect(bar.onMotionChange != nil)
+        sidebar.setEditingItems(false)
     }
 
     @Test func editSidebarShowsTheBarAndDoneEndsIt() throws {

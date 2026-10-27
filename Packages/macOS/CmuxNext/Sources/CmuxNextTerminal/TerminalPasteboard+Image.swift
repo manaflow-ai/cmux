@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// A clipboard image pasted into a terminal, as in the shipping cmux: when the
@@ -25,9 +26,9 @@ extension TerminalPasteboard {
     static func imageData(from contents: TerminalPasteboardContents) -> (data: Data, fileExtension: String)? {
         if let data = contents.png, !data.isEmpty { return (data, "png") }
         if let data = contents.jpeg, !data.isEmpty { return (data, "jpg") }
-        guard let tiff = contents.tiff, !tiff.isEmpty,
-              let rep = NSBitmapImageRep(data: tiff),
-              let data = rep.representation(using: .png, properties: [:]), !data.isEmpty else { return nil }
+        guard let tiff = contents.tiff, !tiff.isEmpty, let image = blockingImageDecode(tiff),
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]), !data.isEmpty
+        else { return nil }
         return (data, "png")
     }
 

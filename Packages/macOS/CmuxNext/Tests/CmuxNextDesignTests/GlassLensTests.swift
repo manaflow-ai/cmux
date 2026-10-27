@@ -29,15 +29,13 @@ import CmuxNextDesignTokens
         let store = TunableStore()
         store.register([GlassLensMode.tunable.descriptor])
         store.activate(file: nil)
-        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
-        let reduced = ReduceTransparency(system: { true }, changes: NotificationCenter())
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .plain)
+        let clear = ReduceTransparency(system: { false })
+        let reduced = ReduceTransparency(system: { true })
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: false) == .plain)
         GlassLensMode.choose(.spectrum, in: store)
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .spectrum)
-        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
-        let lowPower = LowPowerMode(enabled: false)
-        lowPower.override = true
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: lowPower) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: false) == .spectrum)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPowerMode: false) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: true) == .plain)
     }
 
     /// Plain is the default and stores nothing; Release never activates the store, so it stays plain.
@@ -60,6 +58,17 @@ import CmuxNextDesignTokens
             #expect(payload["glass"] as? String == mode.rawValue)
         }
         #expect(WebTheme(.unresolved, glass: .plain) != WebTheme(.unresolved, glass: .lens))
+    }
+
+    /// Pages that pass no mode draw the one the App resolved into the theme store, never a system read.
+    @Test func aPageWithNoModeDrawsTheThemeStoresMode() {
+        let store = ThemeScope.app.store
+        let before = store.glassMode
+        defer { store.setGlassMode(before) }
+        store.setGlassMode(.spectrum)
+        #expect(GlassLensMode.current == .spectrum)
+        #expect(WebTheme(.unresolved).glass == "spectrum")
+        #expect(!store.setGlassMode(.spectrum), "an unchanged mode repaints nothing")
     }
 
     @Test func theBootstrapSetsDataGlassAndDefinesTheBackdropPush() {

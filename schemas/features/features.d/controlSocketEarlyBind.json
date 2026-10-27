@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "controlSocketEarlyBind",
+  "owner": "Performance Lead",
+  "description": "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

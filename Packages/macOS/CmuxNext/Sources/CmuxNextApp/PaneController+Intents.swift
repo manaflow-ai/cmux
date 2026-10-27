@@ -8,6 +8,8 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
+import CmuxNextSignposts
+import CmuxNextWakeups
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -51,8 +53,9 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        // Only a switch this action may show is timed (a refused one never ends its interval).
-        if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
+        // Only a switch that will show is timed: the focus coordinator refuses a run without view-change
+        // permission, and a suspended pane shows nothing until `resume`.
+        if stripModel.selectedID != id, !isSuspended, ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self, to: id, keyInput: services.keyRouter.keyInput) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -116,6 +119,7 @@ extension PaneController {
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
+        let timing = services.cache.createTabs.begin(.terminal, shows: showsNewTabs) // create.tab: from this turn to its first frame
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
@@ -125,25 +129,28 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, timing: timing, then: then)
         }
+        // main-hop-allow: the action's tracked work awaits the daemon connection's actor and the agent page's main-actor context; selection and focus run in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)) }; BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
                 }
+                if let timing { services.cache.createTabs.expect(timing, surface: created.surface.rawValue) } // the tab's once the pane lists it
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 landed = true
                 then?(created.surface)
                 return nil
             } catch {
+                timing?.end(.closed) // no tab was made
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -156,21 +163,24 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, timing: CreateTabInterval?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
+            // main-hop-allow: the agent page's working context is its main-actor async read; the stand-in already shows
             Task { @MainActor () -> String? in
                 guard let cwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(cwd) else { return nil }
                 return cwd
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
         selectWhenReported(surface: pending.surface)
+        // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
@@ -180,6 +190,7 @@ extension PaneController {
             } catch is NewTerminalTabCancelled {
                 return nil // the person closed the stand-in first
             } catch {
+                services.cache.createTabs.released(pending.tab) // the daemon refused it: the stand-in is gone
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -210,6 +221,7 @@ extension PaneController {
         let daemon = daemon
         let runs = daemon.closeRuns(surfaces: prepared.surfaces, commands: prepared.commands)
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
+        // main-hop-allow: the tabs left the strip in this turn (the close intent); the tracked work awaits the daemon service's main-actor close runs
         services.registry.track(Task { [services] in
             let outcome = await daemon.runReportingOutcomes(runs)
             if outcome.failed, userClose { RefusedCloseNotice(services: services).show(codes: outcome.codes, in: view.window) }
@@ -230,6 +242,7 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
+            services.cache.createTabs.released(id.rawValue) // closed before its first frame: create.tab ends as closed
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
@@ -303,6 +316,7 @@ extension PaneController {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.tabMetadata.rawValue))
             return
         }
+        // main-hop-allow: daemon.intend is the store's main-actor intent: the pin shows in its first step, the send and rollback follow
         services.registry.track(Task { [services] in
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 if let resource { return try await connection.state.setTabPinned(resource, pinned) }
@@ -323,6 +337,7 @@ extension PaneController {
 
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
+        // main-hop-allow: daemon.intend is the store's main-actor intent: the name shows in its first step, the send and rollback follow
         Task { [daemon] in
             await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)

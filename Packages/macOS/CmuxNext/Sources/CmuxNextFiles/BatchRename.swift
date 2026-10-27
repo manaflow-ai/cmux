@@ -40,6 +40,9 @@ public struct BatchRename: Sendable, Equatable {
     public enum Problem: Sendable, Equatable {
         /// Empty, `/`, `..` or too long.
         case invalid
+        /// Format's number for this item is past `Int.max`: the start number is too large for
+        /// this many items. `to` is the old name, as no new name exists.
+        case numberTooLarge
         /// Another item in this rename gets the same name.
         case duplicate
         /// An item not in this rename has the name.
@@ -77,9 +80,12 @@ public struct BatchRename: Sendable, Equatable {
         let leaving = Set(names)
         var seen: Set<String> = []
         return names.enumerated().map { offset, name in
-            let to = newName(for: name, offset: offset)
+            let renamed = newName(for: name, offset: offset)
+            let to = renamed ?? name
             let problem: Problem?
-            if !namer.isValid(to) {
+            if renamed == nil {
+                problem = .numberTooLarge
+            } else if !namer.isValid(to) {
                 problem = .invalid
             } else if seen.contains(to) {
                 problem = .duplicate
@@ -93,7 +99,8 @@ public struct BatchRename: Sendable, Equatable {
         }
     }
 
-    private func newName(for name: String, offset: Int) -> String {
+    /// Nil when the item's number does not fit in an `Int`.
+    private func newName(for name: String, offset: Int) -> String? {
         let ns = name as NSString
         let ext = ns.pathExtension
         let stem = ext.isEmpty ? name : ns.deletingPathExtension
@@ -106,10 +113,12 @@ public struct BatchRename: Sendable, Equatable {
         case .add(let text, let position):
             return (position == .beforeName ? text + stem : stem + text) + suffix
         case .format(let base, let style, let position, let start):
+            let (number, overflow) = start.addingReportingOverflow(offset)
             let mark: String
             switch style {
-            case .index: mark = String(start + offset)
-            case .counter: mark = String(format: "%05d", start + offset)
+            case .index, .counter:
+                guard !overflow else { return nil }
+                mark = style == .index ? String(number) : String(format: "%05ld", number)
             case .date: mark = dateText()
             }
             return (position == .beforeName ? "\(mark) \(base)" : "\(base) \(mark)") + suffix

@@ -35,6 +35,7 @@ pub(super) struct RestoredAgentRoster {
 /// deliberately: their projection commits and change broadcasts already
 /// happened when the events first committed, and the durable projection
 /// restores itself independently.
+#[track_caller]
 pub(super) fn restore_agent_roster(
     registry: &WorkspaceRegistry,
 ) -> anyhow::Result<RestoredAgentRoster> {
@@ -123,6 +124,7 @@ pub(super) fn restore_agent_roster(
 /// range can hold the event that ended their live state. The subject index
 /// names those terminals without decoding the range; if it cannot be read,
 /// every live entry is treated as affected.
+#[track_caller]
 fn neutralize_live_claims(
     registry: &WorkspaceRegistry,
     host: &mut AgentRosterHost,

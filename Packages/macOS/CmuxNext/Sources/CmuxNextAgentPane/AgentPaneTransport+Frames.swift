@@ -1,6 +1,9 @@
 import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -77,7 +80,7 @@ extension AgentPaneTransport {
         /// Replaces the frame with the parse of `text`; false when `text` is not one JSON object.
         func replace(withJSON text: String) -> Bool {
             frame.withLock { object in
-                guard let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+                guard let parsed = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return false }
                 object = parsed
                 return true
             }
@@ -399,15 +402,15 @@ extension AgentPaneTransport {
         return .sent
     }
 
-    /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
+    /// Asks the user to confirm a mode that does not ask (the native sheet); false without one or unanswered.
     func confirm(_ asked: AgentPaneModeConfirmation) async -> Bool {
         guard let requestModeConfirmation else { return false }
         let gate = confirmationGate
         guard gate.open() else { return false }
         defer { gate.close() }
-        return await withCheckedContinuation { continuation in
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             requestModeConfirmation(asked) { continuation.resume(returning: $0) }
-        }
+        }) ?? false
     }
 
     /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds

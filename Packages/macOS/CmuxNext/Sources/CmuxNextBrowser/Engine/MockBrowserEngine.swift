@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -16,10 +17,16 @@ public final class MockBrowserEngine: BrowserEngine {
 
     /// Every tab this engine created, in order.
     public private(set) var tabs: [MockBrowserTab] = []
+    /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts.
+    let waitDeadlines: AlignedWakeups
 
-    public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true) {
+    /// - Parameter waitDeadlines: The deadline queue for the pages' waits; nil: a queue of the engine's own
+    ///   (a test that moves time passes its own).
+    public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true,
+                waitDeadlines: MainWakeUpQueue? = nil) {
         self.kind = kind
         self.completesNavigationsImmediately = completesNavigationsImmediately
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource()))
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -30,7 +37,8 @@ public final class MockBrowserEngine: BrowserEngine {
         let tab = MockBrowserTab(
             configuration: configuration,
             engineKind: kind,
-            completesNavigationsImmediately: completesNavigationsImmediately
+            completesNavigationsImmediately: completesNavigationsImmediately,
+            waitDeadlines: waitDeadlines
         )
         tabs.append(tab)
         if let url = configuration.initialURL {
@@ -76,12 +84,22 @@ public final class MockBrowserTab: BrowserTab {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind
     public let profileID: BrowserProfileID
-    public let presentation: BrowserPresentation = .inView
+    /// `.childWindow` stands in for a page drawn in its own window (a Chromium page).
+    @ObservationIgnored public var presentation: BrowserPresentation = .inView
     public var completesNavigationsImmediately: Bool
+    /// The page's first content frame (``simulateFirstContentFrame()``, `MockBrowserTab+FirstContent`).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
+    /// A view shows in the page's place (``BrowserPageCovering``).
+    @ObservationIgnored public var isPageCovered = false
 
     public var state: BrowserTabState { machine.state }
     public var favicon: NSImage?
-    public private(set) var pendingPrompts: [BrowserPrompt] = []
+    public private(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
     public private(set) var commands: [Command] = []
     public private(set) var isClosed = false
     /// Engine page captures (`snapshot()`) so far; not a command, so it never
@@ -94,6 +112,8 @@ public final class MockBrowserTab: BrowserTab {
     public var pageText = ""
     /// Canned result for `evaluate`.
     public var evaluationResult: BrowserJSValue = .null
+    /// The history a hibernation would save (`MockBrowserTab+Hibernation`); nil: the page cannot hibernate.
+    @ObservationIgnored public var hibernationRestore: BrowserRestoreState?
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
@@ -117,7 +137,12 @@ public final class MockBrowserTab: BrowserTab {
         profile: profileID, backend: extensionBackend
     )
 
-    private var machine = BrowserTabStateMachine()
+    private var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public private(set) var isAudible = false
     /// The current back/forward list entry. Updated when a navigation
     /// starts, which is enough for a fake.
     private var committedURL: URL?
@@ -126,11 +151,13 @@ public final class MockBrowserTab: BrowserTab {
     private var nextNavigation: UInt64 = 0
     @ObservationIgnored private lazy var placeholder = MockPageView()
 
-    init(configuration: BrowserTabConfiguration, engineKind: BrowserEngineKind, completesNavigationsImmediately: Bool) {
+    init(configuration: BrowserTabConfiguration, engineKind: BrowserEngineKind, completesNavigationsImmediately: Bool,
+         waitDeadlines: AlignedWakeups) {
         self.id = configuration.id
         self.engineKind = engineKind
         self.profileID = configuration.profile
         self.completesNavigationsImmediately = completesNavigationsImmediately
+        pageWaiters = PageWaiters(deadlines: waitDeadlines)
         machine.apply(.zoomChanged(configuration.zoom))
     }
 
@@ -144,6 +171,14 @@ public final class MockBrowserTab: BrowserTab {
     /// Feeds one engine event into the state machine.
     public func simulate(_ event: BrowserNavigationEvent) {
         machine.apply(event)
+        noteAudible()
+    }
+
+    /// Copies `state.media?.isAudible` into `isAudible` when it flipped. Each event that changes
+    /// `media` calls it: a media report, a commit, a renderer exit.
+    private func noteAudible() {
+        let audible = state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
     }
 
     /// Allocates the id a real engine would assign to a new navigation.
@@ -217,8 +252,8 @@ public final class MockBrowserTab: BrowserTab {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
         let size = 4
-        let context = CGContext(
-            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+        let context = CGContext.ownedBitmap(
+            width: size, height: size,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
@@ -272,6 +307,8 @@ public final class MockBrowserTab: BrowserTab {
         commands.append(.close)
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
+        pageWaiters.pageEnded()
+        firstContentFrame.closed()
     }
 
     // MARK: Private
@@ -283,6 +320,7 @@ public final class MockBrowserTab: BrowserTab {
         machine.apply(.historyChanged(canGoBack: !backList.isEmpty, canGoForward: !forwardList.isEmpty))
         guard completesNavigationsImmediately else { return }
         machine.apply(.committed(navigation, url: url))
+        noteAudible()
         machine.apply(.titleChanged(url.host() ?? url.absoluteString))
         machine.apply(.progress(1))
         machine.apply(.finished(navigation))
@@ -344,6 +382,8 @@ extension MockBrowserTab: BrowserBackForwardListing {
         return navigation != nil
     }
 }
+
+extension MockBrowserTab: BrowserAudibleReporting {}
 
 /// Mute as the real engines report it: the state follows at once.
 extension MockBrowserTab: BrowserAudioMuting {

@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// Counts how often Sparkle's "no update found" acknowledgement runs.
@@ -47,7 +46,7 @@ private final class AcknowledgementCounter {
     @Test func updateFoundShowsTheMomentSparkleAnswers() {
         let harness = Harness()
         startUserCheck(harness)
-        let item = SUAppcastItem(dictionary: [
+        let item = UpdateAppcastItem(dictionary: [
             "title": "cmux 0.64.17",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -57,10 +56,8 @@ private final class AcknowledgementCounter {
                 "sparkle:shortVersionString": "0.64.17",
             ],
         ])!
-        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
-        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
 
-        harness.controller.driver.showUpdateFound(with: item, state: sparkleState, reply: { _ in })
+        harness.controller.driver.showUpdateFound(with: item, reply: { _ in })
 
         guard case .updateAvailable = harness.model.state else {
             Issue.record("a found update must show at once, not after a fixed delay; state=\(harness.model.state)")

@@ -54,7 +54,10 @@ public struct CookieImporter: Sendable {
                 return CookieReadResult(cookies: [])
             }
             // The cookie crypto takes `Data` (one short-lived copy of the key, freed after this read).
-            let password = try keys.password(service: service).withUnsafeBytes { Data($0) }
+            let password = try keys.password(service: service).withUnsafeBytes { bytes in
+                // SAFETY: Data copies the view's count bytes while the closure runs and keeps no pointer.
+                unsafe Data(bytes)
+            }
             return try ChromiumCookieReader().read(file, crypto: ChromiumCookieCrypto(safeStoragePassword: password), now: now)
         case .firefox:
             return try FirefoxCookieReader().read(profile.path.appending(path: "cookies.sqlite"), now: now)

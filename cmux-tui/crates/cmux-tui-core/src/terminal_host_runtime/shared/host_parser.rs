@@ -4,6 +4,7 @@
 //! after every command.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -118,6 +119,22 @@ impl HostShared {
     }
 }
 
+/// A `task.host_parse` slice's arg1: the command's kind in the high byte (0 Output, 1 Resize,
+/// 2 SetDefaults, 3 ClearHistory, 4 ClipboardReadComplete, 5 Barrier, 6 Drain), an Output's byte
+/// count below it.
+pub(crate) fn parser_command_trace_arg(command: &ParserCommand) -> u64 {
+    let (kind, bytes): (u64, usize) = match command {
+        ParserCommand::Output { bytes, .. } => (0, bytes.len()),
+        ParserCommand::Resize { .. } => (1, 0),
+        ParserCommand::SetDefaults { .. } => (2, 0),
+        ParserCommand::ClearHistory { .. } => (3, 0),
+        ParserCommand::ClipboardReadComplete { .. } => (4, 0),
+        ParserCommand::Barrier(_) => (5, 0),
+        ParserCommand::Drain => (6, 0),
+    };
+    (kind << 56) | (bytes as u64 & ((1 << 56) - 1))
+}
+
 pub(crate) fn run_host_parser(
     parser_host: Arc<HostShared>,
     parser_command_receiver: Receiver<ParserCommand>,
@@ -143,7 +160,15 @@ pub(crate) fn run_host_parser(
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    while let Ok(command) = waits::recv(&parser_command_receiver) {
+        // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
+        // and, for Output, its bytes.
+        let _parse = cmux_trace::trace_scope!(
+            task,
+            "task.host_parse",
+            cmux_trace::terminal_hash(parser_host.terminal_id.as_bytes()),
+            parser_command_trace_arg(&command)
+        );
         match command {
             ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
                 let title = {

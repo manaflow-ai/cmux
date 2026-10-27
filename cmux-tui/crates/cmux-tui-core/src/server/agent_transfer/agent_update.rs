@@ -43,9 +43,10 @@
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -55,7 +56,8 @@ use crate::mux::Mux;
 use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use crate::server::agent_session_attach::agent_session_start;
 use crate::server::responses::send_response;
-use crate::server::{MessageWriter, Response};
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter, Response};
 
 pub const AGENT_UPDATE_CAPABILITY: &str = "agent-update-v1";
 pub const AGENT_UPDATE_OWNER_CAPABILITY: &str = "agent-update-owner-v1";
@@ -99,9 +101,39 @@ impl Drop for ApplySlot {
     }
 }
 
+/// An `agent-update-*` frame without its `id`: the owner condition next to
+/// the verb.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PlanParams {}
+struct Frame {
+    /// A condition on this exact daemon, never a selector. Absent keeps the
+    /// legacy reply; null or anything but this machine's public id is a bad
+    /// request or `owner_mismatch`.
+    #[serde(default, deserialize_with = "non_null")]
+    expected_machine_id: Option<String>,
+    #[serde(flatten)]
+    verb: Verb,
+}
+
+/// The verbs, decoded by their `cmd`; spec/sdk-schema.json types each one
+/// (check-sdk-schema.py compares the fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd", deny_unknown_fields)]
+enum Verb {
+    #[serde(rename = "agent-update-plan")]
+    Plan {},
+    #[serde(rename = "agent-update-apply")]
+    Apply(ApplyParams),
+}
+
+/// An optional field that may be absent (`None`, through `default`) but
+/// never `null`.
+fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,9 +152,15 @@ impl ApplyParams {
     }
 }
 
-enum Verb {
-    Plan,
-    Apply(ApplyParams),
+impl Frame {
+    /// The frame of `object` (`id` taken out); `None` for a malformed one.
+    fn parse(object: serde_json::Map<String, Value>) -> Option<Self> {
+        let frame: Self = serde_json::from_value(Value::Object(object)).ok()?;
+        match &frame.verb {
+            Verb::Apply(params) if !params.valid() => None,
+            _ => Some(frame),
+        }
+    }
 }
 
 /// Refusal codes (`error_code`).
@@ -177,48 +215,35 @@ impl Failure {
     }
 }
 
-/// Handles an `agent-update-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(in crate::server) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-update-") {
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::OneOf(&[PLAN, APPLY])],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
+
+/// Answers a [`PLAN`] or [`APPLY`] line (the route found it by name). The
+/// line's one decode is its `Value`, which gives every reply the `id` as
+/// written, a refused one too, and then the typed [`Frame`]. `None` only for
+/// a line with no `Value` (a number past `f64`, a lone surrogate); the
+/// `Command` parse answers it. Remote-relay connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
-    }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd == PLAN || cmd == APPLY => cmd,
-        _ => return None,
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
-    let expected_machine = object.remove("expected_machine_id");
-    let expects_owner = expected_machine.is_some();
-    let params = Value::Object(object);
-    let verb = match cmd.as_str() {
-        PLAN => serde_json::from_value::<PlanParams>(params).ok().map(|_| Verb::Plan),
-        _ => serde_json::from_value::<ApplyParams>(params)
-            .ok()
-            .filter(ApplyParams::valid)
-            .map(Verb::Apply),
-    };
-    let Some(verb) = verb else {
+    let Some(Frame { expected_machine_id, verb }) = Frame::parse(object) else {
         return Some(reply(writer, id, Err(Failure::BadRequest)));
     };
+    let expects_owner = expected_machine_id.is_some();
     // A condition on this exact daemon, never a selector. Check it before
     // consulting its socket, starting acpmux, or reserving the apply slot.
-    if let Some(expected) = expected_machine {
-        let Value::String(expected) = expected else {
-            return Some(reply(writer, id, Err(Failure::BadRequest)));
-        };
+    if let Some(expected) = expected_machine_id {
         let Ok(expected) = crate::resource::MachinePublicId::parse(expected) else {
             return Some(reply(writer, id, Err(Failure::BadRequest)));
         };
@@ -230,7 +255,7 @@ pub(in crate::server) fn try_handle(
         return Some(reply(writer, id, Err(Failure::Unavailable)));
     };
     let slot = match verb {
-        Verb::Plan => None,
+        Verb::Plan {} => None,
         Verb::Apply(_) => {
             if mux.agent_transfers.updates.applying.swap(true, Ordering::AcqRel) {
                 return Some(reply(writer, id, Err(Failure::Busy)));
@@ -246,7 +271,7 @@ pub(in crate::server) fn try_handle(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let result = match verb {
-                Verb::Plan => plan(&socket),
+                Verb::Plan {} => plan(&socket),
                 Verb::Apply(params) => apply(&worker_mux, &socket, params),
             }
             .map(|mut value| {

@@ -13,7 +13,8 @@ extension PageDescriptor {
     /// relays to the brain's daemon (`chief-inspect`). No registry action,
     /// no native op.
     static let chiefInspector = PageDescriptor(
-        id: "cmux.chief-inspector", resource: "chief-inspector", namespaces: ["cmux.chief_inspector."])
+        id: "cmux.chief-inspector", resource: "chief-inspector", processGroup: .viewer, namespaces: ["cmux.chief_inspector."],
+        opTables: [PageOpTable(namespace: "cmux.chief_inspector.", read: ["get"])])
 }
 
 extension InternalPageID {
@@ -26,8 +27,10 @@ extension InternalPageID {
 @MainActor
 final class ChiefInspectorPageService: InternalPageProvider {
     private weak var services: AppServices?
-    /// The server whose Chief the open tabs inspect.
+    /// The server whose Chief the latest open asked for (a tab restored at launch takes it).
     private(set) var machineID: String?
+    /// The server each tab with no view yet was opened for, by tab key.
+    private var openedFor: [String: String] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -40,14 +43,17 @@ final class ChiefInspectorPageService: InternalPageProvider {
     /// Shows the page for the Chief on `machineID` in `window`.
     func open(machineID: String, in window: WindowController, focus: Bool) -> Bool {
         self.machineID = machineID
-        return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
+        guard let view = services?.pages.show(.chiefInspector, in: window, focus: focus) else { return false }
+        // A tab inspects the server it was opened for, not the one asked for when it first shows.
+        if !view.isBuilt, openedFor[view.key] == nil { openedFor[view.key] = machineID }
+        return true
     }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // Each tab keeps the server it was opened for; a tab restored at
         // launch (no open request yet) takes the first server that serves
         // chief-inspect.
-        let opened = machineID
+        let opened = openedFor.removeValue(forKey: key) ?? machineID
         let provider = ChiefInspectorPageProvider { [weak self] in
             guard let machines = self?.services?.machines else { return nil }
             let server = opened.flatMap(machines.server)
@@ -55,8 +61,10 @@ final class ChiefInspectorPageService: InternalPageProvider {
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return PageWebView(descriptor: .chiefInspector, routes: routes) ?? NSView()
+        return services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) ?? NSView()
     }
+
+    func tabClosed(_ key: String) { openedFor[key] = nil }
 }
 
 /// `cmux.chief_inspector.get {path, query}`: one read-only inspector call,

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import QuartzCore
 // Layout, frame application (edge fades: `TabEdgeFade`), and the FrameScheduler animation client.
 extension TabStripView {
@@ -373,8 +373,8 @@ extension TabStripView {
 
 extension TabStripView: MotionAnimating {
     /// One autoscroll frame; false when no drag sits in an edge fade and no recorded move travels.
-    public func motionStep(_ dt: Double) -> Bool {
-        let scrolling = autoscrollDuringDrag(CGFloat(dt))
+    public func motionStep(_ tick: FrameTick) -> Bool {
+        let scrolling = autoscrollDuringDrag(CGFloat(tick.elapsed))
         guard MotionTrace.isEnabled else { return scrolling }
         // `debug.motion` (motion proofs): the points the strip's moves have left to travel (x and width),
         // read off the presentation layers; reading them changes nothing that draws.

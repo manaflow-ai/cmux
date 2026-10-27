@@ -88,7 +88,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
     };
     let program = binary();
-    match cmux_process::Command::new(&program).args(plan).status() {
+    match cmux_process::Command::new(&program).args(plan).inherit_like_std().status() {
         Ok(status) => Some(status.code().unwrap_or(1)),
         Err(error) => Some(super::app::failure(
             "vm.unavailable",

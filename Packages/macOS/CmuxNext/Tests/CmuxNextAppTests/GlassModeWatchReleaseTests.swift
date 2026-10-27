@@ -2,10 +2,11 @@
 import Foundation
 import Testing
 
-/// A ``GlassModeWatch`` cancels its observation loop when its last reference goes, on any thread.
+/// A ``GlassModeWatch`` ends its observation when its last reference goes, on any thread.
 /// Its nonisolated deinit used to return early off the main thread (`guard Thread.isMainThread else
 /// { return }`), so a watch released off main left its `ObservationStream` loop waiting for the app's
-/// life. The watch stands for the owners fixed with it (ComputerUseSetup, DaemonPaletteUsageStore,
+/// life. Since p06-scheduler-301 the observation is a `ServiceObservation` the watch alone holds: it
+/// goes with the watch. The watch stands for the owners fixed with it (ComputerUseSetup, DaemonPaletteUsageStore,
 /// PaneToolbar, ProjectsImport, the dock and machine section hosts, TopHomePageView and
 /// TitlebarToolbarBand): each cancels its Sendable task handles in a nonisolated deinit of the same
 /// shape. The on-main case is the control; only the off-main case is red before the fix.
@@ -16,20 +17,20 @@ struct GlassModeWatchReleaseTests {
         var watch: GlassModeWatch?
     }
 
-    @Test func releasingTheWatchOnMainCancelsItsObservation() throws {
+    @Test func releasingTheWatchOnMainEndsItsObservation() throws {
         let handoff = Handoff()
-        handoff.watch = GlassModeWatch {}
-        let loop = try #require(handoff.watch?.settings)
+        handoff.watch = GlassModeWatch(mainWork: linklessMainWork()) { _ in }
+        weak var observation = try #require(handoff.watch?.settings)
         handoff.watch = nil
-        #expect(loop.isCancelled, "releasing the watch on main left its observation loop running")
+        #expect(observation == nil, "releasing the watch on main left its observation alive")
     }
 
-    @Test func releasingTheWatchOffMainCancelsItsObservation() throws {
+    @Test func releasingTheWatchOffMainEndsItsObservation() throws {
         let handoff = Handoff()
-        handoff.watch = GlassModeWatch {}
-        let loop = try #require(handoff.watch?.settings)
+        handoff.watch = GlassModeWatch(mainWork: linklessMainWork()) { _ in }
+        weak var observation = try #require(handoff.watch?.settings)
         Self.releaseOnAnotherThread(handoff)
-        #expect(loop.isCancelled, "releasing the watch off main left its observation loop running")
+        #expect(observation == nil, "releasing the watch off main left its observation alive")
     }
 
     /// Drops the handoff's watch, its last reference, on a new thread and returns once it is gone.

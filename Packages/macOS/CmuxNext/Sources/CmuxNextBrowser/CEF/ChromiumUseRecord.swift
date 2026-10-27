@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// When this app last opened a Chromium tab: one small JSON file in the
@@ -27,7 +28,7 @@ nonisolated public struct ChromiumUseRecord: Sendable {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode(Payload.self, from: data))?.lastTabOpened
+        return (try? decoder.blockingDecode(Payload.self, from: data))?.lastTabOpened
     }
 
     /// Records a Chromium tab open at `date`; false when it could not.

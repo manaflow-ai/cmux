@@ -16,7 +16,7 @@ extension PageWebView {
     /// the page, else nil: what backs `PageCallContext.userGesture`.
     func recentUserGestureEvent(within seconds: TimeInterval = 1,
                                 now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
-        guard chromiumSession != nil else { return webView.recentUserGestureEvent(within: seconds, now: now) }
+        guard chromiumSession != nil else { return webKitPieces?.view.recentUserGestureEvent(within: seconds, now: now) }
         guard let last = chromiumUserEventUptime, now - last <= seconds else { return nil }
         return last
     }
@@ -62,7 +62,7 @@ extension PageWebView {
     public func selectedText() async -> String {
         let script = "String(getSelection())"
         guard let page = chromiumSession?.page else {
-            return (try? await webView.evaluateJavaScript(script)) as? String ?? ""
+            return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "returnByValue": true]) else { return "" }
         return ChromiumPageHostWire.evaluationString(json) ?? ""
@@ -72,7 +72,7 @@ extension PageWebView {
     /// responder action, in whichever engine shows it: the page never reads the pasteboard.
     public func performEdit(_ action: Selector) {
         guard chromiumSession != nil else {
-            NSApp.sendAction(action, to: webView, from: nil)
+            if let view = webKitPieces?.view { NSApp.sendAction(action, to: view, from: nil) }
             return
         }
         // The Chromium page has the keys in its own window: its view is the first responder there.

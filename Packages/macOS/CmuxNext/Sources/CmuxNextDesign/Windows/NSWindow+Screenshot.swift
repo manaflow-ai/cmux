@@ -1,5 +1,6 @@
 public import AppKit
 import ScreenCaptureKit
+public import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// Screenshots of the app's own windows for `cmux window|pane|tab
@@ -7,8 +8,8 @@ public import CmuxNextDesignTokens
 /// activates the app or raises the window, and both read a window that is in
 /// the background or covered by other apps' windows.
 ///
-/// 1. The window server's composited image (``compositedSnapshot(includeChild:)``,
-///    `CGWindowListCreateImage` looked up at run time). It shows Metal layers
+/// 1. The window server's composited image (``compositedImage(on:adding:includeChild:)``,
+///    the window-list image call looked up at run time). It shows Metal layers
 ///    (Ghostty terminal surfaces), WebKit pages, vibrancy and glass as on
 ///    screen, plus the child windows `includeChild` accepts.
 /// 2. Else, from macOS 14.4, ScreenCaptureKit with the current process's
@@ -22,32 +23,28 @@ extension NSWindow {
     /// This window as on screen (window frame, titlebar included), at the
     /// backing scale.
     ///
+    /// - Parameter lanes: The app's lanes: the window server calls run on their system lane.
     /// - Parameter includeChild: Which visible child windows the image
     ///   composites (Chromium page windows, overlay panels).
     /// - Returns: The image; its size is the window frame times the scale.
     /// - Throws: ``WindowScreenshotFailure``.
-    public func screenshotImage(includeChild: (NSWindow) -> Bool = { _ in true }) async throws -> CGImage {
+    public func screenshotImage(on lanes: any MayBlockRunner, includeChild: (NSWindow) -> Bool = { _ in true }) async throws -> CGImage {
         guard windowNumber > 0 else { throw WindowScreenshotFailure.notOnScreen }
         guard !isMiniaturized else { throw WindowScreenshotFailure.minimized }
         guard isVisible else { throw WindowScreenshotFailure.notOnScreen }
         // The window server picks its own resolution (a virtual display
         // can give a few pixels less than frame x scale); the contract is
         // the backing scale, so a different size is redrawn to it. The
-        // capture, the blank check and the redraw run off the main actor: an
+        // capture, the blank check and the redraw run on the system lane: an
         // agent's screenshot must not stall the person's typing.
         let scale = backingScaleFactor
         let width = Int((frame.width * scale).rounded()), height = Int((frame.height * scale).rounded())
-        if let plan = compositedCapturePlan(includeChild: includeChild), let sized = await Self.captured(plan, width: width, height: height) {
+        if let plan = compositedCapturePlan(includeChild: includeChild),
+           let sized = try? await lanes.runSystem(.userVisible, { NSWindow.capture(plan)?.resampled(width: width, height: height) }) {
             return sized
         }
         if #available(macOS 14.4, *), let image = await screenCaptureKitSnapshot() { return image }
         throw WindowScreenshotFailure.blank
-    }
-
-    /// ``capture(_:)`` resampled to `width` x `height`, off the main actor.
-    @concurrent
-    nonisolated static func captured(_ plan: WindowCapturePlan, width: Int, height: Int) async -> CGImage? {
-        capture(plan)?.resampled(width: width, height: height)
     }
 
     /// This window alone through ScreenCaptureKit's current-process content

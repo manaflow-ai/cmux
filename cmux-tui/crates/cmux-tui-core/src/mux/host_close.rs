@@ -144,7 +144,8 @@ impl TerminalHostCloses {
             else {
                 return false;
             };
-            state = self.idle.wait_timeout(state, remaining).unwrap().0;
+            state =
+                cmux_threads::checked::sync::wait_timeout(&self.idle, state, remaining).unwrap().0;
         }
         true
     }

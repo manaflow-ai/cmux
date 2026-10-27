@@ -2,7 +2,7 @@ import Foundation
 
 public struct CreateWorkspaceRequest: DaemonRequest {
     public typealias Response = WorkspaceMutationResult
-    public static let command = "create-workspace"
+    public static let commandName: DaemonCommandName = "create-workspace"
     public var name: String?
     public var key: WorkspaceKey?
     public var mutation: MutationIdentity?
@@ -24,7 +24,7 @@ public struct CreateWorkspaceRequest: DaemonRequest {
 
 public struct RenameWorkspaceRequest: DaemonRequest {
     public typealias Response = WorkspaceMutationResult
-    public static let command = "rename-workspace"
+    public static let commandName: DaemonCommandName = "rename-workspace"
     public var workspace: WorkspaceRef
     public var name: String
     public var source: WorkspaceNameSource?
@@ -56,7 +56,7 @@ public struct RenameWorkspaceRequest: DaemonRequest {
 
 public struct MoveWorkspaceRequest: DaemonRequest {
     public typealias Response = WorkspaceMutationResult
-    public static let command = "move-workspace"
+    public static let commandName: DaemonCommandName = "move-workspace"
     public var workspace: WorkspaceRef
     public var index: Int
     public var mutation: MutationIdentity?

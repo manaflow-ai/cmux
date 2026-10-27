@@ -9,6 +9,7 @@ impl WorkspaceRegistry {
     /// This stage deliberately leaves the public revision and event stream
     /// untouched so one logical creation produces one public batch.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_for_resource_effect(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -40,6 +41,7 @@ impl WorkspaceRegistry {
     /// resource projection that later publishes the workspace already sees
     /// them.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_for_resource_effect_with(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -74,6 +76,7 @@ impl WorkspaceRegistry {
     /// the receipt and the extra rows land under one SAVEPOINT of a writer
     /// batch, or in one request-side transaction when the writer is not
     /// running.
+    #[track_caller]
     pub(crate) fn prepare_effect_outcome_intent_with(
         &self,
         idempotency_key: &str,

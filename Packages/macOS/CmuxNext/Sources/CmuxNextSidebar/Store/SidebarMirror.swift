@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 #if CMUX_SIDEBAR_MIRROR_FFI
 import CCmuxLayoutReducerFFI
@@ -239,7 +240,7 @@ public nonisolated struct SidebarMirrorIntent: Hashable, Sendable, Encodable {
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(try JSONDecoder().decode(SidebarDocWire.AnyJSONValue.self, from: ops), forKey: .ops)
+        try c.encode(try JSONDecoder().blockingDecode(SidebarDocWire.AnyJSONValue.self, from: ops), forKey: .ops)
         try c.encode(idempotencyKey, forKey: .idempotencyKey)
     }
 }

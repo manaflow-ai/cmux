@@ -32,7 +32,8 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// refusal the person saw, a grid sent to a PTY, that terminal's first output after it. Events,
     /// not intervals; the bench times each against the press before it.
     case burst
-    /// The app's requests to the cmux-tui daemon, from the send to the reply. Owner: PL-daemon.
+    /// The app's requests to the cmux-tui daemon, from the send to the reply, and the steps of its connection
+    /// (`daemon.step`). Owner: PL-daemon.
     case daemon
     /// Display frames: ticks, Core Animation commits, GPU completion, the estimated present and frame
     /// sequences. Owner: PL-motion-core.
@@ -61,6 +62,12 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     case ghostty
     /// Live window resize ticks to the frame that shows them. Owner: PL-motion-core.
     case resize
+    /// cmux's own web pages (the WebUI host): lifecycle changes, opens to first paint, preload slot moves,
+    /// `cmux-page://` scheme work and the agent pane page's steps. Owner: p13-webui.
+    case webui
+    /// The `tracing` and `log` crate events of the Rust daemons (acpmux's `trace_layer.rs`), one instant per
+    /// event, like Chrome's log messages in the trace (`base/logging.cc`). Swift writes none. Owner: p09-observability.
+    case log
 
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
@@ -90,6 +97,8 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
         case .control: 17
         case .ghostty: 18
         case .resize: 19
+        case .webui: 20
+        case .log: 21
         }
     }
 
@@ -99,7 +108,9 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     public var isBlackBoxDefault: Bool {
         switch self {
         case .action, .key, .switch, .create, .cef, .launch, .daemon, .hang, .crash: true
-        case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize: false
+        case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize,
+             .webui, .log:
+            false
         }
     }
 }

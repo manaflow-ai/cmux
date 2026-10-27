@@ -22,12 +22,23 @@ public struct ImportedHistoryEntry: Sendable, Codable, Hashable {
     public var visitCount: Int
     public var lastVisit: Date
 
+    /// Chromium keeps a URL's visit count in an `int` (history::URLRow::visit_count_); a source's
+    /// count is clamped to 0 through this, so adding the visits that follow never overflows.
+    public static let maximumVisitCount = Int(Int32.max)
+
     public init(url: URL, title: String?, visitCount: Int, lastVisit: Date) {
         self.url = url
         self.title = title
-        self.visitCount = visitCount
+        self.visitCount = Self.clampedVisits(visitCount)
         self.lastVisit = lastVisit
     }
+
+    /// `visits` more, clamped as the initializer clamps.
+    public mutating func addVisits(_ visits: Int) {
+        visitCount = Self.clampedVisits(Self.clampedVisits(visitCount) + Self.clampedVisits(visits))
+    }
+
+    static func clampedVisits(_ count: Int) -> Int { min(max(count, 0), maximumVisitCount) }
 }
 
 /// An open tab from the source's last session, in window then tab order.

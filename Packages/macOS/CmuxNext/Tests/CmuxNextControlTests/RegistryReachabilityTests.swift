@@ -146,9 +146,10 @@ import Testing
         registry.bind("splitRight") {}
         registry.setShortcutOverride(Shortcut("\\", modifiers: [.command]), for: "splitRight")
         registry.context = [.browserFocused]
-        for _ in 0..<100 where router.catalog.contextMask != ActionContext.browserFocused.rawValue || router.catalog.resolve("splitRight")?.isBound != true {
-            await Task.yield()
-        }
+        // The bridge's refresh and context mask are automation tasks; they arrive in main run loop turns.
+        spinMainRunLoop(until: {
+            router.catalog.contextMask == ActionContext.browserFocused.rawValue && router.catalog.resolve("splitRight")?.isBound == true
+        })
         let info = try #require(router.catalog.resolve("splitRight"))
         #expect(info.isBound)
         #expect(info.shortcut == "⌘\\")

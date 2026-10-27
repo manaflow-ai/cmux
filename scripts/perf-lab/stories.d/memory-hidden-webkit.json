@@ -1,0 +1,20 @@
+{
+  "id": "memory-hidden-webkit",
+  "tier": "T1",
+  "description": "Hidden-workspace memory slope, WebKit arm (F12): phys_footprint (not RSS) of the app, its daemons, terminal hosts and holders and the WebKit processes it started at 10 and then 60 hidden terminal+WebKit workspaces (one local site each), sampled 3 times per count after the page hibernation grace (browser.hibernation set to 1 minute in the bench config, plus the planner's normal pace); memory.hidden_slope is (F60 - F10) / 50 bytes per hidden workspace, one per sample pair.",
+  "command": ["scripts/cmux-next/bench_memory.py", "--hidden-slope", "--engine", "webkit", "--slope-counts", "10,60",
+              "--slope-samples", "3", "--urls", "local"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "memory\\.hidden_slope", "unit": "bytes", "better": "lower",
+     "target_ref": {"target": "memory-slope.webkit"}},
+    {"name": "memory\\.hidden_footprint\\.[0-9]+", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 720,
+  "needs": ["debug:debug.surfaces"],
+  "owner": "Performance Lead",
+  "component": "Memory>Hibernation"
+}

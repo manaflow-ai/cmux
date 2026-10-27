@@ -29,7 +29,7 @@ struct PrimaryInputPasteRoute {
     ///   - input: The focused pane's primary input in `window`, if any.
     func target(for action: Selector, found: AnyObject?, in window: NSWindow?, input: (any PrimaryInputTarget)?) -> AnyObject? {
         guard Self.actions.contains(action), let window, let input, let view = input.primaryInputView,
-              view.window === window, !view.isHiddenOrHasHiddenAncestor else { return nil }
+              view.window === window, view.isShownForInput else { return nil }
         let responder = window.firstResponder
         if responder === view || responder is TerminalSurfaceView || responder?.ownsTypedText == true { return nil }
         guard Self.yields(found) else { return nil }

@@ -18,6 +18,8 @@
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
 
+use cmux_threads::checked;
+
 use super::*;
 
 /// Kept for API compatibility: the reaper no longer ticks. It wakes at the
@@ -101,6 +103,7 @@ impl IdleCloseTracker {
 impl Mux {
     /// Store (`Some`) or clear (`None`, never close) one hosted terminal's
     /// idle-close policy. `terminal_id` is the stable host id.
+    #[track_caller]
     pub fn set_terminal_idle_policy(
         &self,
         terminal_id: &str,
@@ -115,6 +118,7 @@ impl Mux {
     }
 
     /// The stored idle-close policy of one hosted terminal.
+    #[track_caller]
     pub fn terminal_idle_policy(&self, terminal_id: &str) -> anyhow::Result<Option<u64>> {
         self.workspace_registry.lock().unwrap().terminal_idle_policy(terminal_id)
     }
@@ -122,12 +126,14 @@ impl Mux {
     /// One reaper tick at `now`: close every policy-bearing terminal that has
     /// had no attached view for at least its policy. Returns the host ids of
     /// the terminals it closed.
+    #[track_caller]
     pub fn reap_idle_terminals(&self, now: Instant) -> Vec<String> {
         self.reap_idle_terminals_until_next(now).0
     }
 
     /// One reaper pass, plus when the next pass is due (`None`: no
     /// unattached policy-bearing terminal, wait for a change).
+    #[track_caller]
     pub(crate) fn reap_idle_terminals_until_next(
         &self,
         now: Instant,
@@ -263,7 +269,7 @@ impl IdleTerminalReaper {
             let _ = stop.send(ReaperMessage::Stop);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = checked::sync::join(thread);
         }
     }
 }
@@ -279,6 +285,7 @@ impl Drop for IdleTerminalReaper {
 /// Start the reaper for an owner. It sleeps until the next idle-close
 /// deadline, wakes early on policy or attachment changes, and runs until
 /// stopped or the mux is gone. `_interval` is unused (no periodic tick).
+#[track_caller]
 pub fn start_idle_terminal_reaper(
     mux: Weak<Mux>,
     _interval: Duration,
@@ -287,7 +294,7 @@ pub fn start_idle_terminal_reaper(
     if let Some(owner) = mux.upgrade() {
         *owner.idle_close_waker.lock().unwrap() = Some(stop.clone());
         let waker = stop.clone();
-        owner.control_clients.set_detach_waker(move || {
+        owner.control_clients.add_detach_waker(move || {
             let _ = waker.send(ReaperMessage::Wake);
         });
     }
@@ -298,8 +305,10 @@ pub fn start_idle_terminal_reaper(
             let (_, next) = owner.reap_idle_terminals_until_next(now);
             drop(owner);
             let message = match next {
-                None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                Some(next) => messages.recv_timeout(next.saturating_duration_since(now)),
+                None => checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected),
+                Some(next) => {
+                    checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+                }
             };
             match message {
                 Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}

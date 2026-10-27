@@ -11,7 +11,8 @@ import Foundation
 /// `{call: "chief_switch", choice}` (DebugHome+Hosted.swift).
 enum DebugHomeAPI {
     static func handle(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
-        let (router, me) = await MainActor.run { (services.home.homeRouter, services.home.homeSource.me.id) }
+        // On the main actor (this type's isolation): the reads and picks below run in the request's turn.
+        let router = services.home.homeRouter, me = services.home.homeSource.me.id
         do {
             switch params["call"]?.stringValue {
             case "inbox":
@@ -29,14 +30,15 @@ enum DebugHomeAPI {
                                 "conversation": result.conversation.map { .string($0.rawValue) } ?? .null])
             case "chief_switch":
                 guard let choice = params["choice"]?.stringValue.flatMap(HomeChiefChoice.init(rawValue:)) else { return failure("choice must be hosted or placed") }
-                return await MainActor.run { services.home.hostedChief.pick(choice); return DebugHome.hosted(services.home) }
+                services.home.hostedChief.pick(choice)
+                return DebugHome.hosted(services.home)
             case "watch_start":
-                return await MainActor.run { DebugHomeWatch.start(router) }
+                return DebugHomeWatch.start(router, work: services.work, mainWork: services.mainWork)
             case "watch_read":
-                return await MainActor.run { DebugHomeWatch.read() }
+                return DebugHomeWatch.read()
             case "store":
                 guard let id = params["conversation"]?.stringValue else { return failure("conversation required") }
-                return await MainActor.run { DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id)) }
+                return DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id))
             default:
                 return failure("call must be inbox, snapshot, submit, chief_switch, watch_start, watch_read or store")
             }

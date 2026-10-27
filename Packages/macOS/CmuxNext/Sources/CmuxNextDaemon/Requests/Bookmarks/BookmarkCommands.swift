@@ -5,7 +5,7 @@ import Foundation
 /// `list-bookmarks`: one profile's nodes, ordered by parent then index.
 public struct ListBookmarksRequest: DaemonRequest {
     public typealias Response = BookmarkList
-    public static let command = "list-bookmarks"
+    public static let commandName: DaemonCommandName = "list-bookmarks"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var browserProfileID: String
     public init(browserProfileID: String) { self.browserProfileID = browserProfileID }
@@ -15,7 +15,7 @@ public struct ListBookmarksRequest: DaemonRequest {
 /// `create-bookmark`: an existing `bookmark` id returns the stored node.
 public struct CreateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
-    public static let command = "create-bookmark"
+    public static let commandName: DaemonCommandName = "create-bookmark"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String?
     public var browserProfileID: String

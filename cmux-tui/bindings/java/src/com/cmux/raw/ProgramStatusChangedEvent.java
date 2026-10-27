@@ -12,10 +12,13 @@ import java.util.Objects;
 
 /** Immutable program-status-changed event. Protocol v12; streams: subscribe. */
 public final class ProgramStatusChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final ShownProgramStatus programStatus;
     private final UInt64 surface;
 
     private ProgramStatusChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.programStatusSet) throw new IllegalArgumentException("program_status is required");
         this.programStatus = builder.programStatus;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -24,6 +27,7 @@ public final class ProgramStatusChangedEvent implements WireValue, DeltaStreamEv
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public ShownProgramStatus programStatus() { return programStatus; }
     public UInt64 surface() { return surface; }
     @Override public String event() { return "program-status-changed"; }
@@ -32,6 +36,10 @@ public final class ProgramStatusChangedEvent implements WireValue, DeltaStreamEv
         Map<String, Object> object = Wire.object(value, "ProgramStatusChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "program-status-changed", "ProgramStatusChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawProgramStatus = Wire.required(object, "program_status");
         builder.programStatus(rawProgramStatus == null ? null : ShownProgramStatus.fromWire(rawProgramStatus));
         Object rawSurface = Wire.required(object, "surface");
@@ -43,6 +51,7 @@ public final class ProgramStatusChangedEvent implements WireValue, DeltaStreamEv
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "program-status-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "program_status", programStatus);
         Wire.put(object, "surface", surface);
         return Collections.unmodifiableMap(object);
@@ -51,21 +60,26 @@ public final class ProgramStatusChangedEvent implements WireValue, DeltaStreamEv
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ProgramStatusChangedEvent that)) return false;
-        return Objects.equals(programStatus, that.programStatus) && Objects.equals(surface, that.surface);
+        return Objects.equals(cause, that.cause) && Objects.equals(programStatus, that.programStatus) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(programStatus, surface); }
+    public int hashCode() { return Objects.hash(cause, programStatus, surface); }
 
     @Override
     public String toString() { return "ProgramStatusChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private ShownProgramStatus programStatus;
         private boolean programStatusSet;
         private UInt64 surface;
         private boolean surfaceSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder programStatus(ShownProgramStatus value) {
             this.programStatus = value;
             this.programStatusSet = true;

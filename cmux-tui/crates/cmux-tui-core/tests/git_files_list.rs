@@ -4,12 +4,12 @@
 //! first, ignored files never show, a nested folder is a directory, and a
 //! symlink is never one.
 
+use cmux_process::Command;
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 

@@ -211,6 +211,9 @@ import QuartzCore
         let container = sparePage ?? SpacePageView(frame: page.frame)
         sparePage = nil
         let list = container.list ?? SidebarListView(model: SidebarModel())
+        list.inputTap = host.list.inputTap // a press on a page ends as on the list (`observePointerEnds`)
+        list.hoverFrameInput = host.list.hoverFrameInput // a page hovers once per frame as the list does
+        list.docStore = host.list.docStore // its link rows draw favicons as they arrive
         let model = list.model
         model.sections = sections
         model.collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id)) // as `SidebarModel(sections:)` sets them

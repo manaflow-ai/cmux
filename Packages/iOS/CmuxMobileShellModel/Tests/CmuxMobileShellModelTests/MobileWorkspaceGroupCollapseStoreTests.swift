@@ -12,11 +12,8 @@ import Testing
 /// of the fix (collapsing on the phone must not collapse on the desktop), so these
 /// tests pin it down.
 @Suite struct MobileWorkspaceGroupCollapseStoreTests {
-    private func makeDefaults() -> UserDefaults {
-        let suite = "MobileWorkspaceGroupCollapseStoreTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
+    private func makeDefaults() -> (defaults: UserDefaults, open: @Sendable () -> UserDefaults) {
+        makeTestDefaultsSuite("MobileWorkspaceGroupCollapseStoreTests")
     }
 
     private func group(
@@ -33,7 +30,7 @@ import Testing
     }
 
     @Test func seedsUnknownGroupsFromTheMacValue() {
-        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults())
+        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults().open)
         let resolved = store.apply(to: [group("a", collapsed: true), group("b", collapsed: false)])
         #expect(resolved.first { $0.id == "a" }?.isCollapsed == true)
         #expect(resolved.first { $0.id == "b" }?.isCollapsed == false)
@@ -43,7 +40,7 @@ import Testing
     }
 
     @Test func localDecisionOverridesTheMacValue() {
-        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults())
+        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults().open)
         _ = store.apply(to: [group("a", collapsed: false)]) // seed expanded
         store.set("a", collapsed: true) // collapse on this device
         // Mac still reports expanded; the device choice must win.
@@ -52,7 +49,7 @@ import Testing
     }
 
     @Test func macChangesNeverOverrideAfterFirstSight() {
-        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults())
+        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults().open)
         _ = store.apply(to: [group("a", collapsed: false)]) // seed expanded, no local toggle
         // Mac collapses the group; the phone must NOT follow (independence).
         let resolved = store.apply(to: [group("a", collapsed: true)])
@@ -60,19 +57,19 @@ import Testing
     }
 
     @Test func persistsAcrossInstances() {
-        let defaults = makeDefaults()
-        var store = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        let (_, open) = makeDefaults()
+        var store = MobileWorkspaceGroupCollapseStore(defaults: open)
         _ = store.apply(to: [group("a", collapsed: false)])
         store.set("a", collapsed: true)
 
         // A fresh store on the same defaults (app relaunch) reads the choice back.
-        let reloaded = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        let reloaded = MobileWorkspaceGroupCollapseStore(defaults: open)
         #expect(reloaded.isCollapsed("a") == true)
     }
 
     @Test func prunesDecisionsForGroupsThatNoLongerExist() {
-        let defaults = makeDefaults()
-        var store = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        let (_, open) = makeDefaults()
+        var store = MobileWorkspaceGroupCollapseStore(defaults: open)
         _ = store.apply(to: [group("a", collapsed: true), group("b", collapsed: true)])
         #expect(store.isCollapsed("b") == true)
 
@@ -82,7 +79,7 @@ import Testing
         #expect(store.isCollapsed("b") == nil)
         #expect(store.isCollapsed("a") == true)
 
-        let reloaded = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        let reloaded = MobileWorkspaceGroupCollapseStore(defaults: open)
         #expect(reloaded.isCollapsed("b") == nil)
     }
 
@@ -93,7 +90,7 @@ import Testing
         var macBGroup = group("mac-b\u{1F}shared", collapsed: true)
         macBGroup.remoteGroupID = "shared"
         macBGroup.macDeviceID = "mac-b"
-        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults())
+        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults().open)
 
         _ = store.apply(to: [macAGroup, macBGroup])
         store.set(macAGroup.collapseStateID, collapsed: true)
@@ -106,7 +103,7 @@ import Testing
     }
 
     @Test func ambiguousLegacyRawIDSeedsEachOwnerIndependently() throws {
-        let defaults = makeDefaults()
+        let (defaults, open) = makeDefaults()
         defaults.set(
             try JSONEncoder().encode(["shared": false]),
             forKey: MobileWorkspaceGroupCollapseStore.defaultsKey
@@ -117,7 +114,7 @@ import Testing
         var macBGroup = group("mac-b\u{1F}shared", collapsed: true)
         macBGroup.remoteGroupID = "shared"
         macBGroup.macDeviceID = "mac-b"
-        var store = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        var store = MobileWorkspaceGroupCollapseStore(defaults: open)
 
         let resolved = store.apply(to: [macAGroup, macBGroup])
 
@@ -129,7 +126,7 @@ import Testing
     }
 
     @Test func uniqueLegacyRawIDMigratesToItsAuthoritativeOwner() throws {
-        let defaults = makeDefaults()
+        let (defaults, open) = makeDefaults()
         defaults.set(
             try JSONEncoder().encode(["shared": true]),
             forKey: MobileWorkspaceGroupCollapseStore.defaultsKey
@@ -137,7 +134,7 @@ import Testing
         var ownedGroup = group("mac-a\u{1F}shared", collapsed: false)
         ownedGroup.remoteGroupID = "shared"
         ownedGroup.macDeviceID = "mac-a"
-        var store = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+        var store = MobileWorkspaceGroupCollapseStore(defaults: open)
 
         let resolved = store.apply(to: [ownedGroup])
 

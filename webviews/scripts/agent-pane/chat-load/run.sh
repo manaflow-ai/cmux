@@ -4,14 +4,18 @@
 # Chromium and WebKit against the same daemon, and the mock chat. Results go to $OUT (JSON).
 #
 #   run.sh ACPMUX_BIN OUT_DIR [--turns 100,1000,10000] [--noise 0] [--engines chromium,webkit]
-#          [--repeat 3] [--scroll-max-turns 1000] [--scroll-timeout MS] [--mock-turns 100,1000,10000] [--pane DIR]
+#          [--repeat 3] [--scroll-max-turns 1000] [--scroll-timeout MS] [--mock-turns 100,1000,10000]
+#          [--pane DIR --shared PAGES/_shared]
+#
+# --pane takes a pane built elsewhere (build-agent-pane-web.sh --out DIR --pages-out PAGES), with
+# the pages' shared library it imports (--shared).
 #
 # Run from the repository root (needs webviews/ and scripts/cmux-next/build-agent-pane-web.sh).
 set -euo pipefail
 bin="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; shift
 out="$1"; shift
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
-turns=100,1000,10000; noise=0; engines=chromium,webkit; repeat=3; scroll_max=1000; mock_turns=100,1000,10000; pane=""; scroll_timeout=120000
+turns=100,1000,10000; noise=0; engines=chromium,webkit; repeat=3; scroll_max=1000; mock_turns=100,1000,10000; pane=""; shared=""; scroll_timeout=120000
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --turns) turns="$2"; shift 2 ;;
@@ -21,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     --scroll-max-turns) scroll_max="$2"; shift 2 ;;
     --mock-turns) mock_turns="$2"; shift 2 ;;
     --pane) pane="$2"; shift 2 ;;
+    --shared) shared="$2"; shift 2 ;;
     --scroll-timeout) scroll_timeout="$2"; shift 2 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -40,10 +45,16 @@ if [[ -z "$pane" ]]; then
   sed -i 's/return protocol === "cmux-agent:" ||/return protocol === "http:" || protocol === "cmux-agent:" ||/' \
     "$root/webviews/src/agent-session/acpmux/conversation/highlightPool.ts"
   grep -q 'protocol === "http:"' "$root/webviews/src/agent-session/acpmux/conversation/highlightPool.ts"
-  if [[ "${CHAT_LOAD_NO_MINIFY:-}" == 1 ]]; then sed -i 's/minify: !cssInputsOnly/minify: false/' "$root/webviews/scripts/agent-pane/bundle.mjs"; fi
+  # The pane's script comes from the pages' build (build-pages.mjs, its runs and the shared React).
+  if [[ "${CHAT_LOAD_NO_MINIFY:-}" == 1 ]]; then
+    sed -i 's/^\( *\)minify: true,/\1minify: false,/' "$root/webviews/scripts/pages/build-pages.mjs" \
+      "$root/webviews/scripts/shared/shared-react.mjs"
+  fi
   pane="$work/pane"
-  "$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$pane"
+  shared="$work/pages/_shared"
+  "$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$pane" --pages-out "$work/pages"
 fi
+[[ -n "$shared" ]] || { echo "--pane needs --shared PAGES/_shared (the pages' shared chunks the pane imports)" >&2; exit 2; }
 
 home="$work/home"
 (cd "$root/webviews" && bun scripts/agent-pane/chat-load/fixture.ts --home "$home" --turns "$turns" --noise "$noise") > "$work/fixture.json"
@@ -59,13 +70,13 @@ trap 'kill "$pid" 2>/dev/null || true' EXIT
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-webviews/browsers}"
 if [[ -n "${CHAT_LOAD_PROFILE:-}" ]]; then
   for p in ${CHAT_LOAD_PROFILE//,/ }; do
-    node "$here/browser_bench.mjs" --pane "$pane" --fixture "$work/fixture.json" --endpoint ws://127.0.0.1:47931 \
+    node "$here/browser_bench.mjs" --pane "$pane" --shared "$shared" --fixture "$work/fixture.json" --endpoint ws://127.0.0.1:47931 \
       --token "$token" --daemon-pid "$pid" --engine chromium --profile "$p" | tee -a "$out/profiles.txt"
   done
   exit 0
 fi
 for engine in ${engines//,/ }; do
-  node "$here/browser_bench.mjs" --pane "$pane" --fixture "$work/fixture.json" --endpoint ws://127.0.0.1:47931 \
+  node "$here/browser_bench.mjs" --pane "$pane" --shared "$shared" --fixture "$work/fixture.json" --endpoint ws://127.0.0.1:47931 \
     --token "$token" --daemon-pid "$pid" --out "$out/page-$engine.json" --engine "$engine" --repeat "$repeat" \
     --switch --scroll --scroll-max-turns "$scroll_max" --scroll-timeout "$scroll_timeout" --mock --mock-turns "$mock_turns"
 done

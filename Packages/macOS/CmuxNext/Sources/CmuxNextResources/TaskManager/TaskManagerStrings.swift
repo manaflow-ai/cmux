@@ -37,6 +37,18 @@ struct TaskManagerStrings {
         String(format: t("taskManager.total", "Total: %@"), line)
     }
 
+    static var discardedHeader: String { t("taskManager.discarded.header", "Discarded by Memory Saver") }
+
+    /// A discarded item's status: "Discarded, saved about 120 MB", or "Discarded" with no sample.
+    static func discarded(saved memory: String?) -> String {
+        guard let memory else { return t("taskManager.discarded.status", "Discarded") }
+        return String(format: t("taskManager.discarded.saved", "Discarded, saved about %@"), memory)
+    }
+
+    static func memorySaverFreed(_ memory: String) -> String {
+        String(format: t("taskManager.memorySaverFreed", "Memory Saver freed %@"), memory)
+    }
+
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }

@@ -1,5 +1,6 @@
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 extension MainThreadWatchdog {
     /// Writes one file per hang episode (``HangEpisodeRecorder``): the main thread's stack at
@@ -23,7 +24,8 @@ extension MainThreadWatchdog {
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
     /// every other thread, opens the hang file, and reports the hang (``onHang``) at most once
     /// per `hangReportInterval`. Watchdog thread only.
-    func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, lastReportNanos: inout UInt64?) {
+    func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
+                    lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
@@ -31,16 +33,50 @@ extension MainThreadWatchdog {
         let recorder = episodes
         guard sink != nil || recorder != nil else { return }
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
-        // Taken only while the stall still runs: the beat is read while the main thread is suspended.
+        // Taken only while the stall still runs: the beat and the phase are read while the main thread
+        // is suspended (atomics only).
         var stillBlocked = true
-        let sampled = sampler?.sample { _ in stillBlocked = beatSequence.load(ordering: .acquiring) == beat } ?? []
+        var cefState: UInt64 = 0
+        let board = boardSink.withLock { $0 }
+        var scope = board?.hangScope ?? .noTask
+        let sampled = sampler?.sample { _ in
+            stillBlocked = beatSequence.load(ordering: .acquiring) == beat
+            cefState = crashKeys?.value(.cefState) ?? 0
+            scope = board?.hangScope ?? .noTask
+        } ?? []
         let addresses = stillBlocked ? sampled : []
+        let phase = stillBlocked ? Self.phaseLabel(cefState: cefState) : nil
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
-        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others)
+        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, phase: phase)
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
+            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase,
+                      attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now)))
         }
+    }
+
+    /// The main-thread phase a stall or hang record names, from ``CrashKeySlots/Key/cefState`` read while
+    /// the main thread was suspended: `cef_pump` while the Chromium message pump runs on it (it runs on
+    /// main, so it is a phase of the main thread's episode, not a hang-watch scope); nil otherwise.
+    static func phaseLabel(cefState: UInt64) -> String? {
+        cefState == CrashKeySlots.CEFState.inPump.rawValue ? "cef_pump" : nil
+    }
+
+    /// A main-thread hang in progress: how long the main thread has been
+    /// busy so far, and its stack (return addresses, innermost first).
+    public struct Hang: Sendable {
+        public var duration: Duration
+        public var addresses: [UInt]
+        /// Every other thread's stack, sampled right after the main thread's: a main thread
+        /// that waits on a lock or a reply shows only the wait, and the holder is in here
+        /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
+        public var otherThreads: [ThreadSample] = []
+        /// What the main thread was in when sampled (``phaseLabel(cefState:)``): `cef_pump` inside the
+        /// Chromium message pump; nil otherwise, with no crash keys attached, or when the stall ended first.
+        public var phase: String?
+        /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
+        /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
+        public var attribution = HangAttribution(task: nil, turnNanos: 0)
     }
 
     /// A hang episode's checkpoint or end, to its file (``HangEpisodeTracker/Event/began``

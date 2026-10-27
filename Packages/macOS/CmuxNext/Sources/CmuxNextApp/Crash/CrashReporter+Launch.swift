@@ -4,6 +4,7 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension CrashReporter {
@@ -30,9 +31,18 @@ extension CrashReporter {
     }
 }
 
-/// The app process's crash reporting (cx-urd.58): the Sentry reporter and
-/// the helper crash report forwarder. Starts only for the app itself
+/// The app process's crash reporting (cx-urd.58): the Sentry reporter,
+/// the process's invariant sink (p10-stability-099) and the helper crash
+/// report forwarder. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
+///
+/// With feature `sentryHandlersFirst` (p08-startup-032) Sentry starts with
+/// ``CrashReporter/StartProfile/handlersFirst`` and its app-hang reports resume
+/// in one afterStartup post (``AfterStartup``), as Chrome posts non-critical
+/// startup work through `AfterStartupTaskUtils::PostTask`
+/// (chrome/browser/after_startup_task_utils.cc). The `crash.sentry_start` and
+/// `crash.sentry_started` launch marks bound the start
+/// (`LaunchSignposts.Interval.sentryStart`).
 struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// Nil outside the app process. With reports off it only marks reports done.
@@ -43,15 +53,29 @@ struct AppCrashReporting: Sendable {
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
 
-    init(environment: AppEnvironment) {
+    /// - Parameters:
+    ///   - features: The features the app runs with, put on the Sentry scope right after it starts
+    ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
+    ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
+    init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
+         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
+        let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
+            // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
+            InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
             forwarder = nil
             ownerPanics = nil
             acpmuxPanics = nil
             return
         }
-        let sends = reporter.start()
+        DebugTimings.markLaunch("crash.sentry_start")
+        let sends = reporter.start(profile: afterStartup.profile)
+        DebugTimings.markLaunch("crash.sentry_started")
+        // After the start, so the invariant sink sends only when Sentry runs (p10-stability-099).
+        InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
+        if let features { reporter.setFeatures(features) }
+        afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "crash-forwarder.json"),
@@ -80,6 +104,26 @@ struct AppCrashReporting: Sendable {
             acpmuxPanics = nil
         }
         Self.installLayoutPassGuard(reporter: reporter)
+    }
+
+    /// How Sentry starts and when the part it pauses resumes. Off (the standard start): nothing is paused,
+    /// so nothing waits. On (feature `sentryHandlersFirst`): app-hang reports are paused at start and resume
+    /// in one afterStartup main post of the launch's scheduler, or at once without a scheduler (tests).
+    struct AfterStartup {
+        /// The post's name in the startup log.
+        static let taskName: StaticString = "CrashReporting.afterStartup"
+        let handlersFirst: Bool
+        let startup: StartupScheduler?
+
+        /// The start profile that matches ``schedule(_:)``.
+        var profile: CrashReporter.StartProfile { handlersFirst ? .handlersFirst : .standard }
+
+        /// Runs `resume` once startup completes, with ``profile`` `.handlersFirst`; never with `.standard`.
+        func schedule(_ resume: @escaping @MainActor @Sendable () -> Void) {
+            guard handlersFirst else { return }
+            guard let startup else { return resume() }
+            startup.post(.afterStartup, Self.taskName, on: .main, resume)
+        }
     }
 
     /// A layout feedback loop (one view laid out more than

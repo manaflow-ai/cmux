@@ -26,12 +26,14 @@ use crate::workspace_registry::FrontendBrowserRecord;
 
 impl Mux {
     /// The browser id behind a remote-terminal tab's placeholder surface.
+    #[track_caller]
     pub(crate) fn remote_terminal_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
         self.presentation_snapshot().remote_terminals.contains_key(id.as_str()).then(|| id.clone())
     }
 
+    #[track_caller]
     fn require_remote_terminal_id(&self, surface: SurfaceId) -> anyhow::Result<BrowserPublicId> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -42,6 +44,7 @@ impl Mux {
     /// Create a tab in `pane` (default: the active pane) that references
     /// terminal `record.terminal_id` on session `record.session_id`. A failed
     /// creation removes the stored reference.
+    #[track_caller]
     pub(crate) fn new_remote_terminal_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -103,6 +106,7 @@ impl Mux {
     /// Record a remote-terminal tab's title, session name, or text snapshot.
     /// Title and session name changes are tab changes; a snapshot is stored
     /// silently.
+    #[track_caller]
     pub(crate) fn update_remote_terminal_tab(
         &self,
         surface: SurfaceId,
@@ -135,6 +139,7 @@ impl Mux {
     }
 
     /// The last text snapshot the frontend stored for a remote-terminal tab.
+    #[track_caller]
     pub(crate) fn remote_terminal_snapshot(
         &self,
         surface: SurfaceId,
@@ -146,6 +151,7 @@ impl Mux {
     /// The public `term_` id of the terminal with host id `terminal_id`. It is
     /// a separate random id, so a frontend that knows only the host id (a
     /// remote-terminal reference) reads it here before attaching by identity.
+    #[track_caller]
     pub(crate) fn terminal_public_id_for_host(
         &self,
         terminal_id: &str,

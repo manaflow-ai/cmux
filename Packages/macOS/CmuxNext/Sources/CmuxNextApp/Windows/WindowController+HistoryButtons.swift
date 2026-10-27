@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextHistory
+import CmuxNextWakeups
 
 /// The titlebar band's Back and Forward (R69): a click runs
 /// focusHistoryBack / focusHistoryForward, the right-click or long-press list
@@ -26,6 +27,9 @@ extension WindowController {
                 _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
             }, showAll: showAll)
         }
+        // A long press lists the history too: its deadline is visible work, behind the person's input.
+        band.backButton.longPressDeadline = MainDeadline(owner: "TitlebarBand.backLongPress", workClass: .visible, scheduler: services.mainDeadlines)
+        band.forwardButton.longPressDeadline = MainDeadline(owner: "TitlebarBand.forwardLongPress", workClass: .visible, scheduler: services.mainDeadlines)
         // The sidebar toggle's right-click (cx-2lm4): the menu of the sidebar's empty space.
         band.sidebarToggle.longPressOpensMenu = false
         band.sidebarToggle.menuProvider = { [weak sidebar] in sidebar?.contextMenu(for: .background) }

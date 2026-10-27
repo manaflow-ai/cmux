@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
@@ -30,10 +31,16 @@ public final class WebKitEngine: BrowserEngine {
     /// The newest main-frame load per tab held for that check; only it may
     /// show the interstitial.
     var certificateAdmissions: [BrowserTabID: Int] = [:]
-    /// Low Power Mode keeps every open and new tab near 60 fps.
-    public let lowPowerMode: LowPowerMode
-    private var lowPowerModeObservation: LowPowerModeObservation?
-    /// Open tabs, which follow a Low Power Mode change.
+    /// Energy Saver is on (or Low Power Mode while the `energySaver` feature is off, ``EnergyPolicy/pageSaver``),
+    /// as of the policy's last change: every open and new tab renders near 60 fps,
+    /// the lowest rate WebKit's render-rate feature gives (Chrome's battery saver throttles frame sinks,
+    /// chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc). Open tabs follow a change.
+    private(set) var energySaver: Bool {
+        didSet { if energySaver != oldValue { applyRenderRate(energySaver: energySaver) } }
+    }
+    /// Follows the app's Energy Saver policy into ``energySaver`` while the engine lives.
+    private var energyObservation: MainActorEnergyObservation?
+    /// Open tabs, which follow an Energy Saver change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
     var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
@@ -66,6 +73,15 @@ public final class WebKitEngine: BrowserEngine {
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
     /// and its dead-panel guard.
     public let fileInput: any WebFileInputAnswering
+    /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
+    /// deadline queue.
+    let waitDeadlines: AlignedWakeups
+    /// The app's main-thread scheduler: its tabs' and downloads' main-thread follow-ups are classed tasks on it.
+    let mainWork: MainWorkScheduler
+    /// Its tabs' main-thread deadlines (the title flush, the page-base hold), placed on `mainWork`'s wake-up queue.
+    let deadlines: MainDeadlineScheduler
+    /// App-wide notices for its tabs: one observer per name for every tab (each tab's Web Inspector watch).
+    let appEvents: AppEvents
 
     /// An engine over the App's `stores`.
     ///
@@ -74,6 +90,13 @@ public final class WebKitEngine: BrowserEngine {
     ///     since a test host cannot make an `NSOpenPanel`).
     ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
     ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
+    ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`), written on the main actor by its one
+    ///     writer; the default, fixed off, is for tests and fixtures.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
+    ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
+    ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
+    ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -81,18 +104,42 @@ public final class WebKitEngine: BrowserEngine {
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: LowPowerMode = .system
+        energy: EnergyPolicySource = EnergyPolicySource(),
+        waitDeadlines: MainWakeUpQueue? = nil,
+        deadlines: MainDeadlineScheduler,
+        appEvents: AppEvents
     ) {
         self.fileInput = fileInput
+        mainWork = deadlines.work
+        self.deadlines = deadlines
+        self.appEvents = appEvents
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
-        self.lowPowerMode = lowPowerMode
-        lowPowerModeObservation = lowPowerMode.observe { [weak self] enabled in
-            self?.applyRenderRate(lowPowerMode: enabled)
-        }
+        energySaver = energy.policy.pageSaver
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
+    }
+
+    /// An engine on a main-thread scheduler and app notices of its own (tests and fixtures; internal, so the app,
+    /// which must pass its one ``MainDeadlineScheduler`` and ``AppEvents``, cannot reach it).
+    convenience init(
+        fileInput: any WebFileInputAnswering,
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
+        faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
+        downloadsDirectory: URL = DownloadDestination.defaultDirectory,
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
+        energy: EnergyPolicySource = EnergyPolicySource(),
+        waitDeadlines: MainWakeUpQueue? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        appEvents: AppEvents = AppEvents(center: .default)
+    ) {
+        self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
+                  downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -113,7 +160,7 @@ public final class WebKitEngine: BrowserEngine {
     /// configuration that links the new page to its opener.
     public func makeWebKitTab(id: BrowserTabID = .random(), profile: BrowserProfileID = .default, initialURL: URL? = nil,
                               zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil) -> WebKitTab {
-        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom),
+        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom, origin: .user),
                 webViewConfiguration: webViewConfiguration)
     }
 
@@ -129,10 +176,10 @@ public final class WebKitEngine: BrowserEngine {
         return tab
     }
 
-    /// Every open tab takes the rate for the new Low Power Mode state.
-    private func applyRenderRate(lowPowerMode: Bool) {
+    /// Every open tab takes the rate for the new Energy Saver state.
+    private func applyRenderRate(energySaver: Bool) {
         for tab in openTabs.allObjects {
-            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode), to: tab)
+            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(energySaver: energySaver), to: tab)
         }
     }
 
@@ -145,11 +192,12 @@ public final class WebKitEngine: BrowserEngine {
         // A WebKit without the feature has no rate to change.
         guard !tab.isClosed, let near60 = preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature),
               near60 == fullRate, WebKitRenderRate.apply(fullRate: fullRate, to: preferences),
+              // visibility-walk-allow: WebKit reads the rate when this view becomes visible, so the re-show is for exactly what its own view tree draws now
               let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
         // A display at 60 Hz or less renders the same either way: no re-show.
         let display = displayFramesPerSecond(window)
-        guard WebKitRenderRate.framesPerSecond(lowPowerMode: !fullRate, displayMaxFPS: display)
-                != WebKitRenderRate.framesPerSecond(lowPowerMode: fullRate, displayMaxFPS: display) else { return }
+        guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
+                != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
         tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
     }
@@ -168,9 +216,9 @@ public final class WebKitEngine: BrowserEngine {
 
     /// Settings every tab needs, including page-opened ones.
     private func prepare(_ configuration: WKWebViewConfiguration) {
-        // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
-        // Power Mode. Open tabs follow a later change (applyRenderRate).
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
+        // The display's full rate (120 Hz on ProMotion); near 60 fps under
+        // Energy Saver. Open tabs follow a later change (applyRenderRate).
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(energySaver: energySaver),
                                to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).

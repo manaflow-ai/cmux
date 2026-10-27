@@ -42,6 +42,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+    /// `saver` under Energy Saver (``energyValue(_:)``, feature `energySaver`), else nil:
+    /// `data-cmux-energy` on `<html>`, under which a page's stylesheets hold their ambient loops
+    /// still, the way Chrome's battery saver stops frames nobody interacts with
+    /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc). Nil leaves
+    /// the payload as it was and the bootstrap removes the attribute.
+    public let energy: String?
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -140,7 +146,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
-        motion = Self.motionValue(Motion.web.policy)
+        let webMotion = Motion.web.policy
+        motion = Self.motionValue(webMotion)
+        energy = Self.energyValue(webMotion)
         self.glass = (glass ?? .current).rawValue
     }
 
@@ -152,16 +160,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
+    /// `data-cmux-energy` for `policy`: `saver` under Energy Saver (``MotionPolicy/energySaver``),
+    /// else nil (no attribute).
+    public static func energyValue(_ policy: MotionPolicy) -> String? {
+        policy.energySaver ? "saver" : nil
+    }
+
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
-    /// (`terminal.fontFamily` is null when the terminal has no named face).
+    /// and `energy` under Energy Saver only (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
     public let transition: [String: String]
 
     public var payloadJSON: String {
-        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
+        var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
+        if let energy { object["energy"] = energy }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -301,6 +316,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
+          // Energy Saver: only under it does the payload carry `energy`, so its absence clears the mark.
+          if (payload.energy) root.setAttribute('data-cmux-energy', payload.energy);
+          else root.removeAttribute('data-cmux-energy');
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));

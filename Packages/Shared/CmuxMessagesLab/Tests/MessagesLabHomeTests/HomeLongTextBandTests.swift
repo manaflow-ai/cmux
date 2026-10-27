@@ -103,7 +103,7 @@ import Testing
         let view = r.view
         let layer = try #require(view.layer)
         let scale: CGFloat = 2, size = view.bounds.size
-        let ctx = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+        let ctx = try #require(CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(Fixture.background.cgColor)

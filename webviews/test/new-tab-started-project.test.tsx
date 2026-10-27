@@ -62,7 +62,7 @@ beforeAll(() => {
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
-    // Every agent page shares one store for the run (AgentPaneView.sharedDataStore).
+    // Every agent page shares one store for the run (WebProcessGroups.dataStore).
     localStorage: {
       getItem: (key: string) => stored.get(key) ?? null,
       setItem: (key: string, value: string) => void stored.set(key, value),

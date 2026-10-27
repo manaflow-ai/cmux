@@ -15,7 +15,7 @@ import Testing
             trust: .downloaded(teamID: "ABCDE12345")
         )
 
-        let result = CEFRuntime.loadLibrary(layout, signatureChecker: RejectingCEFCodeSignatures())
+        let result = CEFLibraryLoader(prefetch: CEFFrameworkPrefetch(), signatureChecker: RejectingCEFCodeSignatures()).load(layout)
         guard case .failure(.untrusted(let item)) = result else {
             Issue.record("a rejected persisted runtime reached the dynamic loader")
             return
@@ -32,7 +32,7 @@ import Testing
             trust: .downloaded(teamID: nil)
         )
 
-        let result = CEFRuntime.loadLibrary(layout, signatureChecker: RejectingCEFCodeSignatures())
+        let result = CEFLibraryLoader(prefetch: CEFFrameworkPrefetch(), signatureChecker: RejectingCEFCodeSignatures()).load(layout)
         guard case .failure(.untrusted(let item)) = result else {
             Issue.record("an unsigned downloaded runtime reached the dynamic loader")
             return

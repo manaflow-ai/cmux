@@ -1,0 +1,18 @@
+{
+  "id": "command-pan",
+  "tier": "T1",
+  "description": "Command + scroll pans the columns strip (layout.scrollModifier), light session over a terminal: display frame intervals and missed vsyncs of each pan until the spring rests, and input to frame per scroll event from key.scroll_frame, Command rounds against base rounds in ABBA order (bench-command-pan.py).",
+  "command": ["scripts/cmux-next/bench-command-pan.py", "--sessions", "light", "--target", "terminal", "--story", "command-pan"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "(command|base)\\.(frame_interval|scroll_frame|input_to_frame)", "unit": "ms", "better": "lower"},
+    {"name": "(command|base)\\.missed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.frames", "debug:debug.mouse", "signpost:key.scroll_frame"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Pan"
+}

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -80,8 +81,7 @@ public nonisolated struct DesktopPicture: Sendable {
 
     private static func decodable(_ url: URL) -> URL? {
         if AppleWallpapers.isVideo(url.path) { return FileManager.default.isReadableFile(atPath: url.path) ? url : nil }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0,
-              CGImageSourceGetType(source) != nil else { return nil }
+        guard let source = CheckedImageSource(blockingContentsOf: url), source.count > 0, source.type != nil else { return nil }
         return url
     }
 

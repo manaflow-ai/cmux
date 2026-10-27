@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// One chrome's side of zoom per site: when its page commits on another
@@ -11,23 +12,31 @@ final class SiteZoomFollower {
         didSet { observe() }
     }
     private weak var tab: (any BrowserTab)?
-    private var loop: ObservationLoop?
+    /// The followed page's committed host.
+    private var hostWatch: FrameObservation<String?>?
     private var host: String?
 
     init() {}
 
     /// Follows `tab` (the chrome's page; a hibernated or swapped page
     /// starts over).
-    func follow(_ tab: any BrowserTab) {
+    ///
+    /// - Parameters:
+    ///   - tab: The page.
+    ///   - work: The app's one main-thread scheduler.
+    func follow(_ tab: any BrowserTab, on work: MainWorkScheduler) {
         self.tab = tab
         if let next = tab.siteZoomLevels, next !== levels { levels = next }
         host = nil
-        loop?.cancel()
-        loop = ObservationLoop { [weak self, weak tab] in
-            guard let tab else { return }
-            let committed = tab.state.url?.host()?.lowercased()
+        hostWatch?.cancel()
+        // node-free: a page that commits on another host while its tab is hidden takes that host's level then
+        let watch = FrameObservation(owner: "browser.siteZoom", delivery: .visible(nil), on: work) { [weak tab] in
+            tab?.state.url?.host()?.lowercased()
+        } onChange: { [weak self] committed in
             self?.hostDidChange(committed)
         }
+        hostWatch = watch
+        hostDidChange(watch.value)
     }
 
     /// The user zoomed the page (Cmd-+, Cmd--, Cmd-0, the menu).

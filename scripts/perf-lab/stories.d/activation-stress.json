@@ -1,0 +1,19 @@
+{
+  "id": "activation-stress",
+  "tier": "T1",
+  "description": "App activation (Cmd-Tab back) in a heavy session (150 workspaces, 100 Chromium tabs, 50 hibernated, 100 chat tabs), app notices only and with the window's notices: become notices on the main thread, the next main-actor round trip, and the status indicators each activation re-checks (debug.app_activation).",
+  "command": ["scripts/cmux-next/activation-perf.py", "--phases", "heavy"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "activation\\.(heavy_app_only|heavy)\\.(observers|round_trip|drain|total)", "unit": "ms", "better": "lower"},
+    {"name": "activation\\.(heavy_app_only|heavy)\\.resyncs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["debug:debug.app_activation", "debug:debug.layout_counters"],
+  "hot_paths": ["cmd-tab"],
+  "owner": "PL-switch",
+  "component": "App>Activation"
+}

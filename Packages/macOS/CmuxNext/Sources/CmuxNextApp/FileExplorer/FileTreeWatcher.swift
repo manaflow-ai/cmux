@@ -40,8 +40,10 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
 nonisolated enum FolderWatcherPath {
     static func real(_ folder: URL) -> String {
         let standard = folder.standardizedFileURL.path
-        guard let resolved = realpath(standard, nil) else { return standard }
-        defer { free(resolved) }
-        return String(cString: resolved)
+        // SAFETY: with a nil buffer realpath returns a NUL-terminated path it malloc'd (or nil), which String
+        // copies before the deferred free; nothing else holds it.
+        guard let resolved = unsafe realpath(standard, nil) else { return standard }
+        defer { unsafe free(resolved) }
+        return unsafe String(cString: resolved)
     }
 }

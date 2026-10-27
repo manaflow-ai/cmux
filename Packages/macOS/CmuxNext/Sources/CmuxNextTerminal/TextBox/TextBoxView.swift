@@ -2,6 +2,7 @@ package import AppKit
 package import CmuxNextDesign
 package import CmuxNextIcons
 package import Observation
+package import CmuxNextWakeups
 
 /// The TextBox strip under a terminal: the submit action button (click or Shift-Tab changes it),
 /// the multi-line editor with its placeholder, and Add Files. It grows with its lines up to
@@ -20,11 +21,33 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     private let separator = NSBox()
     /// Runs a registry action through the App (the cycle and attach buttons).
     package var perform: @MainActor (TextBoxCommand) -> Void = { _ in }
+    /// Follows the model: one apply per frame however many of its values changed.
+    private(set) var watch: FrameObservation<Shown>?
+    /// The submit action the button shows.
+    private var shownAction: TextBoxSubmitAction?
 
-    package init(model: TextBoxModel) {
+    /// What the strip shows of its model.
+    struct Shown: Equatable {
+        var text: String
+        var action: TextBoxSubmitAction
+        var visible: Bool
+
+        init(_ model: TextBoxModel) {
+            text = model.text
+            action = model.action
+            visible = model.isVisible
+        }
+    }
+
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler the strip follows `model` through (the terminal host's).
+    ///   - node: The terminal host's node (``TerminalHostView/node``): hidden, the strip follows nothing
+    ///     and reads once when it shows.
+    package init(model: TextBoxModel, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.model = model
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 36))
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         separator.boxType = .separator
         addSubview(separator)
 
@@ -67,24 +90,37 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         attachButton.action = #selector(attach(_:))
         attachButton.image = NSImage.icon(.composerAttach, size: 14)
         attachButton.setAccessibilityLabel(TextBoxStrings.addFiles)
-        follow()
+        follow(on: mainWork, node: node)
     }
 
     @available(*, unavailable)
     package required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows the model's text, action and visibility now and on every change.
-    private func follow() {
-        let (text, action, visible) = withObservationTracking {
-            (model.text, model.action, model.isVisible)
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.follow() }
+    /// Shows the model's text, action and visibility now, and once per frame after each change.
+    private func follow(on mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        let model = self.model
+        let watch = FrameObservation(owner: "Terminal.textBox", delivery: .visible(node), on: mainWork) {
+            Shown(model)
+        } onChange: { [weak self] shown in
+            self?.show(shown)
         }
+        self.watch = watch
+        show(watch.value)
+    }
+
+    private func show(_ shown: Shown) {
+        let (text, action, visible) = (shown.text, shown.action, shown.visible)
         if textView.string != text { textView.replaceText(text) }
-        actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
-        actionButton.setAccessibilityLabel(action.title)
-        actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
-        if isHidden == visible { isHidden = !visible }
+        if action != shownAction {
+            shownAction = action
+            actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
+            actionButton.setAccessibilityLabel(action.title)
+            actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
+        }
+        if isHidden == visible {
+            isHidden = !visible
+            superview?.needsLayout = true // invalidate: shown or hidden (the check above), it takes or frees room
+        }
         refreshHeight()
     }
 
@@ -98,10 +134,17 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         refreshHeight()
     }
 
+    /// A typed character lays nothing out unless the strip's height must change: the host frames the
+    /// strip at its fitting height (`TerminalHostView.bottomAccessory`), so a fitting height that
+    /// differs from the height the host gave asks the host to frame it again, and its new frame lays
+    /// the strip out. A hidden strip takes no room; showing it lays the host out (``show(_:)``).
     private func refreshHeight() {
-        placeholder.isHidden = !textView.string.isEmpty
-        superview?.needsLayout = true
-        needsLayout = true
+        let empty = textView.string.isEmpty
+        if placeholder.isHidden != !empty { placeholder.isHidden = !empty }
+        guard let superview, !isHidden else { return } // the host frames a strip it installs (`bottomAccessory`)
+        let height = min(superview.bounds.height, ceil(fittingSize.height)) // the host's accessoryHeight
+        guard height != bounds.height else { return }
+        superview.needsLayout = true // invalidate: the strip's height differs from its frame (the guard above)
     }
 
     private var lineHeight: CGFloat {
@@ -134,8 +177,11 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         if scroll.frame != editor { scroll.frame = editor }
         textView.minSize = NSSize(width: 0, height: editor.height)
         textView.maxSize = NSSize(width: editor.width, height: .greatestFiniteMagnitude)
-        if textView.frame.width != editor.width { textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height))) }
         placeholder.frame = CGRect(x: editor.minX, y: editor.maxY - lineHeight, width: editor.width, height: lineHeight)
+        if textView.frame.width != editor.width {
+            textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height)))
+            refreshHeight() // a new width wraps the text into another line count
+        }
     }
 
     package override func updateLayer() {

@@ -43,7 +43,9 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local
+        // `result`, live for this call; the Swift import takes ownership of it.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
             return nil
         }
@@ -73,7 +75,8 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         var insert: [String: Any] = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        // SAFETY: with a nil result pointer SecItemAdd writes nothing back.
+        let addStatus = unsafe SecItemAdd(insert as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw CmxIrohKeychainIdentityStoreError(status: addStatus)
         }
@@ -97,16 +100,11 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
 
     /// Generates one Ed25519 secret using Security.framework.
     public static func randomSecretBytes() throws -> Data {
-        let count = 32
-        var data = Data(count: count)
-        let status = data.withUnsafeMutableBytes { bytes in
-            guard let base = bytes.baseAddress else { return errSecAllocate }
-            return SecRandomCopyBytes(kSecRandomDefault, count, base)
+        let random = CmxIrohSystemRandomByteGenerator.secRandomBytes(count: 32)
+        guard random.status == errSecSuccess else {
+            throw CmxIrohIdentityRepositoryError.randomGenerationFailed(random.status)
         }
-        guard status == errSecSuccess else {
-            throw CmxIrohIdentityRepositoryError.randomGenerationFailed(status)
-        }
-        return data
+        return random.bytes
     }
 
     private func baseQuery(

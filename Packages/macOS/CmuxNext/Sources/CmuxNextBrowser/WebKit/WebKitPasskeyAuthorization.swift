@@ -1,5 +1,8 @@
 public import AuthenticationServices
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Browser passkey authorization for WebKit tabs (plans/cmux-next/passkeys.md,
 /// 3.3 and R141). WebKit runs WebAuthn for a browser app only after the
@@ -41,6 +44,7 @@ public final class WebKitPasskeyAuthorization {
         guard current == .notDetermined else { return current }
         if let pending { return await pending.value }
         let backend = backend
+        // main-hop-allow: the one system prompt every caller shares: request is the backend's main-actor async call (AuthenticationServices answers it); the task only holds its answer
         let task = Task { @MainActor in await backend.request() }
         pending = task
         let result = await task.value
@@ -55,11 +59,13 @@ public final class WebKitPasskeyAuthorization {
         var state: State { Self.map(manager.authorizationStateForPlatformCredentials) }
 
         func request() async -> State {
-            await withCheckedContinuation { continuation in
+            // A completion dropped uncalled (abandoned) decided nothing.
+            let state = try? await withOnceContinuation { (continuation: OnceContinuation<State, OnceContinuationError>) in
                 manager.requestAuthorizationForPublicKeyCredentials { state in
                     continuation.resume(returning: Self.map(state))
                 }
             }
+            return state ?? .notDetermined
         }
 
         static func map(_ state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState) -> State {

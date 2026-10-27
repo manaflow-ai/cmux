@@ -5,7 +5,7 @@ import Foundation
 /// app (the `frontend` actor) may approve; any other local connection may only deny.
 public struct PairingResponseRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
-    public static let command = "pairing-response"
+    public static let commandName: DaemonCommandName = "pairing-response"
     public var request: UInt64
     public var approve: Bool
 

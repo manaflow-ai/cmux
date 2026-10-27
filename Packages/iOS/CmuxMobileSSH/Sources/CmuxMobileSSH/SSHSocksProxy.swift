@@ -51,22 +51,19 @@ public struct SSHDirectTCPIPBackend: SocksConnectBackend {
     }
 
     public func open(host: String, port: Int) async throws -> any TunnelByteStream {
-        let installed = InstalledStream()
         do {
-            _ = try await connection.openDirectTCPIP(host: host, port: port) { child in
-                child.eventLoop.makeCompletedFuture {
+            return try await connection.openInstalledDirectTCPIP(host: host, port: port) { child in
+                child.eventLoop.makeCompletedFuture { () throws -> NIOChannelByteStream in
                     try child.pipeline.syncOperations.addHandler(SSHChannelDataUnwrapper())
                     // Pulled reads: the SSH window, not memory, holds what the
                     // browser has not read yet.
                     try child.syncOptions?.setOption(ChannelOptions.autoRead, value: false)
-                    installed.stream = try NIOChannelByteStream.installSync(on: child)
+                    return try NIOChannelByteStream.installSync(on: child)
                 }
-            }
+            }.output
         } catch {
             throw Self.openError(error)
         }
-        guard let stream = installed.stream else { throw TunnelOpenError.generalFailure }
-        return stream
     }
 
     /// OpenSSH reports every connect failure (refused, unreachable,
@@ -77,9 +74,5 @@ public struct SSHDirectTCPIPBackend: SocksConnectBackend {
         if text.contains("Reason: 1 ") || text.hasSuffix("Reason: 1") { return .notAllowed }
         if text.contains("Reason: 2 ") || text.hasSuffix("Reason: 2") { return .connectionRefused }
         return .hostUnreachable
-    }
-
-    private final class InstalledStream: @unchecked Sendable {
-        var stream: NIOChannelByteStream?
     }
 }

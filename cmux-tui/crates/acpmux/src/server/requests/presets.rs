@@ -200,7 +200,7 @@ pub(super) async fn handle(
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
             cfg.presets.insert(name.clone(), p);
         }
-        if let Err(e) = cfg.save() {
+        if let Err(e) = hub.save_config(&cfg) {
             return Err(RpcError::internal(format!("save config: {e}")));
         }
     }

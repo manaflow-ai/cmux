@@ -9,6 +9,7 @@ impl Mux {
     /// terminal still running is reattached (a new view of the same
     /// terminal), other terminals start in their saved directory, and
     /// browsers reopen at their saved URL.
+    #[track_caller]
     pub fn reopen_saved_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,

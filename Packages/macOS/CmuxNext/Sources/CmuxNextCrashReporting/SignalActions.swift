@@ -16,7 +16,9 @@ public nonisolated struct SignalActions: Sendable {
         self.signals = signals
         actions = signals.map { signal in
             var current = sigaction()
-            sigaction(signal, nil, &current)
+            // SAFETY: with a nil new action sigaction changes nothing and writes the current one into `current`, a
+            // local live for the call.
+            unsafe sigaction(signal, nil, &current)
             return current
         }
     }
@@ -25,7 +27,9 @@ public nonisolated struct SignalActions: Sendable {
     public func restore() {
         for (signal, saved) in zip(signals, actions) {
             var action = saved
-            sigaction(signal, &action, nil)
+            // SAFETY: the kernel copies `action`, a local live for the call, an action sigaction itself returned for
+            // this signal; no old action is asked for.
+            unsafe sigaction(signal, &action, nil)
         }
     }
 }

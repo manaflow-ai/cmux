@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextTerminal
 
 /// Owns a window's keys from the moment a pane or terminal tab creation is handled (a split, New
@@ -16,7 +17,8 @@ import CmuxNextTerminal
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
-    private var buffers: [Int: CreationInputBuffer] = [:]
+    /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/creationCapture``).
+    private var buffers: [Int: CreationInputBuffer] = [:] { didSet { router?.modes.set(.creationCapture, !buffers.isEmpty) } }
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).

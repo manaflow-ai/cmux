@@ -33,13 +33,24 @@ impl Caller {
     }
 
     fn call(&self, mux: &Arc<Mux>, request: Value) -> Value {
-        assert!(handle_connection_message(
-            mux,
-            self.id,
-            &request.to_string(),
-            &self.writer,
-            &self.scheduler,
-        ));
+        self.call_line(mux, &request.to_string())
+    }
+
+    /// The reply to `line` as sent, and the JSON parses the line took.
+    fn call_counted(&self, mux: &Arc<Mux>, line: &str) -> (Value, u64) {
+        let stats = crate::diagnostics::IpcStats::default();
+        let reply = {
+            let _scope = crate::diagnostics::JsonParseScope::enter(
+                &stats,
+                crate::diagnostics::IpcTransport::Lines,
+            );
+            self.call_line(mux, line)
+        };
+        (reply, stats.snapshot().parses.lines.json_parses)
+    }
+
+    fn call_line(&self, mux: &Arc<Mux>, line: &str) -> Value {
+        assert!(handle_connection_message(mux, self.id, line, &self.writer, &self.scheduler));
         let until = Instant::now() + Duration::from_secs(5);
         loop {
             if let Some(line) = self.outbound.try_pop() {
@@ -157,6 +168,48 @@ fn cmux_next_agent_cli_job_resolve_refuses_untrusted_or_retargeted_reads() {
         bad[field] = json!("claim");
         assert_code(&caller.call(&mux, bad), "agent_cli_job.bad_request");
     }
+    assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+/// The route answers as the sniffer did, with one decode past the head for
+/// a line it accepts or refuses, a `null` id answered as `null` and a
+/// repeated member's last value.
+#[test]
+fn cmux_next_agent_cli_job_resolve_decodes_once_and_answers_as_the_sniffer_did() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-resolve-typed");
+    let caller = Caller::new(&mux, true);
+    let resolve = resolve_request(&mux, "claude", "typed");
+    let (resolved, parses) = caller.call_counted(&mux, &resolve.to_string());
+    assert_eq!(resolved["data"], json!({"state":"not_found"}), "{resolved}");
+    assert_eq!(parses, 2, "the head and the route's decode");
+
+    let mut unknown = resolve.clone();
+    unknown["env"] = json!({});
+    let (refused, parses) = caller.call_counted(&mux, &unknown.to_string());
+    assert_code(&refused, "agent_cli_job.bad_request");
+    assert_eq!(refused["id"], 1, "{refused}");
+    assert_eq!(parses, 2, "a refusal takes its id from the same decode");
+
+    let mut null_id = resolve.clone();
+    null_id["id"] = Value::Null;
+    let answered = caller.call(&mux, null_id);
+    assert_eq!(answered["ok"], true, "{answered}");
+    assert_eq!(answered.get("id"), Some(&Value::Null), "{answered}");
+
+    let repeated = format!(
+        r#"{{"id":2,"cmd":"agent-cli-update-job-resolve","cli":"no such cli!","expected_machine_id":"{}","expected_session_id":"{}","cli":"claude","idempotency_key":"typed"}}"#,
+        mux.machine_public_id, mux.session_public_id,
+    );
+    let last_wins = caller.call_line(&mux, &repeated);
+    assert_eq!(last_wins["data"], json!({"state":"not_found"}), "{last_wins}");
+    assert_eq!(last_wins["id"], 2);
+
+    // The route is found by the decoded `cmd`, never a substring of the
+    // line, so an escaped name answers as its plain spelling.
+    let escaped = resolve.to_string().replace("agent-cli-update-job", r"agent-cli-update\u002djob");
+    let routed = caller.call_line(&mux, &escaped);
+    assert_eq!(routed["data"], json!({"state":"not_found"}), "{escaped}: {routed}");
     assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
 }
 

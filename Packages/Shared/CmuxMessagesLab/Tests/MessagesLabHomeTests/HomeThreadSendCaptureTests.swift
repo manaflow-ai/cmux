@@ -69,7 +69,7 @@ import UniformTypeIdentifiers
         var frames: [CGImage] = []
         for k in 0..<24 {
             step(to: 1.2 + Double(k) / 30)
-            guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+            guard let ctx = CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
             ctx.setFillColor(CGColor(gray: 0.12, alpha: 1))
@@ -83,7 +83,7 @@ import UniformTypeIdentifiers
         #expect(frames.count == 24)
         let cols = 6, rows = (frames.count + cols - 1) / cols, gap = 8
         let fw = Int(size.width * scale), fh = Int(size.height * scale)
-        guard let sheet = CGContext(data: nil, width: cols * fw + (cols - 1) * gap, height: rows * fh + (rows - 1) * gap, bitsPerComponent: 8,
+        guard let sheet = CGContext.ownedBitmap(width: cols * fw + (cols - 1) * gap, height: rows * fh + (rows - 1) * gap, bitsPerComponent: 8,
                                     bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { Issue.record("no context"); return }

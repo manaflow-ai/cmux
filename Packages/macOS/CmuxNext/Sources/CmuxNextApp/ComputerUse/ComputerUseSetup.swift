@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Observation
 import os
 
-private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
+nonisolated private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Computer Use Setup: the one place that knows whether the helper this app
 /// uses holds Accessibility and Screen Recording. The palette and CLI action
@@ -65,6 +65,10 @@ final class ComputerUseSetup {
     /// The signed helper the grants belong to (the running one, else the one
     /// that would start). Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// The helper's icon (the drag tiles show it), read on the system lane once the helper is found.
+    private(set) var helperAppIcon: NSImage?
+    /// The app's Launch Services answers, which read the helper's icon; nil (tests) reads none.
+    @ObservationIgnored private let queries: WorkspaceQueries?
 
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
@@ -72,18 +76,27 @@ final class ComputerUseSetup {
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
-    @ObservationIgnored private let notifications: NotificationCenter
-    @ObservationIgnored private let distributed: NotificationCenter
-    @ObservationIgnored private let clock: any Clock<Duration>
-    @ObservationIgnored private var observers: [MainActorObservation] = []
-    @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var reading: Task<Void, Never>?
+    /// The app's fan-out of app notices (the app becoming active).
+    @ObservationIgnored private let appEvents: AppEvents
+    /// The app's one fan-out of distributed notices: Accessibility trust here and in the permission
+    /// probe (``SystemPermissionProbe``) shares its one observer.
+    @ObservationIgnored let distributedEvents: AppEvents
+    /// The main-thread scheduler the reads reply on and the inputs flush on.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// Starts the reads off main at a stated priority.
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private var subscriptions: [EventSubscription] = []
+    @ObservationIgnored private var observation: ServiceObservation<Inputs>?
+    @ObservationIgnored private var reading: Task<Void, any Error>?
+    /// The wait before the next read of a started helper that has not answered (``Backoff``).
+    @ObservationIgnored private let retry: MainDeadline
+    @ObservationIgnored private var backoff = ComputerUseSetup.retryBackoff
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var resolvedFor: URL??
-    /// The inputs `start()` applied, until the input stream's first value.
-    @ObservationIgnored private var appliedAtStart: Inputs?
     /// Reads after a helper start that has not answered yet.
     static let maximumRetries = 6
+    /// The waits between those reads: a retry after a failure, never a period.
+    static let retryBackoff = Backoff(initial: .milliseconds(250), maximum: .seconds(4))
 
     /// macOS posts this (distributed) when any process's Accessibility trust changes.
     static let accessibilityTrustChanged = Notification.Name("com.apple.accessibility.api")
@@ -94,54 +107,49 @@ final class ComputerUseSetup {
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          enableSetting: @escaping @MainActor () -> Void = {},
-         notifications: NotificationCenter = .default,
-         distributed: NotificationCenter = DistributedNotificationCenter.default(),
-         clock: any Clock<Duration> = ContinuousClock()) {
+         appEvents: AppEvents, distributedEvents: AppEvents, deadlines: MainDeadlineScheduler, work: BackgroundWork,
+         queries: WorkspaceQueries? = nil) {
+        self.queries = queries
         self.inputs = inputs
         self.configuration = configuration
         self.read = read
         self.resolveHelper = resolveHelper
         self.openURL = openURL
         self.enableSetting = enableSetting
-        self.notifications = notifications
-        self.distributed = distributed
-        self.clock = clock
+        self.appEvents = appEvents
+        self.distributedEvents = distributedEvents
+        mainWork = deadlines.work
+        self.work = work
+        // `visible`: the Settings card and the onboarding step show the grants a read finds.
+        retry = MainDeadline(owner: "ComputerUseSetup.retry", workClass: .visible, scheduler: deadlines)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
+    // The read task is Sendable and stops from any thread; the observation and subscriptions stop with their release.
     nonisolated deinit {
-        observation?.cancel()
         reading?.cancel()
     }
 
     /// Follows the inputs and the recheck events for the app's life. Idempotent.
-    /// The current inputs apply at once, so a model made on demand (the first
-    /// `computer_use.status`) never reports the initial `.off` of a feature
-    /// that is on; the stream's first value repeats them and is skipped.
+    /// The current inputs apply at once (the observation applies its first value
+    /// before it returns), so a model made on demand (the first
+    /// `computer_use.status`) never reports the initial `.off` of a feature that is on.
     func start() {
         guard observation == nil else { return }
-        let inputs = inputs
-        let initial = inputs()
-        appliedAtStart = initial
-        apply(initial)
-        observation = Task { [weak self] in
-            for await value in ObservationStream({ inputs() }) {
-                guard let self else { return }
-                if let started = appliedAtStart {
-                    appliedAtStart = nil
-                    if started == value { continue }
-                }
-                apply(value)
-            }
+        // A service observation: the phase is model state the palette, the CLI and the pages read, shown or
+        // not. `visible`: the cards show it; a person's toggle flushes before its frame.
+        observation = ServiceObservation(.visible, owner: "ComputerUseSetup.inputs", on: mainWork, read: inputs) { [weak self] value in
+            self?.apply(value)
         }
-        // The person comes back from System Settings: the grant may have changed.
-        observers.append(MainActorObservation(NSApplication.didBecomeActiveNotification, center: notifications) { [weak self] in
-            self?.recheck()
-        })
-        observers.append(MainActorObservation(Self.accessibilityTrustChanged, center: distributed) { [weak self] in
-            self?.recheck()
-        })
+        subscriptions = [
+            // The person comes back from System Settings: the grant may have changed.
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ComputerUseSetup.active") { [weak self] in
+                self?.recheck()
+            },
+            distributedEvents.subscribe(Self.accessibilityTrustChanged, owner: "ComputerUseSetup.trust") { [weak self] in
+                self?.recheck()
+            },
+        ]
     }
 
     /// Reads the grants again now (Settings opened, the step showed, the app came back).
@@ -187,6 +195,8 @@ final class ComputerUseSetup {
         generation &+= 1
         reading?.cancel()
         reading = nil
+        retry.cancel()
+        backoff.reset()
         if inputs.disabledByPolicy { return settle(.disabledByPolicy, running: nil) }
         guard inputs.enabled else { return settle(.off, running: nil) }
         switch inputs.helper {
@@ -209,46 +219,65 @@ final class ComputerUseSetup {
         resolve(running: running)
     }
 
-    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, generation current: Int) {
-        let read = read
-        let clock = clock
-        // task-owner: one read (plus bounded retries while a started helper is not up yet); a newer apply cancels it.
-        reading = Task { [weak self] in
-            var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(4))
-            for attempt in 0...Self.maximumRetries {
-                let result = await read(configuration)
-                guard let self, !Task.isCancelled, self.generation == current else { return }
-                switch result {
-                case .answered(let granted, let helper):
-                    phase = .ready
-                    permissions = granted
-                    resolve(running: helper)
-                    return
-                case .versionMismatch:
-                    setupLogger.error("cmux Computer Use helper answered permissions_status in another protocol version")
-                    settle(.versionMismatch, running: nil)
-                    return
-                case .noAnswer:
-                    // A helper that answered before keeps its rows until a read succeeds.
-                    if phase != .ready { settle(.starting, running: nil) }
-                    guard attempt < Self.maximumRetries else { return }
-                    // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
-                    do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
-                }
+    /// One read off main; its answer is one posted `visible` task. A started helper that does not answer yet is
+    /// read again after a ``Backoff`` wait (``retry``), at most ``maximumRetries`` times.
+    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, generation current: Int, attempt: Int = 0) {
+        let read = read, mainWork = mainWork
+        // task-owner: one read; a newer apply cancels it, and its generation drops a late answer.
+        reading = work.task(.userVisible) { [weak self] in
+            let result = await read(configuration)
+            try Task.checkCancellation()
+            await mainWork.apply(.visible, owner: "ComputerUseSetup.read") {
+                self?.received(result, configuration, generation: current, attempt: attempt)
             }
         }
     }
 
-    /// Resolves the signed helper for `running` (or the installed one), once per running app.
+    private func received(_ result: Read, _ configuration: AgentActivitySocketSource.Configuration, generation current: Int,
+                          attempt: Int) {
+        guard generation == current else { return }
+        switch result {
+        case .answered(let granted, let helper):
+            phase = .ready
+            permissions = granted
+            resolve(running: helper)
+        case .versionMismatch:
+            setupLogger.error("cmux Computer Use helper answered permissions_status in another protocol version")
+            settle(.versionMismatch, running: nil)
+        case .noAnswer:
+            // A helper that answered before keeps its rows until a read succeeds.
+            if phase != .ready { settle(.starting, running: nil) }
+            guard attempt < Self.maximumRetries else { return }
+            retry.schedule(after: backoff.next()) { [weak self] in
+                guard let self, generation == current else { return }
+                readGrants(configuration, generation: current, attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// Resolves the signed helper for `running` (or the installed one), once per running app: the signature
+    /// check off main, its answer one posted `visible` task.
     private func resolve(running: URL?) {
         guard resolvedFor != .some(running) else { return }
         resolvedFor = .some(running)
-        let resolveHelper = resolveHelper
+        let resolveHelper = resolveHelper, mainWork = mainWork
         // task-owner: one signature check per helper identity; a newer one wins (resolvedFor).
-        Task { [weak self] in
+        work.task(.userVisible) { [weak self] in
             let url = await resolveHelper(running)
-            guard let self, resolvedFor == .some(running) else { return }
-            helperAppURL = url
+            await mainWork.apply(.visible, owner: "ComputerUseSetup.helper") {
+                self?.resolved(url, for: running)
+            }
+        }
+    }
+
+    private func resolved(_ url: URL?, for running: URL?) {
+        guard resolvedFor == .some(running) else { return }
+        helperAppURL = url
+        helperAppIcon = nil
+        guard let url, let queries else { return }
+        queries.value(WorkspaceQuery<NSImage>.fileIcon(atPath: url.path, side: 32), priority: .userVisible) { [weak self] icon in
+            guard let self, helperAppURL == url else { return }
+            helperAppIcon = icon
         }
     }
 
@@ -293,6 +322,7 @@ extension ComputerUseSetup {
     /// helper this app runs (`ComputerUseHelperDaemon.shared`).
     static func app(services: AppServices) -> ComputerUseSetup {
         let helper = ComputerUseHelperDaemon.shared
+        let work = services.work
         let setup = ComputerUseSetup(
             inputs: { [weak services] in
                 Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
@@ -303,13 +333,17 @@ extension ComputerUseSetup {
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
-                // task-owner: one settings write; the helper start follows the setting.
-                Task {
+                // task-owner: one settings write, the person's click; the helper start follows the setting.
+                work.task(.userBlocking) {
                     do { try await settings.setSetting(at: ComputerUseSettings.enabledPath, to: .bool(true), by: writer) } catch {
                         setupLogger.error("Computer Use could not be turned on: \(String(describing: error), privacy: .public)")
                     }
                 }
-            })
+            },
+            appEvents: services.appEvents,
+            // raw-observer-allow: the app's one fan-out of distributed notices (Accessibility trust), one observer per name for the whole app
+            distributedEvents: AppEvents(center: DistributedNotificationCenter.default()),
+            deadlines: services.mainDeadlines, work: work, queries: services.workspaceQueries)
         setup.start()
         return setup
     }

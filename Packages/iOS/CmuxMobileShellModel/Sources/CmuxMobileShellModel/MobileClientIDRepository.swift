@@ -11,22 +11,23 @@ public import Foundation
 /// composition root with `UserDefaults.standard`.
 ///
 /// ```swift
-/// let repository = MobileClientIDRepository(defaults: .standard)
+/// let repository = MobileClientIDRepository(defaults: { .standard })
 /// let clientID = repository.clientID
 /// ```
 public struct MobileClientIDRepository: Sendable {
     /// The defaults key under which the client identifier is stored.
     public static let defaultsKey = "dev.cmux.mobile.clientID"
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    /// Opens the backing store. `UserDefaults` is not `Sendable`, so this
+    /// `Sendable` value holds a way to open it, never the object.
+    private let defaults: @Sendable () -> UserDefaults
     private let dogfoodClientID: String?
 
     /// Create a repository backed by the given defaults store.
-    /// - Parameter defaults: The persistence store for the client identifier.
-    ///   Inject a suite-scoped `UserDefaults` in tests.
+    /// - Parameter defaults: Opens the persistence store for the client
+    ///   identifier. Tests open a suite-scoped `UserDefaults`.
     public init(
-        defaults: UserDefaults,
+        defaults: @escaping @Sendable () -> UserDefaults,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.defaults = defaults
@@ -58,6 +59,7 @@ public struct MobileClientIDRepository: Sendable {
     ///
     /// - Returns: A tuple of the stable `id` and whether it was just `created`.
     public func resolveClientID() -> (id: String, created: Bool) {
+        let defaults = self.defaults()
         if let dogfoodClientID {
             let existing = defaults.string(forKey: Self.defaultsKey)
             if existing != dogfoodClientID {

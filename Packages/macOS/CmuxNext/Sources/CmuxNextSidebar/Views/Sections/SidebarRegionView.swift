@@ -114,6 +114,7 @@ final class SidebarRegionView: NSView {
         self.region = region
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -388,6 +389,7 @@ final class SidebarRegionView: NSView {
         }
     }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true

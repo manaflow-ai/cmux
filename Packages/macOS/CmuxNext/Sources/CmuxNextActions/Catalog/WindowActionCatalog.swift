@@ -29,11 +29,14 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 symbol: "eyeglasses", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app new-incognito-window", mainMenu: .window
             ),
+            // A window target (`window:<id>`, the control socket's window ids) closes that window;
+            // without one, the active window.
             ActionDescriptor(
                 id: "closeWindow",
                 title: String(localized: "action.closeWindow", defaultValue: "Close Window", bundle: .module),
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
-                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], cliName: "app close-window", mainMenu: .file
+                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], targets: [.window],
+                cliName: "app close-window", mainMenu: .file
             ),
             // Every other open window; each window's own close check runs (an
             // incognito window asks), and terminals keep running as for Close Window.
@@ -141,7 +144,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                     title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
                     keywords: ["global", "hotkey", "summon"],
                     defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
-                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
+                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard],
+                    // `hidden=true|false` sets the end state instead of toggling, for scripts and
+                    // the perf bench, whose app is never active (WindowHandlers).
+                    arguments: [
+                        ActionArgument(name: "hidden",
+                                       title: String(localized: "argument.hidden", defaultValue: "Hidden", bundle: .module),
+                                       kind: .bool, isRequired: false),
+                    ],
+                    cliName: "app show-hide-all-windows"
                 )
                 // Summons cmux from any app, so the key works while cmux is in the background.
                 showHide.isGlobalHotKey = true

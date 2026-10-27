@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Lawrence 2026-10-19: "mousedown on omnibar is kinda laggy we need to from first principles make
 /// it faster". The press that focuses the omnibar shows its whole result on the next frame, as in
@@ -10,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct OmnibarMouseDownLatencyTests {
     private func bar(star: BookmarkStarState = .off) -> (AddressBarView, NSWindow) {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
         bar.frame = NSRect(x: 10, y: 20, width: 600, height: 34)
         window.contentView!.addSubview(bar)

@@ -29,8 +29,8 @@ import Testing
     final class Pane {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A")]),
+                                           reveal: LaunchReveal(deadline: .zero))
 
         init() {
             window.isReleasedWhenClosed = false

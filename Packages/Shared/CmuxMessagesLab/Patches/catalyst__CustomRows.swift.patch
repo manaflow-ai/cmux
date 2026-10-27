@@ -1,0 +1,178 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/CustomRows.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/CustomRows.swift
+@@ -8,6 +8,7 @@
+ /// through NSHostingView).
+ typealias CustomRowPlatformView = NSView
+ #endif
++import os // cmux: OSAllocatedUnfairLock
+ 
+ // Hosted rows: interactive rows that a host app puts into the transcript without
+ // patching the shared files (appkit-native/CUSTOM-ROWS.md). The model is a part
+@@ -91,7 +92,10 @@
+ /// `estimate` and are measured on main when they come near the viewport (the same
+ /// estimate -> measure correction as long text: a correction keeps the first visible
+ /// row in place, so it moves only content outside the viewport).
+-protocol TranscriptCustomRowProvider: AnyObject {
++/// cmux: Sendable (p10-stability-040): the registry hands a provider to the loader queue and
++/// the row bitmap threads, so a provider keeps no unsynchronized state; its view calls are
++/// main-actor.
++protocol TranscriptCustomRowProvider: AnyObject, Sendable {
+     var kind: String { get }
+     var measuresOffMain: Bool { get }
+     func layout(for part: CustomPart) -> CustomRowLayout
+@@ -101,13 +105,13 @@
+     /// Cheap guess for a main-only provider's off-main rows.
+     func estimate(_ part: CustomPart, maxWidth: CGFloat) -> CGSize
+     /// A new view (the host keeps a pool per kind and reuses it for any row of the kind).
+-    func makeView() -> CustomRowPlatformView
++    @MainActor func makeView() -> CustomRowPlatformView
+     /// Show `part` (called on reuse and on every change of part, size, focus, key state).
+-    func configure(_ view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext)
++    @MainActor func configure(_ view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext)
+     /// The view leaves its row (back to the pool).
+-    func prepareForReuse(_ view: CustomRowPlatformView)
++    @MainActor func prepareForReuse(_ view: CustomRowPlatformView)
+     /// A key while the row has the focus. true: handled.
+-    func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool
++    @MainActor func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool
+     /// Copy, VoiceOver and preview text (nil: "[kind]").
+     func plainText(_ part: CustomPart) -> String?
+     /// The provider draws the row into its row bitmap (`drawRow`), with no live view: a host
+@@ -150,16 +154,17 @@
+ final class DrawnRowProvider: TranscriptCustomRowProvider {
+     let kind: String
+     let rowLayout: CustomRowLayout
+-    private let height: (CustomPart, CGFloat) -> CGFloat
+-    private let draw: (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void
+-    private let text: (CustomPart) -> String?
+-    private let tap: ((CustomPart, PartRef) -> Bool)?
++    // cmux: @Sendable closures (they run on any thread, and the provider is Sendable).
++    private let height: @Sendable (CustomPart, CGFloat) -> CGFloat
++    private let draw: @Sendable (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void
++    private let text: @Sendable (CustomPart) -> String?
++    private let tap: (@Sendable (CustomPart, PartRef) -> Bool)?
+ 
+     init(kind: String, layout: CustomRowLayout = .fullWidth,
+-         height: @escaping (CustomPart, CGFloat) -> CGFloat,
+-         draw: @escaping (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void,
+-         text: @escaping (CustomPart) -> String? = { _ in nil },
+-         tap: ((CustomPart, PartRef) -> Bool)? = nil) {
++         height: @escaping @Sendable (CustomPart, CGFloat) -> CGFloat,
++         draw: @escaping @Sendable (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void,
++         text: @escaping @Sendable (CustomPart) -> String? = { _ in nil },
++         tap: (@Sendable (CustomPart, PartRef) -> Bool)? = nil) {
+         self.kind = kind
+         self.rowLayout = layout
+         self.height = height
+@@ -172,7 +177,7 @@
+     var drawsRow: Bool { true }
+     func layout(for part: CustomPart) -> CustomRowLayout { rowLayout }
+     func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { CGSize(width: maxWidth, height: max(1, height(part, maxWidth))) }
+-    func makeView() -> CustomRowPlatformView { CustomRowPlatformView() }
++    @MainActor func makeView() -> CustomRowPlatformView { CustomRowPlatformView() } // cmux: main-actor, as the requirement
+     func configure(_ view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) {}
+     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) { draw(part, ctx, rect, context) }
+     func plainText(_ part: CustomPart) -> String? { text(part) }
+@@ -181,7 +186,8 @@
+ 
+ /// The live-view side, implemented by a host (appkit-native CustomRowsHost). The shared
+ /// transcript calls it from the row cell, the recycler and the window view's decorate.
+-protocol CustomRowHosting: AnyObject {
++/// cmux: Sendable, as the registry's other entries (`CustomRows.host` is read from any thread).
++protocol CustomRowHosting: AnyObject, Sendable {
+     /// A cell shows `spec` (end of RowCell.configure / showNow).
+     func configure(_ cell: RowCell, _ spec: RowSpec)
+     /// A cell goes back to the pool.
+@@ -194,21 +200,32 @@
+ 
+ enum CustomRows {
+     /// The live host (nil: no live views; rows are text bubbles).
+-    static var host: CustomRowHosting?
+-    /// Live views are shown in this app: custom rows measure with their provider. Set before
+-    /// the first rows are derived (appkit-native: on; Catalyst, iOS: off, the stub).
++    static var host: CustomRowHosting? { // cmux: in `lock`
++        get { lock.withLock { $0.host } }
++        set { lock.withLock { $0.host = newValue } }
++    }
++    /// Live views are shown in this app: custom rows measure with their provider
++    /// (appkit-native: on; Catalyst, iOS: off, the stub). cmux: a constant (nothing sets it,
++    /// and an unsynchronized global was read off main).
+     #if APPKIT_NATIVE
+-    static var liveViews = true
++    static let liveViews = true
+     #else
+-    static var liveViews = false
++    static let liveViews = false
+     #endif
+ 
+-    private static let lock = NSLock()
+-    private static var providers: [String: TranscriptCustomRowProvider] = [:]
+-
+-    static func register(_ p: TranscriptCustomRowProvider) { lock.lock(); providers[p.kind] = p; lock.unlock(); cache.clear() }
+-    static func unregister(_ kind: String) { lock.lock(); providers[kind] = nil; lock.unlock(); cache.clear() }
+-    static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.lock(); defer { lock.unlock() }; return providers[kind] }
++    /// cmux: the providers, the host and the estimate flag inside the lock (an NSLock beside
++    /// globals the checker could not see). Lock carve-out: rows measure and draw synchronously
++    /// on the loader queue and the row bitmap threads.
++    private struct Registry: Sendable {
++        var providers: [String: any TranscriptCustomRowProvider] = [:]
++        var host: (any CustomRowHosting)?
++        var mayEstimate = false
++    }
++    private static let lock = OSAllocatedUnfairLock(initialState: Registry())
++
++    static func register(_ p: TranscriptCustomRowProvider) { let kind = p.kind; lock.withLock { $0.providers[kind] = p }; cache.clear() }
++    static func unregister(_ kind: String) { lock.withLock { $0.providers[kind] = nil }; cache.clear() }
++    static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.withLock { $0.providers[kind] } }
+ 
+     /// The provider when its live view is shown here, or when it draws the row itself (`drawsRow`).
+     static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? {
+@@ -269,27 +286,34 @@
+     }
+     /// Some row got an estimate (a main-only provider measured off main): hosts look for rows
+     /// to correct near the viewport. Never set for histories without custom rows.
+-    static var mayEstimate = false
++    static var mayEstimate: Bool { // cmux: in `lock`
++        get { lock.withLock { $0.mayEstimate } }
++        set { lock.withLock { $0.mayEstimate = newValue } }
++    }
+     /// The next measure of `id`'s custom parts runs again (heightDidChange).
+     static func invalidate(_ id: ID) { cache.bump(id) }
+ 
+     struct MeasureKey: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var generation: Int }
+     static let cache = MeasureStore()
+-    final class MeasureStore: @unchecked Sendable {
+-        private let lock = NSLock()
+-        private var sizes: [MeasureKey: CGSize] = [:]
+-        private var generations: [ID: Int] = [:]
+-        func get(_ k: MeasureKey) -> CGSize? { lock.lock(); defer { lock.unlock() }; return sizes[k] }
++    /// cmux: its state behind a checked lock (it was `@unchecked Sendable` over an NSLock).
++    final class MeasureStore: Sendable {
++        private struct State: Sendable {
++            var sizes: [MeasureKey: CGSize] = [:]
++            var generations: [ID: Int] = [:]
++        }
++        // Lock carve-out: measured synchronously on the loader queue and the main thread.
++        private let state = OSAllocatedUnfairLock(initialState: State())
++        func get(_ k: MeasureKey) -> CGSize? { state.withLock { $0.sizes[k] } }
+         func put(_ k: MeasureKey, _ s: CGSize) {
+-            lock.lock()
+-            if sizes.count > 20_000 { sizes.removeAll(keepingCapacity: true) }
+-            sizes[k] = s
+-            lock.unlock()
++            state.withLock { st in
++                if st.sizes.count > 20_000 { st.sizes.removeAll(keepingCapacity: true) }
++                st.sizes[k] = s
++            }
+         }
+-        func generation(_ id: ID) -> Int { lock.lock(); defer { lock.unlock() }; return generations[id] ?? 0 }
+-        func bump(_ id: ID) { lock.lock(); generations[id, default: 0] += 1; lock.unlock() }
+-        func clear() { lock.lock(); sizes.removeAll(); lock.unlock() }
+-        var count: Int { lock.lock(); defer { lock.unlock() }; return sizes.count }
++        func generation(_ id: ID) -> Int { state.withLock { $0.generations[id] ?? 0 } }
++        func bump(_ id: ID) { state.withLock { $0.generations[id, default: 0] += 1 } }
++        func clear() { state.withLock { $0.sizes.removeAll() } }
++        var count: Int { state.withLock { $0.sizes.count } }
+     }
+ 
+     // MARK: Drawing (row bitmap)

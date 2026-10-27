@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -14,7 +15,6 @@ import os
 final class CEFVerificationBridge {
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
-    private var observation: ObservationLoop?
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
 
     init(tab: CEFTab) { self.tab = tab }
@@ -39,10 +39,11 @@ final class CEFVerificationBridge {
             ("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
         }
         run([("Page.enable", [:])] + scripts + [Self.binding], browser, tab: tab)
-        observation = ObservationLoop { [weak self] in self?.documentChanged() }
+        documentChanged()
     }
 
-    private func documentChanged() {
+    /// After attach, each shim event of the tab (`CEFAgentRelay.documentStateChanged`).
+    func documentChanged() {
         guard let tab else { return }
         let state = tab.state
         guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }
@@ -79,7 +80,7 @@ final class CEFVerificationBridge {
     /// The `identifier` of a `Page.addScriptToEvaluateOnNewDocument` result.
     private static func scriptIdentifier(_ result: String) -> String? {
         guard let data = result.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
         return object["identifier"] as? String
     }
 
@@ -88,7 +89,7 @@ final class CEFVerificationBridge {
     func handle(_ json: String) -> Bool {
         guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(VerificationPageScripts.channel)\""),
               let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == VerificationPageScripts.channel
         else { return false }

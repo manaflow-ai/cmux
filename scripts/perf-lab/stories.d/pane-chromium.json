@@ -1,0 +1,24 @@
+{
+  "id": "pane-chromium",
+  "tier": "T2",
+  "description": "Split, close, New Column and zoom motion in a 4x2 layout whose top-left pane is an animating Chromium page (pane-perf-terminal.py --browser): every frame interval of each action, its missed frames and the fork geometry posts per moving frame, light session.",
+  "command": ["scripts/cmux-next/pane-perf-terminal.py", "--browser", "--layouts", "4x2", "--rounds", "2",
+              "--actions", "split,close,column,zoom", "--story", "pane-chromium"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "panes\\.[^.]+\\.4x2\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/floor"}},
+    {"name": "panes\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower",
+     "target_ref": {"target": "motion-dropped"}},
+    {"name": "panes\\.[^.]+\\.4x2\\.posts_per_frame", "unit": "unitless", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.frames", "debug:debug.motion", "debug:debug.cef", "debug:debug.layers"],
+  "hot_paths": ["cef-geometry", "motion-frame"],
+  "owner": "PL-motion-cef",
+  "component": "Layout>Motion"
+}

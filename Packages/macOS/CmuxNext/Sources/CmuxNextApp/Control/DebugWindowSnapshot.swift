@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -52,11 +53,11 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let snapshot = try window.snapshotImage()
-            // Read before the encode's await: a sheet may close meanwhile.
+            // The window server calls run on the system lane; main reads the plan and paints.
             let children = window.visibleChildWindows.count
+            let snapshot = try await window.snapshotImage(on: services.work)
             // The app's menus, cards and popovers over the window go on top, as on screen.
-            let floating = window.floatingWindowsSnapshot().flatMap { windows in
+            let floating = await window.floatingWindows(on: services.work).flatMap { windows in
                 WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window(windows.image)])
                     .map { (image: $0, count: windows.count) }
             }
@@ -105,7 +106,7 @@ enum DebugWindowSnapshot {
             // with the live web views hidden, so the page snapshots below fill
             // each rectangle exactly once. The overlay panels go on top at the
             // end, so either base has only the page windows.
-            let composited = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow)
+            let composited = await window.compositedImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow)
             let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
             var layers: [WindowImageLayer] = []
@@ -114,7 +115,8 @@ enum DebugWindowSnapshot {
             let children = window.visibleChildWindows
             let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
             var childrenIncluded = base.method == .composited ? pageChildren : 0
-            if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
+            if base.method == .appkit,
+               let pageWindows = await window.childWindowsImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow) {
                 layers.append(.window(pageWindows))
                 childrenIncluded += pageChildren
             }
@@ -122,8 +124,7 @@ enum DebugWindowSnapshot {
             for webView in webViews where base.method == .appkit {
                 do {
                     let image = try await webView.takeSnapshot(configuration: nil)
-                    var proposedRect = NSRect.zero
-                    guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+                    guard let cgImage = image.bestCGImage else {
                         failed += 1
                         continue
                     }
@@ -151,12 +152,12 @@ enum DebugWindowSnapshot {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
                 layers.append(.page(image, rect))
             }
-            if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+            if let panels = await window.childWindowsImage(on: services.work, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
             }
             // Menus, and cards or popovers not attached to the window, go on top.
-            let floating = window.floatingWindowsSnapshot()
+            let floating = await window.floatingWindows(on: services.work)
             if let floating { layers.append(.window(floating.image)) }
             let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
             let output = painted ?? base.image
@@ -193,6 +194,7 @@ enum DebugWindowSnapshot {
         var result: [(CEFTab, NSRect)] = []
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard case .browser(let entry)? = pane.currentContent, let page = entry.tab as? CEFTab,
+                  // visibility-walk-allow: the snapshot paints the pages AppKit composites, the window server's own view state
                   page.contentView.window === window, !page.contentView.isHiddenOrHasHiddenAncestor else { continue }
             let rect = page.devToolsDiagnosticFrames.map { window.convertFromScreen($0.page) }
                 ?? page.contentView.convert(page.contentView.bounds, to: nil)
@@ -219,6 +221,7 @@ enum DebugWindowSnapshot {
                 webView.layer?.isHidden = layerHidden
             }
         }
+        // sync-layout: the snapshot below reads the window drawn with its web views hidden, in this turn.
         window.contentView?.displayIfNeeded()
         return try appKitBaseImage(for: window)
     }
@@ -231,10 +234,11 @@ enum DebugWindowSnapshot {
         func visit(_ view: NSView) {
             // A hidden or transparent view hides its whole subtree on screen
             // (layer opacity multiplies down the tree). The new tab spare
-            // waits under the alpha-0 NewTabSpareParking: never paint it.
+            // waits under the alpha-0 PagePreloadParkingView: never paint it.
             guard !view.isHidden, view.alphaValue > 0 else { return }
             if let webView = view as? WKWebView,
                webView.window === window,
+               // visibility-walk-allow: the snapshot paints the web views AppKit composites, the window server's own view state
                !webView.isHiddenOrHasHiddenAncestor,
                webView.alphaValue > 0,
                webView.bounds.width > 0,
@@ -251,7 +255,7 @@ enum DebugWindowSnapshot {
     static func window(_ params: [String: JSONValue], services: AppServices) -> NSWindow? {
         let windows = NSApp.windows
         if let id = params["window"]?.stringValue ?? params["window"]?.intValue.map(String.init) {
-            if let main = services.windows.controller(for: id)?.window { return main }
+            if let main = services.windows.controllerBuildingIfWaiting(for: id)?.window { return main }
             return windows.first { String($0.windowNumber) == id }
         }
         if let kind = params["kind"]?.stringValue {

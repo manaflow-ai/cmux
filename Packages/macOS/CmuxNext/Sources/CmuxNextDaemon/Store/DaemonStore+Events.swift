@@ -57,6 +57,8 @@ extension DaemonStore {
         return updateCycles.run { applyBatch(batch) }
     }
 
+    /// Applies each event with its own cause (``withCause(_:_:)``): in one batch an observer only an
+    /// agent's event changed flushes as automation, one the person's echo changed as person.
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
         applyDepth += 1
         defer {
@@ -67,9 +69,16 @@ extension DaemonStore {
         }
         return withOverlayLifted {
             var followup = Followup.none
+            var before: UInt64?
             for envelope in batch {
+                // The connection's events before its change count first: a wait they reach ends reached, not
+                // ended by the change (DaemonStore+Waits.swift).
+                if envelope.event.changesConnection, followup != .resync, let before {
+                    advanceAppliedSequence(to: personalRefetch.reachable(applying: before))
+                }
+                before = max(before ?? 0, envelope.sequence)
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    switch withCause(envelope.cause, { applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) }) {
                     case .resync: followup = .resync
                     case .personal:
                         personalRefetch.saw(envelope.sequence)
@@ -83,9 +92,11 @@ extension DaemonStore {
                     // creation the person closed first keeps hiding (and then
                     // closes) that tab instead of leaving the log with it
                     // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
-                    confirm(transaction)
-                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
-                    settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    withCause(envelope.cause) {
+                        confirm(transaction)
+                        ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
+                        settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    }
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot
@@ -106,6 +117,7 @@ extension DaemonStore {
         // Intents first, so waiters see the visible state without them.
         settleDueIntents()
         runAppliedWaiters(nil)
+        resumeAppliedWaits()
     }
 
     private func applyState(_ event: DaemonEvent, envelope: DaemonEventEnvelope?) -> Followup {
@@ -120,15 +132,18 @@ extension DaemonStore {
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
                 if let existing = store.index.workspacesByID[WorkspaceModel.identity(delta.entity)] {
+                    // Already listed (a replayed add): the sidebar changes only with its group.
+                    let group = existing.group
                     existing.update(delta.entity)
                     store.indexed(existing)
+                    if existing.group != group { store.sidebarNeedsRecompute = true }
                 } else {
                     let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
                     let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
+                    store.sidebarNeedsRecompute = true
                 }
-                store.sidebarNeedsRecompute = true
             }
         case .workspaceClosed(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
@@ -150,6 +165,7 @@ extension DaemonStore {
                 let id = WorkspaceModel.identity(delta.entity)
                 guard let from = store.workspaces.firstIndex(where: { $0.id == id }),
                       let model = store.workspaces[checked: from] else { return }
+                let group = model.group
                 model.update(delta.entity)
                 store.indexed(model)
                 let index = min(max(delta.index ?? store.workspaces.count - 1, 0), store.workspaces.count - 1)
@@ -158,7 +174,8 @@ extension DaemonStore {
                     store.workspaces.insert(model, at: index)
                     store.index.noteTabOrderChanged()
                 }
-                store.sidebarNeedsRecompute = true
+                // A move to where it already is (a script's repeated reorder) flattens nothing.
+                if index != from || model.group != group { store.sidebarNeedsRecompute = true }
             }
 
         case .screenAdded(let delta):

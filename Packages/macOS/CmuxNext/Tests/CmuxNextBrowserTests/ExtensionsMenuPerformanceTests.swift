@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Extensions menu opens and hovers within a frame budget (u2229: "this extensions context
 /// menu is also extremely laggy", u2426: "menu visible within one frame"). Budgets: an open under 16 ms, a second open under 10 ms, a
@@ -91,7 +92,7 @@ import Testing
         let (window, anchor) = Self.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
         let prepare = Self.mainThreadCPU { controller.prepare(host: tab) }
         let first = Self.mainThreadCPU { controller.show(host: tab, handler: handler, anchor: anchor) }
@@ -114,7 +115,7 @@ import Testing
         let (window, anchor) = Self.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: handler, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.icons.loads == Self.count)
@@ -129,7 +130,7 @@ import Testing
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
@@ -157,7 +158,7 @@ import Testing
         let (window, anchor) = Self.window()
         defer { window.close() }
         let before = tab.extensionBackend.snapshots
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(tab.extensionBackend.snapshots == before, "the open asked Chromium for the list before it showed")

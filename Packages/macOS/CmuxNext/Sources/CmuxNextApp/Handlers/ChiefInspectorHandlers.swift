@@ -70,6 +70,7 @@ enum ChiefInspectorHandlers {
         let muxHome = HomeBrainHost.muxHome(tag: context.services.environment.tag)
         // task-owner: one file read, one ticket request and one tab open; ends
         // with them (a caller such as `cmux action run` waits and gets the failure).
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor browser tab open and reveal; post has no userBlocking class (task 208)
         context.registry.track(Task { @MainActor in
             do {
                 // No Chief on this Mac: a paired server's Chief, through its daemon.
@@ -179,15 +180,13 @@ enum ChiefInspectorHandlers {
         await reveal(surface, context: context)
     }
 
-    /// Shows and selects the tab of `surface` once the mirror reports it.
+    /// Shows and selects the tab of `surface` once the mirror reports it (a keyed store wait: only
+    /// that surface's insert reads it again; 5 s at most).
     private static func reveal(_ surface: SurfaceID, context: AppActionContext) async {
-        let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
-                if let tab { return tab }
-            }
-            return nil as LocatedTab?
-        }
-        if let located = located ?? nil { context.reveal(located) }
+        let store = context.daemon.store
+        guard let tab = await store.waitForTab(surface: surface, timeout: .seconds(5)),
+              let pane = store.pane(containing: surface), let workspace = store.workspace(containing: pane.handle) else { return }
+        context.reveal(LocatedTab(tab: tab, pane: pane, workspace: workspace))
     }
 
     /// A new browser tab at `url` in `anchor`, moved into a new column right
@@ -236,7 +235,7 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
         let file = muxHome.appendingPathComponent("optchat/inspector.json")
         // concurrency-allow: nonisolated; the action reads it in Task.detached (bind above)
         guard let data = try? Data(contentsOf: file),
-              let endpoint = try? JSONDecoder().decode(ChiefInspectorEndpoint.self, from: data),
+              let endpoint = try? JSONDecoder().blockingDecode(ChiefInspectorEndpoint.self, from: data),
               endpoint.url.host == "127.0.0.1",
               endpoint.pid.map(Self.isRunning) ?? true else {
             throw Missing()
@@ -255,7 +254,7 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
         request.timeoutInterval = 5
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
-        let ticket = try JSONDecoder().decode(Ticket.self, from: data).ticket
+        let ticket = try JSONDecoder().blockingDecode(Ticket.self, from: data).ticket
         return Self.pageURL(base: url, ticket: ticket)
     }
 

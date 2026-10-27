@@ -70,11 +70,18 @@ enum TerminalLinkOpenControl {
                     LinkRouter.shared.open(url, in: .system)
                     reply["opened_in"] = "system"
                 case .app:
-                    guard let launch = decision.target.launch(for: url), let app = LinkMenu.application(named: launch.app) else {
+                    guard let launch = decision.target.launch(for: url), let services else {
                         throw ControlError(code: "not_found", message: "terminal.linkOpener names an app that is not installed")
                     }
-                    open(url, launch: launch, app: app)
-                    reply["opened_in"] = .string(app.deletingPathExtension().lastPathComponent)
+                    // The app is found by Launch Services on the system lane; the open goes back to main.
+                    let (queries, mainWork, answered) = (services.workspaceQueries, services.mainWork, reply)
+                    return .followUp {
+                        guard let app = try await queries.value(LinkMenu.application(named: launch.app), priority: .userBlocking) else {
+                            throw ControlError(code: "not_found", message: "terminal.linkOpener names an app that is not installed")
+                        }
+                        await mainWork.apply(.automation, owner: "terminal.linkOpener.app") { open(url, launch: launch, app: app) }
+                        return .object(answered.merging(["opened_in": .string(app.deletingPathExtension().lastPathComponent)]) { $1 })
+                    }
                 case .command(let command):
                     reply["command"] = .string(command)
                 }

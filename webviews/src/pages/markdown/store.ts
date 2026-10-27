@@ -3,11 +3,12 @@
 // `save` page command (Cmd-S) and page hide, and a save whose text equals the last saved text is
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, PageKeepAlive, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
-import { createEditReporter } from "../shared/editReporter";
+import { createEditReporter, type PageViewStateAnswer } from "../shared/editReporter";
+import { markdownViewStateOf, type MarkdownScrollAnchor, type MarkdownViewState } from "./viewState";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
@@ -137,6 +138,8 @@ export class MarkdownStore {
    * another file replaces it: an editor that mounts after the load shows it, not the file.
    */
   private recovered: string | null = null;
+  /** Where a discarded page of this tab was (the config's `viewState`), until the page scrolls there. */
+  private restoredView: MarkdownViewState | null = null;
   private cancelAutosave: (() => void) | null = null;
   private saving: Promise<void> | null = null;
   private saveAgain = false;
@@ -147,6 +150,8 @@ export class MarkdownStore {
   private readonly unsentPreferences = new Map<string, { value: unknown; cancel: () => void }>();
   private started = false;
   private readonly reporter;
+  /** `user_edits` while the document holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  private readonly keepAlive: PageKeepAlive;
 
   constructor(
     private readonly client: PageClient | null,
@@ -154,6 +159,7 @@ export class MarkdownStore {
     reportSchedule: Schedule = defaultSchedule,
   ) {
     this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+    this.keepAlive = new PageKeepAlive(client);
   }
 
   /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
@@ -184,6 +190,8 @@ export class MarkdownStore {
 
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
+    const { readOnly, status, conflict } = this.state;
+    this.keepAlive.set("user_edits", !readOnly && (status !== "saved" || conflict !== null));
     for (const listener of this.listeners) listener();
   }
 
@@ -237,8 +245,11 @@ export class MarkdownStore {
         : null;
     const text = this.recovered ?? config.text;
     const look = { settings: config.settings, themeCSS: config.themeCSS, appearance: config.appearance };
-    // The settings' default mode applies when the page opens, not on a later settings change.
-    const mode = this.started ? this.state.mode : markdownBehavior(config.settings).defaultMode;
+    this.restoredView = markdownViewStateOf(config.viewState);
+    // The settings' default mode applies when the page opens, not on a later settings change; a
+    // discarded page's mode comes back with it.
+    const mode =
+      this.restoredView?.mode ?? (this.started ? this.state.mode : markdownBehavior(config.settings).defaultMode);
     this.started = true;
     this.set({
       phase: "ready",
@@ -251,7 +262,12 @@ export class MarkdownStore {
       look,
       mode,
     });
-    this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
+    // A discarded page's link history comes back when it was on this file (its Back still goes).
+    const restoredHistory = this.restoredView?.history;
+    this.history =
+      restoredHistory?.entries[restoredHistory.index]?.path === config.path
+        ? restoredHistory
+        : { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
     this.historyMoved();
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(text);
@@ -344,6 +360,33 @@ export class MarkdownStore {
     if (!editor || this.state.phase !== "ready") return;
     editor.setReadOnly(this.state.readOnly);
     editor.load(this.state.mode === "source" ? this.state.source : (this.recovered ?? this.savedText));
+  }
+
+  /** The place a discarded page of this tab was at, once; null when there is none (or it was taken). */
+  takeRestoredView(): MarkdownViewState | null {
+    const view = this.restoredView;
+    this.restoredView = null;
+    return view;
+  }
+
+  /** An edit not reported yet goes to the host now (it asks before it discards the page). */
+  reportPendingEdit(): void {
+    this.reporter.flush();
+  }
+
+  /**
+   * `cmux.markdown.viewState`: the page scrolled to `scroll` (at `anchor`, rich mode only) in its
+   * mode and its link history, for the page the host makes after it discards this one, and whether
+   * it holds edits not on disk. An edit not reported yet goes to the host first.
+   */
+  viewState(scroll: number, anchor: MarkdownScrollAnchor | undefined): PageViewStateAnswer {
+    this.reportPendingEdit();
+    const { entries, index } = this.history;
+    const history = { entries: entries.map((entry) => ({ ...entry })), index };
+    if (history.entries[index]) history.entries[index].scroll = scroll;
+    const view: MarkdownViewState = { scroll, ...(anchor ? { anchor } : {}), mode: this.state.mode, history };
+    const dirty = !this.state.readOnly && (this.state.conflict !== null || this.currentText() !== this.savedText);
+    return { dirty, view };
   }
 
   /** The document as the current mode holds it. */

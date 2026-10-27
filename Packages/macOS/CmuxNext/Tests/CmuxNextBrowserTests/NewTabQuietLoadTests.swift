@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Testing
+import CmuxNextWakeups
 
 /// Perceived speed (cmux NEXT, Cmd-Shift-L): a new browser tab's toolbar showed Stop and a load
 /// progress line on its first frame, then flipped to Reload while the line swept and faded, so
@@ -12,16 +13,21 @@ import Testing
     static func chrome(loading address: String) -> BrowserChromeView {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: address)))
-        let chrome = BrowserChromeView(tab: page)
+        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         #expect(page.state.isLoading, "the page is still loading when the tab first shows")
         return chrome
     }
 
-    /// The chrome renders a state change on a later main-actor turn (`ObservationLoop`).
+    /// The chrome renders a state change on its scheduler's next run loop turn (`ObservationLoop`, no link runs here).
     static func rendered() async {
         for _ in 0..<10 { await Task.yield() }
+        spinRunLoop()
+    }
+
+    static func spinRunLoop() {
+        for _ in 0..<4 { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
     }
 
     static func progressBarOpacity(in view: NSView) -> Float? {
@@ -49,7 +55,7 @@ import Testing
     @Test func aPageOpenedFromTheNewTabPageShowsItsLoadBeforeItCommits() async {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: BrowserNewTabPage.chromiumURL)))
-        let chrome = BrowserChromeView(tab: page)
+        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         let newTab = page.state.activeNavigation!

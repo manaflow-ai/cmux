@@ -6,6 +6,7 @@ import CmuxNextDaemon
 @testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -71,6 +72,7 @@ struct ClassicMigrationTests {
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
         let binary = try #require(SameTreeDaemonBinary.url)
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-migrate-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: mac.root.appendingPathComponent(state)),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })

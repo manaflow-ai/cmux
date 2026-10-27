@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInput
 
 /// A folder as an `NSMenu` (bar folders, the overflow chevron, Other
 /// Bookmarks). Submenus fill when they open, so a large tree costs nothing
@@ -6,14 +7,19 @@ public import AppKit
 @MainActor
 public final class BookmarkFolderMenu: NSObject, NSMenuDelegate {
     private weak var source: (any BookmarksBarSource)?
+    /// The app's input tap: a chosen item's modifiers come from the event the menu's loop took
+    /// (``InputEventTap/trackedEvent(current:)``).
+    private let input: InputEventTap?
     private let folder: String
     /// Nodes listed before the folder's own children (the overflow menu's hidden bar items).
     private let leading: [BookmarkNode]
     private var children: [BookmarkFolderMenu] = []
     public let menu: NSMenu
 
-    public init(source: any BookmarksBarSource, folder: String, title: String, leading: [BookmarkNode] = [], includeChildren: Bool = true) {
+    public init(source: any BookmarksBarSource, input: InputEventTap?, folder: String, title: String, leading: [BookmarkNode] = [],
+                includeChildren: Bool = true) {
         self.source = source
+        self.input = input
         self.folder = includeChildren ? folder : ""
         self.leading = leading
         menu = NSMenu(title: title)
@@ -48,7 +54,7 @@ public final class BookmarkFolderMenu: NSObject, NSMenuDelegate {
         item.representedObject = node.id
         item.toolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" }
         if node.isFolder {
-            let child = BookmarkFolderMenu(source: source, folder: node.id, title: node.displayTitle)
+            let child = BookmarkFolderMenu(source: source, input: input, folder: node.id, title: node.displayTitle)
             children.append(child)
             item.submenu = child.menu
         } else {
@@ -61,8 +67,13 @@ public final class BookmarkFolderMenu: NSObject, NSMenuDelegate {
     @objc private func open(_ sender: NSMenuItem) {
         guard let source, let id = sender.representedObject as? String,
               let node = (leading + source.bookmarkChildren(of: folder)).first(where: { $0.id == id }) else { return }
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
-        source.open(node, disposition: .from(flags))
+        source.open(node, disposition: Self.disposition(of: input?.trackedEvent())) // current-event: target-action
+    }
+
+    /// Where an item chosen by `event` opens: Cmd and Shift as on the bar; no event (VoiceOver, a
+    /// script) opens in the current tab.
+    static func disposition(of event: NSEvent?) -> BookmarkOpenDisposition {
+        .from(event?.modifierFlags ?? [])
     }
 
     @objc private func openAll(_ sender: NSMenuItem) {
