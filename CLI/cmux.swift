@@ -6440,7 +6440,9 @@ struct CMUXCLI {
         if passesThroughProviderArguments {
             presentationOptions = (false, nil, rawCommandArgs)
         } else {
-            let parsed = try CmuxCLIArgumentParser().parse(rawCommandArgs)
+            let parsed = try CmuxCLIArgumentParser().parse(
+                rawCommandArgs, optionsWithOptionalValues: command == "surface" ? ["--focus"] : []
+            )
             presentationOptions = (parsed.jsonOutput, parsed.idFormat, parsed.remaining)
         }
         if presentationOptions.jsonOutput {
@@ -11567,7 +11569,7 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowOverride
             )
-        case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
+        case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new", "new-display":
             // The surface catalog: terminals, screens and browsers on This Mac and every
             // cloud machine, and one open path for all of them (`surface.project`).
             try runSurfaceCatalogCommand(
@@ -22685,6 +22687,7 @@ struct CMUXCLI {
             Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                    cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus]
                    cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [-- <command...>]
+                   cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]
                    cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
@@ -22696,13 +22699,15 @@ struct CMUXCLI {
                    cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]
                    cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]
 
-            ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
+            ls / open / new-terminal / new-display: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
             e.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,
             vivid-newt/browser/port:3000); panes project them. `open` reuses the pane already
             showing a resource unless --new; --pane with a side splits that pane on that side,
             --tab adds a tab to it. A local terminal moves to the destination (it is shown once).
             `new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).
+            `new-display` creates a new VNC display on a cloud machine and opens it in the
+            selected workspace unless `--no-open` is passed.
             `cmux vm tree` prints the same catalog.
 
             resume: attach restart command metadata to a terminal surface.
