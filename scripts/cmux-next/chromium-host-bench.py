@@ -168,9 +168,11 @@ and document picture-in-picture, with feature chromiumHostChoosers on, then the 
 (`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
-(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
-cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
-back under a new host.
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
+(`browserHost.tabs` on): cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal),
+`debug.crashes` lists the host's end in `chromium_host` with that signal, its fork API and its log's last lines (at
+least one, none with a URL; the row's `crash_record`, chromium_host_crash_records.py, p01-process-085), and Reload
+brings the page back under a new host.
 
 --kill-host --restore runs instead the restore row (chromium_host_restore.py, p01-process-083) in a launch of its own,
 with feature chromiumHostRestoreTabs on (the kill rows expect the crash page and Reload, which a restore replaces): it
@@ -204,6 +206,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_crash_records  # noqa: E402
 import chromium_host_dragout  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
@@ -240,7 +243,9 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
-    parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
+    parser.add_argument("--kill-host", action="store_true",
+                        help="only the host kill rows (chromium_host_kill.py) with their crash records "
+                             "(chromium_host_crash_records.py)")
     parser.add_argument("--signals", default="KILL",
                         help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
     parser.add_argument("--restore", action="store_true",
@@ -671,6 +676,14 @@ def chromium_host_pid():
     return next(iter(chromium_host_pids()), None)
 
 
+def supervisor_host_pid(rpc):
+    """The pid of the supervisor's running Chromium Host (`debug.cef` host_supervisor, the host that serves the tabs),
+    else the first running host of the app (chromium_host_pid), or None."""
+    supervisor = (rpc("debug.cef") or {}).get("host_supervisor")
+    pid = supervisor.get("pid") if isinstance(supervisor, dict) else None
+    return int(pid) if isinstance(pid, (int, float)) and not isinstance(pid, bool) else chromium_host_pid()
+
+
 def chromium_host_pids():
     """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
@@ -903,8 +916,9 @@ def main():
                     url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
             else:
                 RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
-                    rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
-                    lambda pid: pid is not None and not pid_gone(pid))
+                    rpc, wait, url, opts.signals, lambda: supervisor_host_pid(rpc), app.process.pid if app.process else None,
+                    lambda pid: pid is not None and not pid_gone(pid),
+                    record=lambda host, number: chromium_host_crash_records.row(rpc, wait, host, number))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)

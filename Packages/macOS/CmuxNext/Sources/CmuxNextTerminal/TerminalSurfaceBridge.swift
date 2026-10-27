@@ -2,15 +2,16 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`
-/// and, with renderer-owned frames, `presented_userdata` (ghostty.h).
+/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`,
+/// with renderer-owned frames `presented_userdata`, and with an external cursor
+/// `cursor_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
 /// Checked Sendable: Ghostty's IO and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames` and `frameMarks`, and an input lock
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks` and `cursor`, and an input lock
 /// wait report only the immutable `lockWait`; everything mutable is main-actor
 /// isolated.
 nonisolated final class SurfaceBridge: Sendable {
@@ -38,13 +39,18 @@ nonisolated final class SurfaceBridge: Sendable {
     @MainActor private var traceRegistration: (hook: GhosttyTraceHook, id: UInt64)?
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Where Ghostty's present puts the surface's cursor cell (``ghosttySurfaceCursor(_:_:)``); nil: Ghostty draws
+    /// the cursor.
+    let cursor: TerminalCursorPresenter?
     /// Where the surface's input waits for Ghostty's terminal lock go (``GhosttyLockWaitSignpost``): one handle
     /// for the surface's life, so a report builds nothing.
     let lockWait = GhosttyLockWaitSignpost()
 
-    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
+         cursor: TerminalCursorPresenter? = nil) {
         self.input = input
         self.frameMarks = frameMarks
+        self.cursor = cursor
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
     }
 
