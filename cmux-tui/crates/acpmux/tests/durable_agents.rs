@@ -2216,6 +2216,27 @@ async fn an_adopted_host_that_moved_itself_into_full_access_ends_when_mdm_turns_
     );
 }
 
+/// Review 67 of #23322: host records that cannot be read when the off is pushed (the debug seam
+/// `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`) prove no host gone, so the log of the host the next
+/// daemon adopted is still read back, and its full access found.
+#[tokio::test]
+async fn an_adopted_host_in_full_access_ends_under_mdm_off_though_its_records_cannot_be_read() {
+    let (mut daemon, _session, harness_pid) = left_in_bypass("mdmrecunread", None).await;
+    let flag = daemon.home.join("records-fail");
+    daemon.env.push(("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE".into(), flag.to_string_lossy().into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/status", json!({})).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(alive(harness_pid), "the next daemon ended the agent before the push");
+    std::fs::write(&flag, "").unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let ended = gone_within(harness_pid, Duration::from_secs(10));
+    let _ = std::fs::remove_file(&flag);
+    assert!(ended, "unreadable host records hid an adopted agent's full access from the push");
+}
+
 /// Review 27 of #23322: a subagent's mode is not its session's. A subagent that reported an
 /// asking mode after the session's harness moved into full access does not hide that mode from
 /// the next daemon, which ends the host under MDM's off.
