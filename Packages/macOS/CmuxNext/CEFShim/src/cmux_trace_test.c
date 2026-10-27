@@ -506,6 +506,39 @@ static void test_thread_reuse(void) {
   test_release(ring.base);
 }
 
+/* ---- Interning: one id per text and category (ring.rs, interning_a_text_again_returns_its_entry). */
+
+static void test_intern_once_per_text(void) {
+  cmux_trace_ring ring = test_ring(4, CMUX_TRACE_RING_BLACK_BOX);
+  cmux_trace_tracer tracer;
+  cmux_trace_writer writer;
+  cmux_trace_thread_identity identity = cmux_trace_thread_identity_make(9, 0, "io");
+  /* An async begin and its end at two sites: two statics of one text pair by name id. */
+  cmux_trace_interned_name begin_site = {"daemon.url_open", 6, 0}, end_site = {"daemon.url_open", 6, 0};
+  cmux_trace_record record = make_record(1, 0, CMUX_TRACE_PHASE_ASYNC_BEGIN, 0, 0, 7);
+  decoded_record decoded[4];
+  uint16_t first = cmux_trace_ring_intern(&ring, "daemon.url_open", 6), other;
+  CHECK(first != 0);
+  CHECK_EQ_U64(cmux_trace_ring_intern(&ring, "daemon.url_open", 6), first);
+  other = cmux_trace_ring_intern(&ring, "daemon.url_open.slow", 6);
+  CHECK(other != 0 && other != first);
+  CHECK(cmux_trace_ring_intern(&ring, "daemon.url_open", 7) != first); /* the category is part of the name */
+  CHECK_EQ_U64(cmux_trace_ring_intern(&ring, "daemon.url_open.slow", 6), other);
+  CHECK(cmux_trace_ring_intern(&ring, "key.frame", 1) != 1); /* a catalog entry is not an interned one */
+  CHECK_EQ_U64(cmux_trace__ld32_at(&ring, CMUX_TRACE_OFF_NAME_CURSOR, CMUX_TRACE__RELAXED), (uint64_t)other + 3);
+
+  cmux_trace_tracer_init(&tracer, &ring, CMUX_TRACE_CAT_BLACKBOX);
+  cmux_trace_writer_init(&writer, &identity);
+  cmux_trace_write_named(&tracer, &writer, &record, &begin_site);
+  record = make_record(2, 0, CMUX_TRACE_PHASE_ASYNC_END, 0, 0, 7);
+  cmux_trace_write_named(&tracer, &writer, &record, &end_site);
+  cmux_trace_writer_exit(&tracer, &writer);
+  CHECK_EQ_U64(decode_ring(ring.base, decoded, 4), 2);
+  CHECK_EQ_U64(decoded[0].name, first);
+  CHECK_EQ_U64(decoded[1].name, first);
+  test_release(ring.base);
+}
+
 /* ---- Heap then file, and recordings. ----------------------------------------------------- */
 
 static void test_adopt_and_record(void) {
@@ -747,6 +780,7 @@ int main(int argc, char **argv) {
   test_golden(argv[1]);
   test_torn();
   test_thread_reuse();
+  test_intern_once_per_text();
   test_overwrite();
   test_adopt_and_record();
   test_trace_point();

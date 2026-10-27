@@ -543,29 +543,45 @@ static inline void cmux_trace__bump64(const cmux_trace_ring *ring, size_t offset
   cmux_trace__add64(cmux_trace__at(ring, offset), 1, CMUX_TRACE__RELAXED);
 }
 
+/* The little-endian u64 of 8 bytes. */
+static inline uint64_t cmux_trace__le64(const uint8_t *bytes) {
+  uint64_t value = 0;
+  size_t index;
+  for (index = 0; index < 8; index++) value |= (uint64_t)bytes[index] << (8 * index);
+  return value;
+}
+
 /* Stores `count` bytes (a multiple of 8) as relaxed little-endian u64 words. */
 static inline void cmux_trace__put_bytes(const cmux_trace_ring *ring, size_t offset, const uint8_t *bytes,
                                          size_t count) {
-  size_t word, index;
+  size_t word;
   for (word = 0; word < count / 8; word++) {
-    uint64_t value = 0;
-    for (index = 0; index < 8; index++) value |= (uint64_t)bytes[8 * word + index] << (8 * index);
-    cmux_trace__st64_at(ring, offset + 8 * word, value, CMUX_TRACE__RELAXED);
+    cmux_trace__st64_at(ring, offset + 8 * word, cmux_trace__le64(bytes + 8 * word), CMUX_TRACE__RELAXED);
+  }
+}
+
+/* A name entry's `id`, `kind` and `category` word. */
+static inline uint32_t cmux_trace__name_meta(uint16_t id, uint8_t kind, uint8_t category) {
+  return (uint32_t)id | (uint32_t)kind << 16 | (uint32_t)category << 24;
+}
+
+/* A name entry's `name_len` and text, NUL padded: the seven words at `N_TEXT`. */
+static inline void cmux_trace__pack_name(const char *text, uint8_t packed[1 + CMUX_TRACE_NAME_TEXT_BYTES]) {
+  size_t length = cmux_trace__utf8_prefix(text, CMUX_TRACE_NAME_TEXT_BYTES), index;
+  packed[0] = (uint8_t)length;
+  for (index = 0; index < CMUX_TRACE_NAME_TEXT_BYTES; index++) {
+    packed[1 + index] = index < length ? (uint8_t)text[index] : 0;
   }
 }
 
 static inline void cmux_trace__write_name(const cmux_trace_ring *ring, uint16_t id, uint8_t kind, uint8_t category,
                                           const char *text) {
   size_t at = cmux_trace__name_entry(ring, id);
-  size_t length = cmux_trace__utf8_prefix(text, CMUX_TRACE_NAME_TEXT_BYTES), index;
   uint8_t packed[1 + CMUX_TRACE_NAME_TEXT_BYTES];
+  cmux_trace__pack_name(text, packed);
   cmux_trace__st32_at(ring, at + CMUX_TRACE_OFF_N_STATE, CMUX_TRACE_ENTRY_WRITING, CMUX_TRACE__RELAXED);
-  cmux_trace__st32_at(ring, at + CMUX_TRACE_OFF_N_META,
-                      (uint32_t)id | (uint32_t)kind << 16 | (uint32_t)category << 24, CMUX_TRACE__RELAXED);
-  packed[0] = (uint8_t)length;
-  for (index = 0; index < CMUX_TRACE_NAME_TEXT_BYTES; index++) {
-    packed[1 + index] = index < length ? (uint8_t)text[index] : 0;
-  }
+  cmux_trace__st32_at(ring, at + CMUX_TRACE_OFF_N_META, cmux_trace__name_meta(id, kind, category),
+                      CMUX_TRACE__RELAXED);
   cmux_trace__put_bytes(ring, at + CMUX_TRACE_OFF_N_TEXT, packed, sizeof packed);
   cmux_trace__st32_at(ring, at + CMUX_TRACE_OFF_N_STATE, CMUX_TRACE_ENTRY_PUBLISHED, CMUX_TRACE__RELEASE);
 }
@@ -630,12 +646,37 @@ static inline void cmux_trace_ring_init(const cmux_trace_ring *ring, const cmux_
   cmux_trace__st32_at(ring, CMUX_TRACE_OFF_NAME_CURSOR, cursor, CMUX_TRACE__RELAXED);
 }
 
-/* Claims a name entry for `text` and publishes it; its id, or 0 (counted in `name_overflow`) when
- * the table is full. */
+/* The id of a published interned entry of `text` in `category`, or 0 when the table holds none. */
+static inline uint16_t cmux_trace__find_interned(const cmux_trace_ring *ring, const char *text, uint8_t category) {
+  uint8_t packed[1 + CMUX_TRACE_NAME_TEXT_BYTES];
+  uint32_t end = cmux_trace__ld32_at(ring, CMUX_TRACE_OFF_NAME_CURSOR, CMUX_TRACE__RELAXED), id;
+  cmux_trace__pack_name(text, packed);
+  if (end > ring->layout.sizes.name_capacity) end = ring->layout.sizes.name_capacity;
+  for (id = 1; id < end; id++) {
+    size_t at = cmux_trace__name_entry(ring, id), word;
+    bool same = cmux_trace__ld32_at(ring, at + CMUX_TRACE_OFF_N_STATE, CMUX_TRACE__ACQUIRE) ==
+                    CMUX_TRACE_ENTRY_PUBLISHED &&
+                cmux_trace__ld32_at(ring, at + CMUX_TRACE_OFF_N_META, CMUX_TRACE__RELAXED) ==
+                    cmux_trace__name_meta((uint16_t)id, CMUX_TRACE_NAME_INTERNED, category);
+    for (word = 0; same && word < sizeof packed / 8; word++) {
+      same = cmux_trace__ld64_at(ring, at + CMUX_TRACE_OFF_N_TEXT + 8 * word, CMUX_TRACE__RELAXED) ==
+             cmux_trace__le64(packed + 8 * word);
+    }
+    if (same) return (uint16_t)id;
+  }
+  return 0;
+}
+
+/* The id of `text` in `category`, as the Rust writer's `Ring::intern` gives it: the published entry
+ * another trace point of the same text interned, else a new entry claimed and published; 0 (counted
+ * in `name_overflow`) when the table is full. Two trace points that intern one text at once may both
+ * claim an entry, as two threads of one trace point may (trace.md, "Name table"). */
 static inline uint16_t cmux_trace_ring_intern(const cmux_trace_ring *ring, const char *text, uint8_t category) {
   uint32_t capacity = ring->layout.sizes.name_capacity;
   void *cursor = cmux_trace__at(ring, CMUX_TRACE_OFF_NAME_CURSOR);
-  uint32_t id = cmux_trace__ld32(cursor, CMUX_TRACE__RELAXED) < capacity
+  uint16_t found = cmux_trace__find_interned(ring, text, category);
+  if (found != 0) return found;
+  uint32_t id =cmux_trace__ld32(cursor, CMUX_TRACE__RELAXED) < capacity
                     ? cmux_trace__add32(cursor, 1, CMUX_TRACE__RELAXED)
                     : capacity;
   if (id >= capacity) {
