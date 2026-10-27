@@ -224,7 +224,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     @objc(_layoutSubtreeWithOldSize:)
     func layoutSubtree(withOldSize oldSize: NSSize) {
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
-        let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:")
+        let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
         ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
     }
@@ -232,7 +232,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     @objc(_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:)
     func updateConstraintsForSubtree(collecting views: UnsafeMutableRawPointer?) {
         typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
-        let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:")
+        let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
         ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
     }
@@ -240,7 +240,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     @objc(_windowChangedKeyState)
     func windowChangedKeyState() {
         typealias Method = @convention(c) (NSView, Selector) -> Void
-        let selector = NSSelectorFromString("_windowChangedKeyState")
+        let selector = NSSelectorFromString("_windowChangedKeyState") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
         ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
     }
@@ -344,7 +344,7 @@ enum ActiveLookScope {
     static func install() {
         guard !installed else { return }
         installed = true
-        let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus")
+        let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus") // crash-allow: AppKit private getter, swizzled only when class_getInstanceMethod finds it
         guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
         let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
         method_setImplementation(method, imp_implementationWithBlock(replacement(original, selector)))
@@ -357,7 +357,7 @@ enum ActiveLookScope {
         { window in
             let answer = original(window, selector)
             guard pthread_main_np() != 0 else { return answer }
-            return MainActor.assumeIsolated { decide(window, answer: answer) }
+            return MainActor.assumeIsolated { decide(window, answer: answer) } // main-proof: pthread_main_np() checked on the line above
         }
     }
 
@@ -391,7 +391,8 @@ enum ActiveLookScope {
         return UInt(bitPattern: reader)
     }
 
-    nonisolated(unsafe) private static var keepsActiveLookKey: UInt8 = 0
+    /// How many ``ActiveLookGlassEffectView``s each window holds; a closed window drops out on its own.
+    private static let counts = NSMapTable<NSWindow, NSNumber>.weakToStrongObjects()
 
     /// Counts an ``ActiveLookGlassEffectView`` into `window`: while any is in it, the material read
     /// of every glass graph in it answers active. Liquid Glass renders a window's glass together: a
@@ -411,11 +412,11 @@ enum ActiveLookScope {
     static func keepsActiveLook(_ window: NSWindow) -> Bool { count(window) > 0 }
 
     private static func count(_ window: NSWindow) -> Int {
-        objc_getAssociatedObject(window, &keepsActiveLookKey) as? Int ?? 0
+        counts.object(forKey: window)?.intValue ?? 0
     }
 
     private static func setCount(_ count: Int, _ window: NSWindow) {
-        objc_setAssociatedObject(window, &keepsActiveLookKey, count == 0 ? nil : count, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if count == 0 { counts.removeObject(forKey: window) } else { counts.setObject(NSNumber(value: count), forKey: window) }
     }
 
     /// What a frame's image is: AppKit, SwiftUI (or SwiftUICore), or anything else.
