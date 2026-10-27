@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
+public import CmuxNextTrace
 
 /// The in-app `cmux.rd/1` transport over the stream carrier: one ordered
 /// byte path (`RemoteRdByteCarrier`: loopback TCP, or a daemon
@@ -11,6 +12,9 @@ import CmuxNextCompat
 /// (`RemoteRdInput`); this type only moves bytes, runs the handshake
 /// (`RemoteRdHandshake`) and arms one deadline timer (`DemandTimer`, never a
 /// poll). Everything that touches the core runs on one serial queue.
+/// Each job on it (a carrier event, a caller's request, a timer fire) is one `remote-view.transport` hang
+/// scope of ``hangDeadline``; a job waiting for the queue is in none, and no job waits (the carrier queues
+/// its sends), as Chrome watches each IO-thread task (base/threading/hang_watcher.h, `WatchHangsInScope`).
 /// Upstream media (C4b): the queue also owns the session's
 /// `RemoteUpstreamConsent`, the single place that enforces the consent
 /// contract; the pane drives it through `RemoteUpstreamControl`.
@@ -27,6 +31,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
     // internal for the +Service extension file
     let state: Mutex<Continuations>
+    /// Watches each job on `queue` (``onQueue(_:)`` and the carrier's events), never a job waiting its turn.
+    private let watched: HangWatchedLane
     // internal for the +Service extension file
     // crash-allow: confined to the serial `queue`; every access runs in a queue block or a carrier event, which runs on it.
     nonisolated(unsafe) let engine: Engine
@@ -89,20 +95,28 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
+    /// One queue job's budget: a jank past it, a hang dump 2 s later. A job pushes one read into the core,
+    /// pops what is ready and sends it; none waits.
+    static let hangDeadline: Duration = .seconds(1)
+
     /// A transport to a host on this Mac's loopback.
     public convenience init?(
         endpoint: RemoteRdLoopbackEndpoint, hello: RemoteRdHello, startKey: String, control: Bool = false,
-        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
+        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros,
+        hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch
     ) {
-        self.init(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), hello: hello, startKey: startKey, control: control, nowMicros: nowMicros)
+        self.init(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), hello: hello, startKey: startKey, control: control,
+                  nowMicros: nowMicros, hangs: hangs)
     }
 
     /// `startKey` and `control` form the start message (`mode` view or
     /// control); `nowMicros` is a monotonic clock (injected for tests). Nil
-    /// only when the Rust core cannot allocate its state.
+    /// only when the Rust core cannot allocate its state. `hangs` watches each
+    /// job of the transport's queue as the `remote-view.transport` lane.
     public init?(
         carrier: any RemoteRdByteCarrier, hello: RemoteRdHello, startKey: String, control: Bool = false,
-        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
+        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros,
+        hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch
     ) {
         guard let core = RemoteRdSession(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
         var streamHello = hello
@@ -115,11 +129,21 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         engine = Engine(core: core, service: hello.service)
         inputChannel = Mutex(InputChannel(input: input))
         state = Mutex(Continuations())
+        // After the last `return nil`: a transport that never existed registers nothing (its deinit does not run).
+        watched = HangWatchedLane("remote-view.transport", deadline: Self.hangDeadline, on: hangs)
     }
 
     deinit {
         timer.cancel()
         carrier.cancel()
+        watched.unregister()
+    }
+
+    /// Runs `job` on the queue inside one hang-watch scope. Every job of the queue goes through here, except
+    /// the carrier's events, whose handler (``connect()``) opens the same scope.
+    // internal for the +Service extension file
+    func onQueue(_ job: @escaping @Sendable () -> Void) {
+        queue.async { [watched] in watched.run(job) }
     }
 
     /// Monotonic microseconds (the core's clock).
@@ -129,18 +153,19 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     /// Opens the carrier and sends hello and start.
     public func connect() {
-        queue.async { [self] in
+        onQueue { [self] in
             guard !engine.started, !engine.handshake.isEnded else { return }
             engine.started = true
             carrier.start(queue: queue) { [weak self] event in
-                self?.carrierEvent(event)
+                guard let self else { return }
+                self.watched.run { self.carrierEvent(event) }
             }
         }
     }
 
     /// Asks the host to end the session; the host answers ended and closes.
     public func stop() {
-        queue.async { [self] in
+        onQueue { [self] in
             guard !engine.handshake.isEnded else { return }
             // Revoke upstream media first: nothing goes out after the user's stop.
             for stream in engine.upstream?.endSession() ?? [] {
@@ -165,7 +190,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     /// Has the queue send the outbox (``InputChannel/outbox``); nothing after the session's end.
     // internal for the +Service extension file
     func sendOutbox() {
-        queue.async { [self] in
+        onQueue { [self] in
             guard !engine.handshake.isEnded else { return }
             pump()
         }
@@ -174,7 +199,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     // MARK: RemoteUpstreamControl
 
     public func requestUpstream(_ kind: RemoteUpstreamKind, permissionGranted: Bool) {
-        queue.async { [self] in
+        onQueue { [self] in
             guard case .streaming = engine.handshake.phase, let consent = engine.upstream else { return }
             // A refusal (no cap, permission denied, ended) opens nothing.
             guard let open = try? consent.request(kind, permissionGranted: permissionGranted) else { return }
@@ -184,7 +209,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     public func stopUpstream(_ kind: RemoteUpstreamKind) {
-        queue.async { [self] in
+        onQueue { [self] in
             guard let stream = engine.upstream?.stop(kind) else { return }
             sendControl(.streamClose(stream: stream))
             publishStatus()
@@ -192,7 +217,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     public func stopAllUpstreams() {
-        queue.async { [self] in
+        onQueue { [self] in
             guard let consent = engine.upstream else { return }
             for kind in RemoteUpstreamKind.allCases {
                 if let stream = consent.stop(kind) { sendControl(.streamClose(stream: stream)) }
@@ -204,7 +229,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     /// Sends one encoded frame of an active kind (a capture pipeline's
     /// output); dropped when the kind has no consent.
     public func sendUpstream(_ kind: RemoteUpstreamKind, frame: Data, captureMicros: UInt64, independent: Bool) {
-        queue.async { [self] in
+        onQueue { [self] in
             guard let sender = engine.upstream?.sender(kind) else { return }
             _ = try? sender.send(frame: frame, captureMicros: captureMicros, independent: independent, nowMicros: nowMicros())
             pump()
@@ -386,7 +411,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         let delay = next > now ? next - now : 0
         timer.schedule(after: .microseconds(Int64(clamping: delay))) { [weak self] in
             guard let self else { return }
-            queue.async { self.pump() }
+            onQueue { self.pump() }
         }
     }
 

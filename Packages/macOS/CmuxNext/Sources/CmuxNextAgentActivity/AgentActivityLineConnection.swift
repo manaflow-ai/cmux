@@ -6,6 +6,7 @@ import Darwin
 import os
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextTrace
 
 /// A line-delimited JSON connection to a Unix socket (the CUA host's
 /// framing). All state lives on one private serial queue; callbacks run there
@@ -16,8 +17,16 @@ import CmuxNextCompat
 /// send. A separate probe followed by a second connect let a same-uid process
 /// swap the socket between the two, and the first frame (with its token)
 /// would reach it.
+///
+/// Each job on the queue (the connect and its check, a read and its lines, an end) is one
+/// `agent-activity.socket` hang scope of ``hangDeadline``. A send is in none: the socket blocks until the
+/// peer reads (bounded by ``sendTimeout``), a wait, not work (base/threading/hang_watcher.h).
 public nonisolated final class AgentActivityLineConnection: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
     private let queue = DispatchQueue(label: "cmux.agent-activity.socket", qos: .utility)
+    /// Watches each job on `queue` but its sends.
+    private let watched: HangWatchedLane
+    /// One job's budget: a jank past it, a hang dump 2 s later.
+    static let hangDeadline: Duration = .seconds(1)
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-activity.socket")
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?
@@ -39,60 +48,86 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     let path: String
 
-    public init(path: String, acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) {
+    /// `hangs` watches the connection's queue as the `agent-activity.socket` lane.
+    public init(path: String, acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil,
+                hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch) {
         self.path = path
         self.acceptsServer = acceptsServer
+        watched = HangWatchedLane("agent-activity.socket", deadline: Self.hangDeadline, on: hangs)
+    }
+
+    deinit {
+        watched.unregister()
     }
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
-            // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
-            // finished the connection; connecting now would leak the descriptor and its read source.
-            guard !closed else { return }
-            self.onLine = onLine
-            self.onClose = onClose
-            guard let fd = Self.connect(path: path) else { return finish() }
-            descriptor = fd
-            // An impostor server must not get the request (or its token): the
-            // check is on this very connection, before its first byte.
-            if let acceptsServer {
-                let peer = UnixSocketPeer(descriptor: fd)
-                guard let peer, acceptsServer(peer) else {
-                    Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
-                    return finish()
-                }
-            }
-            let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            reader.setEventHandler { [weak self] in self?.readable() }
-            reader.setCancelHandler { Darwin.close(fd) }
-            source = reader
-            reader.resume()
+            // The first frame goes out after the scope: its send waits on the peer.
+            guard watched.run({ connectAndCheck(onLine: onLine, onClose: onClose) }) else { return }
             write(send)
         }
+    }
+
+    /// Connects and checks the server; true when the connection may send.
+    private func connectAndCheck(onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) -> Bool {
+        // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
+        // finished the connection; connecting now would leak the descriptor and its read source.
+        guard !closed else { return false }
+        self.onLine = onLine
+        self.onClose = onClose
+        guard let fd = Self.connect(path: path) else {
+            finish()
+            return false
+        }
+        descriptor = fd
+        // An impostor server must not get the request (or its token): the
+        // check is on this very connection, before its first byte.
+        if let acceptsServer {
+            let peer = UnixSocketPeer(descriptor: fd)
+            guard let peer, acceptsServer(peer) else {
+                Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
+                finish()
+                return false
+            }
+        }
+        let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        reader.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.watched.run { self.readable() }
+        }
+        reader.setCancelHandler { Darwin.close(fd) }
+        source = reader
+        reader.resume()
+        return true
     }
 
     /// Fails a one-shot request at its deadline; nothing once the connection ended (it answered).
     func expire() {
         queue.async { [self] in
-            let callback = closed ? nil : onExpire
-            onExpire = nil
-            onClose = nil
-            onLine = nil
-            finish()
-            callback?()
+            watched.run {
+                let callback = closed ? nil : onExpire
+                onExpire = nil
+                onClose = nil
+                onLine = nil
+                finish()
+                callback?()
+            }
         }
     }
 
-    /// Sends another JSON-lines request on a live long-lived connection.
+    /// Sends another JSON-lines request on a live long-lived connection. The send is in no hang scope: it
+    /// waits until the peer reads.
     public func send(_ data: Data) {
         queue.async { [self] in write(data) }
     }
 
     public func cancel() {
         queue.async { [self] in
-            onClose = nil
-            onLine = nil
-            finish()
+            watched.run {
+                onClose = nil
+                onLine = nil
+                finish()
+            }
         }
     }
 

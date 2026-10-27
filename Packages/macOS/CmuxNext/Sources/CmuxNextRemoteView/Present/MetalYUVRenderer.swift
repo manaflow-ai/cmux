@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import CoreVideo
 import Foundation
 import Metal
@@ -23,7 +24,15 @@ nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main 
 /// The render queue is on threading-model.md's closed user-interactive list: the remote desktop's frames are a
 /// compositor-class motion path, which Chrome runs at `ThreadType::kDisplayCritical`
 /// (base/threading/platform_thread.h; user-interactive in base/threading/platform_thread_apple.mm).
+///
+/// Each frame's draw is one `remote-view.render` hang scope of ``hangDeadline``; the wait in `nextDrawable` is
+/// in none (the window server frees a drawable: idle time, not a hang), as Chrome's GPU main thread watches
+/// each task and never the wait between them (base/threading/hang_watcher.h, `WatchHangsInScope`).
 actor MetalYUVRenderer {
+    /// One frame's budget (textures, encode, present, commit): a jank past it, a hang dump 2 s later. A frame
+    /// that takes this long on a compositor-class queue has already missed many refreshes.
+    nonisolated static let hangDeadline: Duration = .milliseconds(250)
+
     // qos-allow: closed list (threading-model.md): the remote view's frames wait on this queue, Chrome's kDisplayCritical
     private nonisolated let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
@@ -31,8 +40,11 @@ actor MetalYUVRenderer {
     private let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
+    /// Watches each frame's draw on the render queue, never the wait for a drawable.
+    private let watched: HangWatchedLane
 
-    init?(layer shared: SharedMetalLayer) {
+    /// `hangs` watches each frame's draw as the `remote-view.render` lane.
+    init?(layer shared: SharedMetalLayer, hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch) {
         guard let device = shared.layer.device ?? MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
               let pipeline = Self.makePipeline(device: device) else { return nil }
@@ -46,6 +58,12 @@ actor MetalYUVRenderer {
         self.commandQueue = commandQueue
         self.pipeline = pipeline
         textureCache = cache
+        // After the last `return nil`: a renderer that never existed registers nothing (its deinit does not run).
+        watched = HangWatchedLane("remote-view.render", deadline: Self.hangDeadline, on: hangs)
+    }
+
+    deinit {
+        watched.unregister()
     }
 
     /// Takes the mailbox's newest frame and draws it. Returns the frame when
@@ -62,12 +80,8 @@ actor MetalYUVRenderer {
     private func render(_ frame: RemoteDecodedFrame) -> Bool {
         let layer = shared.layer
         let buffer = frame.pixelBuffer
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        guard CVPixelBufferGetPlaneCount(buffer) == 2,
-              let luma = texture(buffer, plane: 0, format: .r8Unorm),
-              let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
-        let size = CGSize(width: width, height: height)
+        guard CVPixelBufferGetPlaneCount(buffer) == 2 else { return false }
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         if layer.drawableSize != size {
             // An explicit transaction: this thread has no run loop to commit an implicit one.
             CATransaction.begin()
@@ -75,7 +89,14 @@ actor MetalYUVRenderer {
             layer.drawableSize = size
             CATransaction.commit()
         }
-        guard let drawable = layer.nextDrawable(),
+        guard let drawable = layer.nextDrawable() else { return false }
+        return watched.run { draw(buffer, into: drawable) }
+    }
+
+    /// Encodes `buffer` into `drawable`, presents it and commits: the frame's work, after the drawable's wait.
+    private func draw(_ buffer: CVPixelBuffer, into drawable: any CAMetalDrawable) -> Bool {
+        guard let luma = texture(buffer, plane: 0, format: .r8Unorm),
+              let chroma = texture(buffer, plane: 1, format: .rg8Unorm),
               let commands = commandQueue.makeCommandBuffer() else { return false }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = drawable.texture

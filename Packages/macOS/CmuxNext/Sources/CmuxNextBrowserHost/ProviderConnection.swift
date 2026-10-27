@@ -3,6 +3,7 @@ import Darwin
 import os
 import CmuxNextCompat
 import CmuxNextBrowserAutomation
+public import CmuxNextTrace
 
 public nonisolated enum ProviderConnectionError: Error, Hashable, Sendable {
     case socket(errno: Int32)
@@ -19,6 +20,11 @@ public nonisolated enum ProviderConnectionError: Error, Hashable, Sendable {
 /// serial queue, so frames reach the socket in `send` order. `close` shuts
 /// the socket down, which ends the reader; the descriptor is closed after
 /// the last queued write. Nothing polls.
+///
+/// Hang-watched as Chrome's IO thread is (base/threading/hang_watcher.h): each chunk the reader decodes and
+/// hands on is one `browser-host.provider.read` scope, and each queued job's build and encode one
+/// `browser-host.provider.write` scope, both of ``hangDeadline``. The reader's `read(2)` and the writer's
+/// `write(2)` (it blocks while the host does not read) are in none.
 public nonisolated final class ProviderConnection: Sendable {
     private struct State {
         var closed: String?
@@ -33,13 +39,21 @@ public nonisolated final class ProviderConnection: Sendable {
     private let fd: Int32
     private let state = Mutex(State())
     private let writes = DispatchQueue(label: "com.cmuxterm.next.browser-host.provider.write", qos: .userInitiated)
+    /// Watch the reader's handling of each chunk and each write job's build and encode, never a wait on the socket.
+    private let readWatched: HangWatchedLane
+    private let writeWatched: HangWatchedLane
 
-    /// Takes ownership of a connected stream socket.
-    public init(fd: Int32, frameBufferLimit: Int = 1024) {
+    /// One chunk's decode, or one write job's build and encode: a jank past it, a hang dump 2 s later.
+    static let hangDeadline: Duration = .seconds(1)
+
+    /// Takes ownership of a connected stream socket. `hangs` watches the reader and the write queue.
+    public init(fd: Int32, frameBufferLimit: Int = 1024, hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch) {
         self.fd = fd
         var on: Int32 = 1
         _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         (frames, continuation) = AsyncStream.makeStream(of: ProviderFrame.self, bufferingPolicy: .bufferingOldest(frameBufferLimit))
+        readWatched = HangWatchedLane("browser-host.provider.read", deadline: Self.hangDeadline, on: hangs)
+        writeWatched = HangWatchedLane("browser-host.provider.write", deadline: Self.hangDeadline, on: hangs)
     }
 
     /// The reader thread and queued writes hold the connection, so neither
@@ -51,12 +65,15 @@ public nonisolated final class ProviderConnection: Sendable {
         }
         if open { Darwin.close(fd) }
         continuation.finish()
+        readWatched.unregister()
+        writeWatched.unregister()
     }
 
     /// Connects to the host's provider socket, off the main actor, and
-    /// checks that the listener runs as this user.
+    /// checks that the listener runs as this user. `hangs` watches the connection (``init(fd:frameBufferLimit:hangs:)``).
     @concurrent
-    public static func dial(path: String) async throws(ProviderConnectionError) -> ProviderConnection {
+    public static func dial(path: String,
+                            hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch) async throws(ProviderConnectionError) -> ProviderConnection {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .socket(errno: errno) }
         var address = sockaddr_un()
@@ -87,7 +104,7 @@ public nonisolated final class ProviderConnection: Sendable {
             Darwin.close(fd)
             throw .foreignPeer(uid: uid)
         }
-        return ProviderConnection(fd: fd)
+        return ProviderConnection(fd: fd, hangs: hangs)
     }
 
     /// The pid of the process at the other end (`LOCAL_PEERPID`), nil when
@@ -133,10 +150,8 @@ public nonisolated final class ProviderConnection: Sendable {
     public func send(building build: @escaping @Sendable () -> [ProviderFrame]) -> Bool {
         guard state.withLock({ $0.closed == nil }) else { return false }
         writes.async { [self] in
-            for frame in build() {
-                guard let bytes = Self.encoded(frame) else { continue }
-                write(bytes)
-            }
+            let encoded = writeWatched.run { build().compactMap(Self.encoded) }
+            for bytes in encoded { write(bytes) }
         }
         return true
     }
@@ -202,25 +217,28 @@ public nonisolated final class ProviderConnection: Sendable {
         while open {
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count > 0 {
-                buffer.withUnsafeBytes { decoder.push(UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
-                var draining = true
-                while open, draining {
-                    do throws(ProviderCodecError) {
-                        if let frame = try decoder.next() {
-                            if case .dropped = continuation.yield(frame) {
-                                reason = "the app fell behind the browser host"
-                                open = false
+                // One scope per chunk: its decode and hand-off. The read before it waits outside.
+                readWatched.run {
+                    buffer.withUnsafeBytes { decoder.push(UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
+                    var draining = true
+                    while open, draining {
+                        do throws(ProviderCodecError) {
+                            if let frame = try decoder.next() {
+                                if case .dropped = continuation.yield(frame) {
+                                    reason = "the app fell behind the browser host"
+                                    open = false
+                                }
+                            } else {
+                                draining = false
                             }
-                        } else {
-                            draining = false
+                        } catch .tooLarge(let length) {
+                            // The stream cannot resync past a bad length: end the link.
+                            reason = "provider frame of \(length) bytes is too large"
+                            open = false
+                        } catch {
+                            // A malformed frame was consumed whole: drop it, keep the link.
+                            Self.logger.error("browser host provider: dropped a malformed frame: \(String(describing: error), privacy: .public)")
                         }
-                    } catch .tooLarge(let length) {
-                        // The stream cannot resync past a bad length: end the link.
-                        reason = "provider frame of \(length) bytes is too large"
-                        open = false
-                    } catch {
-                        // A malformed frame was consumed whole: drop it, keep the link.
-                        Self.logger.error("browser host provider: dropped a malformed frame: \(String(describing: error), privacy: .public)")
                     }
                 }
             } else if count < 0, errno == EINTR {
@@ -239,11 +257,13 @@ public nonisolated final class ProviderConnection: Sendable {
     private func finish() {
         continuation.finish()
         writes.async { [self] in
-            let close = state.withLock { state -> Bool in
-                defer { state.fdOpen = false }
-                return state.fdOpen
+            writeWatched.run {
+                let close = state.withLock { state -> Bool in
+                    defer { state.fdOpen = false }
+                    return state.fdOpen
+                }
+                if close { Darwin.close(fd) }
             }
-            if close { Darwin.close(fd) }
         }
     }
 }

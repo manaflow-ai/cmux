@@ -27,7 +27,7 @@ extension RemoteRdStreamTransport {
     /// The service consumer took half of what it held, or stopped taking: the queue takes the core's
     /// messages again.
     private func serviceConsumerCaughtUp() {
-        queue.async { [self] in
+        onQueue { [self] in
             guard let outlet = state.withLock(\.services), !engine.handshake.isEnded else { return }
             _ = outlet.resumeIfCaughtUp()
             guard !outlet.isBackedUp else { return }
@@ -82,7 +82,7 @@ extension RemoteRdStreamTransport {
 
     /// Asks the host for an IDR on display stream `stream` (a popup surface's).
     public func requestKeyframe(stream: UInt16) {
-        queue.async { [self] in
+        onQueue { [self] in
             try? engine.core.requestKeyframe(stream: stream)
             pump()
         }

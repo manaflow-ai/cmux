@@ -116,9 +116,10 @@ class Q:
 WALL_CLOCK_ESCAPE = re.compile(r"//\s*wall-clock:\s*\S")
 CONTINUOUS_CLOCK_REPLACED = re.compile(r"\bTraceClock\b|\bSuspendingClock\b")
 CONTINUOUS_CLOCK_ESCAPE = re.compile(r"//\s*continuous-clock:\s*\S")
-# One registration per line: a HangWatch register call, or a stored registration a lane gets injected.
+# One registration per line: a HangWatch register call, a `HangWatchedLane(` (it registers in its init), or a
+# stored registration a lane gets injected.
 SWIFT_REGISTRATION = re.compile(
-    r"\bregister(Lane|Thread)\(|\b(let|var)\s+\w+\s*:\s*HangWatch\.Registration\b"
+    r"\bregister(Lane|Thread)\(|\bHangWatchedLane\(|\b(let|var)\s+\w+\s*:\s*HangWatch\.Registration\b"
 )
 SWIFT_REGISTRATION_EXCLUDE = re.compile(r"\bfunc\s+register(Lane|Thread)\b")
 RUST_REGISTRATION = re.compile(r"\bregister_thread\s*\(")
@@ -1464,7 +1465,9 @@ def self_test() -> int:
         'let lane = runtime.hangWatch.registerLane("terminal-output")',
         "private let watch: HangWatch.Registration",
         "public func registerLane(_ name: StaticString) -> Registration {",
-        "let scope = hangWatch.watch(lane, deadline: .seconds(1))")], [True, True, False, False])
+        "let scope = hangWatch.watch(lane, deadline: .seconds(1))",
+        'watched = HangWatchedLane("cef.children", deadline: Self.hangDeadline, on: hangs)',
+        "private let watched: HangWatchedLane")], [True, True, False, False, True, False])
     model = [
         "| Thread / queue | Owns | May block on | QoS |",
         "|---|---|---|---|",

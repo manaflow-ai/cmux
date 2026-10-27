@@ -1540,8 +1540,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The one test clock of the CmuxNext test targets (ManualClock); test targets only.
         .target(
             name: "CmuxNextWakeupsTestSupport",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089). Trace: RecordingLaneHangWatch, the lane tests' hang watch.
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

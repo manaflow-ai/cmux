@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextTrace
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -7,6 +8,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
+/// On the inbound queue each daemon frame's check, and the close, is one `acpmux-pane.inbound` hang scope of
+/// ``hangDeadline``; a frame waiting for its pass is in none (base/threading/hang_watcher.h, `WatchHangsInScope`).
 nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate, Sendable {
     struct Batch {
         var frames: [String]
@@ -60,10 +63,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let state = Mutex(State())
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
+    /// Watches each frame's check and the close on `inbound`, never a frame waiting for its pass.
+    private let watched: HangWatchedLane
+
+    /// One frame's budget (the duplicate check, one parse, the observers, the fresh serialization): a jank past
+    /// it, a hang dump 2 s later.
+    static let hangDeadline: Duration = .seconds(1)
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
+         ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil,
+         hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch, signal: @escaping @Sendable () -> Void) {
+        watched = HangWatchedLane("acpmux-pane.inbound", deadline: Self.hangDeadline, on: hangs)
         self.request = request
         self.wire = wire
         self.limits = limits
@@ -73,6 +84,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.ids = ids
         self.agentReplies = agentReplies
         self.signal = signal
+    }
+
+    deinit {
+        watched.unregister()
     }
 
     func start(timeout: TimeInterval) async throws {
@@ -162,34 +177,45 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             var page: [String] = []
             var awaited = 0
             for text in batch {
-                switch ids.toPage(text) {
-                case .drop:
-                    continue
-                case .close:
+                // One scope per frame; the frames after it wait outside it.
+                let duplicate = watched.run { check(text, into: &page, awaited: &awaited) }
+                guard !duplicate else {
                     enqueue(page, awaited: awaited)
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
-                case .page(let fresh, let object, let method):
-                    if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
-                    // The observers read the same parse the page gets.
-                    options.observe(object, replyTo: method)
-                    sessions.observe(object)
-                    sessions.observeFolder(object, replyTo: method)
-                    if wire != nil { sessions.observeTabSession(object, replyTo: method) }
-                    decisions.observe(object, replyTo: method)
-                    if Self.pageWaits(on: object) { awaited += 1 }
-                    page.append(fresh)
-                case .complete(let object, let pageID, let subject):
-                    switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
-                                                    canSend: agentReplies != nil) {
-                    case .answer(let frame): if let frame { page.append(frame) }
-                    case .send(let reply): sendReply(reply, pageID: pageID)
-                    }
                 }
             }
             enqueue(page, awaited: awaited)
             batch = takeRaw()
         }
+    }
+
+    /// Checks one daemon frame and adds what the page gets to `page` (`awaited` counts the ones it waits on).
+    /// True when the frame repeats a request key: the socket closes.
+    private func check(_ text: String, into page: inout [String], awaited: inout Int) -> Bool {
+        switch ids.toPage(text) {
+        case .drop:
+            return false
+        case .close:
+            return true
+        case .page(let fresh, let object, let method):
+            if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
+            // The observers read the same parse the page gets.
+            options.observe(object, replyTo: method)
+            sessions.observe(object)
+            sessions.observeFolder(object, replyTo: method)
+            if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+            decisions.observe(object, replyTo: method)
+            if Self.pageWaits(on: object) { awaited += 1 }
+            page.append(fresh)
+        case .complete(let object, let pageID, let subject):
+            switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
+                                            canSend: agentReplies != nil) {
+            case .answer(let frame): if let frame { page.append(frame) }
+            case .send(let reply): sendReply(reply, pageID: pageID)
+            }
+        }
+        return false
     }
 
     /// Sends a reply in place on as its chat; the page gets the answer once the daemon took it or
@@ -384,7 +410,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// inbound queue, after every frame that arrived before it, so the page gets the daemon's last
     /// frames first. (A host close with an error, ``close(code:reason:error:)``, still drops them.)
     private func daemonClosed(code: Int, reason: String) {
-        inbound.async { [self] in finish(code: code, reason: reason, error: nil) }
+        inbound.async { [self] in watched.run { finish(code: code, reason: reason, error: nil) } }
     }
 
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
@@ -198,26 +199,49 @@ nonisolated enum AcpmuxStatusClient {
         return object["result"] as? [String: Any] ?? [:]
     }
 
-    static func start(_ connection: NWConnection) async throws {
+    /// Starts `connection` on its own queue and returns once it is ready. `hangs` watches each of its state
+    /// changes as one `acpmux.status` scope (the connect's wait is in none).
+    static func start(_ connection: NWConnection, hangs: any HangWatchScoping = TraceRuntime.shared.hangWatch) async throws {
+        let lane = ConnectionLane(hangs)
         try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             // The first ready, failed or cancelled state answers. Network calls this handler on the
-            // connection's queue one state at a time, so dropping it there leaves no later state to answer.
+            // connection's queue one state at a time, so replacing it there leaves no later state to answer.
             connection.stateUpdateHandler = { [weak connection] state in
-                switch state {
-                case .ready:
-                    connection?.stateUpdateHandler = nil
-                    continuation.resume(returning: ())
-                case .failed(let error), .waiting(let error):
-                    connection?.stateUpdateHandler = nil
-                    continuation.resume(throwing: Failure.unreachable("\(error)"))
-                case .cancelled:
-                    connection?.stateUpdateHandler = nil
-                    continuation.resume(throwing: CancellationError())
-                default:
-                    break
+                lane.watched.run {
+                    guard let answer = startAnswer(state) else { return }
+                    // The handler that follows only keeps the lane registered until Network drops it with the connection.
+                    connection?.stateUpdateHandler = { _ in withExtendedLifetime(lane) {} }
+                    continuation.resume(with: answer)
                 }
             }
             connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status", qos: .userInitiated))
+        }
+    }
+
+    /// What a connection's state answers to ``start(_:hangs:)``; nil while it is still connecting.
+    private static func startAnswer(_ state: NWConnection.State) -> Result<Void, any Error>? {
+        switch state {
+        case .ready: return Result<Void, any Error>.success(())
+        case .failed(let error), .waiting(let error): return Result<Void, any Error>.failure(Failure.unreachable("\(error)"))
+        case .cancelled: return Result<Void, any Error>.failure(CancellationError())
+        default: return nil
+        }
+    }
+
+    /// One connection's `acpmux.status` hang-watch lane. The connection's state handler holds it, so it stays
+    /// registered while Network keeps that handler (until the connection is cancelled or freed), then frees its slot.
+    private nonisolated final class ConnectionLane: Sendable {
+        /// One state change's budget: a jank past it, a hang dump 2 s later.
+        static let hangDeadline: Duration = .seconds(1)
+
+        let watched: HangWatchedLane
+
+        init(_ hangs: any HangWatchScoping) {
+            watched = HangWatchedLane("acpmux.status", deadline: Self.hangDeadline, on: hangs)
+        }
+
+        deinit {
+            watched.unregister()
         }
     }
 
