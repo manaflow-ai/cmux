@@ -247,12 +247,12 @@ fn work_fields(w: &OpenWork) -> String {
         w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
         w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
         w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
-        (&w.unwritten, w.receipts_unread),
+        (&w.unwritten, w.receipts_unproven),
     )
 }
 
 /// A receipt note that can not be read (no number) leaves adoption nothing to rule out: it fails
-/// closed (`OpenWork::receipts_unread`), whatever the other notes say.
+/// closed (`OpenWork::receipts_unproven`), whatever the other notes say.
 #[tokio::test]
 async fn an_unreadable_receipt_note_fails_closed() {
     let mut log = hosted_log();
@@ -262,8 +262,28 @@ async fn an_unreadable_receipt_note_fails_closed() {
     let (hub, root) = hub_with(1, &log).await;
     let session = hub.resolve("chat0").unwrap();
     let work = hub.open_work(&session, "inc");
-    assert!(work.receipts_unread, "an unreadable receipt note was taken as proof");
-    assert!(!hub.open_work(&session, "old").receipts_unread, "another host's note counted");
+    assert!(work.receipts_unproven, "an unreadable receipt note was taken as proof");
+    assert!(!hub.open_work(&session, "old").receipts_unproven, "another host's note counted");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Review round 2: a log that can not be read to its end (a segment the store refuses: here one
+/// others may write), or that has no start of the adopted incarnation, proves no receipt.
+#[tokio::test]
+async fn a_log_read_short_proves_no_receipt() {
+    use std::os::unix::fs::PermissionsExt;
+    let (hub, root) = hub_with(1, &hosted_log()).await;
+    let session = hub.resolve("chat0").unwrap();
+    assert!(!hub.open_work(&session, "inc").receipts_unproven, "a whole log proved nothing");
+    assert!(hub.open_work(&session, "gone").receipts_unproven, "a host the log never started");
+    let events = hub.store.session_dir("chat0").unwrap().join("events");
+    for segment in std::fs::read_dir(events).unwrap() {
+        let path = segment.unwrap().path();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o620)).unwrap();
+    }
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unproven, "a log the store could not read was taken as proof");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(root);
 }

@@ -63,8 +63,9 @@ pub(super) struct OpenWork {
     /// The receipts of the fenced lines its host took (`QUEUED_METHOD`, protocol 3) that have
     /// no receipt logged (`WRITTEN_METHOD`): its harness may not have them yet.
     pub(super) unwritten: std::collections::BTreeSet<u64>,
-    /// One of those notes could not be read: `unwritten` proves nothing (fail closed).
-    pub(super) receipts_unread: bool,
+    /// `unwritten` proves nothing (fail closed): the log could not be read to its end, it has
+    /// no start of this incarnation, or one of those notes could not be read.
+    pub(super) receipts_unproven: bool,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     pub(super) last_host_seq: u64,
@@ -607,7 +608,8 @@ impl Hub {
         );
         // The `seq` of the record whose head alone gave `last_host_seq`, proven whole at the end.
         let mut host_seq_at: Option<u64> = None;
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
+        let mut started = false;
+        let scanned = self.store.scan_heads(&session.id, &mut |head| {
             // A record the fold would leave as it is counts by its head's `hostSeq` alone.
             let last_turn_open = work.turn.as_ref().is_some_and(|t| t.0 >= last_turn);
             if !reads(head, current, last_turn_open) {
@@ -622,7 +624,7 @@ impl Hub {
             }
             let Some(mut e) = head.record() else {
                 // A receipt note that can not be read proves nothing: fail closed.
-                work.receipts_unread |= current
+                work.receipts_unproven |= current
                     && head.dir == "out"
                     && matches!(head.kind, agent_host::QUEUED_METHOD | agent_host::WRITTEN_METHOD);
                 return true;
@@ -680,6 +682,7 @@ impl Hub {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "host_started") => {
                     current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                    started |= current;
                     // A new harness: its ids and answers start over.
                     requests.clear();
                     answered.clear();
@@ -689,7 +692,7 @@ impl Hub {
                     work.withdrawn_asks.clear();
                     work.cancelled_permissions.clear();
                     work.unwritten.clear();
-                    work.receipts_unread = false;
+                    work.receipts_unproven = false;
                     open_request_ids.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
@@ -832,7 +835,7 @@ impl Hub {
                         Some(r) => {
                             work.unwritten.remove(&r);
                         }
-                        None => work.receipts_unread = true,
+                        None => work.receipts_unproven = true,
                     }
                 }
                 ("out", "response") if current => {
@@ -866,6 +869,7 @@ impl Hub {
             }
             true
         });
+        work.receipts_unproven |= scanned.is_err() || !started;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at
             && !self.logs_host_seq(session, seq, work.last_host_seq)

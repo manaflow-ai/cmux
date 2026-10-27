@@ -58,7 +58,7 @@ impl Hub {
         told: bool,
         work: &OpenWork,
     ) {
-        let fences = if told && !work.receipts_unread {
+        let fences = if told && !work.receipts_unproven {
             work.unwritten.iter().map(|&r| agent_host::link::adopt_receipt(record, r)).collect()
         } else {
             vec![agent_host::link::adopt_untold(record)]
