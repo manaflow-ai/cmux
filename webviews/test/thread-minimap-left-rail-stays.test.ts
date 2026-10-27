@@ -82,6 +82,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     page.evaluate(() => {
       const nav = document.querySelector(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
       const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+      const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
       const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
       const column = Math.min(...rows);
       if (!nav) return { shown: false as const };
@@ -90,6 +91,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
       return {
         shown: true as const,
+        scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
         left: Math.round(box.left),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
         clearOfColumn: box.right <= column + 0.5,
@@ -98,12 +100,12 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     });
 
   for (const name of browsers.keys())
-    for (const width of [1600, 1200, 800, 780, 760])
+    for (const width of [1600, 1200, 1084, 800, 780, 760])
       test(`${name}: in a ${width}px pane the rail hugs the text until it runs out of room`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          const placed = { shown: true, insidePane: true, clearOfColumn: true, distance: 4 };
+          const placed = { shown: true, scrollbarPinned: true, insidePane: true, clearOfColumn: true, distance: 4 };
           await closeInspector(page);
           const closed = await rail(page);
           await openInspector(page, false);
@@ -125,10 +127,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
                   clearOfColumn: width >= 800,
                   distance: width >= 800 ? 4 : -6,
                 };
-          const pushedExpected = width <= 800 ? { shown: false } : expected;
+          const pushedExpected = width <= 1084 ? { shown: false } : { ...expected, scrollbarPinned: false };
+          const openExpected = width === 1084 ? { ...placed, clearOfColumn: false, distance: -8 } : expected;
           expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
             closed: expected,
-            open: expected,
+            open: openExpected,
             pushed: pushedExpected,
           });
         } finally {
