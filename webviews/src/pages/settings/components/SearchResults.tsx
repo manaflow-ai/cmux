@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { CHIEF_PET_ROWS } from "../cardRows";
 import { shownCategories } from "../categories";
-import { useSettingsState } from "../context";
+import { useSectionLoader, useSettingsState } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { GroupList } from "./GroupList";
 
 /**
@@ -28,6 +28,13 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
   // opening search costs the matches, not every setting.
   const [mounted, setMounted] = useState<ReadonlySet<string>>(shown);
   if ([...shown].some((key) => !mounted.has(key))) setMounted(new Set([...mounted, ...shown]));
+  // The Chief Pet card is in the Chief section's chunk (lazySections.ts); until it loads, its rows
+  // show in their group.
+  const sections = useSectionLoader();
+  const petCard = useSyncExternalStore(sections.subscribe, () => sections.searchCard("chiefPet"));
+  useEffect(() => {
+    if (!petCard) void sections.loadCard("chiefPet");
+  }, [petCard, sections]);
   return (
     <div className="search-results" data-search-results="">
       <p className="empty collapse" data-open={empty ? "" : undefined}>
@@ -37,7 +44,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
       </p>
       {shownCategories(state.host?.dev_build === true).map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
-        const pet = category.id === "chief";
+        const pet = category.id === "chief" && petCard !== undefined;
         const petRows = pet
           ? new Set(
               category.groups
@@ -62,7 +69,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
+              {petCard && petRows && petRows.size > 0 && petCard({ query, visibleRows: petRows })}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>

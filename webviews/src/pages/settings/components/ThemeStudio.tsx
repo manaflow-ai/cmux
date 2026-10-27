@@ -17,6 +17,7 @@ import {
   type ThemeEditToken,
 } from "../../../theme/themeEdits";
 import { accentChoices } from "../accentChoices";
+import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY } from "../cardRows";
 import { useColorScheme } from "../colorScheme";
 import { useRowState, useSettingsState, useStore, type RowState } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -42,13 +43,6 @@ import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
 
-export const THEME_KEY = "appearance.theme";
-/** The app theme apart from the terminal theme; `followTerminal` (its default) matches it. */
-export const APP_THEME_KEY = "appearance.appTheme";
-// appearance.themeEdits: per-token color edits, keyed "<theme>/<token>" (ThemeEditsSetting); drawn here, not as a row.
-export const THEME_EDITS_KEY = "appearance.themeEdits";
-/** appearance.accent: drawn here as the swatch popup, after the app theme. */
-export const ACCENT_KEY = "appearance.accent";
 const FOLLOW_TERMINAL = "followTerminal";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {

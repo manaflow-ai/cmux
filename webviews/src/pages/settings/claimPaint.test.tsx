@@ -4,6 +4,10 @@
 // every control disabled at its schema default, then its values; and the host's cards (Spaces,
 // Machines) appended after the first frame. Now the gate holds until the first screen is in, for a
 // pooled page from its claim and for a page loaded fresh, so the first frame shown is the final one.
+//
+// Task 081 (Chrome's settings/lazy_load.ts): the first load holds the navigation and the section the
+// route opens on; another section draws complete with its one extra chunk, and the rest load after
+// the first paint, one per idle turn.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 
@@ -15,8 +19,11 @@ const { withMockTiming } = await import("./mockTiming");
 const { mountSettingsPage } = await import("./mount");
 const { PAINT_AFTER_NAME } = await import("../shared/paintGate");
 const { PARKED_NAME } = await import("../shared/pageClient");
+const { createSectionLoader, lazySections } = await import("./lazySections");
 
 type SettingsClient = import("./ops").SettingsClient;
+type SectionChunk = import("./lazySections").SectionChunk;
+type SectionChunks = import("./lazySections").SectionChunks;
 
 const scope = globalThis as Record<string, unknown>;
 /// What the page has asked the host and not heard back yet: calls in flight, and stream events the
@@ -57,15 +64,64 @@ afterEach(() => {
   document.body.replaceChildren();
   delete scope[PAINT_AFTER_NAME];
   delete scope[PARKED_NAME];
+  history.replaceState(null, "", "/");
+  loads.length = 0;
+  idleTurns.length = 0;
 });
+
+/// The section chunks the page asked for, in order, and the idle turns it is waiting for.
+const loads: SectionChunk[] = [];
+const idleTurns: (() => void)[] = [];
+/// The page's section code over the built chunks, counting each chunk it asks for; idle work waits
+/// for `idleTurn()`.
+function countedSections() {
+  const chunks = Object.fromEntries(
+    Object.entries(lazySections).map(([id, load]) => [
+      id,
+      () => {
+        loads.push(id as SectionChunk);
+        return load();
+      },
+    ]),
+  ) as SectionChunks;
+  return createSectionLoader({
+    chunks,
+    idle: (work) => {
+      idleTurns.push(work);
+      return () => idleTurns.splice(idleTurns.indexOf(work) >>> 0, 1);
+    },
+  });
+}
+
+/// Runs the next idle turn and waits for the chunk it starts.
+async function idleTurn() {
+  const work = idleTurns.shift();
+  if (!work) throw new Error("no idle work is waiting");
+  await act(async () => work());
+  const all = Object.keys(lazySections).length;
+  await until(() => idleTurns.length > 0 || loads.length === all, "the next idle turn");
+}
 
 /// What a frame shows: rows, disabled controls and the page's groups.
 function screen() {
   return {
     rows: document.querySelectorAll("[data-row-key]").length,
-    disabled: document.querySelectorAll(".row-control :disabled, .row-control [aria-disabled='true']").length,
+    disabled: [...document.querySelectorAll(".row-control :disabled, .row-control [aria-disabled='true']")].filter(
+      (control) => !orderEnd(control),
+    ).length,
     groups: document.querySelectorAll("section").length,
   };
+}
+
+/// An ordered list's first Move Up or last Move Down button, disabled at any value.
+function orderEnd(control: Element) {
+  const item = control.closest("[data-ordered-choices] > .folder-item");
+  if (!item) return false;
+  const buttons = item.querySelectorAll("button");
+  return (
+    (control === buttons[0] && item.previousElementSibling === null) ||
+    (control === buttons[1] && item.nextElementSibling === null)
+  );
 }
 
 /// Yields to the page until `ready()` holds; fails after 2 s with what it waited for.
@@ -86,7 +142,7 @@ async function settled() {
   return screen();
 }
 
-async function opened(search: string, claim: boolean) {
+async function opened(search: string, claim: boolean, sections?: ReturnType<typeof createSectionLoader>) {
   const root = document.createElement("div");
   document.body.append(root);
   const client = counted(
@@ -95,7 +151,7 @@ async function opened(search: string, claim: boolean) {
   );
   let mounted: Promise<() => void> | undefined;
   await act(async () => {
-    mounted = mountSettingsPage(root, client);
+    mounted = mountSettingsPage(root, client, sections);
   });
   void mounted!.then((stop) => (unmount = stop));
   if (claim) {
@@ -122,4 +178,46 @@ test("a Settings page loaded fresh reports its first paint once its first screen
   expect(first.rows).toBeGreaterThan(0);
   expect(first.disabled).toBe(0);
   expect(first).toEqual(await settled());
+});
+
+test("the first load holds the section the route opens on and no other", async () => {
+  history.replaceState(null, "", "/#/settings/advanced");
+  const first = await opened("latency=20", false, countedSections());
+  expect(loads).toEqual(["advanced"]);
+  expect(document.querySelector("[data-section='advanced'] [data-card='problems']")).not.toBeNull();
+  expect(first).toEqual(await settled());
+  expect(loads).toEqual(["advanced"]);
+});
+
+test("a focused key opens on the code of the section that holds it", async () => {
+  history.replaceState(null, "", "/#/settings/general?focus=appearance.density");
+  await opened("latency=20", false, countedSections());
+  expect(loads).toEqual(["appearance"]);
+  expect(document.querySelector("[data-section='appearance'] [data-card='density']")).not.toBeNull();
+});
+
+test("another section draws complete with one extra chunk", async () => {
+  history.replaceState(null, "", "/#/settings/advanced");
+  await opened("latency=20", false, countedSections());
+  await settled();
+  const link = document.querySelector<HTMLElement>("[data-section-link='appearance']");
+  expect(link).not.toBeNull();
+  await act(async () => link!.click());
+  await until(() => document.querySelector("[data-section='appearance']") !== null, "the Appearance section");
+  // The section's first frame has its card: the route drew it once its chunk was in.
+  expect(document.querySelector("[data-section='appearance'] [data-card='density']")).not.toBeNull();
+  expect(loads).toEqual(["advanced", "appearance"]);
+});
+
+test("after the first paint the other sections load, one per idle turn", async () => {
+  await opened("latency=20", false, countedSections());
+  await settled();
+  expect(loads).toEqual(["general"]);
+  const all = Object.keys(lazySections) as SectionChunk[];
+  for (let turn = 1; turn < all.length; turn += 1) {
+    await idleTurn();
+    expect(loads.length).toBe(turn + 1);
+  }
+  expect(idleTurns).toEqual([]);
+  expect([...loads].sort()).toEqual([...all].sort());
 });
