@@ -1776,6 +1776,7 @@ jobs:
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
+          python3 tests/test_ci_cmux_next_compile_revert.py
 
       # The CmuxNextAppTests dependencies are one sorted entry per line, so two
       # pull requests adding different modules merge cleanly; the long lines they
@@ -5157,3 +5158,99 @@ jobs:
           python3 scripts/ci/cmux_next_push_attribution.py --repo "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" --sha "$SHA" --server-url "$GITHUB_SERVER_URL" \
             --events push,workflow_dispatch --summary "$GITHUB_STEP_SUMMARY"
+
+  # The base-break rule, automated: a feat-cmux-next push whose Mac Release compile failed in its
+  # compile step (pull requests compile on Linux at -Onone, so -O codegen and the final app link
+  # are first compiled here) opens the revert of the one merge since the compile last passed,
+  # within minutes. Several merges in the range, or a red older than the scanned runs, open
+  # nothing (push attribution comments on each). The revert is pushed and opened by the
+  # manaflow-glaeda-route App so its own CI runs; it lands through the normal review path.
+  release-compile-revert:
+    needs: [release-compile, release-compile-fast-admission]
+    if: ${{ always() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    name: cmux-next Release compile revert
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
+    # The environment macos-placement already takes on a push for the same App key; push-only here.
+    environment: ci-routing-agent
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      # The newest tip, so the revert applies to what is there now.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          fetch-depth: 200
+
+      - name: Find the one merge to revert
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/cmux_next_compile_revert.py --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" \
+            --sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Mint the revert PR token
+        id: app-token
+        if: ${{ steps.find.outputs.pr != '' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the revert pull request
+        if: ${{ steps.app-token.outputs.token != '' }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ steps.find.outputs.pr }}
+          MERGE_SHA: ${{ steps.find.outputs.merge_sha }}
+          GOOD: ${{ steps.find.outputs.good }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ && "$MERGE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad culprit output"; exit 1; }
+          export GH_TOKEN="$APP_TOKEN"
+          branch="revert/pr-$PR"
+          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=all&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          if [[ -n "$open" ]]; then
+            echo "A revert of #$PR already exists: $open" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "cmux-next compile revert"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git cat-file -e "$MERGE_SHA^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$MERGE_SHA" HEAD; then
+            echo "::warning title=Release compile revert::$MERGE_SHA is not in the last 200 commits of feat-cmux-next; left to #$PR's owner."
+            exit 0
+          fi
+          mainline=()
+          if [[ "$(git rev-list --parents -n1 "$MERGE_SHA" | wc -w)" -gt 2 ]]; then
+            mainline=(-m 1)  # a merge commit: undo what it brought onto feat-cmux-next
+          fi
+          if ! git revert --no-edit ${mainline[@]+"${mainline[@]}"} "$MERGE_SHA"; then
+            git revert --abort || true
+            echo "::warning title=Release compile revert::reverting #$PR ($MERGE_SHA) conflicts with feat-cmux-next's tip; left to its owner."
+            exit 0
+          fi
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+          title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .title)"
+          body="$(printf '%s\n\n%s\n\n%s\n' \
+            "Reverts #$PR (\`$MERGE_SHA\`): the feat-cmux-next push run $RUN_URL failed its Mac Release compile (\`cmux-next Release compile (Xcode 26)\`) at \`$GITHUB_SHA\`; it last passed at \`$GOOD\`, and #$PR is the one merge since." \
+            "Pull requests compile on Linux at -Onone, so -O codegen and the final app link are first compiled on the base push. The base-break rule restores base first: land this, then reland #$PR with the fix." \
+            "Opened by cmux-next.yml release-compile-revert.")"
+          url="$(gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$branch" -f base=feat-cmux-next \
+            -f title="Revert \"$title\" (broke the feat-cmux-next Release compile)" -f body="$body" --jq .html_url)"
+          echo "::notice title=Release compile revert::$url reverts #$PR"
+          echo "Revert pull request: $url" >> "$GITHUB_STEP_SUMMARY"
