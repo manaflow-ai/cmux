@@ -104,7 +104,10 @@ struct AgentPaneUploadSendTicketTests {
     }
 
     @Test func uploadStatusCoversPendingBeginAndEmitsOneTerminalState() async throws {
-        let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: AgentPaneTransport())
+        let transport = AgentPaneTransport()
+        transport.socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!), wire: AcpmuxUploadFrameTests.UploadWire(),
+            limits: transport.limits, options: transport.permissionOptions, sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: transport)
         let coordinator = AgentPaneUploadCoordinator(model: model)
         var events = [AgentPageEvent](); coordinator.publish = { events.append($0); return true }
         #expect(coordinator.start("t", size: 4, upload: "hold", sessionId: "s-1", connection: 0, context: 9))
