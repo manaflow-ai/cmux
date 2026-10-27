@@ -434,7 +434,7 @@ extension CaptureSceneRegistry {
         let inWindow = view?.webView.window != nil
         let loading = view?.webView.isLoading == true
         let pageReady = Self.agentPageCanSettle(attached: inWindow, loading: loading, chromium: view?.debugShowsChromium == true)
-        let sidebarRow = services.windows.controller(for: windowID)?.sidebar.model?.sections.flatMap(\.workspaces)
+        let sidebarRow = services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces)
             .first(where: { $0.id.rawValue == workspace.id })
         let sidebarRowMatches = sidebarRow?.title == expected
         let pending = sidebarRow?.rowState.isPending == true
