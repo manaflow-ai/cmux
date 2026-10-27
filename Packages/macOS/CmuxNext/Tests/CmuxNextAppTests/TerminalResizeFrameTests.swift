@@ -151,6 +151,7 @@ struct TerminalResizeFrameTests {
         func resizeInDisplayCycle(width: CGFloat, displayWorkMicroseconds: UInt32) async -> (width: Int?, misses: [String]) {
             let countersBefore = session.diagnostics.renderCounters
             let passesBefore = presenter.passes
+            let surfaceBefore = session.surfaceView.bounds.width
             var atDisplay: (surfaceWidth: CGFloat, passes: Int)?
             work.microseconds = displayWorkMicroseconds
             work.onDisplay = { [session, presenter] in atDisplay = (session.surfaceView.bounds.width, presenter.passes) }
@@ -164,7 +165,9 @@ struct TerminalResizeFrameTests {
             var misses: [String] = []
             if outcome == .missed { misses.append("the boundary missed the commit") }
             guard let atDisplay else { return (nil, misses + ["the display cycle did not display in that commit"]) }
-            if atDisplay.surfaceWidth != width { misses.append("the display work ran before the resize (surface \(atDisplay.surfaceWidth), asked \(width))") }
+            let surfaceWidth = session.surfaceView.bounds.width
+            if surfaceWidth == surfaceBefore { misses.append("the display cycle did not resize the terminal (surface \(surfaceWidth))") }
+            if atDisplay.surfaceWidth != surfaceWidth { misses.append("the display work ran before the resize (surface \(atDisplay.surfaceWidth), then \(surfaceWidth))") }
             if presenter.passes == passesBefore { misses.append("no presenter pass before the commit") }
             if displayWorkMicroseconds > 0, presenter.passes == atDisplay.passes { misses.append("the presenter's pass ran before the display work, not ahead of the commit") }
             let countersAfter = session.diagnostics.renderCounters
