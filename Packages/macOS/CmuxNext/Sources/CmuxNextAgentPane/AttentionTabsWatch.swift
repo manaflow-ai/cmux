@@ -1,7 +1,5 @@
-import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextDaemonService
+public import CmuxNextDaemon
 import CryptoKit
 import Foundation
 
@@ -11,20 +9,18 @@ import Foundation
 /// change; nothing polls. Only a marked tab's titles are read, so a title change of any other tab
 /// wakes nothing.
 @MainActor
-final class AttentionTabsWatch {
+public final class AttentionTabsWatch {
     /// The observation loop. ``AppServices/attentionTabsWatch`` owns this watch; letting it go
     /// (or the services going) cancels the loop, which ends the stream.
     private let task: Task<Void, Never>
 
-    /// Starts the watch. Go to's jump is bound with the action (``AttentionPalettePage/bind(into:context:)``).
-    init(_ services: AppServices) {
-        // task-owner: AppServices.attentionTabsWatch; cancelled in deinit, and it returns once the services are gone
-        task = Task { [weak services] in
-            for await marked in ObservationStream({ [weak services] in
-                services.map { AttentionTabsWatch.items(in: $0.machines.allWorkspaces.map { ($0.0, machine: $0.1.machineID) }) } ?? []
-            }) {
-                guard services != nil else { return }
-                AgentPaneAttentionTabs.shared.items = marked
+    /// Follows the composition root's workspace projection and publishes changed lists.
+    public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, machine: String)],
+                publish: @escaping @MainActor ([AgentPaneAttentionTabs.Item]) -> Void) {
+        // task-owner: the application retains this watch; deinit cancels the stream
+        task = Task {
+            for await marked in ObservationStream({ Self.items(in: workspaces()) }) {
+                publish(marked)
             }
         }
     }
@@ -34,8 +30,8 @@ final class AttentionTabsWatch {
 
     /// The marked tabs of `workspaces` (each with the id of the machine that holds it), newest
     /// mark first: the agent's reason, the workspace and tab titles the person knows them by (never
-    /// an id), and when it was marked. Each row's key is ``key(machine:tab:)``.
-    static func items(in workspaces: [(WorkspaceModel, machine: String)]) -> [AgentPaneAttentionTabs.Item] {
+    /// an id), and when it was marked. Each row's key is ``key(machine:tab:atMs:)``.
+    public static func items(in workspaces: [(WorkspaceModel, machine: String)]) -> [AgentPaneAttentionTabs.Item] {
         var items: [AgentPaneAttentionTabs.Item] = []
         for (workspace, machine) in workspaces {
             for screen in workspace.screens {
@@ -43,7 +39,7 @@ final class AttentionTabsWatch {
                     for tab in pane.tabs {
                         guard let attention = tab.attention else { continue }
                         items.append(AgentPaneAttentionTabs.Item(
-                            tabId: key(machine: machine, tab: tab.id), reason: attention.reason, workspaceTitle: workspace.displayName,
+                            tabId: key(machine: machine, tab: tab.resourceID?.rawValue ?? tab.id, atMs: attention.atMs), reason: attention.reason, workspaceTitle: workspace.displayName,
                             tabTitle: tab.displayTitle, atMs: attention.atMs))
                     }
                 }
@@ -53,22 +49,23 @@ final class AttentionTabsWatch {
     }
 
     /// A marked tab's row key (`Item.tabId`, what a page's Go to sends back): a short digest of
-    /// its machine's id, `/`, and its tab id, since tabs on two machines can share an id. The
+    /// its machine's id, the attention generation, and its durable tab id, since tabs on two machines can share an id. The
     /// digest keeps the key inside ``AgentPaneAttentionTabs/maximumTabID`` however long the
     /// machine id is, and a tab id holds no `/`.
-    static func key(machine: String, tab: String) -> String { "\(machineDigest(machine))/\(tab)" }
+    public static func key(machine: String, tab: String, atMs: UInt64) -> String { "\(machineDigest(machine))/\(atMs)/\(tab)" }
 
     /// The first 8 bytes of SHA-256 of `machine`, in hex.
-    static func machineDigest(_ machine: String) -> String {
+    public static func machineDigest(_ machine: String) -> String {
         SHA256.hash(data: Data(machine.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The machine (of `daemons`) and tab id that row key `key` names; nil for a key that names
     /// no connected machine.
-    static func locate(_ key: String, in daemons: [DaemonService]) -> (daemon: DaemonService, tab: String)? {
-        guard let slash = key.lastIndex(of: "/") else { return nil }
-        let digest = key[..<slash], tab = String(key[key.index(after: slash)...])
-        guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest($0.machineID) == digest }) else { return nil }
+    public static func locate<Daemon>(_ key: String, in daemons: [Daemon], machineID: (Daemon) -> String) -> (daemon: Daemon, tab: String)? {
+        let parts = key.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 3, UInt64(parts[1]) != nil else { return nil }
+        let digest = parts[0], tab = String(parts[2])
+        guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest(machineID($0)) == digest }) else { return nil }
         return (daemon, tab)
     }
 }

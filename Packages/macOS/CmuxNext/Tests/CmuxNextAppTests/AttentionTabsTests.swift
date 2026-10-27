@@ -30,13 +30,13 @@ struct AttentionTabsTests {
         let (store, tabs) = try Self.workspaces()
         let items = AttentionTabsWatch.items(in: Self.local(store))
         #expect(items == [
-            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[2].id), reason: "Approve the deploy", workspaceTitle: "cmux next",
+            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[2].id, atMs: 2_000), reason: "Approve the deploy", workspaceTitle: "cmux next",
                                         tabTitle: "Vercel", atMs: 2_000),
-            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[0].id), reason: "Log in to GitHub", workspaceTitle: "cmux next",
+            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[0].id, atMs: 1_000), reason: "Log in to GitHub", workspaceTitle: "cmux next",
                                         tabTitle: "GitHub · Sign in", atMs: 1_000),
         ])
         tabs[2].applyState(SessionStateMirror.TabRecord(), progress: nil)
-        #expect(AttentionTabsWatch.items(in: Self.local(store)).map(\.tabId) == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id)], "a cleared mark leaves the list")
+        #expect(AttentionTabsWatch.items(in: Self.local(store)).map(\.tabId) == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id, atMs: 1_000)], "a cleared mark leaves the list")
     }
 
     private static func local(_ store: DaemonStore) -> [(WorkspaceModel, machine: String)] {
@@ -51,7 +51,7 @@ struct AttentionTabsTests {
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
         let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
                                     paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-attention-tabs-remote-unused")),
-                                    environment: { [:] })
+                                    environment: { [:] }, mainWork: services.mainWork)
         services.machines.add(ssh)
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
@@ -64,7 +64,7 @@ struct AttentionTabsTests {
         #expect(items.count == 2)
         #expect(Set(items.map(\.tabId)).count == 2, "two machines' rows share a key")
         for item in items {
-            let found = try #require(AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons))
+            let found = try #require(AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons, machineID: \.machineID))
             let tab = try #require(found.daemon.store.tab(idOrResource: found.tab))
             #expect(tab.attention?.reason == item.reason, "\(item.reason)'s row found the other machine's tab")
             #expect(item.tabId.utf8.count <= AgentPaneAttentionTabs.maximumTabID)
@@ -80,10 +80,10 @@ struct AttentionTabsTests {
         let windowsBefore = services.windows.controllers.count
         #expect(!shared.open(lab.tabId), "Go to on the SSH row showed a tab although its workspace id is this Mac's too")
         #expect(services.windows.controllers.count == windowsBefore, "a refused Go to opened a window")
-        let long = AttentionTabsWatch.key(machine: String(repeating: "m", count: 1_000), tab: "tab_forked")
+        let long = AttentionTabsWatch.key(machine: String(repeating: "m", count: 1_000), tab: "tab_forked", atMs: 1_000)
         #expect(long.utf8.count <= AgentPaneAttentionTabs.maximumTabID, "a long machine id made a key Go to refuses")
-        #expect(AttentionTabsWatch.locate("tab_forked", in: services.machines.daemons) == nil, "a bare tab id names no machine")
-        #expect(AttentionTabsWatch.locate("0000000000000000/tab_forked", in: services.machines.daemons) == nil)
+        #expect(AttentionTabsWatch.locate("tab_forked", in: services.machines.daemons, machineID: \.machineID) == nil, "a bare tab id names no machine")
+        #expect(AttentionTabsWatch.locate("0000000000000000/tab_forked", in: services.machines.daemons, machineID: \.machineID) == nil)
     }
 
     @Test func thePaletteListsEachMarkAndItsRowJumpsToTheTab() async throws {
@@ -105,7 +105,30 @@ struct AttentionTabsTests {
         }
         #expect(shown.isEmpty, "listing jumps nowhere")
         run()
-        #expect(shown == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id)])
+        #expect(shown == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id, atMs: 1_000)])
+    }
+
+    @Test func staleRowsCannotOpenClearedOrReplacedAttention() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "GitHub")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        let store = services.daemon.store
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "work", screens: [screen])]))
+        let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Log in", atMs: 1_000)), progress: nil)
+        AppActions.bind(services)
+        let shared = services.attentionTabs
+        shared.items = AttentionTabsWatch.items(in: Self.local(store))
+        let oldKey = try #require(shared.items.first).tabId
+        tab.applyState(SessionStateMirror.TabRecord(), progress: nil)
+        #expect(!shared.open(oldKey), "an unrefreshed row opened a cleared mark")
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Approve", atMs: 2_000)), progress: nil)
+        #expect(!shared.open(oldKey), "an unrefreshed row opened a different generation")
+        shared.items = AttentionTabsWatch.items(in: Self.local(store))
+        #expect(shared.items.first?.tabId != oldKey)
+        #expect(!shared.open(oldKey), "a delayed page click opened the newly published generation")
+        #expect(services.windows.controllers.isEmpty)
     }
 
     @Test func anAgentsRunOpensNoPalette() throws {
