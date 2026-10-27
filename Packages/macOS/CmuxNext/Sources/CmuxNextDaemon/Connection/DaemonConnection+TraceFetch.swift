@@ -81,25 +81,28 @@ extension DaemonTraceRecording {
         var piece = try await fetch(TraceFetchRequest(offset: 0))
         let first = piece
         guard first.totalBytes <= maxBytes else { throw DaemonTraceFetchError.tooLarge(totalBytes: first.totalBytes) }
-        var bytes = Data(capacity: Int(first.totalBytes))
+        var bytes = Data(capacity: Int(truncatingIfNeeded: first.totalBytes))
         try take(piece, of: first, into: &bytes)
         // Each piece before the last adds at least one byte (`take`), so this ends within `total` requests.
         while !piece.done {
-            piece = try await fetch(TraceFetchRequest(offset: UInt64(bytes.count), fetchID: first.fetchID))
+            piece = try await fetch(TraceFetchRequest(offset: UInt64(truncatingIfNeeded: bytes.count), fetchID: first.fetchID))
             try take(piece, of: first, into: &bytes)
         }
-        guard UInt64(bytes.count) == first.totalBytes else { throw DaemonTraceFetchError.copyReplaced(offset: piece.offset) }
+        guard UInt64(truncatingIfNeeded: bytes.count) == first.totalBytes else {
+            throw DaemonTraceFetchError.copyReplaced(offset: piece.offset)
+        }
         return DaemonTraceRecording(pid: piece.pid, bytes: bytes, clockOffset: clockOffset)
     }
 
     /// Appends `piece` to `bytes` after checking it starts where they end, names `first`'s copy and total, stays
     /// within that total and, unless it is the last, carries at least one byte.
     private static func take(_ piece: TraceFetchRequest.Response, of first: TraceFetchRequest.Response, into bytes: inout Data) throws {
-        guard piece.offset == UInt64(bytes.count), piece.fetchID == first.fetchID, piece.totalBytes == first.totalBytes else {
+        guard piece.offset == UInt64(truncatingIfNeeded: bytes.count), piece.fetchID == first.fetchID,
+              piece.totalBytes == first.totalBytes else {
             throw DaemonTraceFetchError.copyReplaced(offset: piece.offset)
         }
         guard let data = Data(base64Encoded: piece.data) else { throw DaemonTraceFetchError.malformedPiece(offset: piece.offset) }
-        guard UInt64(data.count) <= first.totalBytes - piece.offset else {
+        guard UInt64(truncatingIfNeeded: data.count) <= first.totalBytes - piece.offset else {
             throw DaemonTraceFetchError.tooLarge(totalBytes: first.totalBytes)
         }
         guard piece.done || !data.isEmpty else { throw DaemonTraceFetchError.emptyPiece(offset: piece.offset) }
