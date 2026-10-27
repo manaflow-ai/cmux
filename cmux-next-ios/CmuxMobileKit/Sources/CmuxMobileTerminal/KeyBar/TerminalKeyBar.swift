@@ -29,7 +29,7 @@ struct TerminalKeyBar: View {
                                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                                 PasteKeyCap(model: model)
                                     .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
-                                    .keyGlass(armed: false, quiet: false)
+                                    .keyGlass(armed: false)
                             } else {
                                 KeyCap(key: key, model: model)
                             }
@@ -118,7 +118,7 @@ struct KeyboardToggleKey: View {
                 .animation(.easeInOut(duration: 0.2), value: shown)
         }
         .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
-        .keyGlass(armed: false, quiet: false)
+        .keyGlass(armed: false)
         .accessibilityLabel(shown ? "Hide Keyboard" : "Show Keyboard")
         .accessibilityIdentifier("terminal.key.keyboard")
     }
@@ -158,9 +158,9 @@ struct KeyCap: View {
             }
             .foregroundStyle(locked || armed ? Color.white : key == .hideChrome ? Color.primary.opacity(0.72) : .primary)
         }
-        .buttonStyle(KeyCapStyle(locked: locked, armed: armed, quiet: key == .hideChrome,
+        .buttonStyle(KeyCapStyle(locked: locked, armed: armed,
                                  width: key.isGlyph ? TerminalDockMetrics.minKeyWidth : nil))
-        .keyGlass(armed: locked || armed, quiet: key == .hideChrome)
+        .keyGlass(armed: locked || armed)
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
@@ -186,8 +186,6 @@ enum KeyClick {
 struct KeyCapStyle: ButtonStyle {
     var locked = false
     var armed = false
-    /// Hide Toolbar reads as a control, not a key: no glass (classic).
-    var quiet = false
     /// A fixed width; nil hugs the label with a 6 pt inset.
     var width: CGFloat?
 
@@ -216,17 +214,9 @@ enum KeyRowGlass {
 }
 
 extension View {
-    func keyGlass(armed: Bool, quiet: Bool) -> some View {
+    func keyGlass(armed: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
-        return Group {
-            if quiet {
-                self
-            } else if armed {
-                glassEffect(.regular.tint(Color(uiColor: .systemBlue)).interactive(), in: shape)
-            } else {
-                glassEffect(.regular.interactive(), in: shape)
-            }
-        }
+        return glassEffect(armed ? .regular.tint(Color(uiColor: .systemBlue)).interactive() : .regular.interactive(), in: shape)
     }
 }
 

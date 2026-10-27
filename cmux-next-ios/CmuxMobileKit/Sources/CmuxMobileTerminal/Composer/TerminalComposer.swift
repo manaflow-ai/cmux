@@ -34,7 +34,7 @@ struct TerminalComposer: View {
                         .font(.footnote.weight(.semibold))
                         .padding(.horizontal, 12)
                         .frame(height: 28)
-                        .background(Color.primary.opacity(0.08), in: .capsule)
+                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -204,10 +204,11 @@ struct TerminalComposer: View {
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: accent fill; empty, a quiet one (classic).
-            .background(Circle().fill(failed ? AnyShapeStyle(Color.red)
-                                      : canSend || model.isUploading ? AnyShapeStyle(Color(uiColor: .systemBlue))
-                                      : AnyShapeStyle(Color.primary.opacity(0.12))))
+            // ↑ (send) is the primary action: glass tinted with the accent;
+            // empty, plain glass (classic's accent and quiet fills, as glass).
+            .glassEffect(failed ? .regular.tint(.red).interactive()
+                         : canSend || model.isUploading ? .regular.tint(Color(uiColor: .systemBlue)).interactive()
+                         : .regular.interactive(), in: .circle)
             .animation(.smooth(duration: 0.2), value: canSend)
         }
         .buttonStyle(.plain)
@@ -378,8 +379,8 @@ struct AttachmentStrip: View {
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: 22, height: 22)
-                                    .background(Color(white: 0.18), in: .circle)
-                                    .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
+                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
@@ -436,7 +437,7 @@ struct AttachmentStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 56)
-            .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
+            .glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
         }
     }
 }
