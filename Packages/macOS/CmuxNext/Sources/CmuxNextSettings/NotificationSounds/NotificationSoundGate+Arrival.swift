@@ -23,7 +23,7 @@ extension NotificationSoundGate {
     /// A notification of a pane the person sees: under `notifications.sounds.when = always` it still
     /// sounds (no banner shows for it); otherwise nothing plays.
     public func playSeen(_ decision: NotificationPolicy.Decision, sounds: NotificationSoundPreferences) {
-        // Red stub: `when` is read in the next commit.
+        guard sounds.when == .always else { return }
         play(decision, cooldownSeconds: sounds.cooldownSeconds, banner: false)
     }
 }

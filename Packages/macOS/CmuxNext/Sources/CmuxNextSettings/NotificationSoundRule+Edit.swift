@@ -9,8 +9,17 @@ extension NotificationSoundRule {
     ///   - volume: 0 to 1; nil keeps the volume.
     /// - Returns: The changed rule; ``isEmpty`` when the level inherits everything.
     public nonisolated func applying(sound: String?, event: NotificationSoundEvent?, volume: Double?) -> NotificationSoundRule {
-        // Red stub: edits apply in the next commit.
-        let rule = self
+        var rule = self
+        switch (sound, event) {
+        case (nil, _): break
+        case ("inherit"?, nil):
+            rule.sound = nil
+            rule.events = [:]
+        case ("inherit"?, let event?): rule.events[event] = nil
+        case (let sound?, nil): rule.sound = sound
+        case (let sound?, let event?): rule.events[event] = sound
+        }
+        if let volume { rule.volume = min(max(volume, 0), 1) }
         return rule
     }
 }

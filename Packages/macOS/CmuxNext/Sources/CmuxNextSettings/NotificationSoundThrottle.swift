@@ -12,8 +12,8 @@ public nonisolated struct NotificationSoundThrottle: Sendable {
 
     /// Whether `event` may sound at `now`; a yes is recorded as the newest sound.
     public mutating func admit(_ event: NotificationSoundEvent, at now: ContinuousClock.Instant) -> Bool {
-        // Red stub: every sound plays; the cooldown comes in the next commit.
-        _ = last
+        if let last, now - last.at < cooldown, event.urgency <= last.urgency { return false }
+        last = (now, event.urgency)
         return true
     }
 }

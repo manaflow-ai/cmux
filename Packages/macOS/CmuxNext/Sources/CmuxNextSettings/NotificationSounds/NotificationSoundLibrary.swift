@@ -61,8 +61,25 @@ public nonisolated struct NotificationSoundLibrary: Sendable {
         guard Self.extensions.contains(ext) else {
             throw ImportRefusal(message: NotificationSoundStrings.unsupportedFile(file.lastPathComponent))
         }
-        // Red stub: the copy, its naming and its refusals come in the next commit.
-        return file.deletingPathExtension().lastPathComponent
+        let files = FileManager.checked
+        let base = file.deletingPathExtension().lastPathComponent
+        do {
+            try files.createDirectory(at: userDirectory, withIntermediateDirectories: true)
+            for index in 1...999 {
+                let name = index == 1 ? base : "\(base) \(index)"
+                let target = userDirectory.appending(path: "\(name).\(ext)", directoryHint: .notDirectory)
+                if files.fileExists(atPath: target.path) {
+                    if files.contentsEqual(atPath: target.path, andPath: file.path) { return name }
+                    continue
+                }
+                if directories.dropFirst().contains(where: { Self.hasSound(named: name, in: $0) }) { continue }
+                try files.copyItem(at: file, to: target)
+                return name
+            }
+        } catch {
+            throw ImportRefusal(message: NotificationSoundStrings.importFailed(file.lastPathComponent))
+        }
+        throw ImportRefusal(message: NotificationSoundStrings.importFailed(file.lastPathComponent))
     }
 
     private static func hasSound(named name: String, in directory: URL) -> Bool {

@@ -116,8 +116,7 @@ public nonisolated struct NotificationPolicy: Sendable {
         decision.desktop = decision.alerts && arrival.bannerAllowed
         let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
         decision.soundEvent = event
-        // Red stub: timing (`notifications.sounds.when`) comes in the next commit.
-        if !arrival.workspaceMuted, !quiet, !arrival.paneIsViewed,
+        if !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
            let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) {
             decision.sound = choice.name
             decision.soundVolume = choice.volume

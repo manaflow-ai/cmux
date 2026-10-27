@@ -53,7 +53,12 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     /// anywhere on that path mutes it (nil). The volume is the most specific level's that sets one,
     /// times the master volume.
     public func choice(for event: NotificationSoundEvent, in scope: NotificationSoundScope, fallback: String) -> NotificationSoundChoice? {
-        // Red stub: only the global sound; levels, events and volume come in the next commit.
-        fallback == "none" ? nil : NotificationSoundChoice(name: fallback)
+        let levels = levels(for: scope)
+        let picked = levels.lazy.compactMap { level in level.rule.sound(for: event).map { (name: $0, level: level.name) } }.first
+            ?? events[event].map { (name: $0, level: "event:\(event.rawValue)") }
+            ?? (name: fallback, level: "global")
+        guard picked.name != "none", !picked.name.isEmpty else { return nil }
+        let share = levels.lazy.compactMap { $0.rule.volume }.first ?? 1
+        return NotificationSoundChoice(name: picked.name, volume: min(max(share * volume, 0), 1), level: picked.level)
     }
 }
