@@ -22,15 +22,20 @@ struct KeyWindowRole {
     /// actions are off. It never falls through to the main window behind
     /// it. Debug builds log a fault once per such window (the owner must
     /// call `install(kind:content:scope:)`).
+    ///
+    /// `pageSurface`: where the process's pages draw. Chromium page windows
+    /// exist only in process (``PageSurface/childWindows``); with pages in
+    /// the view tree (the Chromium Host) no key window is one.
     @MainActor
-    static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
+    static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool, pageSurface: PageSurface) -> KeyWindowRole? {
         let root = key.windowKindRoot
+        let isPageWindow = pageSurface == .childWindows && isChromiumPageWindow(key)
         // A Chromium page window inside the root (an undocked inspector's
         // page, a popup's page) acts for it.
-        let inside = key === root || (key.sheetParent == nil && isChromiumPageWindow(key))
+        let inside = key === root || (key.sheetParent == nil && isPageWindow)
         if let kind = root.windowKind { return KeyWindowRole(root: root, close: kind.traits.close, overRoot: !inside) }
         if ownedByMain { return KeyWindowRole(root: root, close: .contentFirst, overRoot: !inside) }
-        if root === key, isChromiumPageWindow(key) { return nil }
+        if root === key, isPageWindow { return nil }
         if isPalette { return nil }
         KindlessWindowAudit.note(root)
         let closable = root.styleMask.isSuperset(of: [.titled, .closable])

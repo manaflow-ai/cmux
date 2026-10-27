@@ -73,8 +73,6 @@ final class HoverCardPanel: NSPanel {
     var sizeConstraints: [NSLayoutConstraint] = []
     /// A resize in flight between two cards of different sizes.
     var activeMorph: HoverCardMorph?
-    /// The card takes clicks and scrolls (the update highlights' "See all changes").
-    private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
     /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
     var forwardsPress = false
@@ -195,9 +193,7 @@ final class HoverCardPanel: NSPanel {
             NSLayoutConstraint.activate(edgeConstraints)
             body = newBody
         }
-        isInteractive = interactive
-        ignoresMouseEvents = !interactive
-        acceptsMouseMovedEvents = interactive
+        setInteractive(interactive)
         // The card draws in the theme scope of the view it describes and
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.

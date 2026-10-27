@@ -1,6 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextActions
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextInput
 @testable import CmuxNextSettings
@@ -63,7 +63,7 @@ import Testing
         followers = nil
         try folder.write(#"{"browser":{"links":{"cmdClick":"backgroundTab"}}}"#)
         await settings.reload()
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.2))
+        runMainLoopPass(for: 0.2)
         #expect(webKit.linkClicks == changed, "released followers apply nothing")
     }
 }

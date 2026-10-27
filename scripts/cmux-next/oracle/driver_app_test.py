@@ -51,9 +51,12 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        self.palette_open = False
+        self.daemon_pid: Optional[int] = 4242
+        self.signals: List[int] = []
+        self.relaunches = 0
+        # The app's pid: a restart relaunches it, a child crash the app survives keeps it.
         self.pid = 4242
-        # The web fixture origin the case's action.run args name (FakeApp's page loads).
-        self.loaded: List[str] = []
 
     # -- the port
 
@@ -78,6 +81,18 @@ class FakeApp:
 
     def daemon_socket(self) -> Optional[str]:
         return None
+
+    def signal_daemon(self, signum: int) -> Optional[int]:
+        if self.daemon_pid is None:
+            return None
+        self.signals.append(signum)
+        return self.daemon_pid
+
+    def relaunch(self) -> None:
+        if self.fail_launch:
+            raise driver_app.AppLaunchFailed("quit-keep-sessions", "the app still runs 30 s after quitKeepSessions")
+        self.relaunches += 1
+        self.pid += 1
 
     def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
         self.calls.append((method, json.loads(json.dumps(params))))
@@ -164,11 +179,10 @@ class FakeApp:
             if params["args"].get("takeApp"):
                 self.pid += 1
             return {"ok": True, "result": {"action": params["action"], "ran": True, "sequence": self.sequence}}
-        if params["action"] == "page.open":
-            self.loaded.append(params["args"]["url"])
-            return {"ok": True, "result": {"action": params["action"], "ran": True, "sequence": self.sequence}}
         if params["action"] != "workspace.new":
-            return {"ok": False, "error": {"code": "not_found", "message": "no such action"}}
+            # As ControlError+ActionRun gives it: the details name the action and the reason.
+            return {"ok": False, "error": {"code": "not_found", "message": "no such action",
+                                           "data": {"action": params["action"], "reason": "no such action"}}}
         self.turn(params["action"])
         reply = {"action": params["action"], "ran": True, "waited": True, "args": {},
                  "target": params.get("target"), "created": [f"ws_{self.sequence}"], "sequence": self.sequence,
@@ -178,6 +192,10 @@ class FakeApp:
         return {"ok": True, "result": reply}
 
     def m_debug_key(self, params):
+        if params.get("target") == "palette":  # DebugKey.send: the palette's visible panel, else an error
+            if not self.palette_open:
+                return {"ok": True, "result": {"error": "the palette is not open"}}
+            return {"ok": True, "result": {"handled_by": "palette", "action": None, "window_kind": "palette"}}
         if params["key"] == "n" and params["modifiers"] == ["cmd"]:
             self.turn("workspace.new")
             return {"ok": True, "result": {"handled_by": "app", "action": "workspace.new", "window_kind": "shell"}}
@@ -190,30 +208,6 @@ def identity(app: str):
 
 def identity_canonicalizer():
     return (lambda snapshots, paths, labels: [json.loads(json.dumps(s)) for s in snapshots]), {}
-
-
-class FakeWeb:
-    """webfixture.WebFixture's surface as the driver uses it."""
-
-    origin = "http://127.0.0.1:43123"
-
-    def __init__(self, fail: bool = False):
-        self.fail = fail
-        self.started = self.stopped = 0
-
-    def start(self) -> str:
-        if self.fail:
-            raise OSError("cannot listen on 127.0.0.1:0")
-        self.started += 1
-        return self.origin
-
-    def stop(self) -> None:
-        self.stopped += 1
-
-    def expand(self, value):
-        import webfixture
-
-        return webfixture.expand(value, self.origin)
 
 
 class Recorder:
@@ -254,7 +248,7 @@ class AppSessionTest(unittest.TestCase):
         self.apps: List[FakeApp] = []
         self.run_proc = Recorder()
 
-    def session(self, run=None, canonicalizer=None, make_web=None, **ctx) -> driver_app.AppSession:
+    def session(self, run=None, canonicalizer=None, **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
@@ -265,7 +259,7 @@ class AppSessionTest(unittest.TestCase):
                                      canonicalizer=canonicalizer or identity_canonicalizer(),
                                      run=run or self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
-                                     root_base=Path(self.tmp.name) / "o", make_web=make_web)
+                                     root_base=Path(self.tmp.name) / "o")
 
     def test_action_run_records_before_turn_and_settled(self) -> None:
         session = self.session()
@@ -377,46 +371,6 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(driver_app.debug_key("shift+a", "k"), {"key": "a", "modifiers": ["shift"]})
         self.assertEqual(driver_app.debug_key(";", "k"), {"key": ";", "modifiers": []})
 
-    def test_web_fixture_expands_web_and_rewrites_it_back(self) -> None:
-        seen: List[Any] = []
-
-        def canonical(snapshots, paths, labels):
-            seen.append(paths.web)
-            return [json.loads(json.dumps(s)) for s in snapshots]
-
-        webs: List[FakeWeb] = []
-
-        def make_web() -> FakeWeb:
-            webs.append(FakeWeb())
-            return webs[-1]
-
-        session = self.session(canonicalizer=(canonical, {}), make_web=make_web)
-        opened = step("open", "action.run", target={"window": "current"},
-                      args={"action": "page.open", "params": {"url": "$WEB/load.html"}},
-                      expect={"outcome": "ok", "receipt": "action.done"})
-        web_fixture = {"seed": "s", "network": "offline", "clock": "fixed", "web": True}
-        result = session.run_case(case(opened, fixture=web_fixture), {"case_id": "journeys/c"})
-        self.assertEqual(result["status"], "Pass", result["message"])
-        self.assertEqual(self.apps[0].loaded, [FakeWeb.origin + "/load.html"], "the app gets the case's own origin")
-        self.assertEqual(seen, [(FakeWeb.origin,)], "normalize.py rewrites the origin back to $WEB")
-        self.assertEqual((webs[0].started, webs[0].stopped), (1, 1), "the server lives for the case only")
-        # A case without fixture.web starts no server and rewrites no origin.
-        session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
-        self.assertEqual((len(webs), seen[-1]), (1, ()))
-        broken = self.session(make_web=lambda: FakeWeb(fail=True))
-        result = broken.run_case(case(opened, fixture=web_fixture), {"case_id": "journeys/c"})
-        self.assertEqual((result["status"], result.get("step")), ("Crash", "setup"), result["message"])
-        self.assertIn("web fixture", result["message"])
-
-    def test_real_web_fixture_serves_the_case_on_loopback(self) -> None:
-        web = driver_app.default_web_fixture()
-        origin = web.start()
-        try:
-            self.assertRegex(origin, r"^http://127\.0\.0\.1:[0-9]+$")
-            self.assertEqual(web.expand({"u": "$WEB/load.html"}), {"u": origin + "/load.html"})
-        finally:
-            web.stop()
-
     def test_a_child_crash_that_takes_the_app_with_it_fails_the_case(self) -> None:
         session = self.session()
         crash = step("crash", "action.run", target={"window": "current"}, args={"action": "page.crash"},
@@ -433,6 +387,9 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(driver_app.debug_key("cmd+shift+d", "k"), {"key": "d", "modifiers": ["cmd", "shift"]})
         self.assertEqual(driver_app.debug_key("opt+alt+left", "k"), {"key": "left", "modifiers": ["option"]})
         self.assertEqual(driver_app.debug_key("cmd+plus", "k"), {"key": "+", "modifiers": ["cmd"]})
+        # A shifted glyph goes as itself: DebugKey.keyPress types ":" (Shift and the ; key code); "shift+;" would
+        # keep the characters ";".
+        self.assertEqual(driver_app.debug_key(":", "k"), {"key": ":", "modifiers": []})
         for stroke in ("fn+left", "f5"):
             with self.assertRaises(driver_app.CaseError):
                 driver_app.debug_key(stroke, "k")
@@ -479,11 +436,37 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(session.run_case(case(wrong), {"case_id": "actions/x"})["status"], "Failure")
         user = dict(NEW_WORKSPACE, args={"action": "workspace.new", "entrypoint": "key"})
         self.assertEqual(session.run_case(case(user), {"case_id": "actions/x"})["status"], "Crash")
-        # The reply gives no details: an errorDetails check is a Crash, never a silent pass.
-        detailed = dict(refused, expect={**refused["expect"], "errorDetails": {"extra": {"code": "x"}}})
+        # errorDetails is a subset of the refusal's error.data, compared key by key.
+        detailed = dict(refused, expect={**refused["expect"], "errorDetails": {"action": "nope.missing"}})
         result = session.run_case(case(detailed), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        other = dict(refused, expect={**refused["expect"], "errorDetails": {"action": "workspace.new"}})
+        result = session.run_case(case(other), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn('/action: expected "workspace.new", got "nope.missing"', result["message"])
+        absent = dict(refused, expect={**refused["expect"], "errorDetails": {"extra": {"code": "x"}}})
+        result = session.run_case(case(absent), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn("/extra: missing", result["message"])
+
+    def test_error_details_on_a_reply_with_no_details_are_a_crash(self) -> None:
+        # The cli reply reaches the driver as a typed code only: the check is a Crash, never a silent pass.
+        session = self.session()
+        self.run_proc.returncode = 1
+        self.run_proc.stdout = json.dumps({"error": {"code": "not_found"}})
+        cli = step("c", "cli", target={"workspace": "current"}, args={"argv": ["workspace", "list"]},
+                   expect={"outcome": "error", "error": "cli.not_found", "errorDetails": {"action": "x"}})
+        result = session.run_case(case(cli), {"case_id": "cli/c"})
         self.assertEqual(result["status"], "Crash")
-        self.assertIn("errorDetails", result["message"])
+        self.assertIn("errorDetails: the cli reply gives this driver no error details", result["message"])
+
+    def test_focus_reaches_action_run_only_when_the_step_asks(self) -> None:
+        session = self.session()
+        focused = dict(NEW_WORKSPACE, args={"action": "workspace.new", "focus": True})
+        self.assertEqual(session.run_case(case(focused), {"case_id": "actions/f"})["status"], "Pass")
+        session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/n"})
+        runs = [params for method, params in self.apps[-1].calls if method == "action.run"]
+        self.assertEqual([run.get("focus") for run in runs], [True, None])
 
     def test_other_drivers_ops_and_unsupported_environment_fail_loudly(self) -> None:
         session = self.session()
@@ -499,6 +482,39 @@ class AppSessionTest(unittest.TestCase):
         result = session.run_case(missing, {"case_id": "actions/c"})
         self.assertEqual(result["status"], "Crash")
         self.assertIn("p15-oracle-046", result["message"])
+
+    def test_daemon_kill_and_app_restart_run_here_and_dirty_the_session(self) -> None:
+        session = self.session()
+        kill = step("drop", "kill", target={"process": "daemon"}, args={"signal": "KILL"},
+                    expect={"outcome": "ok", "noReceiptReason": "a killed process runs no action"})
+        restart = step("relaunch", "restart", target={"process": "app"},
+                       expect={"outcome": "ok", "noReceiptReason": "a relaunch runs no action"})
+        result = session.run_case(case(NEW_WORKSPACE, kill, restart, requires=["actions", "restart"]),
+                                  {"case_id": "journeys/c"})
+        app = self.apps[0]
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(app.signals, [driver_app.signal.SIGKILL])
+        self.assertEqual(app.relaunches, 1)
+        self.assertTrue(result["session_dirty"])
+        # No owner to kill, and a relaunch that does not come back, are this case's Crash at that step.
+        app.daemon_pid = None
+        result = session.run_case(case(kill, requires=["restart"]), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result["step"]), ("Crash", "drop"), result["message"])
+        app.fail_launch = True
+        result = session.run_case(case(restart, requires=["restart"]), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result["step"]), ("Crash", "relaunch"), result["message"])
+        self.assertIn("quit-keep-sessions", result["message"])
+
+    def test_other_process_kills_and_restarts_are_other_drivers(self) -> None:
+        session = self.session()
+        for op, process in (("kill", "renderer"), ("kill", "holder"), ("restart", "daemon")):
+            other = step("x", op, target={"process": process}, expect={"outcome": "ok", "noReceiptReason": "no action"})
+            result = session.run_case(case(NEW_WORKSPACE, other, requires=["restart"]), {"case_id": "journeys/c"})
+            self.assertEqual((result["status"], result["step"]), ("Crash", "x"), result["message"])
+            self.assertIn(f"target.process {process}", result["message"])
+            self.assertIn("driver_daemon.py", result["message"])
+        # Refused before any launch.
+        self.assertEqual(self.apps[0].launches, [])
 
     def test_viewport_relaunches_and_a_failed_launch_is_a_dirty_crash(self) -> None:
         session = self.session()
@@ -563,29 +579,124 @@ class AppSessionTest(unittest.TestCase):
             self.assertEqual((result["status"], result.get("step")), ("Crash", "w"), result["message"])
             self.assertIn("focused pane", result["message"])
 
-    def test_key_window_makes_the_palette_or_page_the_key_window(self) -> None:
-        # Without keyWindow debug.key sends to the shell window, whose terminal takes the keys: a palette query or a
-        # chat prompt would never reach its field (DebugKey.send, app_reset.DISMISS_KEYS).
+    def test_key_window_page_makes_the_page_the_key_window(self) -> None:
+        # Without keyWindow debug.key sends to the shell window, whose terminal takes the keys: a chat prompt would
+        # never reach the agent chat's Chromium page (DebugKey.send). The palette is target.overlay, not keyWindow.
         session = self.session()
-        typed = step("t", "key", target={"window": "current"}, args={"keys": ["a", "return"], "keyWindow": "palette"},
-                     expect={"outcome": "ok", "noReceiptReason": "typing into the palette runs no action"})
+        typed = step("t", "key", target={"window": "current"}, args={"keys": ["h", "return"], "keyWindow": "page"},
+                     expect={"outcome": "ok", "noReceiptReason": "typing into the page runs no action"})
         result = session.run_case(case(typed), {"case_id": "journeys/c"})
         self.assertEqual(result["status"], "Pass", result["message"])
         sent = [p for m, p in self.apps[0].calls if m == "debug.key"]
-        self.assertEqual([(p["key"], p.get("target")) for p in sent], [("a", "palette"), ("return", "palette")])
+        self.assertEqual([(p["key"], p.get("target")) for p in sent], [("h", "page"), ("return", "page")])
         self.assertNotIn("window", sent[0], "`current` names no window")
-        page = dict(typed, args={"keys": ["h"], "keyWindow": "page"})
-        result = session.run_case(case(page), {"case_id": "journeys/c"})
-        self.assertEqual(result["status"], "Pass", result["message"])
-        self.assertEqual([p for m, p in self.apps[0].calls if m == "debug.key"][-1]["target"], "page")
         shell = dict(typed, args={"keys": ["h"]})
         result = session.run_case(case(shell), {"case_id": "journeys/c"})
         self.assertEqual(result["status"], "Pass", result["message"])
         self.assertNotIn("target", [p for m, p in self.apps[0].calls if m == "debug.key"][-1])
-        bogus = dict(typed, args={"keys": ["h"], "keyWindow": "devtools"})
-        result = session.run_case(case(bogus), {"case_id": "journeys/c"})
-        self.assertEqual((result["status"], result.get("step")), ("Crash", "t"), result["message"])
-        self.assertIn("keyWindow", result["message"])
+        for bad, words in ((dict(typed, args={"keys": ["h"], "keyWindow": "palette"}), "keyWindow"),
+                           (dict(typed, args={"keys": ["h"], "keyWindow": "devtools"}), "keyWindow"),
+                           (dict(typed, target={"overlay": "palette"}), "not both")):
+            result = session.run_case(case(bad), {"case_id": "journeys/c"})
+            self.assertEqual((result["status"], result.get("step")), ("Crash", "t"), result["message"])
+            self.assertIn(words, result["message"])
+
+    def test_a_palette_key_goes_to_the_palette_panel(self) -> None:
+        """target.overlay palette is debug.key's target palette (the palette's visible panel), never the shell
+        window's first responder; with the palette closed the key is refused, not typed into the terminal."""
+        session = self.session()
+        typed = step("q", "key", target={"overlay": "palette"}, args={"keys": ["a", "escape"]},
+                     expect={"outcome": "ok", "noReceiptReason": "the palette panel answers it"},
+                     checkpoint=["before", "settled"])
+        result = session.run_case(case(typed), {"case_id": "live/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Failure", "q"), result["message"])
+        self.assertIn("error key.refused", result["message"])
+        app = self.apps[0]
+        app.palette_open = True
+        result = session.run_case(case(typed), {"case_id": "live/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        sent = [p for m, p in app.calls if m == "debug.key"][-2:]
+        self.assertEqual(sent, [{"key": "a", "modifiers": [], "target": "palette"},
+                                {"key": "escape", "modifiers": [], "target": "palette"}])
+        in_window = dict(typed, target={"window": "$step:new#/created/0", "overlay": "palette"})
+        result = session.run_case(case(NEW_WORKSPACE, in_window), {"case_id": "live/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual([p for m, p in app.calls if m == "debug.key"][-1],
+                         {"key": "escape", "modifiers": [], "window": "ws_11", "target": "palette"})
+        for bad in (dict(NEW_WORKSPACE, target={"overlay": "palette"}), dict(typed, target={"overlay": "toast"})):
+            result = session.run_case(case(bad), {"case_id": "live/c"})
+            self.assertEqual((result["status"], result.get("step")), ("Crash", bad["id"]), result["message"])
+            self.assertIn("routes keys only", result["message"])
+
+    def test_a_web_case_gets_its_own_loopback_fixture(self) -> None:
+        """fixture.web: the case's $WEB is its own server's origin in every step, the server stops with the case,
+        and the checkpoints are canonicalized with that origin (normalize.py --web), so no snapshot holds the port."""
+        origin = "http://127.0.0.1:4321"
+
+        class FakeWeb:
+            started = stopped = 0
+
+            def start(self) -> str:
+                FakeWeb.started += 1
+                return origin
+
+            def stop(self) -> None:
+                FakeWeb.stopped += 1
+
+            def expand(self, value):
+                return driver_app.webfixture.expand(value, origin)
+
+        seen: List[Any] = []
+
+        def canonicalize(snapshots, paths, labels):
+            seen.append(paths)
+            return [json.loads(json.dumps(s)) for s in snapshots]
+
+        session = self.session(canonicalizer=(canonicalize, {}))
+        session.web_fixture = FakeWeb
+        load = step("open", "cli", target={"window": "current"},
+                    args={"argv": ["tab", "new-webkit", "--url", "$WEB/load.html", "--focus"]},
+                    expect={"outcome": "ok", "noReceiptReason": "the cli prints the created id only"})
+        web = {"seed": "s", "network": "offline", "clock": "fixed", "web": True}
+        result = session.run_case(case(load, fixture=web), {"case_id": "live/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(self.run_proc.calls[-1]["argv"][-4:], ["new-webkit", "--url", f"{origin}/load.html", "--focus"])
+        self.assertEqual((FakeWeb.started, FakeWeb.stopped), (1, 1))
+        self.assertEqual(seen[-1].web, (origin,))
+        self.assertEqual(seen[-1].control_paths(), session.paths.control_paths(), "the app gets no web prefix")
+        session.run_case(case(NEW_WORKSPACE), {"case_id": "live/c"})
+        self.assertEqual((seen[-1].web, FakeWeb.started), ((), 1), "a case without fixture.web starts no server")
+
+        class Refused(FakeWeb):
+            def start(self) -> str:
+                raise driver_app.webfixture.FixtureError("cannot listen on 127.0.0.1:0")
+
+        session.web_fixture = Refused
+        result = session.run_case(case(load, fixture=web), {"case_id": "live/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "setup"), result["message"])
+        self.assertIn("cannot listen", result["message"])
+
+    def test_a_web_case_runs_on_a_real_loopback_server(self) -> None:
+        """The default factory is webfixture.WebFixture: a port the OS picks on 127.0.0.1, stopped after the case."""
+        seen: List[Any] = []
+
+        def canonicalize(snapshots, paths, labels):
+            seen.append(paths)
+            return [json.loads(json.dumps(s)) for s in snapshots]
+
+        session = self.session(canonicalizer=(canonicalize, {}))
+        load = step("open", "cli", target={"window": "current"}, args={"argv": ["tab", "new-webkit", "--url",
+                                                                               "$WEB/load.html"]},
+                    expect={"outcome": "ok", "noReceiptReason": "the cli prints the created id only"})
+        web = {"seed": "s", "network": "offline", "clock": "fixed", "web": True}
+        result = session.run_case(case(load, fixture=web), {"case_id": "live/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        url = self.run_proc.calls[-1]["argv"][-1]
+        self.assertRegex(url, r"^http://127\.0\.0\.1:\d+/load\.html$")
+        (origin,) = seen[-1].web
+        self.assertTrue(url.startswith(origin + "/"))
+        with self.assertRaises(OSError):
+            socket.create_connection(("127.0.0.1", int(origin.rsplit(":", 1)[1])), timeout=2).close()
 
     def test_expect_result_is_the_action_value_not_the_run_reply(self) -> None:
         session = self.session()

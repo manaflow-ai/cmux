@@ -161,7 +161,7 @@ struct PageFrozenEvaluateTests {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
         defer { finish(view) }
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = tab.bounds
         tab.addSubview(view)
@@ -222,7 +222,7 @@ struct PageFrozenEvaluateTests {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
         defer { finish(view) }
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = tab.bounds
         tab.addSubview(view)

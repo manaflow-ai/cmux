@@ -26,9 +26,10 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, MutexGuard, Weak};
 use std::time::Duration;
 
 use cmux_threads::checked;
@@ -197,10 +198,12 @@ impl Mux {
         let mux = Arc::clone(self);
         let (session_id, id_owned, recipient_owned) =
             (session_id.to_owned(), id.to_owned(), recipient.to_owned());
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-handover".into())
-            .stack_size(HANDOVER_THREAD_STACK_BYTES)
-            .spawn(move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned));
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-agent-message-handover",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(HANDOVER_THREAD_STACK_BYTES),
+            move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned),
+        );
         if spawned.is_err() {
             // Nothing went out: the delivery stays queued for a later pass.
             let _delivering = self.agent_message_delivery_lock();

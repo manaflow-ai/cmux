@@ -104,6 +104,16 @@
         "repo": {
           "$ref": "#/$defs/slug",
           "description": "Build the git repository tests/oracle/fixtures/git/<repo>.json under $CASE_ROOT/repos/ before the first step (make_repo.py build_for_case, which needs HOME under the case root): fixed author and committer dates, a bare origin under the case root as its only remote. The case requires git_repo."
+        },
+        "stateRoot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["writtenBy", "openedBy"],
+          "description": "A store upgrade or rollback case (suite upgrades, scripts/cmux-next/oracle/gen_upgrades.py, p15-oracle-208). writtenBy: a cmux-tui tag, whose state root tests/oracle/fixtures/state-roots/<tag>.tar.gz is unpacked as the case's state before the first step (the case starts with no daemon), or head, whose daemon runs the steps before the first restart on a fresh root. openedBy: the build every restart step starts on that root. The case requires state_root.",
+          "properties": {
+            "writtenBy": {"$ref": "#/$defs/stateRootBuild"},
+            "openedBy": {"$ref": "#/$defs/stateRootBuild"}
+          }
         }
       }
     },
@@ -113,7 +123,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/capability"},
-      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium; fixture.repo needs git_repo (the driver builds the repository). cli needs none: every product ships the cmux CLI."
+      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium; fixture.repo needs git_repo (the driver builds the repository); fixture.stateRoot needs state_root (two builds on one root: gen_upgrades.py run). cli needs none: every product ships the cmux CLI."
     },
     "switches": {
       "type": "array",
@@ -168,6 +178,11 @@
       "then": {"properties": {"requires": {"contains": {"const": "git_repo"}}}}
     },
     {
+      "$comment": "fixture.stateRoot runs two builds on one state root; only gen_upgrades.py run has state_root, so no product driver runs the case.",
+      "if": {"required": ["fixture"], "properties": {"fixture": {"required": ["stateRoot"]}}},
+      "then": {"properties": {"requires": {"contains": {"const": "state_root"}}}}
+    },
+    {
       "$comment": "advance_clock moves the daemon's virtual clock; a fixed or real clock cannot be advanced.",
       "if": {
         "required": ["steps"],
@@ -184,7 +199,12 @@
   ],
   "$defs": {
     "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
-    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"]},
+    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"]},
+    "stateRootBuild": {
+      "type": "string",
+      "pattern": "^(head|cmux-tui-v[0-9]+\\.[0-9]+\\.[0-9]+)$",
+      "description": "head (the build under test) or a cmux-tui release tag."
+    },
     "crashKind": {
       "enum": ["renderer", "gpu", "browser", "utility", "daemon", "holder"],
       "description": "The kinds of the crashes facet (snapshot-v1): the child processes whose exits I17 observes. The app is the observer, so a kill step cannot target it; restart the app instead."
@@ -211,12 +231,14 @@
         "liveObjects",
         "invariants",
         "switches",
-        "cli"
+        "cli",
+        "mcp",
+        "reply"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp|reply)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
@@ -272,6 +294,10 @@
         "terminal": {"$ref": "#/$defs/handle"},
         "browser": {"$ref": "#/$defs/handle"},
         "agent": {"$ref": "#/$defs/handle"},
+        "overlay": {
+          "enum": ["palette"],
+          "description": "key steps only: the open overlay panel that takes the keys, as a person's keys go to the command palette while it is the key panel (debug.key target palette). It routes keys and names no object."
+        },
         "process": {
           "enum": ["app", "daemon", "holder", "renderer", "gpu", "browser", "utility"],
           "description": "The process a kill or restart step acts on."
@@ -280,7 +306,7 @@
     },
     "keystroke": {
       "type": "string",
-      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
+      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];:',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
     },
     "keyArgs": {
       "type": "object",
@@ -295,8 +321,8 @@
           "description": "Keystrokes sent in order through the real key path, one turn each."
         },
         "keyWindow": {
-          "enum": ["palette", "page"],
-          "description": "The window that is key for these keystrokes, as when a person types in it: the open command palette's panel, or the Chromium page window of the focused pane (an agent chat or a web page). Absent: the step window's own shell window, whose first responder gets them (a terminal, an address bar)."
+          "enum": ["page"],
+          "description": "The window that is key for these keystrokes, as when a person types in it: the Chromium page window of the focused pane (an agent chat or a web page). Absent: the step window's own shell window, whose first responder gets them (a terminal, an address bar); the open command palette takes keys through target.overlay palette instead. Not with target.overlay."
         }
       }
     },
@@ -305,7 +331,10 @@
       "additionalProperties": false,
       "required": ["outcome"],
       "properties": {
-        "outcome": {"enum": ["ok", "error"]},
+        "outcome": {
+          "enum": ["ok", "error", "any"],
+          "description": "any: a resource.call mutation whose outcome depends on the state a generated sequence reached (a walk move, scripts/cmux-next/oracle/gen_walks.py). The step passes with either; its reply (ok with replayed, or the typed error) is the reply facet of its settled checkpoint, so a differential run compares it. receipt names the kind an ok reply gives."
+        },
         "error": {
           "type": "string",
           "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$",
@@ -334,7 +363,11 @@
       "dependentRequired": {"resultExcept": ["result"]},
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
+      "else": {
+        "not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]},
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"not": {"anyOf": [{"required": ["result"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
@@ -345,7 +378,11 @@
           {"required": ["noReceiptReason"], "not": {"required": ["receipt"]}}
         ]
       },
-      "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      "else": {
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"required": ["receipt"]},
+        "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "waitFor": {
       "type": "object",
@@ -472,6 +509,11 @@
           "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
         },
         {
+          "$comment": "Only a resource.call mutation has an any outcome: its reply facet records what it gave.",
+          "if": {"required": ["expect"], "properties": {"expect": {"required": ["outcome"], "properties": {"outcome": {"const": "any"}}}}},
+          "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
+        },
+        {
           "$comment": "Runner steps act on the whole run: no target, no readOnly.",
           "if": {"required": ["op"], "properties": {"op": {"enum": ["settle", "snapshot", "advance_clock"]}}},
           "then": {"not": {"anyOf": [{"required": ["target"]}, {"required": ["readOnly"]}]}}
@@ -578,6 +620,10 @@
         "entrypoint": {
           "enum": ["key", "pointer", "unattributed", "cli", "mcp", "script", "remote", "page"],
           "description": "ActionEntrypoint the run is attributed to (CmuxNextActions/ActionEntrypoint.swift)."
+        },
+        "focus": {
+          "type": "boolean",
+          "description": "action.run's focus: the run may change focus, selection and the shown workspace, as a person's would (ControlActionRequest.focus, ActionInvocation.allowsViewChange). Without it a socket caller's new tab opens unselected beside the focused one."
         }
       }
     },

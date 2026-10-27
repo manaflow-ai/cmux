@@ -34,6 +34,7 @@ public final class CEFEngine: BrowserEngine {
     public let waitDeadlines: MainWakeUpQueue
     /// When a tab's origin lets it start Chromium during launch (p08-startup-040).
     let launchDeferral: CEFLaunchDeferral
+    private(set) lazy var loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start: its load, then CefInitialize on a picked turn (built on first use, as the runtime)
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -83,6 +84,8 @@ public final class CEFEngine: BrowserEngine {
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
+    ///   - disabledChromiumFeatures: The Chromium `base::Feature`s off (features of process `chromium`), read at
+    ///     start; one on both lists is off.
     ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
     ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
     ///   - launch: The launch's scheduler, which orders a restored tab's start by its origin (feature
@@ -94,7 +97,7 @@ public final class CEFEngine: BrowserEngine {
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
                 pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
+                disabledChromiumFeatures: [String] = [], prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
         runtimeSource = source
         launchDeferral = CEFLaunchDeferral(startup: launch)
         self.stores = stores
@@ -108,6 +111,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
+        CEFRuntime.shared.disabledChromiumFeatures = disabledChromiumFeatures
         CEFRuntime.shared.prefetchWork = prefetchWork
     }
 
@@ -263,12 +267,6 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
-    /// Returns once the framework load that `preload` started ended (at once
-    /// when none runs).
-    public func libraryLoadEnded() async {
-        await CEFRuntime.shared.libraryLoadEnded()
-    }
-
     /// The extensions of `profile`, once Chromium runs (nil before). Filled once; Chromium's events
     /// keep it current, so a read costs no Chromium call (``CEFExtensionStores/readyStore(for:)``).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
@@ -407,10 +405,13 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
-    private func adoptStores(in runtime: CEFRuntime = .shared) {
+    func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
-                      hostResizeFence: runtimeSource.fencesHostResizes)
+                      hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers,
+                      hostFileDialogs: runtimeSource.hostFileDialogs, hostLocks: runtimeSource.handlesHostLocks,
+                      hostAppEvents: runtimeSource.appEvents)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

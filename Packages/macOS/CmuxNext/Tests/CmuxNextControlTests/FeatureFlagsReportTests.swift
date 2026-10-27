@@ -1,5 +1,7 @@
 @testable import CmuxNextControl
+@testable import CmuxNextDaemon
 import CmuxNextFeatures
+import Foundation
 import CmuxNextSettings
 import Testing
 
@@ -36,6 +38,7 @@ struct FeatureFlagsReportTests {
         let report = FeatureFlagsReport(features: Self.list(.nightly)).json
         #expect(report["channel"] == .string("nightly"))
         #expect(report["unknown_names"] == .array([.string("noSuchThing")]))
+        #expect(report["features_hash"] == .string(Self.list(.nightly).fieldState.hash))
         let rows = try #require(report["features"]?.arrayValue)
         #expect(rows.map { $0["name"]?.stringValue } == ["perfThing", "killThing", "labsThing"])
         #expect(rows.map { $0["source"]?.stringValue } == ["remote", "policy", "env"])
@@ -82,7 +85,7 @@ struct FeatureFlagsReportTests {
         func report(_ toggle: Bool?) -> FeatureFlagsReport {
             FeatureFlagsReport(features: Self.list(.dev), liveLocal: ["perfThing": { toggle }])
         }
-        func row(_ toggle: Bool?) throws -> JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
+        func row(_ toggle: Bool?) throws -> FeatureFlagsReport.JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
         #expect(try row(nil)["source"] == .string("remote"))
         #expect(try row(nil)["state"] == .string("on"))
         #expect(report(false).resolution(of: Self.registry.features[0]) == Feature.Resolution(isEnabled: false, source: .local))
@@ -90,6 +93,24 @@ struct FeatureFlagsReportTests {
         #expect(try row(false)["source"] == .string("local"))
         #expect(try row(true)["state"] == .string("on"))
         #expect(report(true).entries.map { $0.resolution.source } == [.local, .policy, .environment])
+    }
+
+    /// Hang reports and Sentry read ``FeatureFlagsReport/fieldState`` (p12-perf-process-151): a live toggle that
+    /// flips a feature changes the hash and names the feature as a `local` override, the same hash
+    /// `features_hash` reports; a toggle that answers the launch's value keeps the hash.
+    @Test func aLiveToggleChangesTheFieldStateThatHangReportsAndSentryName() throws {
+        let launch = FeatureFlagsReport(features: Self.list(.nightly)).fieldState
+        #expect(launch == Self.list(.nightly).fieldState)
+        let flipped = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { false }])
+        let state = flipped.fieldState
+        #expect(state.hash != launch.hash)
+        #expect(flipped.json["features_hash"] == .string(state.hash))
+        #expect(launch.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .remote)))
+        #expect(state.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: false, source: .local)))
+        #expect(!state.nonDefault.contains { $0.name == "perfThing" && $0.source == .remote })
+        let same = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { true }]).fieldState
+        #expect(same.hash == launch.hash)
+        #expect(same.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .local)))
     }
 
     @Test func localTogglesApplyOnlyOnDevAndNightly() {
@@ -115,5 +136,50 @@ struct FeatureFlagsReportTests {
         #expect(plain == FeatureFlagsReport(features: list).json)
         #expect(loaded == plain)
         #expect(list.isEnabled(Self.registry.features[2]))
+    }
+
+    /// The daemon outlives the app (p12-perf-process-150): its answer to the last hello shows on each row it
+    /// concerns, a kill switch it turned off as `applied` and a value it keeps until it restarts as `pending`.
+    @Test func theDaemonsAnswerMarksPendingAndAppliedRows() throws {
+        let hello = DaemonFeatureHello(hash: "h", values: [:])
+        #expect(FeatureFlagsReport(features: Self.list(.release), daemon: hello).json["daemon"] == .null)
+        let answer = #"{"hash":"d1","applied":["killThing"],"pending":[{"name":"perfThing","app":true,"daemon":false}]}"#
+        hello.record(try JSONDecoder().decode(ClientHelloRequest.FeatureReport.self, from: Data(answer.utf8)))
+        let report = FeatureFlagsReport(features: Self.list(.release), daemon: hello).json
+        #expect(report["daemon"] == .object([
+            "hash": .string("d1"),
+            "applied": .array([.string("killThing")]),
+            "pending": .array([.object(["name": .string("perfThing"), "app": .bool(true), "daemon": .bool(false)])]),
+        ]))
+        let rows = try #require(report["features"]?.arrayValue)
+        #expect(rows.map { $0["daemon"]?.stringValue } == ["pending", "applied", nil])
+        #expect(rows.map { $0["daemon_enabled"]?.boolValue } == [false, false, nil])
+        // perfThing is an app feature here: only the app reads it, so its row is the app's value.
+        #expect(rows[0]["state"] == .string("on"))
+    }
+
+    /// A `both` feature the daemon keeps another value of runs with the daemon's value in the app too, once the
+    /// session settles, and its row says so: the value the app runs with, source `daemon`, and the app's own.
+    @Test func aPendingBothRowShowsTheDaemonsValueTheAppRunsWith() throws {
+        let both = Feature(index: 0, name: "energySaver", owner: "PL-test", description: "A test feature.", kind: .labs,
+                           process: .both, chromiumFeature: nil, defaults: FeatureDefaults(all: false), expires: nil,
+                           params: [], stories: [], sticky: false, runtimeMutable: false)
+        let list = FeatureList(registry: FeatureRegistry([both]), channel: .release,
+                               overrides: FeatureOverrides(environment: [FeatureOverrides.enableVariable: "energySaver"]))
+        let hello = DaemonFeatureHello(hash: "h", values: ["energySaver": true])
+        let answer = #"{"hash":"d1","applied":[],"pending":[{"name":"energySaver","app":true,"daemon":false}]}"#
+        hello.record(try JSONDecoder().decode(ClientHelloRequest.FeatureReport.self, from: Data(answer.utf8)))
+        let before = try #require(FeatureFlagsReport(features: list, daemon: hello).json["features"]?.arrayValue)
+        #expect(before[0]["state"] == .string("on"), "nothing settled yet")
+        hello.settle()
+        let settled = FeatureFlagsReport(features: list, daemon: hello)
+        #expect(settled.resolution(of: both).isEnabled == false, "every report reader names the value the app runs with")
+        #expect(settled.entries.first?.resolution.isEnabled == false)
+        let row = try #require(settled.json["features"]?.arrayValue?.first)
+        #expect(row["state"] == .string("off"))
+        #expect(row["enabled"] == .bool(false))
+        #expect(row["source"] == .string("daemon"))
+        #expect(row["app_enabled"] == .bool(true))
+        #expect(row["daemon"] == .string("pending"))
     }
 }

@@ -209,7 +209,7 @@ pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
     /// The capabilities whose transport this build serves.
-    const BOUND: [IpcCapability; 0] = [];
+    const BOUND: [IpcCapability; 1] = [IpcCapability::AttachStreams];
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0
@@ -497,6 +497,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         SERVER_THREADS_CAPABILITY,
+        DIAGNOSTIC_SITES_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
@@ -631,6 +632,7 @@ pub(super) fn advertised_capabilities(
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
         crate::event_cause::CAPABILITY,
+        crate::event_cause::REQUEST_PRIORITY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

@@ -58,6 +58,7 @@ public final class LaunchReveal {
     ///     (`chrome/browser/after_startup_task_utils.cc`).
     public init(clock: any Clock<Duration> = ContinuousClock(), deadline: Duration = .milliseconds(1500),
                 onRevealed: @escaping @MainActor () -> Void = {}) {
+        // timer-class-allow: the launch's one failsafe on the injected clock, made in AppDelegate before the app's deadline scheduler exists; it fires at most once
         deadlineTimer = DemandTimer(owner: "launch.reveal-deadline", clock: clock)
         self.deadline = deadline
         self.onRevealed = onRevealed

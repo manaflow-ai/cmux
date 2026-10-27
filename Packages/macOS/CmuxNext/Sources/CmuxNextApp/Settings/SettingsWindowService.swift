@@ -9,6 +9,7 @@ import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 /// Owns Settings (Settings…, Cmd-, the app menu, the palette, `settings.open`). R82: Settings is
@@ -26,10 +27,22 @@ final class SettingsWindowService: InternalPageProvider {
         self.services = services
     }
 
+    /// The applied Ghostty config's diagnostics the Settings page lists (R92), made at the first page read and
+    /// kept current from then on.
+    private(set) lazy var ghosttyDiagnostics = GhosttyDiagnosticsModel(mainWork: services.mainWork, work: services.work)
+
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The Settings page a window shows now, if any: the `settings-energy` capture waits on it.
+    var shownPage: PageWebView? {
+        // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
+        tabPages.values.lazy.map(\.view).first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+    }
+    #endif
 
     /// One Settings page and the forms it reports unsaved.
     private struct Page {
@@ -40,6 +53,9 @@ final class SettingsWindowService: InternalPageProvider {
     /// The kept React page (a reopen shows it again with no reload); nil before the first show and
     /// after its tab's view was discarded.
     private var webPage: Page?
+    /// Whether the next Settings open shows the kept page again (``makeView(for:in:)``), so a
+    /// preloaded Settings page would wait unclaimed (`PagePreloads`' `keepsView`).
+    var keepsPage: Bool { webPage != nil }
     /// The page each tab shows (the kept page or a second window's own), by tab key.
     private var tabPages: [String: Page] = [:]
     /// The route each show asked for, for the page view of the tab it opened or selected.
@@ -55,11 +71,12 @@ final class SettingsWindowService: InternalPageProvider {
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
-        // task-owner: one read of the device list per opening (Settings > Devices)
-        Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of the device list per opening (Settings > Devices); the directory's runs go off main.
+        services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
-            guard let found = SettingsAnchor(key: setting) else {
+            // A row the page leaves out now (its feature off) is refused like an unknown one.
+            guard let found = SettingsAnchor(key: setting, availability: services.settingsAvailability) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
             }
             anchor = found

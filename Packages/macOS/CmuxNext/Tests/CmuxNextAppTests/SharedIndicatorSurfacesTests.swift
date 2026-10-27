@@ -6,6 +6,7 @@ import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -22,9 +23,9 @@ struct SharedIndicatorSurfacesTests {
         try store(extra: busy ? #"{"program_status":[{"id":"","state":"working","app":"cargo","updated_seq":"1"}]}"# : "{}")
     }
 
-    /// A store with one terminal tab whose terminal record carries `extra`.
-    func store(extra: String) throws -> DaemonStore {
-        let store = DaemonStore()
+    /// A store with one terminal tab whose terminal record carries `extra`; its main deadlines go on `deadlines`.
+    func store(extra: String, deadlines: MainDeadlineScheduler? = nil) throws -> DaemonStore {
+        let store = DaemonStore(deadlines: deadlines)
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
@@ -71,10 +72,10 @@ struct SharedIndicatorSurfacesTests {
     @Test func aPlainCommandShowsBusyOnlyAfterItsThreshold() async throws {
         let saved = DesignSettings.shared.statusBehavior
         defer { DesignSettings.shared.statusBehavior = saved }
-        func tab(startedMsAgo age: Int64) throws -> TabModel {
+        func tab(startedMsAgo age: Int64, deadlines: MainDeadlineScheduler? = nil) throws -> TabModel {
             let since = Int64(Date().timeIntervalSince1970 * 1000) - age
             let extra = #"{"busy":{"since_ms":"\#(since)"}}"#
-            return try #require(try store(extra: extra).workspaces.first?.screens.first?.panes.first?.tabs.first)
+            return try #require(try store(extra: extra, deadlines: deadlines).workspaces.first?.screens.first?.panes.first?.tabs.first)
         }
         // Sets the behavior and reads the indicator with no suspension between, so another suite's
         // settings apply on the main actor cannot land in between.
@@ -90,13 +91,18 @@ struct SharedIndicatorSurfacesTests {
         #expect(try shown(tab(startedMsAgo: 60_000), infer: true, after: 3) == .busy(progress: nil))
 
         // A minute in the future by the daemon's clock: as young as when this client saw it.
-        let young = try tab(startedMsAgo: -60_000)
-        #expect(shown(young, infer: true, after: 1) == nil)
+        // Its recheck is a visible main deadline on the store's deadlines (p06-scheduler-339 fixer: no DemandTimer
+        // on main), here on a queue the test fires.
+        let rig = MainDeadlineRig()
+        let young = try tab(startedMsAgo: -60_000, deadlines: rig.deadlines)
+        #expect(shown(young, infer: true, after: 0.5) == nil)
         #expect(young.commandRecheck == 0)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while young.commandRecheck == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(rig.hasArmedWake, "the young command armed no recheck on the store's deadlines")
+        // The age is read on the wall clock (the daemon's since_ms): let it pass the threshold, then fire the recheck.
+        try await Task.sleep(for: .milliseconds(600))
+        rig.fireAndRun()
         #expect(young.commandRecheck == 1)
-        #expect(shown(young, infer: true, after: 1) == .busy(progress: nil))
+        #expect(shown(young, infer: true, after: 0.5) == .busy(progress: nil))
     }
 
     @Test func homesAgentRowsShowTheirStateInTheIndicator() throws {

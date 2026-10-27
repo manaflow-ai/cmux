@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
+import enum CmuxNextLayout.LayoutTunables
 import CmuxNextPages
 import CmuxNextSignposts
 import CmuxNextTerminal
@@ -189,7 +190,10 @@ final class BrowserEntry {
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
          mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
+        if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
+        // The toolbar's motion runs on the render server only with `motion.renderServer` on (off by default).
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node,
+                                   rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

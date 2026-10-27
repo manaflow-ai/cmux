@@ -1208,6 +1208,18 @@ class RoleAuditTests(unittest.TestCase):
         napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"}, base={501: 28})
         self.assertEqual(ib.role_audit("minimized", napped, budget), ([], []))
 
+    def test_the_chromium_host_naps_while_no_window_shows(self):
+        """Task 128: the host holds its App Nap activity only while a page shows, so with no window shown it is
+        napped like the app; while a window shows it is not judged (a hidden-page-only host is not in the census)."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        awake = role_rows({501: "app", 509: "cef-host"}, base={501: 28, 509: 31})
+        mismatches, _notes = ib.role_audit("minimized", awake, budget)
+        self.assertEqual([(m["kind"], m["pids"], m["observed"], m["expected"]) for m in mismatches],
+                         [("cef-host", [509], "default", "napped")])
+        napped = role_rows({501: "app", 509: "cef-host"}, base={501: 28, 509: 28})
+        self.assertEqual(ib.role_audit("light-hidden", napped, budget), ([], []))
+        self.assertEqual(ib.role_audit("tabs-static", awake, budget)[0], [])
+
     def test_an_unread_role_is_not_judged_and_says_so(self):
         """A process whose role could not be read (gone at the window's end, the read failed) is a not-judged note,
         never a silent pass."""

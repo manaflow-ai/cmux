@@ -64,7 +64,7 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
-        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
@@ -136,6 +136,7 @@ final class CEFPaneHost {
     func setNeedsHostVisibility() {
         guard !hostVisibilityPending else { return }
         hostVisibilityPending = true
+        // input-hop-allow: the pass must run in this run-loop pass's blocks, before Core Animation commits its frame; a classed post can land after the commit and show the page window hidden for one frame of a tab switch.
         MainRunLoopBlock.perform { [weak self] in self?.applyHostVisibility() }
     }
 
@@ -161,6 +162,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        suggestionsFollowShownBrowser(tab.browserID)
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
@@ -199,7 +201,9 @@ final class CEFPaneHost {
     func conceal(_ tab: CEFTab) {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
+        hostedPageView?.exclusiveAccess.showing(nil) // a hidden page's fullscreen and locks end, as Chrome's (task 229)
         visibleTab = nil
+        suggestionsFollowShownBrowser(nil)
     }
 
     // MARK: Creation
@@ -237,7 +241,7 @@ final class CEFPaneHost {
     /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
     func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             // A browser profile's own proxy (#24432), before the first request:
@@ -440,10 +444,14 @@ final class CEFPaneHost {
     }
 
     func removed(_ tab: CEFTab) {
+        // A closed page's fullscreen zoom, locks and hidden cursor end with it (task 229); a moved one exits its own.
+        if tab.isClosed || tab.browserID == nil { tab.contentFullscreenEnded() }
+        if visibleTab === tab { hostedPageView?.exclusiveAccess.showing(nil) }
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        suggestionsFollowShownBrowser(visibleTab?.browserID)
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.

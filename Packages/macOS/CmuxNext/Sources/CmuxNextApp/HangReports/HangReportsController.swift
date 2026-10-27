@@ -96,12 +96,16 @@ final class HangReportsController {
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
-    /// `hangReportsSchema3` feature says cmux.com accepts it.
+    /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
+    /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
+    /// schema-3 report carries by hashed site id.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
                               wireSchema: HangReport.WireSchema = .deployed,
+                              features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                              blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -132,7 +136,8 @@ final class HangReportsController {
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings)
+            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features,
+            blockingSites: blockingSites)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
@@ -177,15 +182,21 @@ final class HangReportsController {
                                               daemonMetricsFold: await daemonMetrics?.tally.byName)
     }
 
-    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
-    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
-    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
-    /// an earlier opted-in period left (read once per launch).
-    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+    /// Records this Mac's consent from the person's own writes of the setting (``recordUserWrite(defaults:path:value:)``),
+    /// from the launch on: ``start(settings:asks:firstWindow:)`` runs after startup, and a write made before it still counts.
+    func recordUserWrites(of settings: SettingsController) {
         guard service != nil else { return }
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
+    }
+
+    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
+    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
+    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
+    /// an earlier opted-in period left (read once per launch). The consent hook is ``recordUserWrites(of:)``'s.
+    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+        guard service != nil else { return }
         asking = Asking(settings: settings, asks: asks, firstWindow: firstWindow)
         let managedDisables = managedDisables, work = work
         // task-owner: the controller's one follow loop (it lives with the launch): the managed check on the files lane,

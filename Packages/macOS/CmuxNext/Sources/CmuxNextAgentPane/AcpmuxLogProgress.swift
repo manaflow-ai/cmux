@@ -39,6 +39,8 @@ nonisolated final class AcpmuxLogProgress: Sendable {
         var due = lastWrite.withLock { $0 } + stall
         while ContinuousClock.now < due {
             // wakeup-allow: deadline the stall deadline itself; it wakes again only when a log write moved it.
+            // timer-class-allow: off main (this Sendable class's wait runs in the launcher's task group): a flexible,
+            // no-sooner deadline that wakes no main-thread job; it re-arms only after a log write moved it
             try await ContinuousClock().sleep(until: due, tolerance: tolerance)
             due = lastWrite.withLock { $0 } + stall
         }

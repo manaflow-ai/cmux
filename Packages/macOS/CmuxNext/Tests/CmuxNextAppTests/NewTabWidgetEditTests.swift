@@ -162,8 +162,8 @@ import Testing
 
     /// The page's + opens Settings on the widget rows: the anchor exists.
     @Test func plusOpensTheWidgetSettings() {
-        #expect(SettingsAnchor(key: "tabs.newTabWidgets.greeting") != nil)
+        #expect(SettingsAnchor(key: "tabs.newTabWidgets.greeting", availability: SettingsAvailability()) != nil)
         // The sidebar edit mode's Add Items opens Settings on the sidebar's rows.
-        #expect(SettingsAnchor(key: "sidebar.showProjects") != nil)
+        #expect(SettingsAnchor(key: "sidebar.showProjects", availability: SettingsAvailability()) != nil)
     }
 }

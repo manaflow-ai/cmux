@@ -27,39 +27,37 @@ public final class UnixSocketLane: MobileByteLane {
         let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane", qos: .userInitiated)
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
-        // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { try await lane.waitUntilReady(path: path) }
-            group.addTask {
-                // wakeup-allow: deadline of one unix socket connect: a task-group race with the connect, not a DemandTimer
-                try await Task.sleep(for: deadline, tolerance: WakeLeeway.window(delay: deadline).tolerance)
-                throw Failure.connectTimedOut(path: path)
+        // The Deadline race (R-timer): the limit cancels the connection, whose `.cancelled` ends waitUntilReady.
+        do {
+            try await Deadline(deadline).run("mobile.unix-lane.connect", onTimeout: { connection.cancel() }) {
+                try await lane.waitUntilReady(path: path)
             }
-            defer { group.cancelAll() }
-            do {
-                try await group.next()
-            } catch {
-                connection.cancel()
-                throw error
-            }
+        } catch is Deadline.Exceeded {
+            throw Failure.connectTimedOut(path: path)
+        } catch {
+            connection.cancel()
+            throw error
         }
         return lane
     }
 
     private func waitUntilReady(path: String) async throws {
-        let gate = ResumeOnce()
         try await withTaskCancellationHandler {
+            // Not cancellable itself: the cancel handler cancels the connection, whose `.cancelled` answers.
             try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
-                connection.stateUpdateHandler = { state in
+                // The first ready, failed or cancelled state answers. Network calls this handler on `queue`
+                // one state at a time, so dropping it there leaves no later state to answer again.
+                connection.stateUpdateHandler = { [weak connection] state in
                     switch state {
                     case .ready:
-                        gate.resume { continuation.resume(returning: ()) }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(returning: ())
                     case .failed(let error), .waiting(let error):
-                        gate.resume {
-                            continuation.resume(throwing: Failure.connectFailed(path: path, detail: "\(error)"))
-                        }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(throwing: Failure.connectFailed(path: path, detail: "\(error)"))
                     case .cancelled:
-                        gate.resume { continuation.resume(throwing: CancellationError()) }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(throwing: CancellationError())
                     default:
                         break
                     }

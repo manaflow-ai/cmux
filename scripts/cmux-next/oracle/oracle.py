@@ -21,6 +21,8 @@ Chrome reference (chromium/src):
 Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
+mutant against its base through the smallest selection that catches it; it fails below 19/20.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
@@ -77,7 +79,8 @@ run format baselines.py (016) reads (a `cases` list, the case name without its s
 `baselines.py rebaseline` on it.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
+build or run), 4 diff.py internal error.
 
 Sibling interfaces this file calls:
     diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
@@ -128,15 +131,20 @@ RUN_SCHEMA = "cmux-oracle-run-v1"
 COMPARISON_SCHEMA = "cmux-oracle-comparison-v2"
 RESULTS = ("Pass", "Failure", "Crash", "Timeout")
 SLOW_MULTIPLIER = 5
-CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"})
+CAPABILITIES = frozenset(
+    {"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"}
+)
 # WPT runs one suite against several products; a case runs on a product only when the
 # product has every capability the case `requires`. git_repo (a case with fixture.repo): the
 # driver builds the repository with make_repo.build_for_case first; no driver does yet
-# (p15-oracle-243), so no product has it.
+# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
-    "mcp": frozenset({"resource_api", "actions", "mcp"}),
+    # The VM mcp session is the daemon driver's case: its own daemon, which a restart step restarts.
+    "mcp": frozenset({"resource_api", "actions", "mcp", "restart"}),
     "tui": frozenset({"resource_api", "keys", "tui"}),
     "headless": frozenset({"resource_api", "actions"}),
     "app": frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp"}),
@@ -175,14 +183,14 @@ EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "confirm": ("confirm.py", (), "p15-oracle-184"),
-    "select": ("select.py", (), "p15-oracle-009"),
-    "bisect": ("bisect.py", (), "p15-oracle-009"),
+    "select": ("select_suites.py", (), "p15-oracle-009"),
+    "bisect": ("bisect_case.py", (), "p15-oracle-009"),
     "report": ("report.py", (), "p15-oracle-116"),
     "minimize": ("minimize.py", (), "p15-oracle-098"),
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
 }
 
 
@@ -456,11 +464,28 @@ class ExpectationStore:
         return rules
 
 
-def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str) -> Optional[ExpectationStore]:
+def expectation_arm(arm: Optional[str], registry: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The run's value in the expectations' arm tag group. A --switch run is on its arm. A run that sets no arm
+    (None or default) runs every switch at its registry `default`: switches land at default old and flip to new
+    only before their old path is deleted (refactor-switches/README.md), so that run is [ old ] while no default
+    is new, [ new ] once every default is, and on no arm while they differ. launch-config mixes planned arms."""
+    if arm in ARMS:
+        return arm
+    if arm not in (None, "default"):
+        return None
+    defaults = {entry.get("default", "old") for entry in registry.values()}
+    if not defaults:
+        return "old"
+    return defaults.pop() if len(defaults) == 1 and defaults <= set(ARMS) else None
+
+
+def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str,
+                      registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[ExpectationStore]:
     module = load_sibling("expectations")
     if module is None:
         return None
-    return ExpectationStore.load(module, root, platform=platform, arm=arm, product=product, build=build)
+    run_arm = expectation_arm(arm, load_switch_registry() if registry is None else registry)
+    return ExpectationStore.load(module, root, platform=platform, arm=run_arm, product=product, build=build)
 
 
 # ---------------------------------------------------------------------------------------
@@ -1603,6 +1628,14 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
+def launch_kind(product: str, binary: Optional[str]) -> str:
+    """The product whose launch defaults (jobs, batch limit, build) a run takes: the mcp product against a tagged
+    app bundle (driver_mcp.py fleet mode) launches the app, so it runs as the app product does."""
+    if product == "mcp" and isinstance(binary, str) and binary.rstrip("/").endswith(".app"):
+        return "app"
+    return product
+
+
 def new_run_id() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + base36(random.SystemRandom().randrange(36**6))
 
@@ -1620,6 +1653,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
     if args.shuffle and seed is None:
         seed = new_seed()
     product = args.product
+    launch = launch_kind(product, binary)
     for name in ("jobs", "batch_limit", "repeat"):
         value = getattr(args, name)
         if value is not None and value < 1:
@@ -1631,13 +1665,13 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         suites=suites,
         filters=filters,
         shard=parse_shard(args.shard),
-        jobs=args.jobs or DEFAULT_JOBS.get(product, VM_JOBS),
-        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(product, 1),
+        jobs=args.jobs or DEFAULT_JOBS.get(launch, VM_JOBS),
+        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(launch, 1),
         repeat=args.repeat,
         retry_limit=0,
         seed=seed,
         platform=args.platform,
-        build=args.build or DEFAULT_BUILD.get(product, "debug"),
+        build=args.build or DEFAULT_BUILD.get(launch, "debug"),
         switch=switch,
         arm=arm,
         switches=switches,
@@ -1908,7 +1942,10 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
         run_dir = Path(lines[-1]) if lines else None
         if run_dir is None or not (run_dir / "receipt.json").is_file():
-            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
+            # A side that did not build or run is a refused diff, not bad input: bisect_case.py skips that commit.
+            print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+                  file=sys.stderr)
+            return EXIT_REFUSED
         print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
         if read_receipt(run_dir)["arm_exercised"] is False:
             print(f"arm-not-exercised: {side.switch}={side.arm}")
