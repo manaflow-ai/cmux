@@ -157,7 +157,7 @@ export type NewTabScreenActions = {
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
 /// prompt would start in.
-export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string; onAddAgent?(): void }>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -1244,7 +1244,9 @@ export function NewTabScreen(props: Props) {
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        {!split && Chips && (
+          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+        )}
         <span className="acpmux-composer-actions">
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
@@ -1424,7 +1426,7 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}

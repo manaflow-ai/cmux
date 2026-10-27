@@ -335,58 +335,62 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   });
 
   const starts = [
-    [false, false],
-    [true, false],
-    [false, true],
+    [false, false, false],
+    [true, false, false],
+    [false, true, false],
+    [false, false, true],
   ];
-  test.each(starts)("Start Chat keeps project choice %s and pending image %s", async (noProject, pendingImage) => {
-    const page = await firstRunPage();
-    try {
-      const { field } = await prepareDraft(page, noProject, pendingImage);
-      await page.locator('[data-create="chat"]').click();
-      const claude = page.locator('[data-harness-row="claude"]');
-      await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
-      await claude.locator(".acpmux-harness-action").click();
-      await page.locator('[data-harness-row="claude"][data-harness-status="ready"]').waitFor();
-      // Observe the App's actual action boundary, without starting a real agent process.
-      await page.evaluate(() => {
-        const calls: { method: string; params: Record<string, unknown> }[] = [];
-        Object.assign(window, { firstRunChatCalls: calls });
-        for (const method of ["chat.new", "chat.send"])
-          window.cmuxAcpmuxActions![method] = async (params) => {
-            calls.push({ method, params });
-            return "first-chat";
-          };
-      });
-      await claude.locator(".acpmux-harness-action").click();
-      if (pendingImage) {
-        await field.waitFor();
-        expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
-        await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunImage());
+  test.each(starts)(
+    "Start Chat keeps project choice %s and pending image %s",
+    async (noProject, pendingImage, addHarness) => {
+      const page = await firstRunPage();
+      try {
+        const { field } = await prepareDraft(page, noProject, pendingImage);
+        await page.locator(addHarness ? ".acpmux-add-harness" : '[data-create="chat"]').click();
+        const claude = page.locator('[data-harness-row="claude"]');
+        await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
+        await claude.locator(".acpmux-harness-action").click();
+        await page.locator('[data-harness-row="claude"][data-harness-status="ready"]').waitFor();
+        // Observe the App's actual action boundary, without starting a real agent process.
+        await page.evaluate(() => {
+          const calls: { method: string; params: Record<string, unknown> }[] = [];
+          Object.assign(window, { firstRunChatCalls: calls });
+          for (const method of ["chat.new", "chat.send"])
+            window.cmuxAcpmuxActions![method] = async (params) => {
+              calls.push({ method, params });
+              return "first-chat";
+            };
+        });
+        await claude.locator(".acpmux-harness-action").click();
+        if (pendingImage) {
+          await field.waitFor();
+          expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
+          await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunImage());
+        }
+        await page.waitForFunction(() =>
+          (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
+        );
+        const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
+        expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
+        expect(calls[0]!.params).toEqual(
+          noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
+        );
+        expect(calls[1]!.params).toEqual({
+          text: DRAFT,
+          attachments: [
+            expect.objectContaining({
+              kind: "image",
+              name: "first-chat.png",
+              mimeType: "image/png",
+              data: expect.stringMatching(/.+/),
+            }),
+          ],
+        });
+      } finally {
+        await page.close();
       }
-      await page.waitForFunction(() =>
-        (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
-      );
-      const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
-      expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
-      expect(calls[0]!.params).toEqual(
-        noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
-      );
-      expect(calls[1]!.params).toEqual({
-        text: DRAFT,
-        attachments: [
-          expect.objectContaining({
-            kind: "image",
-            name: "first-chat.png",
-            mimeType: "image/png",
-            data: expect.stringMatching(/.+/),
-          }),
-        ],
-      });
-    } finally {
-      await page.close();
-    }
-  });
+    },
+  );
 
   test("the Harnesses page has Claude Code ready", async () => {
     const page = await browser!.newPage({
