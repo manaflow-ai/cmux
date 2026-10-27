@@ -132,6 +132,13 @@ struct ChatComposer: View {
                 let suffix = index > 0 ? " \(index + 1)" : ""
                 attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: image.data))
             }
+        } else if board.composerHoldsFileData {
+            // A file copied in Files is its bytes on the pasteboard, not a path.
+            Task {
+                let (files, refused) = await UIPasteboard.general.composerFiles(maxBytes: LinkUpload.maxBytes)
+                attachments += files.map { AgentAttachment(kind: .file, name: $0.name, data: $0.data) }
+                if let name = refused.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+            }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)
             attachments += files

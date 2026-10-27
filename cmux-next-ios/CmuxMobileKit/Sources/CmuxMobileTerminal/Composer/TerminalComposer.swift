@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import CmuxMobileTransport
 import PhotosUI
 import QuickLookThumbnailing
@@ -201,6 +202,11 @@ struct TerminalComposer: View {
     /// field; a phone `file:///` path is never typed (R2-2).
     private func pasteFromClipboard() {
         let board = UIPasteboard.general
+        // A file copied in Files is its bytes on the pasteboard, not a path.
+        if board.composerHoldsFileData {
+            Task { await loadPastedFiles() }
+            return
+        }
         let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
                                              string: board.hasStrings ? board.string : nil)
         switch route {
@@ -238,6 +244,16 @@ struct TerminalComposer: View {
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                 model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
             }
+        }
+    }
+
+    /// Copied files, as Files would attach them (uploaded on send).
+    private func loadPastedFiles() async {
+        let (files, refused) = await UIPasteboard.general.composerFiles(maxBytes: LinkUpload.maxBytes)
+        if let name = refused.first { model.attachmentError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+        for file in files {
+            let kind: ComposerAttachment.Kind = file.type.conforms(to: .movie) ? .video : .file
+            model.addAttachment(ComposerAttachment(kind: kind, name: file.name, thumbnail: nil, data: file.data))
         }
     }
 
