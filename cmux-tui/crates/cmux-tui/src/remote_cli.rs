@@ -54,6 +54,8 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
 #[cfg(test)]
+mod panic_free_tests;
+#[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
 use remote_link_mux::{mux_owner_args, socket_for};
