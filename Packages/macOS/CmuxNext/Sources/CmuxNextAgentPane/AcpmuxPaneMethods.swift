@@ -325,51 +325,24 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// A session/prompt with untrusted block metadata removed at any depth. The one host-owned
-    /// exception is a validated image/resource upload reference (acpmux.upload); nil when
-    /// there is no change (the frame goes unchanged). The request's own params._meta stays.
+    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
+    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
+    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
+    /// could, and the relay cannot check what it would do with it.
     static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
+        func strip(_ value: Any) -> Any {
             if var dictionary = value as? [String: Any] {
-                if let rawMeta = dictionary["_meta"] as? [String: Any] {
-                    let keptUpload: [String: Any]? = {
-                        guard acceptsUpload, dictionary["data"] == nil,
-                              let type = dictionary["type"] as? String,
-                              type == "image" || type == "resource_link",
-                              let acpmux = rawMeta["acpmux"] as? [String: Any],
-                              let upload = acpmux["upload"] as? [String: Any],
-                              upload.keys.count == 2,
-                              let uploadId = upload["uploadId"] as? String, !uploadId.isEmpty,
-                              let fileName = upload["fileName"] as? String, !fileName.isEmpty
-                        else { return nil }
-                        if type == "resource_link" {
-                            guard dictionary["uri"] as? String == "acpmux-upload:\(uploadId)" else { return nil }
-                        } else {
-                            guard dictionary["uri"] == nil else { return nil }
-                        }
-                        guard Set(upload.keys) == ["uploadId", "fileName"] else { return nil }
-                        return ["acpmux": ["upload": ["uploadId": uploadId, "fileName": fileName]]]
-                    }()
-                    if let keptUpload {
-                        stripped = true
-                        dictionary["_meta"] = keptUpload
-                    } else {
-                        dictionary.removeValue(forKey: "_meta")
-                        stripped = true
-                    }
-                } else if dictionary.removeValue(forKey: "_meta") != nil {
-                    stripped = true
-                }
+                if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map { strip($0) } }
+            if let list = value as? [Any] { return list.map(strip) }
             return value
         }
-        let blocks = prompt.map { strip($0, acceptsUpload: true) }
+        let blocks = prompt.map(strip)
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params

@@ -136,6 +136,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
+    @ObservationIgnored var nativeUploadCoordinator: AgentPaneUploadCoordinator?
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
     /// The App's side of reply chips, images and the preview card's browsers.
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()

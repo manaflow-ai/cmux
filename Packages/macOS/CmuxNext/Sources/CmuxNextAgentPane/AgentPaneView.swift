@@ -150,10 +150,12 @@ public final class AgentPaneView: NSView {
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, uploadHandler: Self.chromiumUploadHandler(for: model))
+                                                                 chromium: chromium, uploadHandler: Self.chromiumUploadHandler(for: model),
+                                                                 uploadQueryHandler: Self.chromiumUploadQueryHandler(for: model))
             else { return nil }
             self.page = page
             pageEvents = provider
+            model.nativeUploadCoordinator?.publish = { [weak provider] event in provider?.publish(event) ?? false }
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in

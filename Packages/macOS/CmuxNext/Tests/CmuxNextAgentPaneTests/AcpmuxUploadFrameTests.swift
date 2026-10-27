@@ -21,49 +21,6 @@ struct AcpmuxUploadFrameTests {
         ], modeFields: nil))
     }
 
-    @Test func sanctionedUploadRefsKeepOnlyTheirExactMetadata() throws {
-        for (kind, uri): (String, String?) in [("image", nil), ("resource_link", "acpmux-upload:u")] {
-            var block: [String: Any] = ["type": kind, "name": "data.bin",
-                "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "data.bin"], "ignored": true], "ignored": true]]
-            if let uri { block["uri"] = uri }
-            let frame: [String: Any] = ["method": "session/prompt", "params": ["prompt": [block]]]
-            let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(frame))
-            let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
-            let kept = try #require(blocks.first)
-            let meta = try #require(kept["_meta"] as? [String: Any])
-            let acpmux = try #require(meta["acpmux"] as? [String: Any])
-            let upload = try #require(acpmux["upload"] as? [String: Any])
-            #expect(upload["uploadId"] as? String == "u" && upload["fileName"] as? String == "data.bin")
-            #expect(meta.count == 1 && acpmux.count == 1 && upload.count == 2)
-            #expect(kept["uri"] as? String == uri)
-        }
-    }
-    @Test func invalidOrNestedUploadMetadataDoesNotSurvive() throws {
-        for block: [String: Any] in [
-            ["type": "image", "data": "AA==", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]],
-            ["type": "resource_link", "uri": "acpmux-upload:other", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]],
-            ["type": "text", "annotations": ["type": "image", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]]],
-        ] {
-            let frame: [String: Any] = ["method": "session/prompt", "params": ["prompt": [block]]]
-            let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(frame))
-            let data = try JSONSerialization.data(withJSONObject: result)
-            #expect(!String(decoding: data, as: UTF8.self).contains("uploadId"))
-        }
-    }
-
-    @Test @MainActor func socketCloseAnswersPendingHostUpload() async throws {
-        let transport = AgentPaneTransport()
-        let socket = AcpmuxPaneSocket(
-            request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
-            wire: UploadWire(closeOnSend: true), limits: transport.limits,
-            options: transport.permissionOptions, sessions: transport.sessions,
-            ids: AcpmuxRequestIds(), signal: {})
-        try await socket.start(timeout: 1)
-        await #expect(throws: AgentPaneUploadError.rpc("upload connection closed")) {
-            try await socket.callHost("_acpmux/file_put_begin", params: ["sessionId": "s", "fileName": "x", "size": 1])
-        }
-    }
-
     @Test @MainActor func cancellationEndsPendingUploadBeforeLateAcknowledgement() async throws {
         let sent = AsyncStream<Void>.makeStream()
         let wire = UploadWire(holdReply: true, holdBegin: true, onSend: { sent.continuation.yield() })

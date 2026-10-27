@@ -98,13 +98,16 @@ struct AgentPaneUploadSendTicketTests {
         socket.close(code: 1000, reason: "", error: nil)
     }
 
-    @Test func nativeUploadRequestRequiresTheSendTicket() {
-        let params: [String: Any] = ["token": "t", "name": "a.bin", "type": "application/octet-stream",
-                                     "size": 3, "sessionId": "s-1", "promptId": "p-1", "ticket": "k"]
-        #expect(AgentPaneView.nativeUploadTicket(params) == AgentPaneUploadSendTicket(sessionId: "s-1", promptId: "p-1", ticket: "k"))
-        var missing = params
-        missing.removeValue(forKey: "ticket")
-        #expect(AgentPaneView.nativeUploadTicket(missing) == nil)
+    @Test func uploadStatusCoversPendingBeginAndEmitsOneTerminalState() throws {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: AgentPaneTransport())
+        let coordinator = AgentPaneUploadCoordinator(model: model)
+        var events = [AgentPageEvent](); coordinator.publish = { events.append($0); return true }
+        coordinator.start("t", size: 4, upload: "hold")
+        let pending = try #require(coordinator.query("cmux.agent.uploads.status", params: ["token": "t"]))
+        #expect(((pending["value"] as? [String: Any])?["uploadId"] as? String) == nil)
+        coordinator.terminal("t", state: "cancelled")
+        coordinator.terminal("t", state: "failed")
+        #expect(events.count == 1 && events.first?.kind == "uploads.state")
     }
 
     @Test func theBeginParamsCarryTheTicketPromptAndChat() {

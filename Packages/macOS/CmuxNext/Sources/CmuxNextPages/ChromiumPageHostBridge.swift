@@ -27,8 +27,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     nonisolated public static let maximumPayloadBytes = 4 << 20
 
     public typealias UploadHandler = @MainActor (_ page: any PageChromiumPage, _ context: Int, _ params: [String: Any], _ chunks: AsyncThrowingStream<Data, any Error>) async -> [String: Any]?
+    public typealias UploadQueryHandler = @MainActor (_ op: String, _ params: [String: Any]) async -> [String: Any]?
     /// Set by the pane host. The page passes only an upload token; the host reads the Blob in its context.
     public var uploadHandler: UploadHandler?
+    public var uploadQueryHandler: UploadQueryHandler?
 
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private weak var page: (any PageChromiumPage)?
@@ -50,10 +52,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     ///   - page: The Chromium page.
     ///   - fireAndForget: Extra `window.webkit.messageHandlers` names whose messages need no reply.
     public init(page: any PageChromiumPage, fireAndForget: [String] = [], uploadHandler: UploadHandler? = nil,
-                descriptor: PageDescriptor? = nil) {
+                uploadQueryHandler: UploadQueryHandler? = nil, descriptor: PageDescriptor? = nil) {
         self.page = page
         self.fireAndForget = fireAndForget
         self.uploadHandler = uploadHandler
+        self.uploadQueryHandler = uploadQueryHandler
         self.descriptor = descriptor
     }
 
@@ -173,6 +176,23 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         }
         guard let seq = message.seq else { return }
         noteReached()
+        if let uploadQueryHandler, let body = message.body as? [String: Any],
+           body["t"] as? String == "call", let op = body["op"] as? String,
+           (op == "cmux.agent.uploads.status" || op == "cmux.agent.uploads.cancel"),
+           let callID = body["id"] as? NSNumber {
+            let result: [String: Any]?
+            if let descriptor, PageHostTrust.isTrusted(request, page: descriptor) {
+                result = await uploadQueryHandler(op, body["params"] as? [String: Any] ?? [:])
+            } else { result = ["ok": false, "error": ["code": "page.untrusted", "userMessage": "The page is not trusted", "retryable": false]] }
+            guard self.handler != nil else { return }
+            let reply: [String: Any]
+            if result?["ok"] as? Bool == true { reply = ["t": "ok", "id": callID, "value": result?["value"] ?? NSNull()] }
+            else { let error = result?["error"] as? [String: Any] ?? [:]; reply = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed", "message": error["userMessage"] ?? "The upload could not be completed", "retryable": error["retryable"] ?? false] }
+            let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
+            answered += 1
+            return
+        }
         if let uploadHandler, let body = message.body as? [String: Any],
            body["t"] as? String == "call", body["op"] as? String == "cmux.agent.uploads.begin",
            let callID = body["id"] as? NSNumber {

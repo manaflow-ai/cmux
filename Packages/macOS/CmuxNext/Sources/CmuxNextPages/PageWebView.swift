@@ -153,6 +153,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumMessageHandlers: [String: @MainActor (Any) -> Void] = [:]
     /// Host-owned browser upload callback; the page contributes only a Blob token.
     public var chromiumUploadHandler: ChromiumPageHostBridge.UploadHandler?
+    public var chromiumUploadQueryHandler: ChromiumPageHostBridge.UploadQueryHandler?
     /// Runs before the host builds a Chromium page's right-click menu: a host whose menu depends on
     /// a report the page sends on `contextmenu` (the agent chat) waits for it here, since Chromium's
     /// menu request and the page's message arrive in either order. Nil builds the menu at once.
