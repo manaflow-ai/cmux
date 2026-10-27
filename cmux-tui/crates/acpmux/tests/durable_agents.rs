@@ -2750,3 +2750,81 @@ async fn a_host_whose_link_broke_ends_when_mdm_turns_full_access_off() {
         "an agent whose link broke ran on after MDM turned full access off"
     );
 }
+
+/// The settings push that turns full access off as MDM forces it.
+fn mdm_off_push() -> Value {
+    json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+           "allowFullAccess": false, "allowFullAccessManaged": true})
+}
+
+/// Review 65 of #23322: a link that breaks after MDM turned full access off (an entry could not be
+/// logged; `ACPMUX_TEST_UNLOGGED_ONCE`) may hide a full-access report. The agent ends at once,
+/// without waiting for a request, a push or the idle period.
+#[tokio::test]
+async fn a_link_that_breaks_under_mdm_off_ends_its_agent_at_once() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreaklate", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link broke under the managed off ran on until something else checked it"
+    );
+}
+
+/// Review 65 of #23322: an agent whose link broke ends by the off push; when that end fails (its
+/// terminate stalls and the end by nonce fails once), the next off push tries again instead of
+/// taking the chat's last known mode for the truth.
+#[tokio::test]
+async fn a_failed_end_of_an_unheard_agent_is_tried_again_by_the_next_push() {
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\""),
+        ("ACPMUX_TEST_STALL_HOST_TERMINATE", "1"),
+        ("ACPMUX_TEST_HOST_END_FAILS", "once"),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmendretry", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(alive(harness_pid), "the seams did not keep the first end from working");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next off push left an agent whose end had failed"
+    );
+}
+
+/// Review 65 of #23322: a prompt in flight on an agent whose link broke (its full-access report
+/// was not logged) gets its answer once the off push ends that agent, instead of waiting forever
+/// for an exit the stopped reader never reads.
+#[tokio::test]
+async fn a_prompt_on_an_unheard_agent_settles_when_mdm_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmendprompt", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 60000 full-access"}]});
+    let prompt = tokio::spawn(async move { rpc.reply("session/prompt", held).await });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
+    assert!(answered.is_ok(), "the prompt waited on after MDM ended its agent");
+}

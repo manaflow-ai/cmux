@@ -984,12 +984,15 @@ pub(super) async fn end_host_blocking(
     nonce: Option<String>,
     host_pid: Option<u32>,
 ) -> bool {
-    // Debug builds only: `ACPMUX_TEST_HOST_END_FAILS` makes every end by nonce fail, as one does
-    // on a host that outlives its proof, so the daemon's integration tests can drive that path.
-    // Release builds have no seam.
+    // Debug builds only: `ACPMUX_TEST_HOST_END_FAILS` makes every end by nonce fail (`=once`: only
+    // the first), as one does on a host that outlives its proof, so the daemon's integration
+    // tests can drive that path. Release builds have no seam.
     #[cfg(debug_assertions)]
-    if std::env::var_os("ACPMUX_TEST_HOST_END_FAILS").is_some() {
-        return false;
+    if let Ok(how) = std::env::var("ACPMUX_TEST_HOST_END_FAILS") {
+        static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if how != "once" || !FAILED.swap(true, Ordering::SeqCst) {
+            return false;
+        }
     }
     tokio::task::spawn_blocking(move || {
         agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)

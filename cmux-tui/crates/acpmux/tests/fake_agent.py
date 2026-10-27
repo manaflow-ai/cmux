@@ -732,6 +732,15 @@ def handle_prompt(rid, params):
         threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-hold: MS X": the harness changes its own mode to X at once, then holds the turn
+    # MS before it ends it.
+    if text.startswith("set-mode-hold:"):
+        import time as pause
+        ms, mode = text[14:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()})
+        pause.sleep(int(ms) / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "whoami" replies with the harness's pid.
     if text.startswith("whoami"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"pid={os.getpid()}"}})
