@@ -633,9 +633,11 @@ impl Hub {
         if refused.is_none() && self.managed_off_runs_full_access(off, session) {
             refused = Some(full_access_off());
         }
+        // Whether MDM's off stops it is the start's one read of the off (`off`), taken before the
+        // mode change above awaited: an unset that landed meanwhile does not make it the person's
+        // own off (review 2 of #26257).
         if let Some(e) = refused {
-            let managed = self.full_access_managed_off();
-            self.stop_full_access_agent(session, managed).await;
+            self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
