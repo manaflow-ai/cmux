@@ -28,20 +28,21 @@ import os
     static let replyWait: TimeInterval = 1
 
     private let lock: URL
-    /// When the hand-off started (`run`), the base of both deadlines.
-    private let start: Date
+    /// ``deadline`` after the hand-off started (`run`, before AppKit): an absolute instant, so neither AppKit's
+    /// start nor a slow first batch moves it.
+    private let giveUpAt: ContinuousClock.Instant
     private var queue = SingleInstanceHandoffQueue()
     private var launched = false
     private var finishing: Task<Void, Never>?
 
-    private init(lock: URL, start: Date) {
+    private init(lock: URL, giveUpAt: ContinuousClock.Instant) {
         self.lock = lock
-        self.start = start
+        self.giveUpAt = giveUpAt
     }
 
     /// Runs the hand-off to the owner of `lock`; never returns.
     static func run(lock: URL, activates: Bool) -> Never {
-        let start = Date()
+        let giveUpAt = ContinuousClock.now + .seconds(deadline)
         logger.notice("launch: another copy of this app holds \(lock.path, privacy: .public); handing off and exiting before Chromium or the session start")
         guard activates else {
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
@@ -53,13 +54,11 @@ import os
         let app = NSApplication.shared
         // No Dock icon; an accessory may still be active, so it can hand activation to the owner.
         app.setActivationPolicy(.accessory)
-        let handoff = SingleInstanceHandoff(lock: lock, start: start)
+        let handoff = SingleInstanceHandoff(lock: lock, giveUpAt: giveUpAt)
         app.delegate = handoff
         withExtendedLifetime(handoff) { app.run() }
         exit(0)
     }
-
-    private var remaining: TimeInterval { Self.deadline - Date().timeIntervalSince(start) }
 
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -69,9 +68,9 @@ import os
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
-        let wait = max(0, remaining)
+        let giveUpAt = giveUpAt
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(wait))
+            try? await Task.sleep(until: giveUpAt, clock: .continuous)
             self?.giveUp()
         }
         attempt()
@@ -83,9 +82,9 @@ import os
         let owner = SingleInstanceGuard.owner(at: lock)
         if let owner {
             let before = queue.pending.count
+            let giveUpAt = giveUpAt
             queue.drain { [self] event in
-                let wait = min(Self.replyWait, remaining)
-                guard wait > 0.05 else { return false }
+                guard let wait = Self.replyBudget(now: .now, giveUpAt: giveUpAt) else { return false }
                 return send(event, to: owner, timeout: wait)
             }
             if queue.pending.count < before {
@@ -96,8 +95,18 @@ import os
         finishing = Task { [weak self] in
             try? await Task.sleep(for: done ? Self.settle : Self.retry)
             guard !Task.isCancelled, let self else { return }
-            if done { self.finish(owner: owner) } else if self.remaining > 0 { self.attempt() }
+            if done { self.finish(owner: owner) } else if ContinuousClock.now < self.giveUpAt { self.attempt() }
         }
+    }
+
+    /// How long the next event may wait for its reply: at most ``replyWait``, never past `giveUpAt`, and nil
+    /// (send nothing) with under 50 ms left. So sends end by `giveUpAt`, and the recovery there keeps the time up
+    /// to ``hardDeadline``.
+    nonisolated static func replyBudget(now: ContinuousClock.Instant, giveUpAt: ContinuousClock.Instant) -> TimeInterval? {
+        let left = now.duration(to: giveUpAt)
+        guard left > .milliseconds(50) else { return nil }
+        let seconds = Double(left.components.seconds) + Double(left.components.attoseconds) / 1e18
+        return min(replyWait, seconds)
     }
 
     private func send(_ event: SingleInstanceHandoffEvents.Event, to owner: pid_t, timeout: TimeInterval) -> Bool {

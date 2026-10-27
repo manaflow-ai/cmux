@@ -106,6 +106,24 @@ import Testing
         #expect(queue.unansweredURLs.isEmpty)
     }
 
+    /// A slow first batch (each event waits its whole budget) still ends by the give-up instant, so the recovery
+    /// there runs before the hard exit.
+    @MainActor @Test func sendsNeverRunPastTheGiveUpInstant() {
+        let start = ContinuousClock.now
+        let giveUpAt = start + .seconds(SingleInstanceHandoff.deadline)
+        var now = start + .milliseconds(1500)  // AppKit's start was slow
+        var sent = 0
+        while let wait = SingleInstanceHandoff.replyBudget(now: now, giveUpAt: giveUpAt) {
+            #expect(wait <= SingleInstanceHandoff.replyWait)
+            now = now + .seconds(wait)  // no reply: the whole wait is spent
+            sent += 1
+        }
+        #expect(now <= giveUpAt)
+        #expect(sent == 3, "1 s, 1 s, then the last 0.5 s")
+        #expect(SingleInstanceHandoff.hardDeadline - SingleInstanceHandoff.deadline >= 1, "the recovery keeps its time")
+        #expect(SingleInstanceHandoff.replyBudget(now: giveUpAt - .milliseconds(10), giveUpAt: giveUpAt) == nil)
+    }
+
     @Test func theGetURLEventTargetsTheOwnersPid() throws {
         let web = try #require(URL(string: "https://github.com/settings"))
         let event = SingleInstanceHandoffEvents.descriptor(.getURL(web), to: 4242)
