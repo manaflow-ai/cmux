@@ -84,7 +84,8 @@ extension VisiblePaneRefs {
             return windows(of: manager)
         }
         guard behind else { return }
-        watchCover(of: manager.controllers.compactMap(\.window), sight: sight, startup: startup, images: images)
+        watchCover(of: manager.controllers.compactMap(\.window), deadlines: services.mainDeadlines, sight: sight, startup: startup,
+                   images: images)
     }
 
     /// What the person sees of the launch's windows now.

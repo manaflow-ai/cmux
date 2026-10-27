@@ -15,32 +15,27 @@ import Testing
         var names: [String] = []
     }
 
-    /// A launch whose windows went behind other apps': its sight as the test sets it, and each read reported.
+    /// A launch whose windows went behind other apps': its sight as the test sets it.
     @MainActor private final class Screen {
         var shown: [LaunchWindowSight.Shown]
         var coming = 0
-        let reads: AsyncStream<Void>
-        private let read: AsyncStream<Void>.Continuation
 
         init(_ shown: [LaunchWindowSight.Shown]) {
             self.shown = shown
-            (reads, read) = AsyncStream.makeStream(of: Void.self)
         }
 
         var sight: LaunchWindowSight {
-            read.yield()
-            return LaunchWindowSight(appHidden: false, orderedBehind: LaunchWindowSight.ordersBehind(noActivate: true, testScreen: false),
-                                     coming: coming, shown: shown)
+            LaunchWindowSight(appHidden: false, orderedBehind: LaunchWindowSight.ordersBehind(noActivate: true, testScreen: false),
+                              coming: coming, shown: shown)
         }
     }
 
     /// The refs at the end of a no-activate restore whose window shows one loading pane, on a real scheduler, with
-    /// the cover watch on a manual clock.
+    /// the cover watch on the test's notification center.
     @MainActor private final class CoveredLaunch {
         let phase: StartupPhase
         let s: StartupTestScheduler
         let refs: VisiblePaneRefs
-        let coverClock = ManualClock()
         let center = NotificationCenter()
         let windows: [NSWindow]
         let screen: Screen
@@ -70,7 +65,8 @@ import Testing
                 [VisiblePaneRefs.Window(id: "w", content: .workspace(onScreen: [.init(key: "a", state: .loading)], layoutPanes: 1))]
             }
             let screen = screen
-            refs.watchCover(of: windows, center: center, timer: DemandTimer(owner: "test.cover", clock: coverClock, ledger: WakeupLedger()),
+            // The bound's deadline never fires by itself here: a test passes it with `boundPassed()`.
+            refs.watchCover(of: windows, center: center, deadlines: MainDeadlineScheduler(work: .still()),
                             sight: { screen.sight }, startup: s.startup, images: LaunchImageHold(startup: s.startup))
         }
 
@@ -158,13 +154,12 @@ import Testing
     }
 
     /// No occlusion notice came by the bound: the window is still covered, so the refs end with `noWindow`.
-    @Test func theBoundDecidesWhenTheSystemPostsNoNotice() async throws {
+    @Test func theBoundDecidesWhenTheSystemPostsNoNotice() {
         let f = CoveredLaunch()
         defer { f.close() }
         f.finishRestore()
-        try await f.coverClock.waitForSleeper()
-        f.coverClock.advance(by: LaunchCoverWatch.bound)
-        await withCheckedContinuation { revealed in f.phase.whenReached(.revealed) { revealed.resume() } }
+        #expect(f.phase.phase == .launching)
+        f.refs.cover?.boundPassed()
         #expect(f.phase.revealCause == .noWindow)
         f.s.hand.drain()
         #expect(f.s.startup.completion?.reason == .noWindow)
@@ -184,18 +179,14 @@ import Testing
     }
 
     /// A window still coming at the bound (its content, its launch build) may show: the pane refs decide.
-    @Test func aWindowStillComingAtTheBoundLeavesItToThePaneRefs() async throws {
+    @Test func aWindowStillComingAtTheBoundLeavesItToThePaneRefs() {
         let f = CoveredLaunch()
         defer { f.close() }
         f.screen.coming = 1
         f.finishRestore()
-        var reads = f.screen.reads.makeAsyncIterator()
         f.report()
         #expect(f.refs.cover?.isWatching == true, "a window still coming is not reported covered")
-        _ = await reads.next()  // the notice's read
-        try await f.coverClock.waitForSleeper()
-        f.coverClock.advance(by: LaunchCoverWatch.bound)
-        _ = await reads.next()  // the bound's read
+        f.refs.cover?.boundPassed()
         #expect(f.refs.cover?.isWatching == false)
         #expect(f.phase.phase == .launching, "a launch with a window coming completed as noWindow")
         #expect(f.s.startup.heldRefs.contains("Startup.visiblePane"))

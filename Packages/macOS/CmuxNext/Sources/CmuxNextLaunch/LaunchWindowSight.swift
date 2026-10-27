@@ -16,7 +16,7 @@ public import CmuxNextWakeups
 /// let sight = LaunchWindowSight(appHidden: NSApp.isHidden, orderedBehind: behind, coming: waiting, windows: windows)
 /// if sight.verdict == .noWindow { return paneRefs.launchShowedNoWindow(startup: startup, images: images) }
 /// paneRefs.restoreFinished { launchWindows() }
-/// if behind { paneRefs.watchCover(of: windows, sight: { readSight() }, startup: startup, images: images) }
+/// if behind { paneRefs.watchCover(of: windows, deadlines: deadlines, sight: { readSight() }, startup: startup, images: images) }
 /// ```
 public struct LaunchWindowSight: Sendable {
     /// One launch window ordered in.
@@ -101,15 +101,14 @@ extension VisiblePaneRefs {
     /// - Parameters:
     ///   - windows: The launch's windows ordered in.
     ///   - center: Where the windows post (tests pass their own).
-    ///   - timer: The watch's bound; tests inject a manual clock.
+    ///   - deadlines: The app's deadline scheduler, where the watch's bound goes.
     ///   - sight: The launch's sight now; nil ends the watch.
     ///   - startup: The scheduler whose first-frame ref a covered launch ends.
     ///   - images: The launch images' hold, which a covered launch ends.
-    public func watchCover(of windows: [NSWindow], center: NotificationCenter = .default,
-                           timer: DemandTimer = DemandTimer(owner: "LaunchCoverWatch.bound"),
+    public func watchCover(of windows: [NSWindow], center: NotificationCenter = .default, deadlines: MainDeadlineScheduler,
                            sight: @escaping @MainActor () -> LaunchWindowSight?, startup: StartupScheduler?, images: LaunchImageHold) {
         // The watch holds this object until it decides (within its bound): a covered launch ends these refs.
-        let watch = LaunchCoverWatch(timer: timer, sight: sight) { [self] in launchShowedNoWindow(startup: startup, images: images) }
+        let watch = LaunchCoverWatch(deadlines: deadlines, sight: sight) { [self] in launchShowedNoWindow(startup: startup, images: images) }
         cover = watch
         watch.follow(windows, center: center)
     }

@@ -18,7 +18,9 @@ public import CmuxNextWakeups
 ///
 /// ```swift
 /// // VisiblePaneRefs.watchCover(of:sight:startup:images:) makes and keeps it.
-/// let watch = LaunchCoverWatch(sight: { readSight() }) { paneRefs.launchShowedNoWindow(startup: startup, images: images) }
+/// let watch = LaunchCoverWatch(deadlines: deadlines, sight: { readSight() }) {
+///     paneRefs.launchShowedNoWindow(startup: startup, images: images)
+/// }
 /// watch.follow(launchWindows)
 /// ```
 @MainActor
@@ -29,18 +31,19 @@ public final class LaunchCoverWatch {
 
     private let sight: @MainActor () -> LaunchWindowSight?
     private var covered: (@MainActor () -> Void)?
-    private let timer: DemandTimer
+    /// The bound, in the visible class: a launch still launching admits it, and the person may be waiting.
+    private let deadline: MainDeadline
     private var events: [EventSubscription] = []
     /// The launch windows whose occlusion the system has not reported since the restore.
     private var unreported: Set<ObjectIdentifier> = []
 
     /// - Parameters:
-    ///   - timer: The bound's timer; tests inject a manual clock.
+    ///   - deadlines: The app's deadline scheduler, where the bound goes.
     ///   - sight: The launch's sight now; nil ends the watch (its owner is gone).
     ///   - covered: Runs once when the launch shows no window.
-    public init(timer: DemandTimer = DemandTimer(owner: "LaunchCoverWatch.bound"),
-                sight: @escaping @MainActor () -> LaunchWindowSight?, covered: @escaping @MainActor () -> Void) {
-        self.timer = timer
+    public init(deadlines: MainDeadlineScheduler, sight: @escaping @MainActor () -> LaunchWindowSight?,
+                covered: @escaping @MainActor () -> Void) {
+        deadline = MainDeadline(owner: "LaunchCoverWatch.bound", workClass: .visible, scheduler: deadlines)
         self.sight = sight
         self.covered = covered
     }
@@ -62,7 +65,12 @@ public final class LaunchCoverWatch {
             let id = ObjectIdentifier(window)
             return WindowEvents.of(window, center: center).subscribe(occlusion, owner: "LaunchCoverWatch") { [weak self] in self?.reported(id) }
         }
-        timer.scheduleOnMain(after: Self.bound) { [weak self] in self?.check(boundPassed: true) }
+        deadline.schedule(after: Self.bound) { [weak self] in self?.boundPassed() }
+    }
+
+    /// The bound passed: the occlusion read now is the system's.
+    func boundPassed() {
+        check(boundPassed: true)
     }
 
     private func reported(_ window: ObjectIdentifier) {
@@ -84,7 +92,7 @@ public final class LaunchCoverWatch {
     private func end(covered isCovered: Bool) {
         let action = covered
         covered = nil
-        timer.cancel()
+        deadline.cancel()
         for subscription in events { subscription.cancel() }
         events = []
         if isCovered { action?() }
