@@ -78,6 +78,15 @@ names_awk='
     sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|was cancelled after .*|skipped.*)$/, "", line)
     return line
   }
+  # A test start. The own start of a parameterized case ("◇ Test case passing 1 argument n → 1 to
+  # f(n:) started.") is not one: its test has a start of its own. Matched on the whole generated
+  # shape, argument count included, so a test whose display name merely begins "case passing" is
+  # still counted. Nor is the "Test run started." line of the run itself.
+  function is_start(line) {
+    return line ~ /^◇ Test .* started\.$/ \
+        && line !~ /^◇ Test case passing [0-9]+ arguments? / \
+        && line !~ /^◇ Test run started\.$/
+  }
   function is_finish(line) {
     return line ~ /^✔ Test / \
         || line ~ /^✘ Test .* (passed|failed) after / \
@@ -132,7 +141,7 @@ names_awk='
 # deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
 # all. Banked, either could have closed a later, real run of the same name.
 count_awk='
-  /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
+  is_start($0) {
     counted_name = name_of($0)
     if (!(counted_name in seen_name)) { seen_name[counted_name] = 1; names[++name_count] = counted_name }
     started[counted_name]++
@@ -331,7 +340,16 @@ report() {
       counted = $0
       sub(/^[^ ]+ Test run with /, "", counted); sub(/ .*$/, "", counted)
       summary_tests += counted + 0
+      if (run_blocks && !(run_blocks in block_summary)) block_summary[run_blocks] = counted + 0
     }
+    # Each test process prints its own "Test run started." and, on a whole run, its own summary,
+    # and one log can hold many (a priority pass, a broad pass, one process per isolated suite).
+    # The totals above can hide one truncated process behind the others: a later process cut
+    # off before its summary, after its own starts had all finished, leaves nothing open, and an
+    # earlier summary that ran ahead of its starts (skipped tests print no start) covers the
+    # count. So each run is also held to its own summary and its own starts.
+    /^◇ Test run started\.$/ { run_blocks++; block_starts[run_blocks] = 0 }
+    is_start($0) && run_blocks { block_starts[run_blocks]++ }
     END {
       if (red_count > 0) {
         printf "::error title=cmux-next swift test reds::%d red tests: %s\n", red_count, join(reds, red_count)
@@ -375,6 +393,21 @@ report() {
           }
           exit 3
         }
+      }
+      for (b = 1; b <= run_blocks; b++) {
+        if (!(b in block_summary)) {
+          bad_blocks[++bad_count] = sprintf("test run %d of %d printed no summary after %d starts", b, run_blocks, block_starts[b])
+        } else if (block_summary[b] < block_starts[b]) {
+          bad_blocks[++bad_count] = sprintf("test run %d of %d reported %d tests after %d starts", b, run_blocks, block_summary[b], block_starts[b])
+        }
+      }
+      if (bad_count > 0) {
+        printf "::error title=cmux-next swift test ended early::%d of %d test runs in this log are not whole (crash, kill or truncation of one test process); swift test exited %s: %s\n", bad_count, run_blocks, status, join(bad_blocks, bad_count)
+        if (summary_file != "") {
+          printf "### %d of %d Swift Testing runs are not whole\n\n", bad_count, run_blocks >> summary_file
+          for (i = 1; i <= bad_count; i++) printf "- %s\n", bad_blocks[i] >> summary_file
+        }
+        exit 3
       }
     }
   ' "$log"

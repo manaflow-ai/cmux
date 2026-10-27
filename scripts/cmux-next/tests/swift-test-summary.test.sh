@@ -7,10 +7,9 @@
 # is not proof the run was whole either: it counts the tests that reported, so
 # a run that ends mid-flight still prints one. The job fails when the summaries
 # count fewer tests than the log shows starting, or when any started test never
-# finished. Names are counted across the whole log, so a truncation that only
-# loses tests another target already ran and summarized still reads as a pass;
-# that one needs per-summary-block bookkeeping and is not covered here. The
-# reporter lines are read anchored, so a test cannot report itself finished.
+# finished, and each test process's run ("Test run started.") must print its
+# own summary counting at least its own starts. The reporter lines are read
+# anchored, so a test cannot report itself finished.
 # A test still running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
 # No Swift: a stub `swift` prints canned Swift Testing output.
 set -euo pipefail
@@ -541,6 +540,76 @@ probe=$(awk "$names_awk"'
 ! grep -q MANGLED <<<"$probe" || fail "a run key does not read back as its own name" "$(cat -v <<<"$probe")"
 [[ "$(wc -l <<<"$probe" | tr -d " ")" == "$(sort -u <<<"$probe" | wc -l | tr -d " ")" ]] \
   || fail "two different runs share one key: $(cat -v <<<"$probe")"
+
+# Each test process is held to its own summary. One log holds a run per process, and the totals
+# alone let a later process that was cut off after its own starts had all finished hide behind an
+# earlier summary that ran ahead of its starts (skipped tests print no start): 2 starts against a
+# 3-test summary, nothing open, and the second run never summarized.
+cat > "$TMP/blocklost.out" <<'EOF'
+◇ Test run started.
+◇ Test first() started.
+✔ Test first() passed after 0.001 seconds.
+➜ Test skippedOne() skipped: "not here"
+➜ Test skippedTwo() skipped: "not here"
+✔ Test run with 3 tests in 1 suite passed after 0.002 seconds.
+◇ Test run started.
+◇ Test second() started.
+✔ Test second() passed after 0.001 seconds.
+EOF
+run blocklost 0
+[[ "$status" != 0 ]] || fail "a second test run with no summary exited 0" "$out"
+err=$(grep '^::error' <<<"$out")
+grep -q 'test run 2 of 2 printed no summary after 1 starts' <<<"$err" \
+  || fail "the error does not name the run that printed no summary" "$err"
+grep -q 'test run 2 of 2' <<<"$summary" || fail "the step summary does not name the unsummarized run" "$summary"
+
+# And a run that summarized fewer tests than it started, behind a total that still adds up.
+cat > "$TMP/blockunder.out" <<'EOF'
+◇ Test run started.
+◇ Test a() started.
+✔ Test a() passed after 0.001 seconds.
+➜ Test s1() skipped: "not here"
+➜ Test s2() skipped: "not here"
+✔ Test run with 3 tests in 1 suite passed after 0.002 seconds.
+◇ Test run started.
+◇ Test b() started.
+✔ Test b() passed after 0.001 seconds.
+◇ Test c() started.
+✔ Test c() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run blockunder 0
+[[ "$status" != 0 ]] || fail "a test run that reported fewer tests than it started exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'test run 2 of 2 reported 1 tests after 2 starts' \
+  || fail "the error does not name the run that undercounted" "$out"
+
+# The healthy shape of the same log: every run summarized, each at least its own starts.
+cat > "$TMP/blockgreen.out" <<'EOF'
+◇ Test run started.
+◇ Test a() started.
+✔ Test a() passed after 0.001 seconds.
+➜ Test s1() skipped: "not here"
+✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+◇ Test run started.
+◇ Test a() started.
+✔ Test a() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run blockgreen 0
+[[ "$status" == 0 ]] || fail "two whole test runs in one log exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "two whole test runs in one log printed an error" "$out"
+
+# Only the generated parameterized-case shape is skipped as a start. A test whose display name
+# merely begins "case passing" is a test: lost, it must fail the run, not vanish from the count.
+cat > "$TMP/casename.out" <<'EOF'
+◇ Test run started.
+◇ Test case passing the buck() started.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run casename 0
+[[ "$status" != 0 ]] || fail "a lost test named \"case passing ...\" exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'case passing the buck()' \
+  || fail "the error does not name the lost \"case passing\" test" "$out"
 
 # An open test is not a RUNNING test, so age alone must never end a run. swift-testing prints
 # every test "started." as it enters the run while the parallelization width lets only a few
