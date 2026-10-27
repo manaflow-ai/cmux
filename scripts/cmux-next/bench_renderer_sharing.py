@@ -38,6 +38,14 @@ Phases (each prints PERF-RENDERERS lines):
   settled  --settle seconds after the last tab: renderers (all, and those that hold a tab: the
            spare renderer and extension renderers hold none), tabs per renderer, footprint
 
+--memory-cap-mb MB (p07-memory task 111) starts Chromium with that cap as
+cmux-shared-renderer-memory-limit (Chrome's kProcessPerSiteMainFrameTotalMemoryLimit, 2 GiB, which the app's
+budget passes otherwise) through the bench switch list, and adds a phase:
+  grown    a tab of a new site holds a heap of the cap + --grow-margin-mb, so its renderer's footprint is past
+           the cap (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame: footprint plus 1.5 times
+           the footprint per main frame must stay under it); after --settle-grown seconds a second tab of that
+           site opens. Below the renderer limit it must get another renderer; in the same one the run fails.
+
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
 mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
 
@@ -50,7 +58,7 @@ and the report as DIR/bench-renderer-sharing.json.
 
 Usage (a fleet GUI mini, never a laptop; a tagged DEV build, Debug or bench config):
   bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--agent-cdp]
-      [--renderer-limit N] [--out FILE.json | --out DIR]
+      [--renderer-limit N] [--memory-cap-mb MB [--grow-margin-mb 64] [--settle-grown 10]] [--out FILE.json | --out DIR]
 """
 from __future__ import annotations
 
@@ -66,6 +74,7 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, note_child_launch)
@@ -86,8 +95,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         host = (self.headers.get("Host") or "site0.test").split(":")[0]
         site = re.sub(r"\D", "", host.split(".")[0]) or "0"
-        tab = re.sub(r"\D", "", self.path) or "0"
-        body = PAGE.format(site=site, tab=tab, article=ARTICLE * 20, heap=self.heap_mb).encode()
+        url = urlsplit(self.path)
+        tab = re.sub(r"\D", "", url.path) or "0"
+        body = PAGE.format(site=site, tab=tab, article=ARTICLE * 20, heap=page_heap_mb(url.query, self.heap_mb)).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -96,6 +106,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *_args):
         pass
+
+
+def page_heap_mb(query: str, default: int) -> int:
+    """The page's heap: `?heap=MB` (the grown phase's page past the cap), else the run's --heap-mb."""
+    value = (parse_qs(query).get("heap") or [""])[0]
+    return int(value) if value.isdigit() else default
 
 
 def serve() -> int:
@@ -271,6 +287,33 @@ def site_sharing(owners: dict, site_of: dict, agent_tab: str | None, limit: int,
     }
 
 
+# The fork's main-frame cap switch (CEFSharedRendererMemoryCaps.mainFrameSwitch), in bytes.
+MEMORY_CAP_SWITCH = "cmux-shared-renderer-memory-limit"
+
+
+def memory_cap_switch(cap_mb: int) -> str:
+    """The bench switch that sets the fork's main-frame cap to `cap_mb` MiB."""
+    return f"{MEMORY_CAP_SWITCH}={cap_mb << 20}"
+
+
+def grown_check(owners: dict, grown_tab: str, next_tab: str, renderers: int, limit: int) -> dict:
+    """The grown phase: `grown_tab`'s renderer is past the cap, so `next_tab` (its site) must be in another
+    renderer (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame). Chrome reuses a same-site
+    renderer at the limit whatever its footprint (IsProcessLimitReached, GetExistingProcessHost), so the rule
+    holds only below it."""
+    renderer_of = {tab: renderer for renderer, tabs in owners.items() for tab in tabs}
+    grown, after = renderer_of.get(grown_tab), renderer_of.get(next_tab)
+    below_limit = renderers < limit
+    violations = []
+    if grown is None or after is None:
+        violations.append(f"the grown phase's tabs have no renderer (grown {grown}, next {after})")
+    elif grown == after and below_limit:
+        violations.append(f"the next tab of the site joined renderer {grown}, which is past the memory cap, "
+                          f"below the limit of {limit}")
+    return {"grown_renderer": grown, "next_renderer": after, "same_renderer": grown is not None and grown == after,
+            "renderers": renderers, "renderer_limit": limit, "below_limit": below_limit, "violations": violations}
+
+
 def fork_api(cef) -> int | None:
     """The running fork's API, which `debug.cef` names under `windows.fork_api`."""
     value = (cef.get("windows") or {}).get("fork_api") if isinstance(cef, dict) else None
@@ -321,6 +364,11 @@ def parse(argv=None):
     parser.add_argument("--agent-cdp", action=argparse.BooleanOptionalAction, default=False,
                         help="keep an agent's CDP session on the first tab (sharing with DevTools attached)")
     parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count")
+    parser.add_argument("--memory-cap-mb", type=int, help="the shared-renderer memory cap Chromium starts with, and "
+                                                          "the grown phase that checks it")
+    parser.add_argument("--grow-margin-mb", type=int, default=64, help="the grown page's heap above the cap")
+    parser.add_argument("--settle-grown", type=float, default=10,
+                        help="seconds after the grown page before the next tab of its site (its footprint is read)")
     parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
                                       "and bench-renderer-sharing.json")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -330,6 +378,8 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    if args.memory_cap_mb is not None and args.memory_cap_mb <= 0:
+        parser.error("--memory-cap-mb must be positive")
     return args
 
 
@@ -341,6 +391,23 @@ def new_tab_summary(times):
             "timed": len(times)}
 
 
+def grown_phase(app, sock: str, pid: int, bundle: str, port: int, args, limit: int) -> dict:
+    """Opens a tab of a site the run has not used whose heap is past --memory-cap-mb, waits --settle-grown, opens a
+    second tab of that site and checks where it went (``grown_check``)."""
+    site, tabs = args.sites, []
+    for index, heap in ((args.tabs, args.memory_cap_mb + args.grow_margin_mb), (args.tabs + 1, None)):
+        url = f"http://site{site}.test:{port}/{index}" + (f"?heap={heap}" if heap else "")
+        response = app.action("openBrowser.chromium", focus=True, url=url)
+        created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
+        if response.get("error") or not created or not wait_title(sock, created[0], f"site {site} tab {index}", args.load_timeout):
+            return {"violations": [f"the grown phase's tab {url} did not open or show its title: {response.get('error') or response}"]}
+        tabs.append(created[0])
+        if heap:
+            time.sleep(args.settle_grown)  # test script: the grown page's heap is touched and its footprint read
+    renderers = [row for row in bm.sample(pid, bundle, "grown", 1)["processes"] if row["kind"] == "cef-renderer"]
+    return grown_check(renderer_map(sock).get("owners") or {}, tabs[0], tabs[1], len(renderers), limit)
+
+
 def main(argv=None):
     args = parse(argv)
     report_path, results_dir = results.out_paths(args.out, "bench-renderer-sharing.json")
@@ -348,8 +415,10 @@ def main(argv=None):
         raise SystemExit("bench-renderer-sharing: macOS only (run it on a fleet GUI mini)")
     memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
     # The stand-in heaps are touched memory: at most a quarter of this Mac's.
-    if args.tabs * args.heap_mb > memory_gb * 1024 / 4:
-        raise SystemExit(f"bench-renderer-sharing: {args.tabs} tabs x {args.heap_mb} MB is more than a quarter of {memory_gb:.0f} GB")
+    grown_heap_mb = args.memory_cap_mb + args.grow_margin_mb if args.memory_cap_mb else 0
+    if args.tabs * args.heap_mb + grown_heap_mb > memory_gb * 1024 / 4:
+        raise SystemExit(f"bench-renderer-sharing: {args.tabs} tabs x {args.heap_mb} MB and a grown page of {grown_heap_mb} MB "
+                         f"is more than a quarter of {memory_gb:.0f} GB")
     stopping = {"signal": False}
 
     def terminate(_signum, _frame):
@@ -367,7 +436,8 @@ def main(argv=None):
     bp.wipe_state(bundle)
     # The mapping goes through the bench list, which a bench build reads too; any other switch is
     # for diagnosis and only a Debug build takes it.
-    extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": rules}
+    bench_switches = [rules] + ([memory_cap_switch(args.memory_cap_mb)] if args.memory_cap_mb else [])
+    extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": "\n".join(bench_switches)}
     if switches[1:]:
         extra["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(switches[1:])
     # The fleet worker finds every process of the step by this marker, also those the app starts.
@@ -387,7 +457,8 @@ def main(argv=None):
     pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
     report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
-              "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": [], "agent": None}
+              "chrome_soft_limit": limit, "switches": switches, "bench_switches": bench_switches, "opened": [],
+              "new_tab_ms": [], "agent": None}
     agent = None
     status = 0
     try:
@@ -478,6 +549,14 @@ def main(argv=None):
         for violation in sites["violations"]:
             print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
             status = 1
+        if args.memory_cap_mb:
+            report["grown"] = grown = grown_phase(app, sock, pid, bundle, port, args, checked_limit)
+            print(f"PERF-RENDERERS-GROWN memory_cap_mb={args.memory_cap_mb} grown_heap_mb={grown_heap_mb} "
+                  f"same_renderer={grown.get('same_renderer')} renderers={grown.get('renderers')} "
+                  f"below_limit={grown.get('below_limit')}", flush=True)
+            for violation in grown["violations"]:
+                print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
+                status = 1
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1

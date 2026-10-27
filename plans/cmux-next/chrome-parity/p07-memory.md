@@ -1661,6 +1661,19 @@ All IDs below are `p07-memory-NNN`.
 - Change: Chrome's HasEnoughMemoryForAnotherMainFrame check for cmux page sharing and per-site sharing.
 - Acceptance: a page grown past the cap sends the next same-site page to a new renderer.
 - Test: fleet scripts/measure/renderer-sharing.sh.
+- As built: SubsystemBudget.sharedRendererMemoryCapBytes is Chrome's 2 GiB
+  (`kProcessPerSiteMainFrameTotalMemoryLimit`) and sharedRendererSubframeMemoryCapBytes its 512 MiB subframe
+  threshold, on every Mac. The app passes both to Chromium (`CEFSharedRendererMemoryCaps`,
+  `cmux-shared-renderer-memory-limit` and `cmux-shared-renderer-subframe-memory-limit`); older forks ignore them.
+  The fork (manaflow-ai/cef `cp/p07-memory-111`, 0cb7f868: the 011 line with e603be8e merged, patch
+  `cmux_shared_renderer_memory_cap`) uses them in Chrome's own `HasEnoughMemoryForAnotherMainFrame` and
+  `IsBelowReuseResourceThresholds`, and applies the main-frame check to a cmux page that joins a live renderer in
+  `GetExistingProcessHost`, the path 049's sharing takes (e603be8e checked the `kProcessPerSite` path, which no
+  cmux page takes). One difference from Chrome: a renderer still launching has room for a cmux page (Chrome
+  denies a footprint of 0), so pages opened together at launch still share up to the main-frame cap. The fork
+  train must take `cp/p07-memory-111` in place of e603be8e. Bench: `renderer-sharing.sh
+  --arg=--memory-cap-mb=256` grows a web page past a 256 MiB cap (a bench switch) and fails when the next tab of
+  its site joins that renderer below the limit; fork ceftests `--cmux-page-memory-cap-tiny` checks cmux pages.
 
 ### 112 Kernel compressor measurement gates the codec
 - Files: scripts/cmux-next/bench_memory.py, plans/cmux-next/memory-DESIGN.md.

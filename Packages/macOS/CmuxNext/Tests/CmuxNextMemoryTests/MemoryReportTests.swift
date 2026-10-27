@@ -96,6 +96,19 @@ struct MemoryReportTests {
         #expect(decoded.imageCacheBytes == Self.budget.imageCacheBytes)
     }
 
+    @Test func budgetWithoutSharedRendererCapsDecodesToChromesValues() throws {
+        // A report from a build before p07-memory 111 passed no caps: Chromium ran with Chrome's own.
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.budget))
+        var json = try #require(object as? [String: Any])
+        #expect(json["shared_renderer_memory_cap_bytes"] as? Int == 2 << 30)
+        #expect(json["shared_renderer_subframe_memory_cap_bytes"] as? Int == 512 << 20)
+        json["shared_renderer_memory_cap_bytes"] = nil
+        json["shared_renderer_subframe_memory_cap_bytes"] = nil
+        let decoded = try JSONDecoder().decode(SubsystemBudget.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.sharedRendererMemoryCapBytes == 2 << 30)
+        #expect(decoded.sharedRendererSubframeMemoryCapBytes == 512 << 20)
+    }
+
     @MainActor @Test func coordinatorReportsEachLiveConsumerOnceWithItsLimit() {
         let source = ManualMemoryPressureSource(initial: .normal)
         let clock = ManualClock()

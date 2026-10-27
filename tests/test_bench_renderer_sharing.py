@@ -218,5 +218,41 @@ class LimitTests(unittest.TestCase):
         self.assertIsNone(bench.fork_api(None))
 
 
+class GrownPhaseTests(unittest.TestCase):
+    """p07-memory 111: a renderer past the memory cap takes no more main frames of its site below the limit."""
+
+    def test_the_cap_switch_is_in_bytes(self):
+        self.assertEqual(bench.memory_cap_switch(256), "cmux-shared-renderer-memory-limit=268435456")
+
+    def test_the_grown_page_takes_its_heap_from_the_query(self):
+        self.assertEqual(bench.page_heap_mb("heap=320", 20), 320)
+        self.assertEqual(bench.page_heap_mb("", 20), 20)
+        self.assertEqual(bench.page_heap_mb("heap=lots", 20), 20)
+
+    def test_the_next_tab_in_another_renderer_passes(self):
+        result = bench.grown_check({10: ["tab_a"], 11: ["tab_b"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertEqual(result["violations"], [])
+        self.assertFalse(result["same_renderer"])
+
+    def test_the_next_tab_in_the_grown_renderer_below_the_limit_fails(self):
+        result = bench.grown_check({10: ["tab_a", "tab_b"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertTrue(result["same_renderer"])
+        self.assertEqual(len(result["violations"]), 1)
+
+    def test_at_the_limit_chrome_reuses_whatever_the_footprint(self):
+        result = bench.grown_check({10: ["tab_a", "tab_b"]}, "tab_a", "tab_b", renderers=64, limit=64)
+        self.assertTrue(result["same_renderer"])
+        self.assertEqual(result["violations"], [])
+
+    def test_a_tab_without_a_renderer_fails(self):
+        result = bench.grown_check({10: ["tab_a"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertEqual(len(result["violations"]), 1)
+
+    def test_the_cap_needs_a_positive_size(self):
+        with self.assertRaises(SystemExit):
+            bench.parse(["--app", BUNDLE, "--memory-cap-mb", "0"])
+        self.assertEqual(bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256"]).grow_margin_mb, 64)
+
+
 if __name__ == "__main__":
     unittest.main()

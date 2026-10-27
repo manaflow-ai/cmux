@@ -4,6 +4,7 @@ import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextFeatures
+import CmuxNextMemory
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -117,7 +118,8 @@ extension AppServices {
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
-                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
+                                           everyPage = Self.hostsEveryPage(features),
+                                           rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -128,10 +130,18 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
+                                          .cappingSharedRendererMemory(rendererCaps)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Chromium's shared-renderer memory caps from the app's memory budget (p07-memory 111): Chrome's
+    /// `kProcessPerSiteMainFrameTotalMemoryLimit` and subframe reuse threshold, read by the fork.
+    nonisolated static func sharedRendererMemoryCaps(_ budget: SubsystemBudget) -> CEFSharedRendererMemoryCaps {
+        CEFSharedRendererMemoryCaps(mainFrameBytes: budget.sharedRendererMemoryCapBytes,
+                                    subframeBytes: budget.sharedRendererSubframeMemoryCapBytes)
     }
 
     /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.

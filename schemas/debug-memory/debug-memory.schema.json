@@ -61,7 +61,8 @@
       "required": [
         "physical_mib", "gpu_resident_available", "chromium_renderer_limit", "warm_terminal_surfaces", "parked_workspaces",
         "parked_idle_timeout_seconds", "image_cache_bytes", "home_render_bitmap_bytes", "hibernation_snapshot_bytes",
-        "live_hidden_agent_pages", "live_hidden_internal_pages", "kitty_image_bytes_per_surface", "web_process_pages_per_group"
+        "live_hidden_agent_pages", "live_hidden_internal_pages", "kitty_image_bytes_per_surface", "web_process_pages_per_group",
+        "shared_renderer_memory_cap_bytes", "shared_renderer_subframe_memory_cap_bytes"
       ],
       "properties": {
         "physical_mib": { "$ref": "#/$defs/count" },
@@ -76,7 +77,9 @@
         "live_hidden_agent_pages": { "$ref": "#/$defs/count" },
         "live_hidden_internal_pages": { "$ref": "#/$defs/count" },
         "kitty_image_bytes_per_surface": { "$ref": "#/$defs/count" },
-        "web_process_pages_per_group": { "$ref": "#/$defs/count" }
+        "web_process_pages_per_group": { "$ref": "#/$defs/count" },
+        "shared_renderer_memory_cap_bytes": { "$ref": "#/$defs/count" },
+        "shared_renderer_subframe_memory_cap_bytes": { "$ref": "#/$defs/count" }
       }
     },
     "consumers": {

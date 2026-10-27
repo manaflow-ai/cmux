@@ -16,6 +16,12 @@ import Foundation
 ///   [3, 82] on macOS. ``chromiumRendererLimit`` copies the estimate and both clamps.
 /// - `components/viz/client/frame_eviction_manager.cc`: Chrome keeps the saved frames of at most
 ///   min(5, 2 + physical MiB / 256) hidden views and culls them on `OnReleaseMemory`.
+/// - `render_process_host_impl.cc`, `HasEnoughMemoryForAnotherMainFrame` and
+///   `IsBelowReuseResourceThresholds`: a main frame joins a shared renderer only while the renderer's
+///   private footprint plus 1.5 times its footprint per main frame stays under
+///   `kProcessPerSiteMainFrameTotalMemoryLimit` (content/public/common/content_features.cc, 2 GiB); a
+///   subframe joins only while the footprint is under 512 MiB. ``sharedRendererMemoryCapBytes`` and
+///   ``sharedRendererSubframeMemoryCapBytes`` are those two values, on every Mac, as in Chrome.
 ///
 /// ## cmux differences
 ///
@@ -57,6 +63,14 @@ public nonisolated struct SubsystemBudget: Hashable, Sendable {
     public let kittyImageBytesPerSurface: Int
     /// The most WebKit pages that share one WebContent process in a related-view group.
     public let webProcessPagesPerGroup: Int
+    /// A main frame joins a shared Chromium renderer only while the renderer's footprint plus its
+    /// estimate for one more main frame stays under this (Chrome's
+    /// `kProcessPerSiteMainFrameTotalMemoryLimit`; the fork's `cmux-shared-renderer-memory-limit`).
+    /// It also caps the shared renderer of cmux pages, where Chrome has no memory check.
+    public let sharedRendererMemoryCapBytes: Int
+    /// A subframe joins a same-site Chromium renderer only while the renderer's footprint is under this
+    /// (Chrome's subframe process reuse threshold; the fork's `cmux-shared-renderer-subframe-memory-limit`).
+    public let sharedRendererSubframeMemoryCapBytes: Int
 
     /// The budget for a Mac with `physicalBytes` of memory.
     ///
@@ -91,7 +105,15 @@ public nonisolated struct SubsystemBudget: Hashable, Sendable {
         liveHiddenInternalPages = Self.clamp(mib / 4096, 2, 8)
         kittyImageBytesPerSurface = Self.clamp(mib / 4096, 2, 8) * Self.kittyImageBytesPerStep
         webProcessPagesPerGroup = 8
+        sharedRendererMemoryCapBytes = Self.chromeSharedRendererMemoryCapBytes
+        sharedRendererSubframeMemoryCapBytes = Self.chromeSharedRendererSubframeMemoryCapBytes
     }
+
+    /// Chrome's `kProcessPerSiteMainFrameTotalMemoryLimit` default (content/public/common/content_features.cc,
+    /// Chromium 154): 2 GiB.
+    static let chromeSharedRendererMemoryCapBytes = 2 << 30
+    /// Chrome's `g_subframe_process_reuse_memory_threshold` (render_process_host_impl.cc, Chromium 154): 512 MiB.
+    static let chromeSharedRendererSubframeMemoryCapBytes = 512 << 20
 
     /// Chrome's `kEstimatedWebContentsMemoryUsage` on 64-bit builds.
     private static let estimatedWebContentsMiB = 85

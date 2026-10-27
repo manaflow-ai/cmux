@@ -47,12 +47,20 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// PL-memory's cmux page sharing table (``pageSchemeProcessPerSite``): each cmux page host that may
     /// share a renderer, with its cap (``CEFPageSchemes/siteCaps(_:)``). Empty: no switch.
     var pageSiteCaps: [PageSiteCap] = []
+    /// Chrome's memory caps on a shared renderer, from the app's budget (``CEFSharedRendererMemoryCaps``). Nil:
+    /// no switch, Chromium keeps Chrome's values.
+    var sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps?
 
     /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
     /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
-    /// server, `--ignore-certificate-errors-spki-list` trusts only its certificate). Any other switch
-    /// would make a bench build measure an engine Release never runs, so it is dropped.
-    static let benchSwitchNames: Set<String> = ["host-resolver-rules", "ignore-certificate-errors-spki-list"]
+    /// server, `--ignore-certificate-errors-spki-list` trusts only its certificate), and the shared-renderer
+    /// memory caps (``CEFSharedRendererMemoryCaps``), so bench_renderer_sharing can grow a page past a cap
+    /// the code Release runs reads; a bench value replaces the budget's. Any other switch would make a bench
+    /// build measure an engine Release never runs, so it is dropped.
+    static let benchSwitchNames: Set<String> = [
+        "host-resolver-rules", "ignore-certificate-errors-spki-list",
+        CEFSharedRendererMemoryCaps.mainFrameSwitch, CEFSharedRendererMemoryCaps.subframeSwitch,
+    ]
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -130,6 +138,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             result.append(Self.pageSchemeProcessPerSiteArgument(siteCaps))
         }
         if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
+        // Chrome's memory caps on a shared renderer, from the app's budget: a main frame joins a same-site
+        // renderer (and, in the fork, a cmux page a live renderer of the table above) only while the renderer's
+        // footprint plus its estimate for one more main frame stays under the cap (render_process_host_impl.cc
+        // HasEnoughMemoryForAnotherMainFrame). A bench switch of the same name sets it instead.
+        result.append(contentsOf: sharedRendererMemoryArguments)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -234,6 +247,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `cmux-process-reuse-per-renderer-devtools`.
     static let pageSiteSharingForkAPI: Int32 = CEFForkFeatures.pageSiteSharingForkAPI
 
+    /// ``sharedRendererMemoryCaps``' switches, less those ``benchSwitches`` set.
+    var sharedRendererMemoryArguments: [String] {
+        let benchNames = Set(benchSwitches.map(Self.switchName(of:)))
+        return (sharedRendererMemoryCaps?.arguments ?? []).filter { !benchNames.contains(Self.switchName(of: $0)) }
+    }
+
+    /// The name of a `name=value` switch.
+    static func switchName(of entry: String) -> String {
+        String(entry.prefix { $0 != "=" })
+    }
+
     /// The one cmux page sharing table the switch carries: ``pageSiteCaps``, with the agent site's entry
     /// set to ``agentPageMainFrameCap`` when that feature gives one.
     var pageSiteTable: [PageSiteCap] {
@@ -330,7 +354,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         builtInExtensionsAtFirstTab: Bool = false,
         keepsUnpackedEnabled: Bool = false,
         agentPageMainFrameCap: Int? = nil,
-        pageSiteCaps: [PageSiteCap] = []
+        pageSiteCaps: [PageSiteCap] = [],
+        sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
@@ -363,7 +388,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             extraSwitches: extra,
             benchSwitches: bench,
             agentPageMainFrameCap: agentPageMainFrameCap,
-            pageSiteCaps: pageSiteCaps
+            pageSiteCaps: pageSiteCaps,
+            sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
     }
 
