@@ -30,7 +30,8 @@ while (($#)); do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     -d) body="$2"; shift 2 ;;
-    -X|-H|--connect-timeout|--max-time|--retry|--retry-delay|--retry-max-time) shift 2 ;;
+    --max-time) echo "max-time $2" >> "$READS.opts"; shift 2 ;;
+    -X|-H|--connect-timeout|--retry|--retry-delay|--retry-max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
@@ -109,7 +110,20 @@ class StatusMapping(unittest.TestCase):
         _, _, reads = self.run_step(self.reply("pass"))
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
         _, _, reads = self.run_step(self.reply("running"))
-        self.assertEqual(len(reads), 3)
+        self.assertLessEqual(len(reads), 3)
+        # Every read asks for no more than what is left of the overall deadline.
+        _, posts, reads = self.run_step(self.reply("running"), WAIT_SECONDS="400")
+        self.assertTrue(all(read.endswith("&wait=340") or int(read.rsplit("=", 1)[1]) <= 340 for read in reads), reads)
+        self.assertEqual(posts[-1]["state"], "failure")
+
+    def test_the_whole_wait_fits_the_step_and_the_token_hour(self):
+        step = next(step for step in job()["steps"] if "run" in step)
+        self.assertIn("timeout \"$left\" curl", step["run"])
+        self.assertIn("WAIT_SECONDS:-2700", step["run"])
+        # 45 min of waiting, inside the step's 50, the job's 55 and the App token's 60.
+        self.assertLessEqual(2700 / 60 + 3, step["timeout-minutes"])
+        self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
+        self.assertLess(job()["timeout-minutes"], 60)
 
     def test_a_failed_post_is_a_red_job(self):
         code, _, _ = self.run_step(self.reply("pass"), POST_FAILS="1")
