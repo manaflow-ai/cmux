@@ -10,8 +10,9 @@
 //! - Boost, all builds: every send records its registered thread as the
 //!   channel's producer. A blocking receive (`recv`, `recv_timeout`, the
 //!   blocking iterators) that finds no message, on a registered thread of a
-//!   higher class than that producer, starts a QoS override on the producer
-//!   at its own class and ends it when the wait ends. libdispatch does the
+//!   higher class than that producer has when the wait starts (not when it
+//!   sent), starts a QoS override on the producer at its own class and ends
+//!   it when the wait ends. libdispatch does the
 //!   same for a `dispatch_sync` waiter and the thread that drains the queue;
 //!   the override is Chromium's `SetCurrentThreadTypeOverride`
 //!   (base/threading/platform_thread_apple.mm). Linux counts the wait in

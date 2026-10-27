@@ -76,7 +76,7 @@ const NOT_APPLIED: u8 = u8::MAX;
 /// One registered thread.
 #[derive(Debug)]
 pub(crate) struct Row {
-    /// Unique in the process, never 0 (see [`Row::key`]).
+    /// Unique in the process, never 0 (see [`current_id`]).
     id: u64,
     name: String,
     declared: ThreadQos,
@@ -109,20 +109,9 @@ impl Row {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// The thread's id and its class now in one word: `id << 8 | class`.
-    /// Never 0, so 0 can stand for "no registered thread".
-    pub(crate) fn key(&self) -> u64 {
-        self.id << 8 | self.class() as u64
-    }
-
     pub(crate) fn native(&self) -> &NativeThread {
         &self.native
     }
-}
-
-/// The id and class packed in a [`Row::key`].
-pub(crate) fn unpack_key(key: u64) -> (u64, ThreadQos) {
-    (key >> 8, ThreadQos::from_u8(key as u8))
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -207,9 +196,10 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .flatten()
 }
 
-/// The calling thread's [`Row::key`], 0 when it is not registered.
-pub(crate) fn current_key() -> u64 {
-    with_current(Row::key).unwrap_or(0)
+/// The calling thread's row id, 0 when it is not registered (ids start at
+/// 1, so 0 stands for "no registered thread").
+pub(crate) fn current_id() -> u64 {
+    with_current(|row| row.id).unwrap_or(0)
 }
 
 /// Runs `f` on the row of the registered thread `id` with the row lock held:

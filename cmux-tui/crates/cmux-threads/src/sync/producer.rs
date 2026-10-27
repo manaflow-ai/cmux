@@ -62,8 +62,9 @@ pub(super) type Shared = Arc<Producer>;
 /// The producer of one channel, shared by its senders and receivers.
 #[derive(Debug, Default)]
 pub(super) struct Producer {
-    /// The [`Row::key`] of the registered thread that sent last, 0 when an
-    /// unregistered thread did or none has.
+    /// The row id of the registered thread that sent last, 0 when an
+    /// unregistered thread did or none has. Only the id: the producer's class
+    /// can change after it sends, so a wait reads the live class ([`lift`]).
     last: AtomicU64,
     counters: Counters,
 }
@@ -72,9 +73,9 @@ impl Producer {
     /// Records the calling thread as the producer; called on every send.
     #[inline]
     pub(super) fn sent(&self) {
-        let key = registry::current_key();
-        if self.last.load(Ordering::Relaxed) != key {
-            self.last.store(key, Ordering::Relaxed);
+        let id = registry::current_id();
+        if self.last.load(Ordering::Relaxed) != id {
+            self.last.store(id, Ordering::Relaxed);
         }
     }
 
@@ -89,14 +90,11 @@ impl Producer {
     }
 
     fn boost(&self) -> Option<Override> {
-        let (id, sent_at) = registry::unpack_key(self.last.load(Ordering::Relaxed));
+        let id = self.last.load(Ordering::Relaxed);
         if id == 0 {
             return None;
         }
         let consumer = boost::current_class()?;
-        if sent_at >= consumer {
-            return None;
-        }
         match registry::with_live_row(id, |row| lift(row, consumer)) {
             Some(Lift::NotLower) => None,
             Some(Lift::Started(active)) => {

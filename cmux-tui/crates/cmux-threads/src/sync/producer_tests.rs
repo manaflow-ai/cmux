@@ -17,18 +17,23 @@ fn on<R: Send + 'static>(qos: ThreadQos, f: impl FnOnce() -> R + Send + 'static)
 }
 
 /// A producer at `qos` that sends 0 once, then stays registered and holds
-/// `sender` until the returned sender fires.
+/// `sender` until the returned sender fires. Returns once `send` returned, so
+/// the message is queued before any consumer starts: a consumer's first
+/// receive takes it without a wait.
 fn live_producer<S: Send + 'static>(
     qos: ThreadQos,
     sender: S,
     send: fn(&S),
 ) -> (std_mpsc::Sender<()>, std::thread::JoinHandle<()>) {
     let (done, finished) = std_mpsc::channel();
+    let (sent_tx, sent_rx) = std_mpsc::channel();
     let thread = crate::spawn("producer-boost-producer", qos, move || {
         send(&sender);
+        sent_tx.send(()).expect("the test waits for the send");
         finished.recv().expect("the test ends the producer");
     })
     .expect("spawn producer");
+    sent_rx.recv().expect("the producer sends");
     (done, thread)
 }
 
@@ -49,8 +54,17 @@ fn one_boosted_wait() -> ProducerBoosts {
 /// The consumer at `qos` takes the producer's message, waits once for one
 /// that never comes, and returns the channel's counts.
 fn wait_once(qos: ThreadQos, producer: ThreadQos) -> ProducerBoosts {
+    wait_once_after(qos, producer, send_zero)
+}
+
+/// [`wait_once`] on a producer whose first message is sent by `send`.
+fn wait_once_after(
+    qos: ThreadQos,
+    producer: ThreadQos,
+    send: fn(&mpsc::Sender<u32>),
+) -> ProducerBoosts {
     let (sender, receiver) = mpsc::channel();
-    let (done, thread) = live_producer(producer, sender, send_zero);
+    let (done, thread) = live_producer(producer, sender, send);
     let counts = on(qos, move || {
         assert_eq!(receiver.recv(), Ok(0));
         assert_eq!(receiver.recv_timeout(SHORT_WAIT), Err(mpsc::RecvTimeoutError::Timeout));
@@ -64,6 +78,20 @@ fn wait_once(qos: ThreadQos, producer: ThreadQos) -> ProducerBoosts {
 #[test]
 fn a_user_interactive_wait_on_a_utility_producer_starts_and_ends_one_override() {
     let counts = wait_once(ThreadQos::UserInteractive, ThreadQos::Utility);
+    assert_eq!(counts, one_boosted_wait());
+    assert_eq!(counts.open(), 0);
+}
+
+/// The producer sends at the waiter's class and is demoted before the wait:
+/// the wait reads the producer's class when it starts, not the one it sent
+/// at, so it boosts the producer.
+#[test]
+fn a_wait_on_a_producer_demoted_after_its_send_boosts_it() {
+    fn send_then_demote(sender: &mpsc::Sender<u32>) {
+        send_zero(sender);
+        assert_eq!(crate::set_current(ThreadQos::Utility), crate::QosChange::Applied);
+    }
+    let counts = wait_once_after(ThreadQos::Default, ThreadQos::Default, send_then_demote);
     assert_eq!(counts, one_boosted_wait());
     assert_eq!(counts.open(), 0);
 }
@@ -149,8 +177,12 @@ fn macos_the_producer_runs_at_the_waiters_class_during_the_wait() {
 
     let (sender, receiver) = mpsc::channel::<u32>();
     let (read_tx, read_rx) = std_mpsc::channel();
+    let (sent_tx, sent_rx) = std_mpsc::channel();
     let producer = crate::spawn("producer-boost-producer", ThreadQos::Utility, move || {
         sender.send(0).expect("send");
+        // 0 is queued before the consumer starts, so its first receive does
+        // not wait: the only override is the wait for 1.
+        sent_tx.send(()).expect("the test waits for the send");
         let deadline = Instant::now() + Duration::from_secs(10);
         while sender.boosts().started == 0 {
             assert!(Instant::now() < deadline, "the waiter never boosted the producer");
@@ -161,6 +193,7 @@ fn macos_the_producer_runs_at_the_waiters_class_during_the_wait() {
         read_tx.send(during).expect("read");
     })
     .expect("spawn producer");
+    sent_rx.recv().expect("the producer sends");
     let counts = on(ThreadQos::UserInteractive, move || {
         assert_eq!(receiver.recv(), Ok(0));
         assert_eq!(receiver.recv(), Ok(1));
