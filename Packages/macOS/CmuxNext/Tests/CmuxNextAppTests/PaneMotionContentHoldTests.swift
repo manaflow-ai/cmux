@@ -106,12 +106,30 @@ import Testing
         #expect(column.page.frame.width == 184, "one layout at the landed size: \(column.page.frame)")
     }
 
+    /// An ordinary moving shrink (such as unzooming a right-hand chat) also has a nonzero rest
+    /// offset, but it must retain the painted page until landing. Only the explicit handoff flag
+    /// may seed the held size with the narrower target.
+    @Test func anOrdinaryMovingShrinkDoesNotUseHandoffTargetSizing() {
+        let column = Screen(hostFrame: CGRect(x: 400, y: 0, width: 400, height: 300), holdsContent: true)
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.restOffset = CGVector(dx: -200, dy: 0)
+        column.host.isContentHandoff = false
+        column.host.isOnLayoutSpring = true
+        column.host.frame = CGRect(x: 300, y: 0, width: 300, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        #expect(column.page.frame.width == 384, "ordinary shrink reflowed at its moving width: \(column.page.frame)")
+        column.host.frame = CGRect(x: 200, y: 0, width: 200, height: 300)
+        column.host.isOnLayoutSpring = false
+        #expect(column.page.frame.width == 184, "ordinary shrink did not release at landing: \(column.page.frame)")
+    }
+
     /// A handoff moves an already painted full-width chat into its narrower final pane. The first
     /// frame must use the handoff target size so the old width is never replayed at landing.
     @Test func aMovingHandoffUsesItsFinalContentSizeFromTheFirstFrame() {
         let column = Screen(hostFrame: CGRect(x: 400, y: 0, width: 400, height: 300), holdsContent: true)
         column.host.restSize = CGSize(width: 200, height: 300)
         column.host.restOffset = CGVector(dx: -200, dy: 0)
+        column.host.isContentHandoff = true
         column.host.isOnLayoutSpring = true
         column.host.frame = CGRect(x: 200, y: 0, width: 200, height: 300)
         column.host.layoutSubtreeIfNeeded()

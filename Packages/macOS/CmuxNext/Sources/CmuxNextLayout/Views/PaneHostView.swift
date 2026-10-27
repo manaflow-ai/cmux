@@ -32,6 +32,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
     /// default: live resize). Injected so tests pin it without the shared tunable store.
     private let holdsContentInMotion: () -> Bool
+    /// True only for a content handoff: its first spring frame already has the narrower
+    /// destination size, so the held page must start at that target. Ordinary moves (including
+    /// an unzooming chat) keep their painted size even when their rest offset is nonzero.
+    var isContentHandoff = false
 
     init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
         self.pane = pane
@@ -84,7 +88,7 @@ final class PaneHostView: NSView, RestingPlacement {
                 // A handoff pane starts its spring by moving to a narrower final frame. Its
                 // content was still full-width when this flag was set; use the target content
                 // size for that first frame so the handoff never replays a resize at landing.
-                if restOffset != .zero, let rest = restContentSize, content.frame.width > rest.width {
+                if isContentHandoff, let rest = restContentSize, content.frame.width > rest.width {
                     heldContentSize = rest
                 } else {
                     heldContentSize = content.frame.size
@@ -95,6 +99,7 @@ final class PaneHostView: NSView, RestingPlacement {
                 // The one layout at the size the spring landed at, before the content hears it landed.
                 layoutClip()
                 content.notifyPaneMotionSettled()
+                isContentHandoff = false
             }
         }
     }
@@ -250,9 +255,9 @@ final class PaneHostView: NSView, RestingPlacement {
             // A close can retarget a running spring to a wider pane, then an early reopen can
             // retarget it back before the first spring lands. Keep the largest painted content
             // size seen by this motion so the second target does not reflow the page on every frame.
-            if let rest = restContentSize {
-                heldContentSize = CGSize(width: max(heldContentSize!.width, rest.width),
-                                         height: max(heldContentSize!.height, rest.height))
+            if let held = heldContentSize, let rest = restContentSize {
+                heldContentSize = CGSize(width: max(held.width, rest.width),
+                                         height: max(held.height, rest.height))
             }
             layoutClip()
         }
