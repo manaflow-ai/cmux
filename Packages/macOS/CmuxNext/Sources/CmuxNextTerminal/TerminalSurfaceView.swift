@@ -114,9 +114,10 @@ public final class TerminalSurfaceView: NSView {
     private let windowWatch: TerminalWindowWatch
     /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
     private var occlusionWatch: WindowOcclusionSubscription?
-    private var appliedContentScale: NSSize?
+    /// The backing scale and display last given to the surface (`updateContentScale`).
+    private var appliedBacking = TerminalContentScale()
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
-    private(set) var appliedDisplayID: UInt32?
+    var appliedDisplayID: UInt32? { appliedBacking.appliedDisplayID }
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -159,6 +160,9 @@ public final class TerminalSurfaceView: NSView {
     lazy var mouse: any TerminalMouseSink = unsafe GhosttyMouseSink(surface: surface)
     // SAFETY: the frame source holds this view's surface and goes with the view (GhosttyFrameSource).
     lazy var frameSource = unsafe GhosttyFrameSource(surface: surface, view: self)
+    /// Where this view's backing scale and display go: its root layer and Ghostty surface.
+    // SAFETY: the target holds this view's surface and goes with the view (GhosttyScaleTarget).
+    lazy var scaleTarget: any TerminalScaleTarget = unsafe GhosttyScaleTarget(surface: surface, view: self)
 
     // MARK: Lifecycle
 
@@ -380,31 +384,14 @@ public final class TerminalSurfaceView: NSView {
         copyMode.syncCursor()
     }
 
-    /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
-    /// (ghostty.h:1440, :1821).
-    /// Applies only what changed since the last call (a terminal shown again calls it).
+    /// The window's backing scale and screen to the root layer and surface (``TerminalContentScale``).
     private func updateContentScale() {
-        guard let surface else { return }
-        let scale = convertToBacking(NSSize(width: 1, height: 1))
-        if scale != appliedContentScale {
-            appliedContentScale = scale
-            // SAFETY: the view's live surface (`surface`).
-            unsafe ghostty_surface_set_content_scale(surface, scale.width, scale.height)
-        }
-        if let window {
-            if layer?.contentsScale != window.backingScaleFactor {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer?.contentsScale = window.backingScaleFactor
-                CATransaction.commit()
-            }
-            if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-               screenNumber.uint32Value != appliedDisplayID {
-                appliedDisplayID = screenNumber.uint32Value
-                // SAFETY: the view's live surface (`surface`).
-                unsafe ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
-            }
-        }
+        guard surface != nil else { return }
+        let screen = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        let backing = TerminalBacking(windowScale: window?.backingScaleFactor,
+                                      contentScale: convertToBacking(NSSize(width: 1, height: 1)),
+                                      displayID: screen?.uint32Value)
+        appliedBacking.apply(backing, to: scaleTarget)
     }
 
     /// The owner announced `grid`: the surface renders it and reports against it. Its lock
