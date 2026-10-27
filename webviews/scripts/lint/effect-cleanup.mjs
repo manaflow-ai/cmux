@@ -85,6 +85,7 @@ export const intervalCleanup = {
         );
       }
       if (node.type === "AssignmentPattern") return writesHandle(node.left, handle);
+      if (node.type === "RestElement") return writesHandle(node.argument, handle);
       return false;
     }
     function clears(node, handle, seen = new Set()) {
@@ -166,6 +167,13 @@ export const intervalCleanup = {
         let starts = false;
         walk(fn.body, (child) => {
           if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
+          if (child.type === "CallExpression" && resolveFunction(child.callee)) {
+            const called = resolveFunction(child.callee);
+            if (called?.async) starts = true;
+            if (called && called !== fn) walk(called.body, (nested) => {
+              if (nested.type === "CallExpression" && isTimer(nested.callee, "setInterval")) starts = true;
+            });
+          }
         });
         return !starts && clears(fn.body, handle);
       };

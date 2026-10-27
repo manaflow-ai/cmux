@@ -9,6 +9,16 @@ const config = resolve(import.meta.dir, "../scripts/lint/effect-cleanup.json");
 const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
+  [
+    "cleanup helper restart",
+    "useEffect(() => { let id = setInterval(tick, 1000); function restart() { clearInterval(id); id = setInterval(tick, 1000); } return () => restart(); }, []);",
+    1,
+  ],
+  [
+    "rest destructured handle overwrite",
+    "useEffect(() => { let id = setInterval(tick, 1000); [...[id]] = [0]; return () => clearInterval(id); }, []);",
+    1,
+  ],
   ["conditional effect callback", "useEffect(active ? () => { setInterval(tick, 1000); } : () => {}, []);", 1],
   [
     "destructured handle overwrite",
