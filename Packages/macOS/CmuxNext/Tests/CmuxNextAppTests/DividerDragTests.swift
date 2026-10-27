@@ -19,7 +19,7 @@ import Testing
         let provider = Panes()
         let model: LayoutModel
         let root: LayoutRootView
-        let window: NSWindow
+        let window: CursorRectCountingWindow
         let frames = PointerFrameTestRig()
         /// The drag events the screen got, in order.
         var events: [DividerHandleView.DragEvent] = []
@@ -34,8 +34,8 @@ import Testing
                                                        layout: .splits(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))],
                                 activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+            window = CursorRectCountingWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                                              backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -358,6 +358,35 @@ import Testing
         let move = try #require(Self.lastMove(reduced))
         #expect(move.shown == nil)
         #expect(reduced.ratio == plain.ratio)
+    }
+
+    // MARK: Cursor (p04-input-090)
+
+    /// A 20-frame drag invalidates none of the window's cursor rects: the handle and the panes set their
+    /// cursors when the pointer enters (`cursorUpdate`), so the handle's frame moving every frame (here
+    /// once per frame on top of the drag's own layout) rebuilds nothing. Before, each frame change of the
+    /// handle (a `resetCursorRects` override) and each clip or axis change invalidated its rects.
+    @Test func aTwentyFrameDragInvalidatesNoCursorRects() throws {
+        let harness = try Harness()
+        defer { harness.close() }
+        let handle = try harness.handle
+        let start = try harness.center()
+        harness.root.layoutSubtreeIfNeeded()
+        let before = harness.window.cursorRectInvalidations
+        let ratio = harness.ratio
+        handle.mouseDown(with: harness.event(.leftMouseDown, start, at: 1000))
+        for frame in 1...20 {
+            let point = CGPoint(x: start.x - CGFloat(frame) * 5, y: start.y)
+            handle.mouseDragged(with: harness.event(.leftMouseDragged, point, at: 1000 + Double(frame) / 120))
+            harness.frames.frame()
+            harness.root.layoutSubtreeIfNeeded()
+            handle.frame = handle.frame.offsetBy(dx: -1, dy: 0)
+        }
+        handle.mouseUp(with: harness.event(.leftMouseUp, CGPoint(x: start.x - 100, y: start.y), at: 1000 + 21.0 / 120))
+        #expect(harness.moves >= 20, "every frame moved the divider: \(harness.kinds)")
+        #expect(harness.ratio < ratio)
+        #expect(harness.window.cursorRectInvalidations == before,
+                "cursor rects invalidated during the drag: \(harness.window.cursorRectInvalidations - before)")
     }
 
     /// With no frame-aligned input (the feature off), every drag event still moves the divider at once.

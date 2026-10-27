@@ -32,6 +32,7 @@ public class ArrowCursorView: NSView {
     /// The cursor the row last set on a pointer move (`debug.omnibar`).
     private(set) var trackedCursor: OmnibarPointer.Cursor?
 
+    // cursor-rects-allow: the key window's fallback under subviews' own rects (the editing omnibar text); `.cursorUpdate` showed the arrow past the text in a window that was not key (see updateTrackingAreas)
     public override func resetCursorRects() {
         addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
     }

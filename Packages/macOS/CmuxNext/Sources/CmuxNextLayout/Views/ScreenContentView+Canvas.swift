@@ -250,6 +250,7 @@ extension ScreenContentView {
         window?.invalidateCursorRects(for: self)
     }
 
+    // cursor-rects-allow: canvas screens only: per-pane edge and corner bands, five cursors in one view (a strip screen adds none)
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let canvas = canvasState.canvas else { return }

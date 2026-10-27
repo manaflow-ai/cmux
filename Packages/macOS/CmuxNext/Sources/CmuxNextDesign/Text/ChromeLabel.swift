@@ -100,9 +100,17 @@ open class ChromeLabel: NSView {
     open var isSelectable = false {
         didSet {
             if !isSelectable { endSelection() }
-            window?.invalidateCursorRects(for: self)
+            guard isSelectable != oldValue else { return }
+            // Only a selectable label has a cursor area (its I-beam, ``cursorUpdate(with:)``): most labels never do.
+            if isSelectable {
+                selectionCursorArea = addCursorUpdateArea()
+            } else if let selectionCursorArea {
+                removeTrackingArea(selectionCursorArea)
+                self.selectionCursorArea = nil
+            }
         }
     }
+    private var selectionCursorArea: NSTrackingArea?
 
     // MARK: Init
 
@@ -363,8 +371,8 @@ open class ChromeLabel: NSView {
 
     override open var mouseDownCanMoveWindow: Bool { !isSelectable }
 
-    override open func resetCursorRects() {
-        if isSelectable { addCursorRect(bounds, cursor: .iBeam) }
+    override open func cursorUpdate(with event: NSEvent) {
+        if isSelectable { NSCursor.iBeam.set() } else { super.cursorUpdate(with: event) }
     }
 
     /// The selection's text view, first responder; nil when the window keeps its first responder.

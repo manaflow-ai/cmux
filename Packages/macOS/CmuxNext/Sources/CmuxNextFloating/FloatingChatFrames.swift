@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Where the floating chat sits on each screen (cx-b9qi): the frame it was
 /// last moved or resized to there, saved in user defaults by display.
@@ -61,13 +62,19 @@ public struct FloatingChatFrames {
 public final class FloatingChatGrip: NSView {
     public static let height: CGFloat = 12
 
+    override public init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addCursorUpdateArea()
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     override public var mouseDownCanMoveWindow: Bool { true }
 
     override public func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)
     }
 
-    override public func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
-    }
+    override public func cursorUpdate(with event: NSEvent) { NSCursor.openHand.set() }
 }

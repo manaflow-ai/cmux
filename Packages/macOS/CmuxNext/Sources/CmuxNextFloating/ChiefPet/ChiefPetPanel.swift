@@ -170,6 +170,9 @@ final class ChiefPetView: NSView {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// The pointing hand's area over the character (p04-input-090), placed again only when the character moves.
+    /// Always active: the panel is never key.
+    private var characterCursorArea: NSTrackingArea?
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
 
@@ -205,6 +208,12 @@ final class ChiefPetView: NSView {
         super.layout()
         let size = ChiefPetPanel.characterSize
         character.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height, width: size.width, height: size.height)
+        if characterCursorArea?.rect != character.frame {
+            if let characterCursorArea { removeTrackingArea(characterCursorArea) }
+            let area = NSTrackingArea(rect: character.frame, options: [.cursorUpdate, .activeAlways], owner: self)
+            addTrackingArea(area)
+            characterCursorArea = area
+        }
         let width = rail.width
         rail.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: 0, width: width, height: ChiefPetRail.height)
         let badge = badgeView.fittingSize
@@ -266,8 +275,8 @@ final class ChiefPetView: NSView {
     /// Where the character sits in the view.
     var characterFrame: CGRect { character.frame }
 
-    override func resetCursorRects() {
-        addCursorRect(character.frame, cursor: .pointingHand)
+    override func cursorUpdate(with event: NSEvent) {
+        if character.frame.contains(convert(event.locationInWindow, from: nil)) { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
     }
 }
 

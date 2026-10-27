@@ -15,6 +15,7 @@ final class BrowserSectionOverlayView: NSView {
         selection = BrowserSectionSelection(bounds: CGRect(origin: .zero, size: size))
         super.init(frame: CGRect(origin: .zero, size: size))
         autoresizingMask = [.width, .height]
+        addCursorUpdateArea()
         hint.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
         hint.textColor = .white
         hint.alignment = .center
@@ -35,9 +36,7 @@ final class BrowserSectionOverlayView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
-    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
 
     override func mouseDown(with event: NSEvent) {
         selection.begin(at: convert(event.locationInWindow, from: nil))

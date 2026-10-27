@@ -13,6 +13,7 @@ import CmuxNextDesign
 /// holes the in-process page window gets for the same views (``CEFHostView/occlusionRects``).
 extension ChromiumHostPageView {
     /// The page's cursor covers the visible page, less the views over it; with none, AppKit's.
+    // cursor-rects-allow: Chrome's own page view does this (render_widget_host_view_cocoa.mm `-resetCursorRects`); rebuilt when the page changes its cursor, a view over it moves or the page resizes
     public override func resetCursorRects() {
         guard let shownCursor else { return super.resetCursorRects() }
         for rect in Self.uncovered(visibleRect, by: coveredRects) {

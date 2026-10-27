@@ -26,14 +26,13 @@ final class HomeChiefAvatarButton: NSButton {
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: size), heightAnchor.constraint(equalToConstant: size)])
         font = Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis)
         applyTheme()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     /// The picture fills the disc; letters sit centered on the theme's fill, and an emoji (or any
     /// other face that is not letters or digits) fills the disc itself, with no fill behind it.
@@ -98,14 +97,12 @@ final class HomeChiefLinkButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }

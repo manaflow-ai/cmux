@@ -167,18 +167,15 @@ extension TerminalSurfaceView {
 
     // MARK: Cursor
 
+    /// The pointer entered the surface's area (`.cursorUpdate` in ``updateTrackingAreas()``). No cursor
+    /// rects (p04-input-090): a pane resize or a divider drag rebuilds none of the window's.
     public override func cursorUpdate(with event: NSEvent) {
         cursor.set()
-    }
-
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
     }
 
     func setCursor(_ newCursor: NSCursor) {
         guard newCursor != cursor else { return }
         cursor = newCursor
-        window?.invalidateCursorRects(for: self)
         // The pointer's own location: a key event or a late link-filter answer carries none.
         if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()

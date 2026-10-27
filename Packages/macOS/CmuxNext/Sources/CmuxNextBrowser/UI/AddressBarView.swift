@@ -537,6 +537,7 @@ public final class AddressBarView: NSView {
 
     /// The I-beam over the text area, the arrow beside the chip and the
     /// badges (`OmnibarPointer`); the rects follow the text area.
+    // cursor-rects-allow: two cursors by region (I-beam over the text, arrow beside it), rebuilt only when the text area moves (layout); ArrowCursorView's move tracker sets the same cursors outside the key window
     public override func resetCursorRects() {
         let text = textArea
         cursorTextArea = text

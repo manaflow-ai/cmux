@@ -164,7 +164,7 @@ final class DividerMousePanel: NSPanel {
 /// view gets the press and, as the press's view, the drags and the release.
 final class DividerMouseCatcherView: NSView {
     var resizesColumns = true {
-        didSet { if resizesColumns != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet { if resizesColumns != oldValue, isEntered { cursor.set() } }
     }
     var onHover: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?

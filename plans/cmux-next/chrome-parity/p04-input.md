@@ -392,6 +392,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 - MQ-global-input-state: `rg -n 'NSEvent\.(modifierFlags|mouseLocation|pressedMouseButtons)'
   Packages/macOS/CmuxNext/Sources`. 39 hits (checked). Task 095, then one task per package.
 - MQ-cursor-rects: `rg -n 'func resetCursorRects' Packages/macOS/CmuxNext/Sources`. 17 hits (checked). Task 090.
+  Allowed: a hit with `// cursor-rects-allow: <reason>` on the line above (`rg -n -B1 'func resetCursorRects'
+  Packages/macOS/CmuxNext/Sources | rg -c 'cursor-rects-allow'` equals the hit count). After 090: 5 hits, all allowed.
 - MQ-daemon-input-qos: `for n in mux-conn mux-control-dispatch terminal-host-client-input terminal-host-pty
   terminal-host-parser terminal-host-client holder-link mux-attach-out mux-render-attach-out
   mux-resource-terminal-attach mux-line-out mux-pty-input remote-input-writer relay-input; do rg -n "\"$n" cmux-tui/crates

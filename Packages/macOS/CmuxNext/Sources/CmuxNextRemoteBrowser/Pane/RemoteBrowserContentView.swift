@@ -44,11 +44,11 @@ public final class RemoteBrowserContentView: NSView {
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
-    /// The page's cursor (`rb.cursor`), shown over the whole page area.
+    /// The page's cursor (`rb.cursor`), shown over the whole page area: set when the pointer enters
+    /// (the hover area's `.cursorUpdate`, p04-input-090) and when the page changes it under the pointer.
     public var pageCursor: NSCursor = .arrow {
         didSet {
             guard pageCursor !== oldValue else { return }
-            window?.invalidateCursorRects(for: self)
             if let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { pageCursor.set() }
         }
     }
@@ -118,9 +118,7 @@ public final class RemoteBrowserContentView: NSView {
         onViewport?(viewport)
     }
 
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: pageCursor)
-    }
+    public override func cursorUpdate(with event: NSEvent) { pageCursor.set() }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -167,15 +165,16 @@ public final class RemoteBrowserContentView: NSView {
     }
 
     /// Hover: mouse moves, enter and exit while the pointer is over the
-    /// page (CSS `:hover`, tooltips, cursors), with no button down. Covers
-    /// the visible rect, so it follows every resize by itself.
+    /// page (CSS `:hover`, tooltips, cursors), with no button down, and the
+    /// page's cursor on entry. Covers the visible rect, so it follows every
+    /// resize by itself.
     private var hover: NSTrackingArea?
 
     private func installHover() {
         if let hover, trackingAreas.contains(hover) { return }
         let active: NSTrackingArea.Options = isSurface ? .activeInActiveApp : .activeInKeyWindow
         let area = NSTrackingArea(
-            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, active, .inVisibleRect], owner: self, userInfo: nil)
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, active, .inVisibleRect], owner: self, userInfo: nil)
         hover = area
         addTrackingArea(area)
     }
