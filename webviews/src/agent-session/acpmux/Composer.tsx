@@ -1544,7 +1544,7 @@ export function Composer({
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
   // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
-  // strip, before its first send (locationRow.ts); a started chat has it only for a move or a new chat (below).
+  // strip, before its first send (locationRow.ts); a started chat has it only for a move (below).
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
@@ -1564,15 +1564,15 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
-  // A started chat keeps the strip, as its chip's menu, when the host offers a move (Move to Cloud,
-  // Bring Back Local) or Choose folder… for a new chat; with neither, or while its queue heads the
-  // card, it has none.
+  // A started chat keeps the strip, as its chip's menu, only while the host offers it a move (Move
+  // to Cloud, Bring Back Local: the tab's own menu's `moves`); that menu also offers Choose folder…
+  // for a new chat. With no move, or while its queue heads the card, it has none (#20869).
   const startedStrip =
     !locationVisible &&
     isStartedChat(snapshot) &&
     ownQueue(snapshot.queue).length === 0 &&
-    ((onOffload !== undefined && (offloads?.length ?? 0) > 0) ||
-      (onBrowseFolder !== undefined && onNewChat !== undefined));
+    onOffload !== undefined &&
+    (offloads?.length ?? 0) > 0;
   const context =
     locationVisible || startedStrip ? (
       <ComposerContext

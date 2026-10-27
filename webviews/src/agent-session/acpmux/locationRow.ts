@@ -24,8 +24,7 @@ export function chatHasFirstSend(state: LocationState): boolean {
 /// selected session whose summary has not arrived (a reopened chat loading) is not known to be
 /// new and shows none, so a chat with history never flashes it.
 /// A started chat whose own session is known (its summary arrived with its turns). Its strip shows
-/// only where the host offers something to do there (Composer.tsx): a move, or Choose folder… for a
-/// new chat; with neither it has none, as before.
+/// only while the host offers it a move (Composer.tsx); otherwise it has none, as before.
 export function isStartedChat(state: LocationState): boolean {
   if (!state.sessionId || state.summary?.sessionId !== state.sessionId) return false;
   return state.summary.turnCount !== undefined && chatHasFirstSend(state);

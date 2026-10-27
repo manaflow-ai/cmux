@@ -237,9 +237,11 @@ test("a started chat the host can move keeps its chip, whose picker runs the mov
   expect(moves).toEqual(["move"]);
 });
 
-test("a started chat with Choose folder… keeps its chip; the folder picked starts a new chat there", async () => {
+test("a movable started chat's picker also offers Choose folder…, which starts a new chat there", async () => {
   const chats: string[] = [];
   await render(startedChat(), {
+    onOffload: () => {},
+    offloads: ["move"],
     onBrowseFolder: async () => "/Users/you/src/other",
     onNewChat: (cwd: string) => chats.push(cwd),
   });
@@ -249,9 +251,14 @@ test("a started chat with Choose folder… keeps its chip; the folder picked sta
   expect(chats).toEqual(["/Users/you/src/other"]);
 });
 
-test("a started chat with nothing to offer, or with its queue heading the card, has no strip", async () => {
-  // No move from the host (none listed), and no folder panel.
-  await render(startedChat(), { onOffload: () => {}, offloads: [] });
+test("a started chat with no move, or with its queue heading the card, has no strip", async () => {
+  // No move from the host (none listed); Choose folder… alone does not bring the strip back.
+  await render(startedChat(), {
+    onOffload: () => {},
+    offloads: [],
+    onBrowseFolder: async () => "/Users/you/src/other",
+    onNewChat: () => {},
+  });
   expect(strip()).toBeNull();
   await render(startedChat({ queue: [{ id: "q1", prompt: "Then add a test" }] }), {
     onOffload: () => {},
