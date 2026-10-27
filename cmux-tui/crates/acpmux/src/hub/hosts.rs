@@ -100,7 +100,7 @@ impl Hub {
     }
 
     /// `live_host_sessions`, or `None` when the host records cannot be read.
-    fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
+    pub(super) fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
         Self::read_host_records().map(|records| records.live)
     }
 

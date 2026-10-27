@@ -735,10 +735,14 @@ impl Hub {
             }
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let hosted = Self::live_host_sessions();
+        let read = Self::read_live_host_sessions();
+        // Records that can not be read may hide a host whose lines adoption holds again: an off
+        // push waits for adoption then too (`full_access_turned_off`).
+        let unknown = read.is_none();
+        let hosted = read.unwrap_or_default();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && !hosted.is_empty() {
+        if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
