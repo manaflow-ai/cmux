@@ -88,6 +88,9 @@ struct AppEnvironment: Sendable {
     /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
     /// Release and in tests that build `AppServices`.
     var featureLocalOverridesFile: URL?
+    /// The launch's daemon features for every hello to the local daemon and their last answer (`features.list`),
+    /// made in `main` once the features resolve (p12-perf-process-150). Nil in tests that build `AppServices`.
+    var daemonFeatureHello: DaemonFeatureHello?
     var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
     /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
     /// read on a launch lane from `main` beside ``featureLocalOverrides``: their features' local overrides

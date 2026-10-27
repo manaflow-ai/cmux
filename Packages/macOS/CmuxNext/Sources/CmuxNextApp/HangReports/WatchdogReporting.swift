@@ -34,7 +34,8 @@ enum WatchdogReporting {
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
             wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
-            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                                           daemon: services.environment.daemonFeatureHello)] in
                 HangReport.FeatureState(features.fieldState)
             },
             blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })

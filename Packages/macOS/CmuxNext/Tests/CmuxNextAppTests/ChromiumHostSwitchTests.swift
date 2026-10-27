@@ -89,7 +89,7 @@ import Testing
         let store = Self.tunables()
         let features = Self.features(channel)
         let hostSwitch = Self.hostSwitch(features, store)
-        let report = FeatureFlagsPage.report(features, tunables: store)
+        let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
         for toggle in [true, false, nil] as [Bool?] {
             store.set(BrowserHostTunables.helper.key, toggle.map(TunableValue.bool))
             let resolution = report.resolution(of: .cefHelperHost)
@@ -107,9 +107,9 @@ import Testing
     /// Policy and the environment keep their source in the report with the toggle set.
     @Test func theReportKeepsPolicyAndTheEnvironment() {
         let store = Self.tunables(helper: true)
-        let disabled = FeatureFlagsPage.report(Self.features(disabled: ["cefHelperHost"]), tunables: store)
+        let disabled = FeatureFlagsPage.report(Self.features(disabled: ["cefHelperHost"]), tunables: store, daemon: nil)
         #expect(disabled.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .environment))
-        let policy = FeatureFlagsPage.report(Self.features(policyDisabled: ["cefHelperHost"]), tunables: store)
+        let policy = FeatureFlagsPage.report(Self.features(policyDisabled: ["cefHelperHost"]), tunables: store, daemon: nil)
         #expect(policy.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .policy))
     }
 
