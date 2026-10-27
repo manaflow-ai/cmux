@@ -58,11 +58,15 @@ public nonisolated struct HostStepResult: Equatable, Sendable, Codable {
     public var detail: String
     /// A sentence for a person; never a command cmux runs for them.
     public var fix: String?
-    /// Why it failed, for a failure the app acts on (acpmux `host_steps.rs`): `wrong-platform`, or
-    /// `not-this-program` (the host needs a binary only the app has).
+    /// Why it failed, for a failure the app acts on (acpmux `host_steps.rs`):
+    /// `wrong-platform`, `peer_version_skew`, or `not-this-program` (the host
+    /// needs a binary only the app has).
     public var reason: String?
 
     public static let wrongPlatform = "wrong-platform"
+    /// The peer's build is stale and its platform is known to differ; the
+    /// app should install the target-aware binary for that platform.
+    public static let peerVersionSkew = "peer_version_skew"
     public static let notThisProgram = "not-this-program"
 
     public init(step: HostStep, state: HostStepState, detail: String = "", fix: String? = nil, reason: String? = nil) {

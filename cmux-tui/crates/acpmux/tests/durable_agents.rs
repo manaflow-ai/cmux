@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "durable_agents/queue_edit_parts.rs"]
+mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
 #[path = "durable_agents/restart_reattach.rs"]
