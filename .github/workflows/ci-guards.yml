@@ -945,6 +945,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
+      - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
+
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py

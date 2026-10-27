@@ -2006,6 +2006,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
