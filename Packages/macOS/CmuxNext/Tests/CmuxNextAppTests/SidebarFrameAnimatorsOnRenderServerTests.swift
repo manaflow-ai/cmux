@@ -294,10 +294,11 @@ struct SidebarFrameAnimatorsOnRenderServerTests {
             list.scrollClip(to: middle.y, animated: true)
             list.scrollClip(to: end.y, animated: true) // the same turn: no frame shows the first spring yet
             #expect(Self.springs(list) == 1, "a retarget left more than one spring running")
-            var farthest = try Self.farthestSpringOffset(of: list, for: .milliseconds(40))
+            var farthest = try await Self.farthestSpringOffset(of: list, for: .milliseconds(40))
             list.scrollClip(to: middle.y, animated: true) // back while the spring runs
             #expect(Self.springs(list) == 1, "a retarget left more than one spring running")
-            farthest = max(farthest, try Self.farthestSpringOffset(of: list, for: .milliseconds(300)))
+            let afterRetarget = try await Self.farthestSpringOffset(of: list, for: .milliseconds(300))
+            farthest = max(farthest, afterRetarget)
             #expect(farthest <= reach + 0.5, "the content showed \(farthest) pt from the clip, past the \(reach) pt the list realizes")
             #expect(abs(clip.bounds.minY - middle.y) < 0.5)
 
