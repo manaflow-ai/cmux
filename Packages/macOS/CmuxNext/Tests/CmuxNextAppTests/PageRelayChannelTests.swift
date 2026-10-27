@@ -77,7 +77,7 @@ import Testing
         while !Self.floodEnded(page.sent.events), ticks < 2_000 {
             let posts = frames.tasks(of: owner), flushes = frames.tasks(of: flushOwner)
             // One frame interval: the main run loop's turns, where posts made off main arrive, then the frame.
-            frames.runTurnsBetweenFrames()
+            Self.runTurnsBetweenFrames()
             frames.tick()
             ticks += 1
             #expect(frames.tasks(of: owner) - posts <= 1, "at most one main post a frame for the page")
@@ -91,6 +91,12 @@ import Testing
     /// Every event of the flood arrived, or a resync stands for the ones dropped.
     static func floodEnded(_ events: [CmuxNextSettings.JSONValue]) -> Bool {
         events.count >= 1_000 || events.contains { $0["data"]?["resync"]?.boolValue == true }
+    }
+
+    /// Runs the main run loop for about 2 ms: the turns between two frames, where posts made off main
+    /// arrive. Synchronous: `RunLoop.run` is unavailable from async contexts.
+    static func runTurnsBetweenFrames() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
     }
 
     /// Keeps the main actor busy (no wait, no sleep) until `done` or `seconds` pass; whether `done` came.

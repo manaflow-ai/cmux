@@ -1,17 +1,17 @@
 public import CmuxNextWakeups
-import Foundation
 
 /// The app's one main-thread scheduler on display frames the test fires (``tick()``), with a board
 /// whose ledger folds only when read: a test counts the main-thread tasks each owner ran from the
 /// scheduler's own records (``tasks(of:)``), as `debug.main_budget` reads them. Posts made off main
-/// arrive on the main run loop (``runTurns(until:)``). The budget's clock moves one frame per tick
-/// and never inside one, so no class runs out of budget.
+/// arrive on the main run loop, which the test runs between ticks. The budget's clock moves one
+/// frame per tick and never inside one, so no class runs out of budget.
 ///
 /// ```swift
 /// let frames = ManualMainFrames()
 /// let wake = FrameOutboxWake.nextFrame(owner: "pages.events", on: frames.work)
-/// frames.runTurns { frames.tasks(of: "pages.events") == 1 }
+/// // ... offers off main; the test's main run loop turns let the post arrive ...
 /// frames.tick()
+/// #expect(frames.tasks(of: "pages.events.flush") == 1)
 /// ```
 @MainActor
 public final class ManualMainFrames {
@@ -33,25 +33,6 @@ public final class ManualMainFrames {
         frame += 1
         uptime.nanos += 16_666_667
         work.frameDidFire(timestamp: frame, refreshInterval: 1.0 / 60)
-    }
-
-    /// Runs main run loop turns, where posts made off main arrive, until `done` or 5 s pass.
-    ///
-    /// - Returns: Whether `done` came.
-    @discardableResult
-    public func runTurns(until done: () -> Bool) -> Bool {
-        let end = Date(timeIntervalSinceNow: 5)
-        while !done() {
-            guard Date() < end else { return false }
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
-        }
-        return true
-    }
-
-    /// Runs the main run loop for about 2 ms: the turns between two frames, where posts made off main
-    /// arrive. Synchronous, because `RunLoop.run` is unavailable from async contexts.
-    public func runTurnsBetweenFrames() {
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
     }
 
     /// The main-thread tasks `owner` ran so far, every class, from the board's ledger.

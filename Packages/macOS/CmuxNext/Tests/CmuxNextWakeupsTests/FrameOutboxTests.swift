@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Foundation
 import Testing
 
 /// ``FrameOutbox`` (p05-ipc-109): items offered on any thread reach the main actor in one batch per
@@ -113,7 +114,7 @@ import Testing
             await Task.detached { for item in (round * 100)..<(round * 100 + 100) { outbox.offer(item) } }.value
             #expect(outbox.wakeCount == wakes + 1, "round \(round): the first offer after a flush asks again, the rest do not")
             // The post reaches main: it runs in that turn (no frame is due), or waits for the frame.
-            let arrived = frames.runTurns { frames.tasks(of: owner) > posts || frames.work.postedCount(.visible) > 0 }
+            let arrived = Self.runMainTurns { frames.tasks(of: owner) > posts || frames.work.postedCount(.visible) > 0 }
             #expect(arrived, "round \(round): the post reached main")
             var ticks = 0
             while frames.tasks(of: flushOwner) == flushes, ticks < 3 {
@@ -136,6 +137,17 @@ import Testing
         #expect(frames.tasks(of: owner) == 10)
         #expect(frames.tasks(of: flushOwner) == 10)
         #expect(delivered.batches.flatMap { $0.items } == Array(0..<1_000))
+    }
+
+    /// Runs main run loop turns, where posts made off main arrive, until `done` or 5 s pass; whether
+    /// `done` came. Synchronous: `RunLoop.run` is unavailable from async contexts.
+    @MainActor static func runMainTurns(until done: () -> Bool) -> Bool {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done() {
+            guard Date() < end else { return false }
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
+        }
+        return true
     }
 
     /// A flush with nothing held delivers nothing.
