@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextHibernation
 import CmuxNextCompat
+import CmuxNextSettings
 import Testing
 
 /// Memory Saver keep rules (Lawrence 2026-10-24, CLAUDE.md "Copy Chrome's performance model"): a hidden
@@ -86,7 +87,7 @@ import Testing
     }
 
     @Test func theTimeoutKeepsATabThatMayShowNotifications() {
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [
+        let plan = HibernationPlanner.plan(BrowserHibernationSetting(mode: .moderate), pressure: .normal, candidates: [
             page("chat", notifications: true), page("docs", notifications: false),
         ])
         #expect(plan.due == ["docs"])
@@ -95,7 +96,7 @@ import Testing
 
     @Test(arguments: [MemoryPressureLevel.warning, .critical])
     func memoryPressureMayStillTakeIt(_ pressure: MemoryPressureLevel) {
-        let plan = HibernationPlanner.plan(.fallback, pressure: pressure, candidates: [page("chat", notifications: true)])
+        let plan = HibernationPlanner.plan(BrowserHibernationSetting(mode: .moderate), pressure: pressure, candidates: [page("chat", notifications: true)])
         #expect(plan.due == ["chat"])
     }
 }

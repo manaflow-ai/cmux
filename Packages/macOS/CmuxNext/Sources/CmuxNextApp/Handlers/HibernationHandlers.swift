@@ -71,6 +71,8 @@ enum HibernationHandlers {
         if let hibernation = services.cache.hibernation {
             var setting = hibernation.setting
             setting.mode = mode
+            // The person chose a timeout: hidden pages are discarded on their own from now on.
+            setting.discardsAutomatically = true
             hibernation.apply(setting)
         }
         guard let settings = services.settings else { return }

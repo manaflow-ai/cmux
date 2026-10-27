@@ -3,6 +3,9 @@ public import Foundation
 public import WebKit
 import CmuxNextCompat
 import CmuxNextDesign
+import os
+
+private let processLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 // MARK: - Navigation
 
@@ -171,6 +174,9 @@ extension WebKitTab: WKNavigationDelegate {
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()
+        // The sad tab shows; the page reloads only when the person presses Reload.
+        let tabID = id.rawValue
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public); no automatic reload")
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 

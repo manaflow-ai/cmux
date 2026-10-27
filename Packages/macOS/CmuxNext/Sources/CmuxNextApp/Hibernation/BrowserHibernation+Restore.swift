@@ -36,6 +36,9 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        // The page was discarded (logged with its cause); restoring it loads it again.
+        let reason = pendingWakes[key].map { "navigation \($0)" } ?? "shown or woken"
+        logger.notice("restore \(key, privacy: .public): the discarded page reloads from its saved history (\(reason, privacy: .public))")
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
