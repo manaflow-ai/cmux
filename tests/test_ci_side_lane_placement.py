@@ -88,10 +88,14 @@ def env(**overrides: str) -> dict:
     return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "GITHUB_RUN_ATTEMPT": "1", **overrides}
 
 
+# The rescue's re-runs come from GITHUB_TOKEN's actor or the cmux-bot App (pr_runner_pool.RESCUE_ACTORS).
+RESCUE_BOTS = ("github-actions[bot]", "cmux-bot[bot]")
+
+
 def placed_in(attempt: str, actor: str) -> str:
     """The attempt macos-placement last ran in: it runs on attempt 1 and on the rescue's attempt 2
-    (github-actions[bot]); any other attempt carries an earlier attempt's job, outputs and all."""
-    return attempt if attempt == "1" or attempt == "2" and actor == "github-actions[bot]" else "1"
+    (RESCUE_BOTS); any other attempt carries an earlier attempt's job, outputs and all."""
+    return attempt if attempt == "1" or attempt == "2" and actor in RESCUE_BOTS else "1"
 
 
 class Decide(unittest.TestCase):
@@ -828,6 +832,34 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, stale), overflow(name))
                 # A person's re-run stays minis-first at any attempt.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
+
+    def test_a_cmux_bot_rerun_routes_like_the_github_actions_bot(self):
+        """The rescue re-runs with the cmux-bot App's token, so its re-runs' triggering actor is
+        cmux-bot[bot]. Counted as a person's, every one went back to the side label: DEV daily run
+        40444295785 took 10 attempts, each refused by another mini, and never reached Blacksmith."""
+        jobs = self.workflow()["jobs"]
+        github_actions, cmux_bot = RESCUE_BOTS
+        for name in PLACED_JOBS:
+            job = jobs[name]
+            labels = {"runs-on": job["runs-on"]}
+            if "CMUX_NEXT_RUNNER" in job.get("env", {}):
+                labels["CMUX_NEXT_RUNNER"] = job["env"]["CMUX_NEXT_RUNNER"]
+            for key, expression in labels.items():
+                for attempt in ("2", "3", "4", "5"):
+                    for runner, retry in ((STD, ""), (STD, FALLBACK), (SIDE, FALLBACK)):
+                        with self.subTest(job=name, key=key, attempt=attempt, runner=runner, retry=retry):
+                            routed = []
+                            for actor in RESCUE_BOTS:
+                                context = self.context(attempt, runner=runner, triggering_actor=actor)
+                                context["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = retry
+                                routed.append(evaluate(expression, context))
+                            self.assertEqual(routed[1], routed[0], (github_actions, cmux_bot))
+                if key != "runs-on" or name not in JOBS:
+                    continue
+                # A bot attempt 4 leaves the minis for Blacksmith; a person's stays on them.
+                self.assertEqual(evaluate(expression, self.context("4", runner=STD, triggering_actor=cmux_bot)),
+                                 FALLBACK, (name, key))
+                self.assertNotEqual(evaluate(expression, self.context("4", runner=STD)), FALLBACK, (name, key))
 
     def test_the_rescues_first_rerun_overflows_to_blacksmith(self):
         """claude-sr2, 2026-10-21: the bot's first re-run (attempt 2) may go to Blacksmith macOS as

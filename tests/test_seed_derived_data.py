@@ -1503,7 +1503,7 @@ class Wiring(unittest.TestCase):
                 pattern = (r"run_attempt <= ?[4-9]" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
                            else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
                 self.assertIsNone(re.search(pattern, text))
-        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
+        self.assertIn("(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
