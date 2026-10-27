@@ -82,6 +82,71 @@ struct SessionPriorityResumeInputTests {
     }
 
     @Test
+    func clearedAccountKeysAreUnset() throws {
+        // A pane an account switch moved to the default account runs without both keys, and the
+        // restarted shell's rc files or direnv can export either one again.
+        let resume = resumeInput(
+            claudeSnapshot(),
+            target: SessionPriorityTarget(effort: .high),
+            clearedEnvironmentKeys: ["CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CONFIG_DIR"]
+        )
+
+        let command = try #require(resume.posixCommand())
+
+        let unset = "env -u CLAUDE_CONFIG_DIR -u CLAUDE_SECURESTORAGE_CONFIG_DIR "
+        #expect(command.hasPrefix(changeDirectoryPrefix + unset))
+        let unsetRange = try #require(command.range(of: unset))
+        let resumeOption = try #require(command.range(of: "--resume"))
+        #expect(unsetRange.upperBound <= resumeOption.lowerBound)
+        #expect(command.contains("CLAUDE_CODE_EFFORT_LEVEL=high"))
+        #expect(resume.typedInput(dialect: .posix) == command + "\n")
+    }
+
+    @Test
+    func recordedKeyIsNotUnset() throws {
+        let configDirectory = "\(home)/.claude-work"
+        let snapshot = claudeSnapshot(environment: ["CLAUDE_CONFIG_DIR": configDirectory])
+
+        let command = try #require(resumeInput(
+            snapshot,
+            target: SessionPriorityTarget(effort: .high),
+            clearedEnvironmentKeys: ["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+        ).posixCommand())
+
+        #expect(command.hasPrefix(changeDirectoryPrefix + "env -u CLAUDE_SECURESTORAGE_CONFIG_DIR "))
+        #expect(!command.contains("-u CLAUDE_CONFIG_DIR"))
+        #expect(command.contains("CLAUDE_CONFIG_DIR=\(configDirectory)"))
+    }
+
+    @Test
+    func noClearedKeysAddsNoUnset() throws {
+        let command = try #require(resumeInput(claudeSnapshot(), target: SessionPriorityTarget(effort: .high)).posixCommand())
+
+        #expect(!command.contains("env -u"))
+    }
+
+    @Test
+    func emptyRecordedConfigDirectoryProbesTheDefaultAccount() {
+        let defaultDirectory = "\(home)/.claude"
+
+        #expect(Workspace.sessionPriorityConfigDirectory(launchEnvironment: nil, homeDirectory: home) == defaultDirectory)
+        #expect(
+            Workspace.sessionPriorityConfigDirectory(launchEnvironment: ["CLAUDE_CONFIG_DIR": ""], homeDirectory: home)
+                == defaultDirectory
+        )
+        #expect(
+            Workspace.sessionPriorityConfigDirectory(launchEnvironment: ["CLAUDE_CONFIG_DIR": "  "], homeDirectory: home)
+                == defaultDirectory
+        )
+        #expect(
+            Workspace.sessionPriorityConfigDirectory(
+                launchEnvironment: ["CLAUDE_CONFIG_DIR": "\(home)/.claude-work"],
+                homeDirectory: home
+            ) == "\(home)/.claude-work"
+        )
+    }
+
+    @Test
     func ignoredCwdRegistrationGetsNoPrefix() throws {
         var snapshot = claudeSnapshot()
         snapshot.registration = CmuxVaultAgentRegistration(
@@ -113,9 +178,15 @@ struct SessionPriorityResumeInputTests {
 
     private func resumeInput(
         _ snapshot: SessionRestorableAgentSnapshot,
-        target: SessionPriorityTarget
+        target: SessionPriorityTarget,
+        clearedEnvironmentKeys: [String] = []
     ) -> SessionPriorityResumeInput {
-        SessionPriorityResumeInput(snapshot: snapshot, target: target, workingDirectory: project)
+        SessionPriorityResumeInput(
+            snapshot: snapshot,
+            target: target,
+            workingDirectory: project,
+            clearedEnvironmentKeys: clearedEnvironmentKeys
+        )
     }
 
     private func claudeSnapshot(environment: [String: String] = [:]) -> SessionRestorableAgentSnapshot {
