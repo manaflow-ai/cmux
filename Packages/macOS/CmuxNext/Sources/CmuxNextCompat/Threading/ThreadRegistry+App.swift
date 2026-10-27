@@ -46,6 +46,8 @@ extension ThreadRegistry {
         // Settings and files (watchers are utility).
         ThreadDeclaration("com.cmuxterm.next.settings.watcher", qos: .utility),
         ThreadDeclaration("cmux.files.fsevents", qos: .utility),
+        // FolderWatchStream on Linux: one inotify descriptor drained by a read source (p15-oracle-138).
+        ThreadDeclaration("cmux.files.inotify", qos: .userInitiated),
         ThreadDeclaration("cmux.files.tree-fsevents", qos: .utility),
         // Energy: the power-source notifications and their IOKit reads (CmuxNextEnergy PowerSourceMonitor).
         ThreadDeclaration("com.cmuxterm.next.energy.power-source", qos: .utility),
