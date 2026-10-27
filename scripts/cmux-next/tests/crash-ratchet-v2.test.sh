@@ -558,4 +558,113 @@ cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-baseline wrote a report row
 rm -f "$tmp/ci-before.json" "$rb"
 reset
 
+# 24. objc_raises (report-only, p10-stability-166, queue Q19): each pattern (json, file_handle, ns_range) counts per
+#     module with its pattern on the site; a JSON value checked with isValidJSONObject, the throwing FileHandle API,
+#     a whole range spelled from the receiver's length, a range or index bound from the receiver's checkedRange /
+#     checkedIndex, calls without the raising label, comments and strings do not; CheckedFoundation.swift (the
+#     helpers) is not counted; a crash-allow does not hide a hit; the CI compare and its baseline never see the class.
+pattern_hits() { python3 -c 'import json, sys; print(json.load(sys.stdin)["objc_raises"]["patterns"][sys.argv[1]]["modules"].get(sys.argv[2], 0))' "$@"; }
+compat="$app/Sources/CmuxNextCompat"
+mkdir -p "$compat"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+let a = try JSONSerialization.data(withJSONObject: object)
+let b = try? JSONSerialization.data(
+    withJSONObject: payload,
+    options: [.sortedKeys]
+)
+let c = handle.availableData
+handle.seekToEndOfFile()
+let d = handle.readData(ofLength: 4)
+FileHandle.standardError.write(Data("x".utf8))
+pipe.fileHandleForWriting.write(data)
+let out: FileHandle = .standardOutput
+out.write(data)
+let e = text.substring(with: range)
+let f = (s as NSString).attributedSubstring(from: r)
+let g = storage.attribute(.font, at: i, effectiveRange: nil)
+storage.replaceCharacters(in: r, with: "x")
+storage.addAttribute(.font, value: font, range: r)
+storage.addAttributes([.font: font], range: NSRange(location: 1, length: n))
+let h = ns.character(at: i) // crash-allow: the report still counts it
+storage.removeAttribute(.font, range: r)
+storage.enumerateAttribute(.font, in: r) { _, _, _ in }
+let k = ns.range(of: "x", options: [], range: r)
+let l = ns.lineRange(for: r)
+SWIFT
+g add -A
+out="$(report objc_raises)" || fail "--report objc_raises failed: $out"
+[[ "$(hits objc_raises M <<<"$out")" == 19 ]] || fail "an objc_raises pattern was missed (want 19 in M): $out"
+[[ "$(pattern_hits json M <<<"$out")" == 2 ]] || fail "the json pattern count is wrong: $out"
+[[ "$(pattern_hits file_handle M <<<"$out")" == 6 ]] || fail "the file_handle pattern count is wrong: $out"
+[[ "$(pattern_hits ns_range M <<<"$out")" == 11 ]] || fail "the ns_range pattern count is wrong: $out"
+# Each site: path, 1-based line of the call's opening (a wrapped call at its first line), class, module, pattern.
+python3 - "$out" <<'PY' || fail "the objc_raises report is wrong: $out"
+import json, sys
+d = json.loads(sys.argv[1])["objc_raises"]
+assert d["queue"] == "Q19", d.get("queue")
+a = "Packages/macOS/CmuxNext/Sources/M/A.swift"
+sites = {s["line"]: s for s in d["hits"]}
+assert sorted(sites) == [1, 2, 6, 7, 8, 9, 10, 12] + list(range(13, 24)), sorted(sites)
+assert sites[2] == {"path": a, "line": 2, "class": "objc_raises", "module": "M", "hits": 1, "pattern": "json"}, sites[2]
+assert {sites[n]["pattern"] for n in (6, 7, 8, 9, 10, 12)} == {"file_handle"}, sites
+assert {sites[n]["pattern"] for n in range(13, 24)} == {"ns_range"}, sites
+assert sites[18] == {"path": a, "line": 18, "class": "objc_raises", "module": "M", "hits": 1, "pattern": "ns_range"}, sites[18]
+PY
+out="$(ratchet)" || fail "objc_raises reached the CI compare: $out"
+[[ "$out" != *objc_raises* ]] || fail "the CI compare printed objc_raises: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+guard JSONSerialization.isValidJSONObject(object) else { return }
+let a = try JSONSerialization.data(withJSONObject: object)
+let b = JSONSerialization.isValidJSONObject(self.p) ? try? JSONSerialization.data(withJSONObject: p) : nil
+let j = try JSONSerialization.jsonObject(with: data)
+let c = try handle.read(upToCount: 4)
+try handle.seekToEnd()
+try handle.write(contentsOf: data)
+FileHandle.standardError.write(contentsOf: data)
+try data.write(to: url)
+stream.write(data)
+let e = text.substring(with: NSRange(location: 0, length: text.length))
+storage.addAttribute(.font, value: font, range: NSMakeRange(0, storage.length))
+guard let r = text.checkedRange(r0) else { return }
+let f = text.substring(with: r)
+guard let i = ns.checkedIndex(i0),
+      ns.character(at: i) == 10 else { return }
+let g = text.substring(from: 3)
+let h = attribute(forName: "x")
+func character(at index: Int) -> unichar { 0 }
+let k = s.range(of: "x")
+guard let own = checkedRange(r0) else { return }
+let m = substring(with: own)
+// let x = text.substring(with: range)
+let y = "JSONSerialization.data(withJSONObject: x) substring(with: r)"
+SWIFT
+printf 'let z = text.substring(with: range)\nlet w = try JSONSerialization.data(withJSONObject: v)\n' > "$compat/CheckedFoundation.swift"
+printf 'let z = text.substring(with: range)\n' > "$compat/Other.swift"
+g add -A
+out="$(report objc_raises)" || fail "--report objc_raises failed: $out"
+[[ "$(hits objc_raises M <<<"$out")" == 0 ]] || fail "a checked, proven or non-raising form counted as objc_raises: $out"
+[[ "$(hits objc_raises CmuxNextCompat <<<"$out")" == 1 ]] \
+    || fail "CheckedFoundation.swift counted, or another CmuxNextCompat file was exempted: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+guard JSONSerialization.isValidJSONObject(other) else { return }
+let a = try JSONSerialization.data(withJSONObject: object)
+guard let r = other.checkedRange(r0) else { return }
+let f = text.substring(with: r)
+guard let own = checkedRange(r0) else { return }
+let g = text.substring(with: own)
+SWIFT
+out="$(report objc_raises)" || fail "--report objc_raises failed: $out"
+[[ "$(hits objc_raises M <<<"$out")" == 3 ]] || fail "another value's check exempted a call: $out"
+cp "$ci" "$tmp/ci-before.json"
+out="$(report objc_raises --update-report-baseline)" || fail "the objc_raises report baseline was refused: $out"
+python3 - "$rb" <<'PY' || fail "the objc_raises report row is wrong: $(cat "$rb")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["objc_raises"] == {"scope": "packages", "modules": {"CmuxNextCompat": 1, "M": 3}}, d
+PY
+cmp -s "$ci" "$tmp/ci-before.json" || fail "the objc_raises report baseline changed crash-safety-baseline.json"
+rm -f "$tmp/ci-before.json" "$rb"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
