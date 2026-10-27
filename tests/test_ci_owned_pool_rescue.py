@@ -3694,6 +3694,35 @@ class NightlySigningStall(unittest.TestCase):
         self.assertEqual(reads["count"], 3)
         self.assertEqual(mutations(api), [])
 
+    def test_a_stall_found_while_held_keeps_its_first_seen_times(self):
+        # follow() hands its signing state to hold_for_destination(), whose watch() can be the one that finds
+        # the stall; the guard then judges with the same times, so the stall is rescued, not restarted.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        calls = []
+
+        def hold(client, target, outcome, reason, **kwargs):
+            calls.append(kwargs)
+            outcome, reason = rescue.watch(client, target, budget_seconds=kwargs["budget_seconds"],
+                                           now=kwargs["now"], sleep=kwargs["sleep"], log=kwargs["log"],
+                                           deadline=kwargs["deadline"], seen=kwargs["seen"],
+                                           sign_seen=kwargs["sign_seen"], sign_text=kwargs["sign_text"])
+            return outcome, reason, ""
+        real_watch = rescue.watch
+        first = {"done": False}
+
+        def watch(*args, **kwargs):
+            if not first["done"]:
+                first["done"] = True
+                return "rescue", "an owned job is stuck"
+            return real_watch(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "watch", watch), \
+                unittest.mock.patch.object(rescue, "hold_for_destination", hold):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertTrue(calls[0]["sign_seen"])
+        self.assertTrue(calls[0]["sign_text"])
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+
     def test_every_retry_inside_request_keeps_the_guard(self):
         import inspect
         import re as re_module

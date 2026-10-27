@@ -2082,8 +2082,12 @@ STALL_RECHECK_SECONDS = 5 * 60
 def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: str, *, budget_seconds: int,
                          floor_seconds: int | None, deadline: dt.datetime, now: Callable[[], dt.datetime],
                          sleep: Callable[[float], None], log: Callable[[str], None],
-                         seen: dict[Any, dt.datetime]) -> tuple[str, str, str]:
+                         seen: dict[Any, dt.datetime], sign_seen: dict[Any, dt.datetime] | None = None,
+                         sign_text: list[str | None] | None = None) -> tuple[str, str, str]:
     """Keep a queue rescue off a Blacksmith label with no room: returns (outcome, reason, held).
+
+    `sign_seen` and `sign_text` go to its watch() so a signing stall (signing_stall()) found while held keeps
+    the times follow() rescues it by.
 
     The re-run of a rescued run takes its workflow's Blacksmith retry label (move_verdict()). While that
     label is stalled the run stays queued on its owned pool, however long, until the label moves, a
@@ -2131,7 +2135,8 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         current = max(budget_seconds, OWNED_WAIT_FLOOR_SECONDS)
         floor = OWNED_WAIT_FLOOR_SECONDS
         outcome, reason = watch(client, target, budget_seconds=current, now=now, sleep=sleep, log=log,
-                                deadline=deadline, floor_seconds=floor, seen=seen)
+                                deadline=deadline, floor_seconds=floor, seen=seen, sign_seen=sign_seen,
+                                sign_text=sign_text)
     return outcome, reason, held
 
 
@@ -2668,7 +2673,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         if outcome == "rescue" and not target.refusals_only:
             outcome, reason, held = hold_for_destination(
                 client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
-                deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+                deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
+                sign_text=sign_text)
         if outcome != "stalled":
             break
         log(f"stalled: {reason}")
