@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Sites (origins) an agent scripted and sites holding a filled Secure Store login, per browser
@@ -88,7 +89,7 @@ actor BrowserLoginGuards {
     private func load() {
         guard !loaded else { return }
         loaded = true
-        guard let file, let data = try? Data(contentsOf: file),
+        guard let file, let data = try? Data(blockingContentsOf: file),
               let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
         scripted = Set(saved.scripted)
         filled = Set(saved.filled)
@@ -99,7 +100,7 @@ actor BrowserLoginGuards {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         guard let data = try? encoder.encode(Saved(scripted: scripted.sorted(), filled: filled.sorted())) else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        try? FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.blockingWrite(to: file, options: .atomic)
     }
 }
