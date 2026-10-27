@@ -135,6 +135,16 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Closes the newest toast with `id` in `window`, as its close button
+    /// does; false when none shows.
+    @discardableResult
+    public func close(id: String, in window: NSWindow) -> Bool {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }) else { return false }
+        closedByPerson(serial)
+        return true
+    }
+
     /// The responder chain from `responder` has an undo manager that can undo.
     public static func responderCanUndo(_ responder: NSResponder?) -> Bool {
         responder?.undoManager?.canUndo == true

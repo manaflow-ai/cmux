@@ -642,6 +642,21 @@ pub struct StoreConfig {
     /// Segment roll size in bytes for the event log.
     #[serde(default = "default_segment_bytes")]
     pub segment_bytes: u64,
+    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
+    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
+    /// Default 14; 0 keeps every log whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_log_days: Option<u32>,
+}
+
+impl StoreConfig {
+    /// How long a closed chat's log is kept whole; None: always.
+    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
+        match self.closed_log_days.unwrap_or(14) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
+        }
+    }
 }
 
 fn default_segment_bytes() -> u64 {
@@ -650,7 +665,11 @@ fn default_segment_bytes() -> u64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self { mode: StoreMode::Local, segment_bytes: default_segment_bytes() }
+        Self {
+            mode: StoreMode::Local,
+            segment_bytes: default_segment_bytes(),
+            closed_log_days: None,
+        }
     }
 }
 
@@ -902,11 +921,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
     /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host), so the VM boundary is the sandbox: a remote chain's
-    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
-    /// Honored off macOS only, read from this file only (no RPC sets it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub vm_host: bool,
+    /// subagent host, a VM cmux created), so the VM boundary is the sandbox:
+    /// a remote chain's Claude Code runs there without Seatbelt
+    /// (`hub/remote_sandbox.rs`). Honored off macOS only. Absent: on exactly
+    /// when cmux created this VM (`hub/vm_host.rs`); `_acpmux/vm_host` sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_host: Option<bool>,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
@@ -1370,6 +1390,7 @@ pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 pub mod folder_profiles;
+pub mod harness_icon;
 pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,

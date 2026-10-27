@@ -120,9 +120,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage", "pane.showDictation":
+        case "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend":
             if let show = params?["show"] as? Bool {
-                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                let path: [String]
+                switch method {
+                case "pane.showDictation": path = AgentPaneComposerSetting.showDictationPath
+                case "pane.setScrollToBottomOnSend": path = AgentPaneComposerSetting.scrollToBottomOnSendPath
+                default: path = AgentPaneComposerSetting.showContextUsagePath
+                }
                 self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
@@ -284,6 +289,14 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "agent.avatar", "agent.avatar.set", "agent.avatar.remove":
+            // A session id is short; anything else never names a stored avatar.
+            if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
+                self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
+            } else { self = .unsupported(method) }
+        case "harness.symbol":
+            if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
+            else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
             else { self = .unsupported(method) }
@@ -338,6 +351,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+        case "chat.asks.answer":
+            if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":
@@ -437,6 +452,8 @@ extension AgentPaneRequest {
             }
         case _ where AgentPaneEnvironmentRequest.methods.contains(method):
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
+        case _ where AgentPaneCloudMachineRequest.methods.contains(method):
+            self = AgentPaneCloudMachineRequest(method: method, params: params).map(AgentPaneRequest.cloudMachine) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

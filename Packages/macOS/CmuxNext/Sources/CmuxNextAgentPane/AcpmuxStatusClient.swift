@@ -250,18 +250,23 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// The daemon keeps its chats on disk (`store.mode` `local`, the default of every build): a
+    /// daemon without agent hosts that restarts resumes them from there. False for a memory store,
+    /// and for a status that does not say.
+    var chatsOnDisk: Bool
     /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
     /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
     var chiefMuxHome: String?
     /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
     var home: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false, chatsOnDisk: Bool = false,
          chiefMuxHome: String? = nil, home: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chatsOnDisk = chatsOnDisk
         self.chiefMuxHome = chiefMuxHome
         self.home = home
     }
@@ -271,6 +276,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chatsOnDisk = ((result["store"] as? [String: Any])?["mode"] as? String) == "local"
         chiefMuxHome = result["chiefMuxHome"] as? String
         home = result["home"] as? String
     }

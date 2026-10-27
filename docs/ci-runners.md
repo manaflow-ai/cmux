@@ -80,7 +80,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-32vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
-| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -860,6 +860,9 @@ code and jobs that need an OS or Xcode the minis lack stay off owned machines.
 Everything else routes through a picker, with Blacksmith as the overflow and
 ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 
+The nightly Ghostty CLI helper (Zig 0.16.0, macOS 26 SDK) takes the same
+owned route as the app build, then Blacksmith macOS 26; it never needs macOS 15.
+
 Nightly NEXT app builds use `CI_SIDE_LANE_RUNNER`, the same
 controller-managed pool label used by dev builds, on initial push/schedule
 attempts. Main cache-writing builds use the trusted `CI_SEED_TRUSTED_POOL`;
@@ -895,7 +898,7 @@ incremental builds without trusting an old bundle stamp.
 | low-volume GUI dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks | Blacksmith or the caller's runner input | 0 to 1 runs a week; they drive the app in the runner's own session, which a mini's runner lacks (E2E and the rerun use its console session) |
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
-| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
+| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, the release Ghostty helper | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | trusted Blacksmith macOS pool | signing keys remain in protected GitHub environments; no key is written to a worker |
 | `nightly.yml` `build-nightly-app` | main: trusted `CI_SEED_TRUSTED_POOL`; NEXT initial push/schedule: controller-managed `CI_SIDE_LANE_RUNNER`; retries/dispatches/fast: `MACOS_RUNNER_26` / Blacksmith; unsigned resume uses Blacksmith Linux | no dedicated host tuple; every route has a pooled fallback |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |

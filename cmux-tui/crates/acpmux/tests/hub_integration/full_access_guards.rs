@@ -326,3 +326,17 @@ async fn a_fork_of_a_mode_option_chat_keeps_approving() {
     assert_eq!(hub.session_summary(&fork)["preview"], "chose once");
     assert_eq!(autos(&hub, &fid)[0]["fullAccess"], "full-access");
 }
+
+/// MDM forcing `sessions.allowFullAccess` off (the app's push) ends the Full access approvals
+/// too: a chat still in Full access when it arrives asks the person for its harness's guard.
+#[tokio::test]
+async fn a_full_access_off_mdm_forces_stops_full_access_approvals() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "bypassPermissions").await;
+    let push = json!({"enabled": false, "discovery": false, "roots": [], "managedRoots": [],
+                      "allowFullAccess": false, "allowFullAccessManaged": true});
+    let r = c.request("_acpmux/chat_settings", push).await.unwrap();
+    assert_eq!(r["applied"], true, "{r}");
+    let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+    asks_the_person(&mut c, &hub, &id, rid).await;
+}

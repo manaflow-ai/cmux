@@ -29,9 +29,9 @@ area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # and for links.json the URL schemes of CmuxNextCloud's CloudConfiguration.
 area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
-# CmuxNextSettings and the two export tests; their stamp and the exports themselves
-# are checked by defaults_guard.py check-stamp.
-area settings 'Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|schemas/settings-export/|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
+# CmuxNextSettings and the two export tests. Their source stamp is derived
+# (defaults_guard.py source-stamp), never committed.
+area settings 'Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
 # The docs shortcuts read the catalog export and the action string catalogs.
 area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts'
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments.

@@ -161,6 +161,8 @@ extension PageWebView {
 
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
+        // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
+        guard !isClosed else { return }
         chromiumStart?.cancel()
         chromiumStart = nil
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")

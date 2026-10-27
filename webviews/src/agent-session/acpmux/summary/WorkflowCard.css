@@ -17,7 +17,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
 .acpmux-workflow-card:hover:not(:disabled) {
@@ -55,6 +54,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* One line of dots: a run of many agents is cut at the card's edge, never a second line. */
 .acpmux-workflow-card .acpmux-workflow-card__dots {
