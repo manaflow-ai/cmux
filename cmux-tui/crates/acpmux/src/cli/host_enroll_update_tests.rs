@@ -54,15 +54,19 @@ impl Remote for Host {
         }
         assert_eq!(script, probe_script(), "only the probe runs outside the lock");
         let mut words: Vec<String> = self.found.iter().map(|w| format!("{MARK}{w}")).collect();
-        if self.found.contains(&"systemd") && !self.unchecked {
-            words.push(format!("{MARK}checked"));
-        }
         if self.installed.get() && self.install_out.is_empty() && self.starts {
             words.push(format!("{MARK}timer"));
         }
+        if self.found.contains(&"systemd") && !self.unchecked {
+            words.push(format!("{MARK}checked"));
+        }
         Ok(RemoteOut {
             ok: true,
-            stdout: format!("Welcome to box\n{}\n", words.join("\n")),
+            // A login banner that tries to answer first is not read.
+            stdout: format!(
+                "Welcome to box\n{MARK}begin\n{MARK}timer\n{MARK}checked\n{MARK}begin\n{}\n",
+                words.join("\n")
+            ),
             stderr: String::new(),
         })
     }
@@ -86,7 +90,9 @@ impl Remote for Host {
 
 #[test]
 fn the_probe_reads_only_its_own_lines() {
-    let found = parse(&format!("motd: os=Plan9\n{MARK}os=Linux\n{MARK}systemd\n{MARK}timer\n"));
+    let found = parse(&format!(
+        "motd: os=Plan9\n{MARK}begin\n{MARK}os=Linux\n{MARK}systemd\n{MARK}timer\n"
+    ));
     assert_eq!(found, Found { os: "Linux".into(), systemd: true, timer: true, ..Found::default() });
     let script = probe_script();
     assert!(
@@ -174,19 +180,34 @@ fn a_unit_someone_else_wrote_is_left_alone_and_said() {
 #[test]
 fn a_drop_in_found_under_the_lock_stops_the_install() {
     let mut host = Host::new(&["os=Linux", "systemd"]);
-    host.install_out = "ACPMUX_AU=foreign";
+    host.install_out = "ACPMUX_AU=begin\nACPMUX_AU=foreign";
     let r = update(&host, true, None);
     assert_eq!(r.state, StepState::Warn, "{r:?}");
     assert!(r.detail.contains("acpmux did not write"), "{r:?}");
     assert_eq!(host.fenced.borrow().len(), 1);
     // XDG_CONFIG_HOME set in between: the same.
     let mut host = Host::new(&["os=Linux", "systemd"]);
-    host.install_out = "ACPMUX_AU=xdg";
+    host.install_out = "ACPMUX_AU=begin\nACPMUX_AU=xdg";
     let r = update(&host, true, None);
     assert!(r.detail.starts_with("this host sets XDG_CONFIG_HOME"), "{r:?}");
     let script = guarded_install_script();
     assert!(script.starts_with("au_probe() {"), "{script}");
     assert!(script.contains(&hosts::install_script()), "{script}");
+}
+
+/// What the probe prints counts after its own `begin`, and `checked` only
+/// as its last line.
+#[test]
+fn the_probes_words_are_framed() {
+    let found = parse("ACPMUX_AU=timer\nACPMUX_AU=checked\nACPMUX_AU=begin\nACPMUX_AU=systemd\n");
+    assert!(found.systemd && !found.timer && !found.checked, "{found:?}");
+    let cut = parse("ACPMUX_AU=begin\nACPMUX_AU=systemd\nACPMUX_AU=checked\nACPMUX_AU=timer\n");
+    assert!(cut.timer && !cut.checked, "{cut:?}");
+    assert_eq!(parse("ACPMUX_AU=systemd\nACPMUX_AU=checked\n"), Found::default());
+    // A timer the probe saw but did not close is not counted.
+    let mut host = Host::new(&["os=Linux", "systemd", "timer"]);
+    host.unchecked = true;
+    assert_eq!(update(&host, false, None).state, StepState::Warn);
 }
 
 /// A probe cut short (no `checked`), first or under the lock: nothing is
@@ -200,7 +221,7 @@ fn a_probe_that_did_not_read_to_the_end_installs_nothing() {
     assert!(r.detail.starts_with("could not read acpmux-update's units"), "{r:?}");
     assert!(host.fenced.borrow().is_empty());
     let mut host = Host::new(&["os=Linux", "systemd"]);
-    host.install_out = "ACPMUX_AU=unchecked";
+    host.install_out = "ACPMUX_AU=begin\nACPMUX_AU=unchecked";
     let r = update(&host, true, None);
     assert!(r.detail.starts_with("could not read acpmux-update's units"), "{r:?}");
 }
@@ -294,6 +315,8 @@ mod probe_in_a_shell {
         manager_dir: &'static str,
         /// The user manager does not answer (`show-environment` fails).
         no_manager: bool,
+        /// `systemd-analyze` fails.
+        no_analyze: bool,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -316,6 +339,7 @@ mod probe_in_a_shell {
         manager_drop_in_dir: None,
         manager_dir: "manager-units",
         no_manager: false,
+        no_analyze: false,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -334,6 +358,7 @@ mod probe_in_a_shell {
         manager_drop_in_dir: None,
         manager_dir: "manager-units",
         no_manager: false,
+        no_analyze: false,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -391,17 +416,22 @@ mod probe_in_a_shell {
         };
         read_only(0o444, 0o555);
         let manager = root.join(u.manager_dir);
+        // A sibling a glob of the manager's path would match instead.
+        fs::create_dir_all(root.join("manager-unitsa")).unwrap();
         let unit_path = match u.manager_drop_in_dir {
             Some("fails") => "FAIL".to_owned(),
+            Some("empty") => String::new(),
             Some(name) => {
                 fs::create_dir_all(manager.join(name)).unwrap();
                 fs::write(manager.join(name).join("o.conf"), OTHER_TEXT).unwrap();
                 manager.display().to_string()
             }
-            None => String::new(),
+            None => extra.display().to_string(),
         };
         let analyze = bin.join("systemd-analyze");
-        fs::write(&analyze, format!("#!/bin/sh\necho {}\n", extra.display())).unwrap();
+        let analyzed =
+            if u.no_analyze { "exit 1".to_owned() } else { format!("echo {}", extra.display()) };
+        fs::write(&analyze, format!("#!/bin/sh\n{analyzed}\n")).unwrap();
         fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
@@ -524,7 +554,6 @@ esac
             assert_eq!(kind(&probe(typewide)), "foreign");
         }
         for u in [OWN, NONE] {
-            assert_eq!(kind(&probe(Units { manager_drop_in_dir: Some("fails"), ..u })), "foreign");
             // A path with a space (`systemctl show` prints the list
             // space-separated): a piece that is not absolute, or two that
             // join into a path there, is not read as two paths.
@@ -546,6 +575,34 @@ esac
             &guarded_install_script(),
         );
         assert!(parse(&out).foreign && !written, "{out}");
+        // A path a glob would match a sibling of is read as it is.
+        for u in [OWN, NONE] {
+            let glob = Units {
+                manager_drop_in_dir: Some("acpmux-update.service.d"),
+                manager_dir: "manager-units[ab]",
+                ..u
+            };
+            assert_eq!(kind(&probe(glob)), "foreign");
+        }
+    }
+
+    /// A unit path list the manager or `systemd-analyze` does not give (it
+    /// fails, or is empty): the probe is not `checked`, so nothing is
+    /// installed, also under the lock.
+    #[test]
+    fn an_unread_unit_path_list_is_never_checked() {
+        for u in [OWN, NONE] {
+            for broken in [
+                Units { manager_drop_in_dir: Some("fails"), ..u },
+                Units { manager_drop_in_dir: Some("empty"), ..u },
+                Units { no_analyze: true, ..u },
+            ] {
+                let found = probe(broken);
+                assert!(found.systemd && !found.checked, "{found:?}");
+            }
+        }
+        let (out, written) = run(Units { no_analyze: true, ..NONE }, &guarded_install_script());
+        assert!(parse(&out).unchecked && !written, "{out}");
     }
 
     /// A user manager that does not answer, under the lock: nothing is read,
