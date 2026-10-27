@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CryptoKit
 public import Foundation
 import Security
@@ -25,7 +26,7 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         add[kSecValueData as String] = fresh
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         add[kSecAttrLabel as String] = "cmux cookie backup key"
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = blockingSecItemAdd(add as CFDictionary, nil)
         if status == errSecSuccess { return SymmetricKey(data: fresh) }
         // Another process made it first: use that one.
         if status == errSecDuplicateItem, let existing = try read() { return SymmetricKey(data: existing) }
@@ -41,7 +42,7 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data, data.count == 32 else {
             throw CookieBackupError("the cookie backup key could not be read from the Keychain (status \(status))")

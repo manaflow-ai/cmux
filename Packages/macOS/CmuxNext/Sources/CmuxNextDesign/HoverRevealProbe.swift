@@ -43,6 +43,7 @@ final class HoverRevealProbe: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // tracking-area: a bounds rect, not `.inVisibleRect`, and only while it tracks the pointer; it follows bounds changes here.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         let own = trackingAreas.filter { $0.owner === self }

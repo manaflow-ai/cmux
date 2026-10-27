@@ -11,6 +11,7 @@ public import ApplicationServices
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `AXUIElementCopyAttributeValue` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingAXCopyAttributeValue(_ element: AXUIElement, _ attribute: CFString, _ value: UnsafeMutablePointer<CFTypeRef?>,
                                          fileID: StaticString = #fileID, line: UInt = #line) -> AXError {
@@ -29,6 +30,7 @@ public func blockingAXCopyAttributeValue(_ element: AXUIElement, _ attribute: CF
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `AXUIElementSetAttributeValue` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingAXSetAttributeValue(_ element: AXUIElement, _ attribute: CFString, _ value: CFTypeRef,
                                         fileID: StaticString = #fileID, line: UInt = #line) -> AXError {
@@ -44,6 +46,7 @@ public func blockingAXSetAttributeValue(_ element: AXUIElement, _ attribute: CFS
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `AXUIElementPerformAction` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingAXPerformAction(_ element: AXUIElement, _ action: CFString,
                                     fileID: StaticString = #fileID, line: UInt = #line) -> AXError {

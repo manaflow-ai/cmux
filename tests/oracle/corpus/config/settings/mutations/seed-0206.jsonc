@@ -1,0 +1,22 @@
+{
+	"sidebar": {
+		"workspaceRow": {
+			"browser": {
+				"pullRequest": false
+			}
+		},
+		"hoverCards": {
+			"delay": "1"
+		}
+	},
+	"markdown": {
+		"font": {
+			"size": 24
+		}
+	},
+	"browser": {
+		"toolbar": {
+			"menu": false
+		}
+	}
+}

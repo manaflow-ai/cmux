@@ -13,6 +13,9 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         /// cmux's blocking detector (``BlockingViolation``, the copy of Chrome's
         /// `base::ScopedBlockingCall`; wire schema 3 only).
         case detector
+        /// The daemon's own detectors (its blocking table and request watchdog), one sample per site it saw
+        /// first in its life (``DaemonDiagnosticSite``; wire schema 3 only); ``HangSample/daemon`` says which.
+        case daemon
         /// cmux's hang watch: a registered thread or lane still inside its scope 2 s past its budget
         /// (p09-observability-068, Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
         case hangWatch = "hangwatch"
@@ -70,6 +73,29 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(kind.rawValue, forKey: .kind)
             try container.encode(context.rawValue, forKey: .context)
+        }
+    }
+
+    /// What a ``Source/daemon`` sample is: the daemon's own labels (``DaemonDiagnosticSite``), already checked
+    /// to hold no path or text, and its site identity (``DaemonDiagnosticSite/key``).
+    public struct Daemon: Codable, Sendable, Hashable {
+        /// `blocking`, `inversion` or `hang`.
+        public var family: String
+        /// The daemon's kind (`fs`, `recv`, `priority-inversion`, `request`).
+        public var kind: String
+        /// The site: crate, file hash and line, or the request method.
+        public var site: String
+
+        /// Makes the value from its parts.
+        public init(family: String, kind: String, site: String) {
+            self.family = family
+            self.kind = kind
+            self.site = site
+        }
+
+        /// The parts of `site`.
+        public init(_ site: DaemonDiagnosticSite) {
+            self.init(family: site.family.rawValue, kind: site.kind, site: site.key)
         }
     }
 
@@ -161,10 +187,12 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     /// The watched thread of a ``Source/hangWatch`` hang (wire `thread`); nil for every other sample, and in
     /// schema 2 (absent from its JSON).
     public var thread: WatchedThread?
+    /// What a ``Source/daemon`` sample is; nil for every other sample (and absent from its JSON).
+    public var daemon: Daemon?
 
     /// Makes the value from its parts.
     public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangReportFrame],
-                blocking: Blocking? = nil, mainTask: MainTask? = nil, thread: WatchedThread? = nil) {
+                blocking: Blocking? = nil, mainTask: MainTask? = nil, thread: WatchedThread? = nil, daemon: Daemon? = nil) {
         self.source = source
         self.kind = kind
         self.durationMs = max(0, durationMs)
@@ -173,6 +201,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         self.blocking = blocking
         self.mainTask = mainTask
         self.thread = thread
+        self.daemon = daemon
     }
 
     /// The detector's sample of one blocking call site: no duration (the detector reports the site,
@@ -187,12 +216,18 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         HangSample(source: .hangWatch, kind: .hang, durationMs: durationMs, frames: frames, thread: thread)
     }
 
+    /// The sample of one daemon site: no duration and no stack (the daemon names the site, not where its
+    /// thread's stack was), the family, kind and site.
+    public static func daemonSite(_ site: DaemonDiagnosticSite) -> HangSample {
+        HangSample(source: .daemon, kind: .blocking, durationMs: 0, frames: [], daemon: Daemon(site))
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case source, kind, durationMs, cpuMs, frames, blocking, thread
+        case source, kind, durationMs, cpuMs, frames, blocking, thread, daemon
         case mainTask = "task"
     }
 
-    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:thread:)``, so a saved pending file
+    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:thread:daemon:)``, so a saved pending file
     /// is bounded too (nonnegative times, at most ``maxFrames`` frames).
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -203,6 +238,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
                   frames: try container.decode([HangReportFrame].self, forKey: .frames),
                   blocking: try container.decodeIfPresent(Blocking.self, forKey: .blocking),
                   mainTask: try container.decodeIfPresent(MainTask.self, forKey: .mainTask),
-                  thread: try container.decodeIfPresent(WatchedThread.self, forKey: .thread))
+                  thread: try container.decodeIfPresent(WatchedThread.self, forKey: .thread),
+                  daemon: try container.decodeIfPresent(Daemon.self, forKey: .daemon))
     }
 }

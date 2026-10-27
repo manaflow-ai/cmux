@@ -31,6 +31,7 @@ struct Run {
     clock: Arc<ManualClock>,
     presence: Arc<ClientPresence>,
     facts: Arc<Facts>,
+    owner_exit: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     exit: tokio::task::JoinHandle<()>,
 }
 
@@ -39,13 +40,29 @@ impl Run {
         let clock = ManualClock::new();
         let presence = Arc::new(ClientPresence::default());
         let facts = Arc::new(facts);
+        let (owner_exit, exited) = tokio::sync::oneshot::channel::<()>();
         let exit = {
             let (clock, presence, facts) = (clock.clone(), presence.clone(), facts.clone());
             tokio::spawn(async move {
-                wait_for_idle_exit(&presence, clock, facts.as_ref(), GRACE).await;
+                // A dropped sender is no exit (the test ended without one).
+                let owner = async move {
+                    if exited.await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                };
+                wait_for_idle_exit(&presence, clock, facts.as_ref(), GRACE, owner).await;
             })
         };
-        Self { clock, presence, facts, exit }
+        Self { clock, presence, facts, owner_exit: std::sync::Mutex::new(Some(owner_exit)), exit }
+    }
+
+    /// The owning app's process exits (the facts say so, then the watch fires).
+    async fn owner_exits(&self) {
+        self.facts.owner.store(false, Ordering::SeqCst);
+        let sender = self.owner_exit.lock().unwrap().take().expect("one owner exit per run");
+        // A waiter that no longer watches has dropped the receiver; the asserts say what that did.
+        let _ = sender.send(());
+        settle().await;
     }
 
     /// Lets the waiter see every change so far, then moves the clock.
@@ -173,7 +190,8 @@ async fn idle_exit_a_client_at_the_deadline_keeps_the_daemon() {
     let exit = {
         let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
         tokio::spawn(async move {
-            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE).await;
+            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE, std::future::pending())
+                .await;
         })
     };
     settle().await;
@@ -217,7 +235,8 @@ async fn idle_exit_work_found_under_the_fence_reopens() {
     let exit = {
         let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
         tokio::spawn(async move {
-            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE).await;
+            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE, std::future::pending())
+                .await;
         })
     };
     settle().await;
@@ -279,4 +298,141 @@ async fn idle_exit_hub_counts_a_served_connection() {
     drop(in_tx);
     served.await.unwrap();
     assert_eq!(hub.clients.clients(), 0, "a closed connection no longer counts");
+}
+
+// The owning app quits (cmux-ad 2026-10-27: after Cmd-Q the app's acpmux kept
+// running). Chromium's child processes end when the browser process goes; an
+// idle daemon whose app exited serves nobody, so it exits after
+// OWNER_EXIT_GRACE, not after a full IDLE_EXIT_GRACE.
+
+#[tokio::test]
+async fn idle_exit_soon_after_the_owning_app_quits() {
+    let run = Run::start(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let app = run.presence.connect().expect("the app connects");
+    run.advance(GRACE * 2).await;
+    assert!(!run.exited(), "exited under its running, connected app");
+    // The quit: the app's connection closes, then its process is gone.
+    drop(app);
+    run.advance(Duration::from_millis(100)).await;
+    run.owner_exits().await;
+    assert!(!run.exited(), "exited before the owner-exit grace");
+    run.advance(OWNER_EXIT_GRACE).await;
+    assert!(
+        run.exited(),
+        "an idle daemon outlived its app's quit by more than {OWNER_EXIT_GRACE:?}"
+    );
+}
+
+#[tokio::test]
+async fn idle_exit_owner_exit_while_a_client_stays_waits_for_it() {
+    let run = Run::start(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let other = run.presence.connect().expect("a client connects");
+    run.owner_exits().await;
+    run.advance(GRACE * 2).await;
+    assert!(!run.exited(), "exited with a client connected");
+    drop(other);
+    run.advance(OWNER_EXIT_GRACE).await;
+    assert!(run.exited(), "the short grace did not follow the last client after the owner's exit");
+}
+
+#[tokio::test]
+async fn idle_exit_owner_exit_keeps_a_working_daemon() {
+    // Keep Sessions Running keeps agents working: a turn outlives the quit.
+    let run = Run::start(Facts {
+        owner: AtomicBool::new(true),
+        agents: AtomicUsize::new(1),
+        ..Facts::default()
+    });
+    run.owner_exits().await;
+    run.advance(OWNER_EXIT_GRACE * 10).await;
+    assert!(!run.exited(), "exited with a live agent after the owner's exit");
+    run.advance(GRACE * 2).await;
+    assert!(!run.exited(), "exited with a live agent");
+    run.facts.agents.store(0, Ordering::SeqCst);
+    run.advance(GRACE).await;
+    assert!(run.exited(), "stayed past a full grace after the agent's work ended");
+}
+
+#[tokio::test]
+async fn idle_exit_without_an_owner_exit_keeps_the_full_grace() {
+    let run = Run::start(Facts::default());
+    run.advance(OWNER_EXIT_GRACE * 10).await;
+    assert!(!run.exited(), "a daemon whose owner did not exit took the short grace");
+}
+
+/// `OwnerApp::exited` resolves when a real process (here a child) exits, and
+/// at once for one that is already gone.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tokio::test]
+async fn idle_exit_owner_watch_sees_the_process_exit() {
+    let mut child =
+        std::process::Command::new("/bin/sleep").arg("60").spawn().expect("spawn sleep");
+    let owner = OwnerApp::parse(Some(&child.id().to_string()));
+    let watch = tokio::spawn(owner.exited());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!watch.is_finished(), "the watch fired while the owner runs");
+    child.kill().expect("kill sleep");
+    child.wait().expect("reap sleep");
+    tokio::time::timeout(Duration::from_secs(10), watch)
+        .await
+        .expect("the watch missed the owner's exit")
+        .expect("the watch task");
+    // Gone before this watch starts (the pid was reaped above).
+    tokio::time::timeout(Duration::from_secs(10), owner.exited())
+        .await
+        .expect("the watch of an owner already gone never fired");
+}
+
+/// The daemon's exit with `leftoverDaemonIdleExit` off (every channel's
+/// default, and v1.1's): the owning app's quit still ends an idle daemon.
+struct OffRun {
+    clock: Arc<ManualClock>,
+    owner_exit: Option<tokio::sync::oneshot::Sender<()>>,
+    exit: tokio::task::JoinHandle<()>,
+}
+
+fn start_with_the_feature_off(facts: Arc<Facts>) -> OffRun {
+    let clock = ManualClock::new();
+    let presence = Arc::new(ClientPresence::default());
+    let (owner_exit, exited) = tokio::sync::oneshot::channel::<()>();
+    let exit = {
+        let clock = clock.clone();
+        tokio::spawn(async move {
+            let owner = async move {
+                if exited.await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            };
+            wait_for_daemon_exit(false, &presence, clock, facts.as_ref(), owner).await;
+        })
+    };
+    OffRun { clock, owner_exit: Some(owner_exit), exit }
+}
+
+#[tokio::test]
+async fn idle_exit_off_never_exits_while_the_owner_runs() {
+    let facts = Arc::new(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let run = start_with_the_feature_off(facts);
+    for _ in 0..3 {
+        settle().await;
+        run.clock.advance(GRACE);
+        settle().await;
+    }
+    assert!(!run.exit.is_finished(), "the feature off, a daemon exited while its app runs");
+}
+
+#[tokio::test]
+async fn idle_exit_off_the_owners_quit_ends_an_idle_daemon() {
+    let facts = Arc::new(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let mut run = start_with_the_feature_off(facts.clone());
+    settle().await;
+    run.clock.advance(GRACE * 2);
+    settle().await;
+    facts.owner.store(false, Ordering::SeqCst);
+    let _ = run.owner_exit.take().expect("one exit").send(());
+    settle().await;
+    assert!(!run.exit.is_finished(), "exited before the owner-exit grace");
+    run.clock.advance(OWNER_EXIT_GRACE);
+    settle().await;
+    assert!(run.exit.is_finished(), "the feature off, an idle daemon outlived its app's quit");
 }
