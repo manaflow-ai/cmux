@@ -140,6 +140,21 @@ and shows no window, with feature chromiumHostFileDialogs on.
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
 
+Pass/fail rows (task p01-process-160, chromium_host_rows.py): after every run each measured row prints one line per
+check, PASS or FAIL with its done check's number (plans/cmux-next/chrome-parity/p01-process.md section 5), the value
+and its threshold: `ROW 4 kill-host.SEGV restore_ms PASS 1430 (<= 2000 ms)`. A check the run could not measure fails
+with its reason. --list-failing then prints each failing row once (`FAILING <row>`) and writes them to failing.txt in
+--out: `--native-ui --list-failing` is machine queue Q6, and lists the native UI rows that have no runner yet with
+the task that adds them. The process rows (chromium_host_process_rows.py, each on a Chromium tab of the app's backend
+in the Chromium Host) run with their flags, alone unless --modes is given:
+  --kill-host [--signals TRAP,SEGV,ABRT,KILL]  done check 4, with the terminal typing probe across the kills
+  --kill-app                                   done check 20 (relaunches cmux with browserHost.survivesAppCrash)
+  --stall [MS/EVERY] [--stall-idle-minutes N]  done check 5 (default 50/100, then again after 10 idle minutes)
+  --hang [MS], --renderer-hang                 done check 11 (default 5000)
+  --ime, --ax                                  done checks 8 and 9 (--ime also keeps its helper rows)
+  --rows ordering,visibility,display,identity,helper-kill,quit,runtime-update  done checks 7, 12 and task 087;
+                                               display and identity are the display mode and the helper mode's rows
+
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
 they are not shipping latencies. `build` in the report is the bundle's config.
@@ -166,6 +181,8 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_process_rows as process_rows  # noqa: E402
+import chromium_host_rows  # noqa: E402
 
 
 def parse(argv=None):
@@ -174,7 +191,8 @@ def parse(argv=None):
     parser.add_argument("--out", required=True)
     parser.add_argument("--count", type=int, default=60,
                         help="keys and clicks per mode; above about 60 the helper's title passes TITLE_LIMIT")
-    parser.add_argument("--modes", default="inproc,helper")
+    parser.add_argument("--modes", default=None,
+                        help="default inproc,helper; none when only process rows (--kill-host, --rows, ...) are asked for")
     parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
     parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
     parser.add_argument("--pump-seconds", type=float, default=10.0)
@@ -184,6 +202,22 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--list-failing", action="store_true",
+                        help="after the PASS/FAIL lines, each failing row (FAILING <row>; failing.txt in --out): queue Q6")
+    parser.add_argument("--kill-host", action="store_true", help="done check 4 (chromium_host_process_rows.kill_host)")
+    parser.add_argument("--signals", default=",".join(process_rows.DEFAULT_SIGNALS),
+                        help="--kill-host's signals, in order; the one past the restart limit checks the budget")
+    parser.add_argument("--kill-app", action="store_true", help="done check 20: SIGKILL cmux, relaunch, the host adopted")
+    parser.add_argument("--stall", nargs="?", const="50/100", default=None, metavar="MS/EVERY",
+                        help="done check 5: the page's frames while cmux's main thread stalls MS every EVERY ms")
+    parser.add_argument("--stall-idle-minutes", type=float, default=10.0, help="--stall again after this idle (0: skip)")
+    parser.add_argument("--hang", nargs="?", type=int, const=5000, default=None, metavar="MS",
+                        help="done check 11: the host's UI thread blocked MS")
+    parser.add_argument("--renderer-hang", action="store_true", help="done check 11: for (;;) {} in a page")
+    parser.add_argument("--ax", action="store_true", help="done check 9: remote accessibility of a host page")
+    parser.add_argument("--rows", default="", help="more rows by name: ordering, visibility, display, identity, "
+                                                   "helper-kill, quit, runtime-update (or any process row)")
+    parser.add_argument("--ordering-keys", type=int, default=10000, help="the ordering row's keys")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -195,6 +229,18 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if args.native_ui is not None and args.find:
         parser.error("--native-ui and --find each run instead of the modes: pick one")
+    try:
+        args.process_rows, extra_modes = selected_rows(args)
+        args.signals = parse_signals(args.signals)
+        args.stall = parse_stall(args.stall) if args.stall is not None else None
+    except ValueError as error:
+        parser.error(str(error))
+    if args.modes is None:
+        args.modes = ",".join(dict.fromkeys(extra_modes)) if args.process_rows or extra_modes else "inproc,helper"
+    else:
+        args.modes = ",".join(dict.fromkeys(args.modes.split(",") + extra_modes))
+    # --native-ui alone asks for every row of done check 10, those with no runner yet included (Q6).
+    args.native_ui_all = args.native_ui == ""
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
@@ -204,6 +250,45 @@ def parse(argv=None):
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
+
+
+# --rows names that are modes of this script rather than process rows.
+MODE_ROWS = {"display": "display", "identity": "helper"}
+
+
+def selected_rows(args):
+    """(process rows in run order, modes the asked rows need) from the row flags and --rows."""
+    asked = {name for flag, name in ((args.kill_host, "kill-host"), (args.kill_app, "kill-app"),
+                                     (args.stall is not None, "stall"), (args.hang is not None, "hang"),
+                                     (args.renderer_hang, "renderer-hang"), (args.ime, "ime"), (args.ax, "ax")) if flag}
+    modes = ["helper"] if args.ime else []  # ime_row and password_row run in the helper mode
+    for name in filter(None, (n.strip() for n in args.rows.split(","))):
+        if name in MODE_ROWS:
+            modes.append(MODE_ROWS[name])
+        elif name in process_rows.ROWS:
+            asked.add(name)
+        else:
+            raise ValueError(f"--rows: unknown row {name!r} (rows: {', '.join(process_rows.ROWS + tuple(MODE_ROWS))})")
+    return [name for name in process_rows.ROWS if name in asked], modes
+
+
+def parse_signals(text):
+    names = [name.strip().upper().removeprefix("SIG") for name in text.split(",") if name.strip()]
+    unknown = [name for name in names if not hasattr(signal, f"SIG{name}")]
+    if unknown or not names:
+        raise ValueError(f"--signals: unknown {', '.join(unknown) or 'empty list'}")
+    return names
+
+
+def parse_stall(text):
+    ms, _, every = text.partition("/")
+    try:
+        ms, every = int(ms), int(every)
+    except ValueError:
+        raise ValueError(f"--stall takes MS/EVERY, as 50/100: {text!r}") from None
+    if not 0 < ms < every:
+        raise ValueError(f"--stall {text}: the stall must be shorter than its period")
+    return ms, every
 
 
 opts = None  # parse()'s options, set by __main__
@@ -457,6 +542,7 @@ def probe_color_share():
 
 BENCH_START = time.time()
 APP_LOG = {}
+TYPING_PROBE = {}  # {"path": the CMUX_NEXT_TYPING_PROBE CSV} when --kill-host types across the kills
 DEFAULTS = {}
 
 
@@ -665,7 +751,10 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(TUNABLES, open(tunables, "w"))
+    values = dict(TUNABLES["values"])
+    if "kill-app" in opts.process_rows:
+        values["browserHost.survivesAppCrash"] = True  # done check 20: the host outlives cmux (task 150)
+    json.dump({**TUNABLES, "values": values}, open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -682,6 +771,8 @@ def main():
         url = pathlib.Path(find_page).as_uri()
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
+    if "kill-host" in opts.process_rows:
+        env["CMUX_NEXT_TYPING_PROBE"] = TYPING_PROBE["path"] = os.path.join(opts.out, "typing.csv")
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -766,7 +857,11 @@ def main():
             RESULT["baseline"]["census_heavy"] = census(app, "heavy", session="heavy", baseline=before_heavy.get("path"))
             RESULT["baseline"]["memory_split"] = chromium_host_baseline.memory_split(
                 before_heavy, RESULT["baseline"]["census_heavy"])
-        if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
+        if opts.process_rows:
+            RESULT["rows"] = run_process_rows(app, pathlib.Path(probe).as_uri())
+        if "kill-app" in opts.process_rows:
+            RESULT["notes"].append("lifetime rows skipped: kill-app relaunched cmux, the helper mode's host is gone")
+        elif "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
             ok = run_lifetime(app, url) and ok
     except LaunchError as error:
         RESULT["error"] = error.reason
@@ -782,6 +877,11 @@ def main():
                     SAMPLES, RESULT["modes"], session=opts.session, story=opts.story))
         finally:
             try:
+                RESULT["checks"] = chromium_host_rows.from_result(
+                    RESULT, native_rows=None if opts.native_ui_all or opts.native_ui is None else opts.native_ui)
+                RESULT["summary"] = chromium_host_rows.report(
+                    RESULT["checks"], lambda text: print(text, flush=True), list_failing=opts.list_failing,
+                    failing_path=os.path.join(opts.out, "failing.txt"))
                 for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
                     with open(path, "w") as out:
                         json.dump(RESULT, out, indent=2)
@@ -869,19 +969,20 @@ def pace(rpc, key_target, title_of, during=None, samples=None):
 STALL_MS, STALL_EVERY_S = 50, 0.1
 
 
-def stall_row(rpc, key_target, title_of):
-    """Pacing while cmux's main thread stalls on the 9a schedule (`debug.stall`, one socket connection each)."""
+def stall_row(rpc, key_target, title_of, stall_ms=STALL_MS, every_s=STALL_EVERY_S):
+    """Pacing while cmux's main thread stalls `stall_ms` every `every_s` (the 9a schedule by default; `debug.stall`,
+    one socket connection each)."""
     def stalls():
         sent, end = 0, time.monotonic() + 3.6
         while time.monotonic() < end:
             at = time.monotonic()
-            reply = rpc("debug.stall", {"ms": STALL_MS}, timeout=5)
+            reply = rpc("debug.stall", {"ms": stall_ms}, timeout=5)
             if isinstance(reply, dict) and reply.get("stalled_ms"):
                 sent += 1
-            time.sleep(max(0.0, STALL_EVERY_S - (time.monotonic() - at)))  # test harness: the 9a schedule
+            time.sleep(max(0.0, every_s - (time.monotonic() - at)))  # test harness: the stall schedule
         return sent
     row = pace(rpc, key_target, title_of, during=stalls)
-    row.update({"stall_ms": STALL_MS, "every_ms": int(STALL_EVERY_S * 1000), "stalls": row.pop("during"),
+    row.update({"stall_ms": stall_ms, "every_ms": int(every_s * 1000), "stalls": row.pop("during"),
                 "refresh_hz": RESULT.get("refresh_hz")})
     row["pass"] = row["stalls"] > 0 and row.get("long_frames") == 0
     return row
@@ -1670,8 +1771,8 @@ def run_pinch(rpc, url):
 ROW_LIMIT_S = 90  # one row of the input set; a prompt on the console or a stuck reply ends the row, not the step
 
 
-def bounded(rows, name, run):
-    """Runs one row with ROW_LIMIT_S: a row past it is recorded as timed out and the rest go on. Rows talk to the
+def bounded(rows, name, run, limit=ROW_LIMIT_S):
+    """Runs one row with `limit` seconds: a row past it is recorded as timed out and the rest go on. Rows talk to the
     app over its socket (each call has its own timeout) and to LaunchServices, so a row cannot block forever; the
     limit bounds the sum of its waits."""
     import threading
@@ -1684,8 +1785,8 @@ def bounded(rows, name, run):
             result["value"] = {"error": f"{type(error).__name__}: {error}"[:300], "pass": False}
     thread = threading.Thread(target=body, daemon=True)
     thread.start()
-    thread.join(ROW_LIMIT_S)
-    rows[name] = result.get("value") if not thread.is_alive() else {"error": f"timed out after {ROW_LIMIT_S} s", "pass": False}
+    thread.join(limit)
+    rows[name] = result.get("value") if not thread.is_alive() else {"error": f"timed out after {limit} s", "pass": False}
 
 
 def input_rows(rpc, url, title, click_point, borders, host_pid):
@@ -1977,6 +2078,99 @@ def run_lifetime(app, url):
     if not ended:
         os.kill(pid, signal.SIGKILL)  # leave no host behind on the measure host (a grandchild of this bench)
     return True
+
+
+def host_helpers(host_pid):
+    """The Chromium Host's child processes, each {pid, type} (the `--type=` of its command line, from ps)."""
+    import re
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return []
+    found = []
+    for line in listing.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[1] == str(host_pid):
+            kind = re.search(r"--type=([a-z-]+)", parts[2])
+            found.append({"pid": int(parts[0]), "type": kind.group(1) if kind else None})
+    return found
+
+
+def typing_rows():
+    """The typing probe's rows so far (CMUX_NEXT_TYPING_PROBE; TypingLatencyProbe.swift's columns)."""
+    import csv
+    try:
+        with open(TYPING_PROBE["path"]) as handle:
+            return list(csv.DictReader(handle))
+    except (KeyError, OSError):
+        return []
+
+
+def focus_terminal(rpc):
+    """Splits the focused pane down (a new terminal) and returns True once a terminal tab's pane has the focus."""
+    rpc("action.run", {"action": "splitDown", "focus": True, "origin": "script"}, timeout=60)
+
+    def focused_terminal():
+        windows = (rpc("debug.focus") or {}).get("windows") or []
+        window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+        pane = (window.get("model") or {}).get("pane")
+        panes = [p for workspace in topology(rpc).get("workspaces") or [] for screen in workspace.get("screens") or []
+                 for p in screen.get("panes") or [] if pane and p.get("id") == pane]
+        return any(t.get("kind") == "terminal" and t.get("selected") for p in panes for t in p.get("tabs") or [])
+    return bool(wait(focused_terminal, 10, 0.2))
+
+
+def stall_pace(rpc, url):
+    """The stall row's pacing on a fresh probe tab of the app's backend (the Chromium Host in host mode)."""
+    def run(stall_ms, every_ms):
+        page, click_point, _ = open_inproc_probe(rpc, url, f"stall-{stall_ms}-{every_ms}-{int(time.time())}")
+        if not page:
+            return {"error": click_point}
+        rpc("debug.mouse", {"target": "page", **click_point("t")})
+        return stall_row(rpc, {"target": "page"}, lambda: page("document.title"), stall_ms, every_ms / 1000)
+    return run
+
+
+def relaunch_after_kill(app):
+    """SIGKILL to the cmux this bench started, then the same launch again; when it first answered."""
+    def run():
+        app.process.kill()
+        app.process.wait(30)
+        try:
+            app.launch(probe_first_answer=True)
+        except LaunchError as error:
+            return {"error": error.reason}
+        settle_host_feature(app)
+        return {"first_answer_ms": getattr(app, "first_answer_ms", None)}
+    return run
+
+
+def run_process_rows(app, url):
+    """The asked process rows (chromium_host_process_rows.py), each bounded by its own limit, in their order."""
+    rpc = app.rpc
+
+    def write_page(name, html):
+        path = os.path.join(opts.out, name)
+        with open(path, "w") as out:
+            out.write(html)
+        return pathlib.Path(path).as_uri()
+    lab = process_rows.Lab(
+        rpc=rpc, wait=wait, sleep=time.sleep, now=time.monotonic, uptime=lambda: time.clock_gettime(time.CLOCK_UPTIME_RAW),
+        kill=os.kill, pid_gone=pid_gone, host_pid=chromium_host_pid,
+        app_pid=lambda: app.process.pid if app.process and app.process.poll() is None else None,
+        helpers=host_helpers, typing_rows=typing_rows, focus_terminal=lambda: focus_terminal(rpc),
+        secure_pid=secure_input_pid, ax_text=process_rows.ax_find_text, front=front_pid, write_page=write_page,
+        stall_pace=stall_pace(rpc, url), relaunch=relaunch_after_kill(app),
+        hz=RESULT.get("refresh_hz") or main_display_hz() or 60.0)
+    params = {"signals": opts.signals, "hang_ms": opts.hang, "ordering_keys": opts.ordering_keys, "stall": opts.stall,
+              "stall_idle_minutes": opts.stall_idle_minutes}
+    out = {}
+    for name in opts.process_rows:
+        limit = process_rows.ROW_LIMIT_S.get(name, ROW_LIMIT_S)
+        if name == "stall":
+            limit += int(opts.stall_idle_minutes * 60)
+        bounded(out, name, lambda name=name: process_rows.run_row(lab, name, params), limit)
+    return out
 
 
 if __name__ == "__main__":
