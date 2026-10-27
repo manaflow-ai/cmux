@@ -47,4 +47,20 @@ import Testing
         #expect(!plus.showsChevron, "no caret on the pane's +")
         #expect(plus.accessibilityRole() == .button)
     }
+
+    @Test func theScreenBarPlusIsTheOneWithACaret() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: Self.tree([1]))
+        let workspace = try #require(store.workspaces.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: WindowState(record: record))
+        defer { withExtendedLifetime(services) { content.teardown() } }
+        let bar = content.screenBar.view
+        #expect(bar.opensNewTabMenuOnPress, "the screen bar's + opens its menu on press")
+        #expect(bar.newTabButton.showsChevron, "the caret belongs on the screen bar's + only")
+        #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
+    }
 }
