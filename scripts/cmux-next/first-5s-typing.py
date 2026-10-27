@@ -1,0 +1,665 @@
+#!/usr/bin/env python3
+"""Run-it-yourself bench: the first 5 s of typing into a new terminal, a new split and a new browser tab.
+
+Lawrence (2026-10-27, v2.2.3): "typing into a new terminal is laggy at first but then no more lag after like 3
+seconds", and the same for other first actions (new tabs). The first-keys check (new-terminal-first-keys.py) times only
+the first key of each new terminal, so it cannot see a lag that lasts seconds. This bench types for the whole window.
+
+Per app (several fleet builds in one step, so they share a host, a display and a shell): launch it with a real shell
+config like Lawrence's (oh-my-zsh, the half-life theme, zsh-autosuggestions and a long history, its prompt in a git
+repository: this checkout), open a base terminal, then per round:
+
+  terminal  Cmd-T (a new terminal tab), then one key every --interval (50 ms) for --seconds (5 s), the first key
+            --interval after the Cmd-T;
+  split     Cmd-D (a new terminal split), the same keys;
+  browser   Cmd-Shift-L (a new browser tab; its address bar has the keyboard), the same keys into the address bar.
+
+Each key's latency is put against the time since the open key, in 500 ms buckets (p50 / p95 / max per bucket):
+
+  probe     cmux-next builds: the typing probe (CMUX_NEXT_TYPING_PROBE) key-to-frame, `contents_ms` (the frame Ghostty
+            hands to the layer after the echo's parse) or, for an AppKit text field, `commit_ms`; with its hops
+            (dispatch, PTY write, echo received) so the app's share and the shell's share are apart.
+  photon    every build, classic cmux too: the first frame of the app's window that changed after the key, read from
+            ScreenCaptureKit in a process of its own (first5s-photon.swift, display time on the key's clock). Cursor
+            blink is off, so a change after a key is the key's echo or other work the window shows.
+
+Keys are the app's own synthetic key path (cmux-next `debug.key`, classic `simulate_shortcut`), each stamped with the
+time it was scheduled: a key that waits because the main thread is busy counts that wait, as a person's key queued in
+the window server would. (Real HID input needs the Accessibility grant, which the perf hosts do not hold.)
+
+Over the same window it records what the main thread did:
+  hangs     cmux-next: `debug.hangs` with the watchdog at --hang-ms (8 ms): each stall's start, length, CPU and
+            stack, the scheduled task it caught, and the tasks over their budget, placed on the round's timeline.
+  sample    one extra round per scenario under `/usr/bin/sample` (1 ms), the main thread's call tree (both families).
+
+  first-5s-typing.py --app APP --out DIR [--json FILE] [--family next|classic] [--scenarios terminal,split,browser]
+                     [--rounds 6] [--seconds 5] [--interval 0.05]
+  first-5s-typing.py --apps-sha256 A,B,C --out DIR   (fleet builds, fetched by fleet-app-fetch.py)
+  split-spring.sh --suite=first5s --apps-sha256=A,B,C --vdisplay=120   (on a perf-lead Mac through cmux-ci, exclusive)
+
+Never a CI job: run it yourself on the fleet, before and after a change.
+"""
+import argparse, base64, glob, json, os, pwd, re, shutil, signal, socket, statistics, subprocess, sys, threading, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import hid_input  # noqa: E402
+import typing_report  # noqa: E402
+from bench_launch import BenchApp, LaunchError, main_binary, shipping_env  # noqa: E402
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--app")
+parser.add_argument("--apps-sha256", default="", help="comma list of fleet app artifacts (sha256), measured in turn")
+parser.add_argument("--out", required=True)
+parser.add_argument("--json")
+parser.add_argument("--tag")
+parser.add_argument("--families", default="", help="comma list, one per app: next (cmux-next) or classic (default next)")
+parser.add_argument("--scenarios", default="terminal,split,browser")
+parser.add_argument("--rounds", type=int, default=6, help="measured rounds per scenario")
+parser.add_argument("--sample-rounds", type=int, default=1, help="extra rounds per scenario under /usr/bin/sample")
+parser.add_argument("--seconds", type=float, default=5.0)
+parser.add_argument("--interval", type=float, default=0.05)
+parser.add_argument("--bucket-ms", type=float, default=500)
+parser.add_argument("--settle", type=float, default=1.5)
+parser.add_argument("--gap", type=float, default=3.0, help="seconds between rounds (the close settles)")
+parser.add_argument("--hang-ms", type=int, default=8)
+parser.add_argument("--no-photon", action="store_true")
+parser.add_argument("--no-shell", action="store_true", help="the host's own shell config (no oh-my-zsh)")
+parser.add_argument("--still", action="store_true", help="a JPEG of the window at the end of each round in the report")
+opts, _unknown = parser.parse_known_args()
+
+OUT = os.path.abspath(opts.out)
+os.makedirs(OUT, exist_ok=True)
+SCENARIOS = [s for s in opts.scenarios.split(",") if s]
+OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
+REPO = subprocess.run(["git", "-C", HERE, "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or HERE
+NOW_NS = lambda: time.clock_gettime_ns(getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC))  # noqa: E731
+
+
+def note(text):
+    print(text, flush=True)
+
+
+def account_home():
+    return pwd.getpwuid(os.getuid()).pw_dir
+
+
+# ---------------------------------------------------------------- the shell: oh-my-zsh + autosuggestions + git prompt
+ZSHRC = r'''# first-5s-typing.py: a shell like Lawrence's (oh-my-zsh, half-life, zsh-autosuggestions, long history, git repo)
+export ZSH="$ZDOTDIR/ohmyzsh"
+ZSH_THEME="half-life"
+DISABLE_AUTO_UPDATE=true
+zstyle ':omz:update' mode disabled
+ZSH_COMPDUMP="$ZDOTDIR/.zcompdump"
+HISTFILE="$ZDOTDIR/.zsh_history"
+HISTSIZE=50000
+SAVEHIST=50000
+plugins=(git zsh-autosuggestions)
+source "$ZSH/oh-my-zsh.sh"
+[[ -n "$FIRST5S_REPO" ]] && cd "$FIRST5S_REPO"
+: > "$ZDOTDIR/loaded.$$"
+'''
+
+
+def clone(url, dest):
+    cache_root = os.environ.get("CI_SHARED_CACHE_DIR")
+    cached = os.path.join(cache_root, "first5s-shell", os.path.basename(dest)) if cache_root else None
+    if cached and os.path.isdir(os.path.join(cached, ".git")):
+        shutil.copytree(cached, dest, symlinks=True)
+        return "cache"
+    subprocess.run(["git", "clone", "--quiet", "--depth", "1", url, dest], check=True, timeout=300)
+    if cached:
+        try:
+            shutil.rmtree(cached, ignore_errors=True)
+            shutil.copytree(dest, cached, symlinks=True)
+        except OSError:
+            pass
+    return "clone"
+
+
+def shell_setup():
+    """ZDOTDIR with oh-my-zsh (half-life), zsh-autosuggestions and 20,000 history lines, warmed once (compinit)."""
+    zdot = os.path.join(OUT, "zdotdir")
+    if os.path.exists(os.path.join(zdot, ".zshrc")):
+        return zdot, {}
+    shutil.rmtree(zdot, ignore_errors=True)
+    os.makedirs(zdot)
+    info = {"ohmyzsh": clone("https://github.com/ohmyzsh/ohmyzsh.git", os.path.join(zdot, "ohmyzsh"))}
+    info["autosuggestions"] = clone("https://github.com/zsh-users/zsh-autosuggestions.git",
+                                    os.path.join(zdot, "ohmyzsh", "custom", "plugins", "zsh-autosuggestions"))
+    for name in ("ohmyzsh", "ohmyzsh/custom/plugins/zsh-autosuggestions"):
+        info[name + "_commit"] = subprocess.run(["git", "-C", os.path.join(zdot, name), "rev-parse", "HEAD"],
+                                                capture_output=True, text=True).stdout.strip()
+    with open(os.path.join(zdot, ".zshrc"), "w") as f:
+        f.write(ZSHRC)
+    words = ["git status", "git log --oneline -20", "cd ~/fun/cmux", "ls -la", "make", "cargo build", "rg TODO",
+             "python3 scripts/cmux-next/bench.py", "gh pr view", "vim Package.swift", "bun run check", "ssh cmux-lawrence"]
+    alphabet = hid_input.LETTERS * 8
+    with open(os.path.join(zdot, ".zsh_history"), "w") as f:
+        stamp = 1793000000
+        for i in range(20000):
+            f.write(f": {stamp + i}:0;{words[i % len(words)]} {i}\n")
+        f.write(f": {stamp + 20001}:0;{alphabet[:200]}\n")  # the typed letters keep a suggestion on screen
+    env = dict(os.environ, ZDOTDIR=zdot, FIRST5S_REPO=REPO)
+    t0 = time.monotonic()
+    warm = subprocess.run(["/bin/zsh", "-i", "-c", "exit"], env=env, capture_output=True, text=True, timeout=120)
+    info["warm_zsh_s"] = round(time.monotonic() - t0, 3)
+    info["warm_zsh_exit"] = warm.returncode
+    t0 = time.monotonic()
+    subprocess.run(["/bin/zsh", "-i", "-c", "exit"], env=env, capture_output=True, text=True, timeout=120)
+    info["second_zsh_s"] = round(time.monotonic() - t0, 3)
+    for path in glob.glob(os.path.join(zdot, "loaded.*")):
+        os.remove(path)
+    note(f"first5s: shell {json.dumps(info)}")
+    return zdot, info
+
+
+def shell_env(zdot):
+    return {} if not zdot else {"ZDOTDIR": zdot, "FIRST5S_REPO": REPO, "SHELL": "/bin/zsh"}
+
+
+def shells_loaded(zdot):
+    return len(glob.glob(os.path.join(zdot, "loaded.*"))) if zdot else None
+
+
+# ---------------------------------------------------------------- the photon recorder (ScreenCaptureKit)
+def photon_binary():
+    binary = os.path.join(OUT, "bin", "first5s-photon")
+    if os.path.exists(binary):
+        return binary, None
+    os.makedirs(os.path.dirname(binary), exist_ok=True)
+    try:
+        build = subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-O", os.path.join(HERE, "first5s-photon.swift"),
+                                "-o", binary], capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, f"first5s-photon did not compile: {error}"
+    if build.returncode != 0:
+        return None, f"first5s-photon did not compile: {build.stderr[-600:]}"
+    return binary, None
+
+
+class Photon:
+    def __init__(self, pid, out):
+        self.path, self.proc, self.error = out, None, None
+        if opts.no_photon:
+            self.error = "off"
+            return
+        binary, self.error = photon_binary()
+        if not binary:
+            return
+        self.proc = subprocess.Popen([binary, "--pid", str(pid), "--out", out, "--seconds", "3600"],
+                                     stdout=subprocess.DEVNULL, stderr=open(out + ".err", "w"))
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            head = self._lines(2)
+            if head and (head[0].startswith("ready") or head[0].startswith("error")):
+                break
+            if self.proc.poll() is not None:
+                break
+            time.sleep(0.2)
+        head = self._lines(1)
+        self.ready = head[0] if head else None
+        if not self.ready or not self.ready.startswith("ready"):
+            err = ""
+            try:
+                err = open(out + ".err").read()[-300:]
+            except OSError:
+                pass
+            self.error = (self.ready or "no ready line") + " " + err
+            self.stop()
+        note(f"first5s: photon {self.ready or self.error}")
+
+    def _lines(self, limit=None):
+        try:
+            with open(self.path) as f:
+                lines = f.read().splitlines()
+        except OSError:
+            return []
+        return lines[:limit] if limit else lines
+
+    def frames(self, start_ns, end_ns):
+        out = []
+        for line in self._lines():
+            parts = line.split()
+            if len(parts) == 7 and parts[0] == "frame":
+                ns = int(parts[1])
+                if start_ns <= ns <= end_ns:
+                    out.append([ns, int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])])
+        return out
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()  # the helper this bench started, by its PID
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+
+def photon_ms(frames, key_ns, next_cap_ns, big_area):
+    """The first changed frame after the key that is not a whole-window repaint (the echo), ms after the key."""
+    for ns, changed, _x, _y, w, h in frames:
+        if ns > key_ns and w * h < big_area:
+            return round((ns - key_ns) / 1e6, 2)
+        if ns > next_cap_ns:
+            break
+    return None
+
+
+# ---------------------------------------------------------------- the two app families
+class NextApp:
+    family = "next"
+
+    def __init__(self, app, zdot, out):
+        self.app, self.out = app, out
+        self.probe = os.path.join(out, "typing-probe.csv")
+        env = {"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms),
+               **shipping_env(draw=False), **shell_env(zdot)}
+        self.bench = BenchApp(app, out=out, config={"browser": {"defaultEngine": "chromium"}}, window=(40, 40, 1400, 900),
+                              log_name="app-first5s.log", env=env)
+        with open(os.path.join(self.bench.scratch, "ghostty"), "w") as f:
+            f.write("cursor-style-blink = false\n")
+        self.control = hid_input.Control("", os.path.join(app, "Contents/Resources/bin/cmux"), None)
+
+    def launch(self):
+        self.bench.launch(timeout=180)
+        self.control.socket_path = self.bench.socket
+        self.control.config = os.path.join(self.bench.scratch, "cmux.json")
+        time.sleep(6)
+        note(f"first5s: activate {self.bench.activate()}")
+        self.pid = self.bench.process.pid
+        reply = self.control.action("newSurface", focus=True)  # the base terminal, from Home's dock
+        note(f"first5s: base terminal {json.dumps(reply)[:160]}")
+        time.sleep(4)
+
+    def key(self, name, modifiers=(), stamp=None):
+        params = {"key": name, "timestamp": stamp if stamp is not None else hid_input.uptime_raw()}
+        if modifiers:
+            params["modifiers"] = list(modifiers)
+        return self.control.rpc("debug.key", params, timeout=20)
+
+    def close(self, scenario):
+        self.control.action("closeTab")
+
+    def clear_line(self):
+        self.key("u", ["control"])
+
+    def hangs_clear(self):
+        self.control.rpc("debug.hangs", {"clear": True}, timeout=20)
+
+    def hangs(self, start_ns, end_ns):
+        reply = self.control.rpc("debug.hangs", {}, timeout=30) or {}
+        if not isinstance(reply, dict) or reply.get("error"):
+            return {"error": reply}
+        out = {k: reply.get(k) for k in ("threshold_ms", "count", "max_ms", "total_ms", "long_frames", "frames_over_8_3ms",
+                                         "max_gap_ms", "count100", "count250")}
+        keep = []
+        for kind in ("records", "over_budget", "task_hangs"):
+            for r in reply.get(kind) or []:
+                ns = r.get("start_uptime_ns") or 0
+                if start_ns - 50e6 <= ns <= end_ns:
+                    item = {"list": kind, "at_ms": round((ns - start_ns) / 1e6, 1), "ms": round(r.get("duration_ms") or 0, 1),
+                            "cpu_ms": round(r.get("cpu_ms") or 0, 1),
+                            "frames": [f for f in (r.get("frames") or []) if "cmux" in f or "Cmux" in f][:28] or (r.get("frames") or [])[:28]}
+                    for k, v in r.items():
+                        if k not in ("frames", "frame_details", "start_uptime_ns", "duration_ms", "cpu_ms", "sequence") and not isinstance(v, (list, dict)):
+                            item[k] = v
+                        elif k in ("task", "details", "owner") and isinstance(v, dict):
+                            item[k] = v
+                    keep.append(item)
+        keep.sort(key=lambda h: h["at_ms"])
+        out["window"] = keep
+        return out
+
+    def probe_rows(self):
+        return hid_input.probe_rows(self.probe)
+
+    def line(self):
+        found = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("focused") is True and isinstance(node.get("text"), str):
+                    found.append(node["text"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+        walk(self.control.rpc("debug.surfaces", {"text": True}, timeout=20))
+        lines = [l for l in (found[-1] if found else "").splitlines() if l.strip()]
+        return lines[-1] if lines else ""
+
+    def stop(self):
+        self.bench.stop()
+
+
+class ClassicApp:
+    """Classic cmux (Sources/, main): its DEV socket's simulate_shortcut keys (keyDown through NSApp.sendEvent)."""
+    family = "classic"
+
+    def __init__(self, app, zdot, out):
+        self.app, self.out, self.zdot = app, out, zdot
+        self.scratch = os.path.join(out, "classic-home")
+        os.makedirs(os.path.join(self.scratch, "xdg", "ghostty"), exist_ok=True)
+        with open(os.path.join(self.scratch, "xdg", "ghostty", "config"), "w") as f:
+            f.write("cursor-style-blink = false\nwindow-width = 175\nwindow-height = 56\n")
+        self.process, self.sock = None, None
+        tag = os.path.basename(app).removesuffix(".app").removeprefix("cmux DEV").strip() or "classic"
+        self.tag = tag
+
+    def launch(self):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
+        env.update({"CMUX_SOCKET_MODE": "allowAll", "CMUX_SOCKET_ENABLE": "1", "CMUX_TAG": self.tag, "XDG_CONFIG_HOME": os.path.join(self.scratch, "xdg"),
+                    **shell_env(self.zdot)})
+        before = set(self._sockets())
+        log = open(os.path.join(self.out, "app-classic.log"), "w")
+        self.process = subprocess.Popen([main_binary(self.app)], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                                        start_new_session=True)
+        self.pid = self.process.pid
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline and not self.sock:
+            for path in [p for p in self._sockets() if p not in before] + [p for p in self._sockets() if self.tag.replace("-", "") in p.replace("-", "")]:
+                if self._send(path, "ping", timeout=2).startswith("PONG"):
+                    self.sock = path
+                    break
+            time.sleep(0.5)
+        if not self.sock:
+            raise LaunchError("classic: no socket answered ping", {"sockets": self._sockets()})
+        note(f"first5s: classic socket {self.sock}")
+        time.sleep(6)
+        hid_input.bring_front(self.pid)
+        note(f"first5s: classic activate {self._send(self.sock, 'activate_app')}")
+        time.sleep(4)
+
+    @staticmethod
+    def _sockets():
+        found = glob.glob("/tmp/cmux*.sock") + glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux*.sock"))
+        found += glob.glob(os.path.expanduser("~/Library/Application Support/cmux/*.sock"))
+        found += glob.glob(os.path.expanduser("~/.local/state/cmux/*.sock"))
+        return sorted(set(found))
+
+    @staticmethod
+    def _send(path, line, timeout=20):
+        try:
+            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            conn.settimeout(timeout)
+            conn.connect(path)
+            conn.sendall((line + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            conn.close()
+            return buf.decode(errors="replace").strip()
+        except OSError as error:
+            return f"ERROR {error}"
+
+    def key(self, name, modifiers=(), stamp=None):
+        combo = "+".join([{"command": "cmd", "control": "ctrl", "option": "opt", "shift": "shift"}[m] for m in modifiers] + [name])
+        return self._send(self.sock, f"simulate_shortcut {combo}")
+
+    def close(self, scenario):
+        self.key("w", ["command"])
+
+    def clear_line(self):
+        self.key("u", ["control"])
+
+    def hangs_clear(self):
+        pass
+
+    def hangs(self, start_ns, end_ns):
+        return None
+
+    def probe_rows(self):
+        return []
+
+    def line(self):
+        text = self._send(self.sock, "read_screen")
+        lines = [l for l in text.splitlines() if l.strip()]
+        return lines[-1] if lines else text[:120]
+
+    def stop(self):
+        if self.process and self.process.poll() is None:
+            self._send(self.sock or "", "simulate_shortcut cmd+q", timeout=5)
+            try:
+                self.process.wait(15)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()  # the PID this bench started
+                try:
+                    self.process.wait(10)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+
+
+# ---------------------------------------------------------------- one round
+def sample_main_thread(pid, seconds, path):
+    try:
+        return subprocess.Popen(["/usr/bin/sample", str(pid), str(int(seconds) + 1), "1", "-mayDie", "-file", path],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+
+
+def main_thread_tree(path, min_share=0.02, limit=260):
+    """The main thread's call tree of a `sample` report, the lines with at least `min_share` of its samples."""
+    try:
+        text = open(path).read()
+    except OSError:
+        return None
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l or re.match(r"\s+\d+ Thread_\d+\s+DispatchQueue_1", l)), None)
+    if start is None:
+        return {"error": "no main thread in the sample", "head": lines[:20]}
+    total = int(re.match(r"\s*(\d+)", lines[start]).group(1))
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    out = [lines[start].strip()]
+    for line in lines[start + 1:]:
+        stripped = line.lstrip(" +!:|")
+        if re.match(r"\s{%d}\d+ Thread_" % indent, line) or not line.strip():
+            break
+        m = re.match(r"(\d+) ", stripped)
+        if m and int(m.group(1)) >= total * min_share:
+            out.append(line.rstrip()[:240])
+        if len(out) >= limit:
+            break
+    return {"samples": total, "tree": out}
+
+
+def run_round(app, scenario, index, sampled):
+    name, modifiers = OPEN_KEYS[scenario]
+    nkeys = int(round(opts.seconds / opts.interval))
+    rows_before = app.probe_rows()
+    base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
+    app.hangs_clear()
+    sampler = sample_main_thread(app.pid, opts.seconds + 0.5, os.path.join(app.out, f"sample-{scenario}-{index}.txt")) if sampled else None
+    if sampler:
+        time.sleep(0.6)  # sample attaches before the open key
+    typed = "".join(hid_input.LETTERS[i % 26] for i in range(nkeys))
+    open_ns = NOW_NS()
+    schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
+    sent = []
+    open_reply = app.key(name, modifiers, stamp=open_ns / 1e9)
+    open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
+    for k, when in enumerate(schedule):
+        wait = (when - NOW_NS()) / 1e9
+        if wait > 0:
+            time.sleep(wait)
+        s0 = NOW_NS()
+        answer = app.key(typed[k], stamp=when / 1e9)
+        sent.append({"k": k, "late_ms": round((s0 - when) / 1e6, 2), "rpc_ms": round((NOW_NS() - s0) / 1e6, 2),
+                     "handled_by": answer.get("handled_by") if isinstance(answer, dict) else str(answer)[:40]})
+    time.sleep(opts.settle)
+    end_ns = NOW_NS()
+    line = app.line()
+    hangs = app.hangs(open_ns, end_ns)
+    if sampler:
+        try:
+            sampler.wait(15)
+        except subprocess.TimeoutExpired:
+            sampler.kill()
+    rows = [r for r in app.probe_rows() if (r.get("index") or "").isdigit() and int(r["index"]) > base]
+    by_index = {int(r["index"]): r for r in rows}
+    indices = sorted(by_index)
+    letter_indices = indices[-nkeys:] if len(indices) >= nkeys else indices
+    offset = nkeys - len(letter_indices)
+    keys = []
+    for k in range(nkeys):
+        row = by_index.get(letter_indices[k - offset]) if k >= offset else None
+        def col(c, row=row):
+            v = (row or {}).get(c)
+            try:
+                return round(float(v), 2) if v not in (None, "") else None
+            except ValueError:
+                return None
+        latency = col("contents_ms") if col("contents_ms") is not None else col("commit_ms")
+        keys.append({"k": k, "t_ms": round((schedule[k] - open_ns) / 1e6, 1), "probe_ms": latency,
+                     "complete": (row or {}).get("complete"), "dispatch_end_ms": col("dispatch_end_ms"), "io_write_ms": col("io_write_ms"),
+                     "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
+                     **{x: sent[k][x] for x in ("late_ms", "rpc_ms", "handled_by")}})
+    frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
+    big = (app.photon_area or 10 ** 12) * 0.25
+    for k, key in enumerate(keys):
+        cap = schedule[k] + int(2e9)
+        key["photon_ms"] = photon_ms(frames, schedule[k], cap, big) if frames else None
+    first_big = next(((ns - open_ns) / 1e6 for ns, _c, _x, _y, w, h in frames if ns > open_ns and w * h >= big), None)
+    first_any = next(((ns - open_ns) / 1e6 for ns, *_ in frames if ns > open_ns), None)
+    ok = line.rstrip().endswith(typed[-12:])
+    rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
+           "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok,
+           "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
+           "first_frame_ms": round(first_any, 1) if first_any is not None else None,
+           "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
+           "frames": frames}
+    if sampled:
+        rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"))
+    probe = [k["probe_ms"] for k in keys if k["probe_ms"] is not None]
+    photon = [k["photon_ms"] for k in keys if k["photon_ms"] is not None]
+    note(f"  {scenario} {index}{' (sampled)' if sampled else ''}: open reply {open_reply_ms} ms, probe rows {len(rows)}, "
+         f"{'ok' if ok else 'LINE ' + repr(line[-50:])}; probe max {max(probe) if probe else None} photon max "
+         f"{max(photon) if photon else None}; first frame {rec['first_frame_ms']} big {rec['first_big_frame_ms']}; "
+         f"hangs {len((hangs or {}).get('window') or []) if isinstance(hangs, dict) else None}")
+    for h in ((hangs or {}).get("window") or [])[:12] if isinstance(hangs, dict) else []:
+        note(f"      hang +{h['at_ms']} ms {h['ms']} ms cpu {h['cpu_ms']} [{h['list']}] {h.get('task') or h.get('name') or ''} "
+             f"{' < '.join(h['frames'][:6])}")
+    # Back to the base terminal.
+    if scenario == "browser":
+        app.key("escape")
+    else:
+        app.clear_line()
+    time.sleep(0.3)
+    app.close(scenario)
+    time.sleep(opts.gap)
+    return rec
+
+
+def buckets(rounds, field):
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    out = []
+    for b in range(edges):
+        vals = [k[field] for r in rounds if not r["sampled"] for k in r["keys"]
+                if k.get(field) is not None and b * width <= k["t_ms"] < (b + 1) * width]
+        d = typing_report.distribution(vals, mean=False)
+        out.append({"from_ms": int(b * width), "to_ms": int((b + 1) * width), **(d or {"n": 0})})
+    return out
+
+
+def hops(rounds):
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    out = []
+    for b in range(edges):
+        row = {"from_ms": int(b * width)}
+        for h in ("late_ms", "dispatch_end_ms", "io_write_ms", "output_received_ms", "contents_ms"):
+            vals = [k[h] for r in rounds if not r["sampled"] for k in r["keys"] if k.get(h) is not None and b * width <= k["t_ms"] < (b + 1) * width]
+            row[h] = round(statistics.median(vals), 2) if vals else None
+        out.append(row)
+    return out
+
+
+def measure(app_path, zdot, result, family):
+    out = os.path.join(OUT, os.path.basename(app_path).replace(" ", "_").removesuffix(".app"))
+    os.makedirs(out, exist_ok=True)
+    app = (NextApp if family == "next" else ClassicApp)(app_path, zdot, out)
+    app.zdot = zdot
+    entry = {"app": os.path.basename(app_path), "family": family, "scenarios": {}}
+    result["apps"].append(entry)
+    note(f"=== {entry['app']} ({family})")
+    try:
+        try:
+            app.launch()
+        except LaunchError as error:
+            entry["launch_failure"] = getattr(error, "reason", str(error))
+            note(f"first5s: launch failed {entry['launch_failure']}")
+            return
+        app.photon = Photon(app.pid, os.path.join(out, "photon.txt"))
+        app.photon_area = None
+        if not app.photon.error and app.photon.ready:
+            m = re.search(r"(\d+)x(\d+)", app.photon.ready)
+            app.photon_area = int(m.group(1)) * int(m.group(2)) if m else None
+        entry["photon"] = app.photon.ready or app.photon.error
+        entry["shells_loaded_at_start"] = shells_loaded(zdot)
+        for scenario in SCENARIOS:
+            rounds = []
+            for index in range(opts.rounds + opts.sample_rounds):
+                rounds.append(run_round(app, scenario, index, sampled=index >= opts.rounds))
+                save(result)
+            entry["scenarios"][scenario] = {"rounds": rounds, "probe_buckets": buckets(rounds, "probe_ms"),
+                                            "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds)}
+            print_table(entry["app"], scenario, entry["scenarios"][scenario])
+            save(result)
+    finally:
+        if getattr(app, "photon", None):
+            app.photon.stop()
+        app.stop()
+        save(result)
+
+
+def print_table(name, scenario, data):
+    note(f"FIRST5S {name} {scenario}: per {int(opts.bucket_ms)} ms after the open key, key-to-frame ms")
+    note("   bucket      probe n/p50/p95/max            photon n/p50/p95/max          hops (median): late dispatch write echo frame")
+    for p, f, h in zip(data["probe_buckets"], data["photon_buckets"], data["hops"]):
+        def cell(d):
+            return f"{d.get('n', 0):3d} {d.get('p50', '-'):>7} {d.get('p95', '-'):>7} {d.get('max', '-'):>7}" if d.get("n") else "  0       -       -       -"
+        note(f"   {p['from_ms']:5d}-{p['to_ms']:<5d} {cell(p)}    {cell(f)}    {h['late_ms']} {h['dispatch_end_ms']} {h['io_write_ms']} "
+             f"{h['output_received_ms']} {h['contents_ms']}")
+
+
+def save(result):
+    if opts.json:
+        with open(opts.json, "w") as f:
+            json.dump(result, f, indent=1)
+
+
+def main():
+    result = {"bench": "first-5s-typing", "host": os.uname().nodename, "opts": vars(opts), "apps": [],
+              "home_is_account_home": os.path.realpath(os.environ.get("HOME", "")) == os.path.realpath(account_home())}
+    zdot = None
+    if not opts.no_shell:
+        try:
+            zdot, result["shell"] = shell_setup()
+        except (OSError, subprocess.SubprocessError) as error:
+            result["shell"] = {"error": repr(error)}
+            note(f"first5s: shell setup failed ({error!r}); the host's shell config")
+    apps = []
+    if opts.app and not opts.apps_sha256:
+        apps.append(os.path.abspath(opts.app.rstrip("/")))
+    for sha in [s for s in opts.apps_sha256.split(",") if s]:
+        got = subprocess.run([sys.executable, os.path.join(HERE, "fleet-app-fetch.py"), "--sha256", sha, "--dest",
+                              os.path.join(OUT, "apps", sha[:12])], capture_output=True, text=True)
+        if got.returncode != 0:
+            result["apps"].append({"sha256": sha, "fetch_error": got.stderr[-400:]})
+            continue
+        apps.append(got.stdout.strip().splitlines()[-1])
+    families = [f for f in opts.families.split(",") if f]
+    for i, app in enumerate(apps):
+        measure(app, zdot, result, families[i] if i < len(families) else "next")
+    save(result)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
