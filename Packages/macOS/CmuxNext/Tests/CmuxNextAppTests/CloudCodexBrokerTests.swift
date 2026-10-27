@@ -159,7 +159,13 @@ done
         #expect(grant.chatgptAccountID == "acct-1")
     }
 
-    @Test func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke() async throws {
+    actor Account {
+        var scope: CloudCodexBrokerScope?
+        init(_ scope: CloudCodexBrokerScope) { self.scope = scope }
+        func logout() { scope = nil }
+    }
+
+    @Test(arguments: [0, 1, 2]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -181,13 +187,28 @@ done
 
         let recorder = Recorder()
         let scope = CloudCodexBrokerScope(userID: "user-1", teamID: "team-1")
-        let broker = CloudCodexBroker(scope: scope, currentScope: { scope }, executable: fake,
+        let account = Account(scope)
+        let gate = Gate()
+        let broker = CloudCodexBroker(scope: scope, currentScope: { await account.scope }, executable: fake,
                                       codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"))
         let target = CloudCodexBrokerTarget(machineID: "vm-1", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { _ in Data("team\n".utf8) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in await recorder.commit((a, b, c, d)) }, removeFile: { path in try await recorder.remove(path) })
-
-        let grant = try await broker.transfer(target: target, confirmed: true)
+        }, makeDirectory: { _ in }, readFile: { _ in Data("team\n".utf8) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in
+            if interruption > 0 { await gate.pause() }
+            await recorder.commit((a, b, c, d))
+        }, removeFile: { path in try await recorder.remove(path) })
+        let transfer = Task { try await broker.transfer(target: target, confirmed: true) }
+        if interruption > 0 {
+            await gate.entered()
+            if interruption == 1 { await account.logout() } else { transfer.cancel() }
+            await gate.open()
+            await #expect(throws: interruption == 1 ? CloudCodexBrokerError.scopeChanged : .cancelled) { try await transfer.value }
+            #expect(await recorder.files[CloudCodexBroker.accessPath] == nil)
+            #expect(await recorder.files[CloudCodexBroker.modePath] == Data("team\n".utf8))
+            #expect(await broker.registeredMachineIDs().isEmpty)
+            return
+        }
+        let grant = try await transfer.value
         #expect(grant.chatgptAccountID == "acct-1")
         let paths = await recorder.committed
         #expect(paths?.1 == CloudCodexBroker.accessPath)
