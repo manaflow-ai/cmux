@@ -74,6 +74,11 @@ pub enum Inbound {
     ReplayDone { agent: u64 },
 }
 
+/// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
+#[cfg(test)]
+pub(crate) static TEST_REPLAYING: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
 /// the agent runs under a host (`hostSeq` on the record).
 /// Returns whether the record reached the store; an agent host entry is
@@ -117,6 +122,11 @@ struct Hosted {
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
+    /// How far the host replays on this link (`learn_replay_end`): until `logged` reaches it, what
+    /// the host kept while no reader logged it is not all in the session log. `u64::MAX` while it is
+    /// not known (from a reattach or an adoption until it is learned, or for good when the host did
+    /// not say).
+    replay_to: std::sync::atomic::AtomicU64,
 }
 
 impl Hosted {
@@ -794,7 +804,8 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                            let safe = crate::codex_app_server::redact(&raw);
+                            tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
                         let split = crate::codex_app_server::split(cx.tr.from_server(&raw));
@@ -802,7 +813,10 @@ impl ChildAgent {
                         drop(order);
                         for m in &split.hub {
                             if !matches!(m, Message::Response { .. }) {
-                                tap(Direction::In, m, None);
+                                let safe = crate::codex_app_server::redact(&m.to_value());
+                                if let Ok(safe) = Message::from_value(safe) {
+                                    tap(Direction::In, &safe, None);
+                                }
                             }
                         }
                         split.hub
@@ -1117,8 +1131,10 @@ impl ChildAgent {
         {
             return Err(anyhow!("agent {}: {FENCE_CUT}", self.name));
         }
-        (self.tap)(Direction::Out, msg, None);
         if let Some(cx) = &self.codex {
+            let safe = crate::codex_app_server::redact(&msg.to_value());
+            let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
+            (self.tap)(Direction::Out, &safe_message, None);
             let order = cx.order.lock().await;
             let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
             let written = self.codex_lines(split.server, fence).await;
@@ -1129,6 +1145,7 @@ impl ChildAgent {
             self.codex_to_hub(cx, split.hub).await;
             return Ok(());
         }
+        (self.tap)(Direction::Out, msg, None);
         if let Some(tr) = &self.translator {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {
@@ -1239,9 +1256,10 @@ impl ChildAgent {
         }
         let mut s = String::new();
         for l in lines {
+            let safe = crate::codex_app_server::redact(&l);
             (self.tap)(
                 Direction::Out,
-                &Message::notification(crate::codex_app_server::STDIN_KIND, l.clone()),
+                &Message::notification(crate::codex_app_server::STDIN_KIND, safe),
                 None,
             );
             s.push_str(&crate::codex_app_server::line(&l));
@@ -1467,6 +1485,7 @@ impl ChildAgent {
     /// open request, answer waiter and turn of this process: resume after
     /// the last logged entry on a new owner connection. No recovery runs:
     /// this process still holds the state the recovery would rebuild.
+    /// Its replay counts as pending until `learn_replay_end` learns how far it goes.
     pub async fn reattach(self: &Arc<Self>) -> Result<()> {
         use crate::agent_host::link::{Connect, connect};
         let Some(h) = &self.hosted else { return Ok(()) };
@@ -1476,10 +1495,51 @@ impl ChildAgent {
             Connect::Ready(link, _) => Arc::from(link),
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
-        *h.link.write_or_recover() = link.clone();
+        {
+            // Under the link's lock, which `learn_replay_end` keeps an end under: an end learned
+            // through the old link never stands for this one.
+            let mut current = h.link.write_or_recover();
+            h.replay_to.store(u64::MAX, Ordering::SeqCst);
+            *current = link.clone();
+        }
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())
+    }
+
+    /// An adopted host's replay counts as pending until `learn_replay_end` learns how far it goes.
+    pub fn mark_replay_unknown(&self) {
+        if let Some(h) = &self.hosted {
+            let _current = h.link.write_or_recover();
+            h.replay_to.store(u64::MAX, Ordering::SeqCst);
+        }
+    }
+
+    /// Learns how far the host replays on its current link (`Link::replay_end_within`), and keeps
+    /// it for `replay_pending` while that link is current. None when the host did not answer
+    /// within `budget`: the replay then never counts as complete through this link. A direct
+    /// child replays nothing.
+    pub async fn learn_replay_end(&self, budget: std::time::Duration) -> Option<u64> {
+        let Some(h) = &self.hosted else { return Some(0) };
+        let link = h.link();
+        let end = link.replay_end_within(budget).await.ok()?;
+        let current = h.link.read_or_recover();
+        if Arc::ptr_eq(&current, &link) {
+            h.replay_to.store(end, Ordering::SeqCst);
+        }
+        Some(end)
+    }
+
+    /// Whether a reattached or adopted host's replay is not all in the session log yet, or not
+    /// known to be (`learn_replay_end`).
+    pub fn replay_pending(&self) -> bool {
+        #[cfg(test)]
+        if TEST_REPLAYING.load(Ordering::SeqCst) == self.generation {
+            return true;
+        }
+        self.hosted
+            .as_ref()
+            .is_some_and(|h| *h.logged.borrow() < h.replay_to.load(Ordering::SeqCst))
     }
 
     /// Leave a hosted agent running and let go of it (daemon shutdown or
@@ -1557,6 +1617,7 @@ impl ChildAgent {
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
+                replay_to: std::sync::atomic::AtomicU64::new(0),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -1629,6 +1690,20 @@ impl ChildAgent {
         inbound: &mpsc::Sender<Inbound>,
     ) -> bool {
         use crate::agent_host::{Entry, TapDir};
+        // Debug builds only: `ACPMUX_TEST_UNLOGGED_ONCE=TEXT` fails to log the first host entry
+        // whose text holds TEXT, once per process, as a full disk does: the link breaks and the
+        // entry stays with the host for the next attach. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Ok(text) = std::env::var("ACPMUX_TEST_UNLOGGED_ONCE") {
+            static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            let msg = match &entry {
+                Entry::Tap { msg, .. } | Entry::In { msg } => Some(msg.to_string()),
+                _ => None,
+            };
+            if msg.is_some_and(|m| m.contains(&text)) && !FIRED.swap(true, Ordering::SeqCst) {
+                return false;
+            }
+        }
         match entry {
             Entry::Tap { dir, msg } => match Message::from_value(msg) {
                 Ok(m) => {

@@ -756,6 +756,27 @@ def handle_prompt(rid, params):
         threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-on-file: PATH X": the turn ends; once PATH exists (at most 60 s), outside any turn,
+    # the harness changes its own mode to X.
+    if text.startswith("set-mode-on-file:"):
+        path, mode = text[17:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+
+        def when_there():
+            import time as pause  # main() binds `time` locally
+            until = pause.monotonic() + 60
+            while not os.path.exists(path) and pause.monotonic() < until:
+                pause.sleep(0.05)
+            update(sid, later)
+
+        threading.Thread(target=when_there, daemon=True).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "whoami" replies with the harness's pid.
+    if text.startswith("whoami"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"pid={os.getpid()}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -1434,14 +1455,14 @@ def main():
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
-            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
-                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
-                continue
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
             if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")

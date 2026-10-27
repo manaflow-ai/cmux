@@ -31108,7 +31108,7 @@
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Repository"}},
         "ja": {"stringUnit": {"state": "translated", "value": "リポジトリ"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Code-Repository"}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Dépôt"}},
         "es": {"stringUnit": {"state": "needs_review", "value": "Repositorio"}},
         "ar": {"stringUnit": {"state": "needs_review", "value": "المستودع"}},
