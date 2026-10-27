@@ -17045,55 +17045,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less."
+            "value": "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشغيل جلسات Claude في مساحات العمل الأعلى في الشريط الجانبي بجهد أكبر، والجلسات الأدنى بجهد أقل."
+            "value": "يعيد cmux تشغيل طرفيات Claude الخاملة لتغيير جهدها، فيزيده لمساحات العمل الأعلى في الشريط الجانبي ويقلّله للأدنى، ثم يستأنف كل محادثة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude-Sitzungen in höher stehenden Arbeitsbereichen der Seitenleiste mit mehr Aufwand ausführen, weiter unten stehende mit weniger."
+            "value": "cmux startet untätige Claude-Terminals neu, um ihren Aufwand zu ändern – mehr für Arbeitsbereiche weiter oben in der Seitenleiste, weniger weiter unten – und setzt jede Unterhaltung fort."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ejecutar las sesiones de Claude de los espacios de trabajo situados más arriba en la barra lateral con más esfuerzo, y las de más abajo con menos."
+            "value": "cmux reinicia las terminales de Claude inactivas para cambiar su esfuerzo, más para los espacios de trabajo situados más arriba en la barra lateral y menos para los de más abajo, y reanuda cada conversación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exécuter les sessions Claude des espaces de travail situés plus haut dans la barre latérale avec plus d’effort, et celles situées plus bas avec moins d’effort."
+            "value": "cmux redémarre les terminaux Claude inactifs pour modifier leur effort, plus élevé pour les espaces de travail situés plus haut dans la barre latérale et plus faible plus bas, puis reprend chaque conversation."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの上位にあるワークスペースの Claude セッションはより高い負荷（エフォート）で、下位のセッションはより低い負荷で実行します。"
+            "value": "cmux はアイドル状態の Claude ターミナルを再起動してエフォートを変更し（サイドバーの上位のワークスペースほど高く、下位ほど低く）、それぞれの会話を再開します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에서 위쪽에 있는 워크스페이스의 Claude 세션은 더 높은 노력도로, 아래쪽 세션은 더 낮은 노력도로 실행합니다."
+            "value": "cmux가 유휴 상태인 Claude 터미널을 다시 시작해 노력도를 바꾸고(사이드바에서 위쪽 워크스페이스일수록 높게, 아래쪽일수록 낮게) 각 대화를 재개합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中靠上的工作区里的 Claude 会话使用更高的投入程度，靠下的会话使用更低的投入程度。"
+            "value": "cmux 会重新启动空闲的 Claude 终端以更改其投入程度（侧边栏中靠上的工作区更高，靠下的更低），并继续每段对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄較上方工作區中的 Claude 工作階段使用較高的投入程度，較下方的則使用較低的投入程度。"
+            "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。"
           }
         }
       }

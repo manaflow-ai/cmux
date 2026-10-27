@@ -965,55 +965,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less."
+            "value": "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشغيل جلسات Claude في مساحات العمل الأعلى في الشريط الجانبي بجهد أكبر، والجلسات الأدنى بجهد أقل."
+            "value": "يعيد cmux تشغيل طرفيات Claude الخاملة لتغيير جهدها، فيزيده لمساحات العمل الأعلى في الشريط الجانبي ويقلّله للأدنى، ثم يستأنف كل محادثة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude-Sitzungen in höher stehenden Arbeitsbereichen der Seitenleiste mit mehr Aufwand ausführen, weiter unten stehende mit weniger."
+            "value": "cmux startet untätige Claude-Terminals neu, um ihren Aufwand zu ändern – mehr für Arbeitsbereiche weiter oben in der Seitenleiste, weniger weiter unten – und setzt jede Unterhaltung fort."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ejecutar las sesiones de Claude de los espacios de trabajo situados más arriba en la barra lateral con más esfuerzo, y las de más abajo con menos."
+            "value": "cmux reinicia las terminales de Claude inactivas para cambiar su esfuerzo, más para los espacios de trabajo situados más arriba en la barra lateral y menos para los de más abajo, y reanuda cada conversación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exécuter les sessions Claude des espaces de travail situés plus haut dans la barre latérale avec plus d’effort, et celles situées plus bas avec moins d’effort."
+            "value": "cmux redémarre les terminaux Claude inactifs pour modifier leur effort, plus élevé pour les espaces de travail situés plus haut dans la barre latérale et plus faible plus bas, puis reprend chaque conversation."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの上位にあるワークスペースの Claude セッションはより高い負荷（エフォート）で、下位のセッションはより低い負荷で実行します。"
+            "value": "cmux はアイドル状態の Claude ターミナルを再起動してエフォートを変更し（サイドバーの上位のワークスペースほど高く、下位ほど低く）、それぞれの会話を再開します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에서 위쪽에 있는 워크스페이스의 Claude 세션은 더 높은 노력도로, 아래쪽 세션은 더 낮은 노력도로 실행합니다."
+            "value": "cmux가 유휴 상태인 Claude 터미널을 다시 시작해 노력도를 바꾸고(사이드바에서 위쪽 워크스페이스일수록 높게, 아래쪽일수록 낮게) 각 대화를 재개합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中靠上的工作区里的 Claude 会话使用更高的投入程度，靠下的会话使用更低的投入程度。"
+            "value": "cmux 会重新启动空闲的 Claude 终端以更改其投入程度（侧边栏中靠上的工作区更高，靠下的更低），并继续每段对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄較上方工作區中的 Claude 工作階段使用較高的投入程度，較下方的則使用較低的投入程度。"
+            "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。"
           }
         }
       }
@@ -675598,55 +675598,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: list the window's workspaces in priority order with their tier, difficulty and the effort and model cmux wants their Claude sessions to run at, plus what each pane is doing about it. This is the default.\n\ndifficulty <easy|normal|hard|auto>: set a workspace's difficulty. auto clears the override so cmux infers it again.\n\nmanual <on|off>: tell cmux a person is driving this workspace's Claude sessions (on), so it leaves their effort alone, or hand them back (off).\n\nWithout --workspace the calling terminal's workspace is used, or the selected workspace outside cmux."
+            "value": "status: list the window's workspaces in priority order with their tier, difficulty and the effort and model cmux wants their Claude sessions to run at, plus what each pane is doing about it. This is the default.\n\ndifficulty <easy|normal|hard|auto>: set a workspace's difficulty. auto clears your override.\n\nmanual <on|off>: tell cmux a person is driving this workspace's Claude sessions (on), so it leaves their effort alone, or hand them back (off).\n\nWithout --workspace the calling terminal's workspace is used, or the selected workspace outside cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: يعرض مساحات عمل النافذة بترتيب الأولوية مع مستواها وصعوبتها والجهد والنموذج اللذين يريد cmux تشغيل جلسات Claude بهما، إضافة إلى ما يفعله كل جزء بشأن ذلك. هذا هو الافتراضي.\n\ndifficulty <easy|normal|hard|auto>: يضبط صعوبة مساحة العمل. يزيل auto التجاوز ليستنتجها cmux من جديد.\n\nmanual <on|off>: يخبر cmux أن شخصًا يتحكم في جلسات Claude الخاصة بمساحة العمل هذه (on) فيترك جهدها كما هو، أو يعيدها إليه (off).\n\nبدون --workspace تُستخدم مساحة عمل الطرفية المستدعية، أو مساحة العمل المحددة خارج cmux."
+            "value": "status: يعرض مساحات عمل النافذة بترتيب الأولوية مع مستواها وصعوبتها والجهد والنموذج اللذين يريد cmux تشغيل جلسات Claude بهما، إضافة إلى ما يفعله كل جزء بشأن ذلك. هذا هو الافتراضي.\n\ndifficulty <easy|normal|hard|auto>: يضبط صعوبة مساحة العمل. يزيل auto التجاوز الذي ضبطته.\n\nmanual <on|off>: يخبر cmux أن شخصًا يتحكم في جلسات Claude الخاصة بمساحة العمل هذه (on) فيترك جهدها كما هو، أو يعيدها إليه (off).\n\nبدون --workspace تُستخدم مساحة عمل الطرفية المستدعية، أو مساحة العمل المحددة خارج cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: listet die Workspaces des Fensters nach Priorität auf, mit Stufe, Schwierigkeit sowie dem Aufwand und Modell, mit dem cmux ihre Claude-Sitzungen laufen lassen will, und was jedes Pane dazu gerade tut. Das ist der Standard.\n\ndifficulty <easy|normal|hard|auto>: legt die Schwierigkeit eines Workspace fest. auto entfernt die Überschreibung, sodass cmux sie wieder selbst ableitet.\n\nmanual <on|off>: teilt cmux mit, dass eine Person die Claude-Sitzungen dieses Workspace steuert (on), damit cmux deren Aufwand unverändert lässt, oder gibt sie zurück (off).\n\nOhne --workspace wird der Workspace des aufrufenden Terminals verwendet, außerhalb von cmux der ausgewählte Workspace."
+            "value": "status: listet die Workspaces des Fensters nach Priorität auf, mit Stufe, Schwierigkeit sowie dem Aufwand und Modell, mit dem cmux ihre Claude-Sitzungen laufen lassen will, und was jedes Pane dazu gerade tut. Das ist der Standard.\n\ndifficulty <easy|normal|hard|auto>: legt die Schwierigkeit eines Workspace fest. auto entfernt Ihre Überschreibung.\n\nmanual <on|off>: teilt cmux mit, dass eine Person die Claude-Sitzungen dieses Workspace steuert (on), damit cmux deren Aufwand unverändert lässt, oder gibt sie zurück (off).\n\nOhne --workspace wird der Workspace des aufrufenden Terminals verwendet, außerhalb von cmux der ausgewählte Workspace."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: muestra los espacios de trabajo de la ventana por orden de prioridad, con su nivel, dificultad, el esfuerzo y el modelo con los que cmux quiere ejecutar sus sesiones de Claude, y lo que hace cada panel al respecto. Es la opción predeterminada.\n\ndifficulty <easy|normal|hard|auto>: establece la dificultad de un espacio de trabajo. auto elimina la anulación para que cmux la deduzca de nuevo.\n\nmanual <on|off>: indica a cmux que una persona dirige las sesiones de Claude de este espacio de trabajo (on), para que no toque su esfuerzo, o se las devuelve (off).\n\nSin --workspace se usa el espacio de trabajo de la terminal que llama o, fuera de cmux, el espacio de trabajo seleccionado."
+            "value": "status: muestra los espacios de trabajo de la ventana por orden de prioridad, con su nivel, dificultad, el esfuerzo y el modelo con los que cmux quiere ejecutar sus sesiones de Claude, y lo que hace cada panel al respecto. Es la opción predeterminada.\n\ndifficulty <easy|normal|hard|auto>: establece la dificultad de un espacio de trabajo. auto elimina tu anulación.\n\nmanual <on|off>: indica a cmux que una persona dirige las sesiones de Claude de este espacio de trabajo (on), para que no toque su esfuerzo, o se las devuelve (off).\n\nSin --workspace se usa el espacio de trabajo de la terminal que llama o, fuera de cmux, el espacio de trabajo seleccionado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "status : liste les espaces de travail de la fenêtre par ordre de priorité, avec leur niveau, leur difficulté, l'effort et le modèle avec lesquels cmux veut exécuter leurs sessions Claude, et ce que fait chaque panneau à ce sujet. C'est la valeur par défaut.\n\ndifficulty <easy|normal|hard|auto> : définit la difficulté d'un espace de travail. auto supprime le remplacement pour que cmux la déduise à nouveau.\n\nmanual <on|off> : indique à cmux qu'une personne pilote les sessions Claude de cet espace de travail (on), pour qu'il laisse leur effort inchangé, ou les lui rend (off).\n\nSans --workspace, l'espace de travail du terminal appelant est utilisé, ou l'espace de travail sélectionné en dehors de cmux."
+            "value": "status : liste les espaces de travail de la fenêtre par ordre de priorité, avec leur niveau, leur difficulté, l'effort et le modèle avec lesquels cmux veut exécuter leurs sessions Claude, et ce que fait chaque panneau à ce sujet. C'est la valeur par défaut.\n\ndifficulty <easy|normal|hard|auto> : définit la difficulté d'un espace de travail. auto supprime votre remplacement.\n\nmanual <on|off> : indique à cmux qu'une personne pilote les sessions Claude de cet espace de travail (on), pour qu'il laisse leur effort inchangé, ou les lui rend (off).\n\nSans --workspace, l'espace de travail du terminal appelant est utilisé, ou l'espace de travail sélectionné en dehors de cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: ウィンドウ内のワークスペースを優先度順に表示します。階層、難易度、cmux がその Claude セッションを動かしたい負荷レベルとモデル、そして各ペインがそれに対して何をしているかを含みます。これが既定です。\n\ndifficulty <easy|normal|hard|auto>: ワークスペースの難易度を設定します。auto は上書きを解除し、cmux が再び推定します。\n\nmanual <on|off>: このワークスペースの Claude セッションを人が操作していることを cmux に伝え(on)、負荷レベルに手を加えないようにします。または操作を cmux に戻します(off)。\n\n--workspace を省略すると、呼び出したターミナルのワークスペースを使います。cmux の外では選択中のワークスペースを使います。"
+            "value": "status: ウィンドウ内のワークスペースを優先度順に表示します。階層、難易度、cmux がその Claude セッションを動かしたい負荷レベルとモデル、そして各ペインがそれに対して何をしているかを含みます。これが既定です。\n\ndifficulty <easy|normal|hard|auto>: ワークスペースの難易度を設定します。auto は設定した上書きを解除します。\n\nmanual <on|off>: このワークスペースの Claude セッションを人が操作していることを cmux に伝え(on)、負荷レベルに手を加えないようにします。または操作を cmux に戻します(off)。\n\n--workspace を省略すると、呼び出したターミナルのワークスペースを使います。cmux の外では選択中のワークスペースを使います。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "status: 창의 워크스페이스를 우선순위 순으로 나열하며, 각 워크스페이스의 등급, 난이도, cmux가 해당 Claude 세션을 실행하려는 노력 수준과 모델, 그리고 각 패널이 이에 대해 하고 있는 일을 보여 줍니다. 기본값입니다.\n\ndifficulty <easy|normal|hard|auto>: 워크스페이스의 난이도를 설정합니다. auto는 재정의를 지워 cmux가 다시 추론하게 합니다.\n\nmanual <on|off>: 사람이 이 워크스페이스의 Claude 세션을 직접 다루고 있음을 cmux에 알려(on) 노력 수준을 건드리지 않게 하거나, 다시 넘겨줍니다(off).\n\n--workspace를 생략하면 호출한 터미널의 워크스페이스를 사용하고, cmux 밖에서는 선택된 워크스페이스를 사용합니다."
+            "value": "status: 창의 워크스페이스를 우선순위 순으로 나열하며, 각 워크스페이스의 등급, 난이도, cmux가 해당 Claude 세션을 실행하려는 노력 수준과 모델, 그리고 각 패널이 이에 대해 하고 있는 일을 보여 줍니다. 기본값입니다.\n\ndifficulty <easy|normal|hard|auto>: 워크스페이스의 난이도를 설정합니다. auto는 직접 지정한 재정의를 지웁니다.\n\nmanual <on|off>: 사람이 이 워크스페이스의 Claude 세션을 직접 다루고 있음을 cmux에 알려(on) 노력 수준을 건드리지 않게 하거나, 다시 넘겨줍니다(off).\n\n--workspace를 생략하면 호출한 터미널의 워크스페이스를 사용하고, cmux 밖에서는 선택된 워크스페이스를 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "status：按优先级列出窗口中的工作区，包含其层级、难度、cmux 希望其 Claude 会话使用的投入程度和模型，以及每个窗格对此的处理状态。这是默认值。\n\ndifficulty <easy|normal|hard|auto>：设置工作区的难度。auto 会清除覆盖，让 cmux 重新推断。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作区的 Claude 会话（on），让 cmux 不改动其投入程度，或将其交还（off）。\n\n未指定 --workspace 时，使用调用方终端所在的工作区；在 cmux 之外则使用所选的工作区。"
+            "value": "status：按优先级列出窗口中的工作区，包含其层级、难度、cmux 希望其 Claude 会话使用的投入程度和模型，以及每个窗格对此的处理状态。这是默认值。\n\ndifficulty <easy|normal|hard|auto>：设置工作区的难度。auto 会清除你设置的覆盖。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作区的 Claude 会话（on），让 cmux 不改动其投入程度，或将其交还（off）。\n\n未指定 --workspace 时，使用调用方终端所在的工作区；在 cmux 之外则使用所选的工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "status：依優先順序列出視窗中的工作區，包含其層級、難度、cmux 希望其 Claude 工作階段使用的投入程度與模型，以及每個窗格對此的處理狀況。這是預設值。\n\ndifficulty <easy|normal|hard|auto>：設定工作區的難度。auto 會清除覆寫，讓 cmux 重新推斷。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作區的 Claude 工作階段（on），讓 cmux 不更動其投入程度，或將其交還（off）。\n\n未指定 --workspace 時，使用呼叫端終端機所在的工作區；在 cmux 之外則使用所選的工作區。"
+            "value": "status：依優先順序列出視窗中的工作區，包含其層級、難度、cmux 希望其 Claude 工作階段使用的投入程度與模型，以及每個窗格對此的處理狀況。這是預設值。\n\ndifficulty <easy|normal|hard|auto>：設定工作區的難度。auto 會清除你設定的覆寫。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作區的 Claude 工作階段（on），讓 cmux 不更動其投入程度，或將其交還（off）。\n\n未指定 --workspace 時，使用呼叫端終端機所在的工作區；在 cmux 之外則使用所選的工作區。"
           }
         }
       }

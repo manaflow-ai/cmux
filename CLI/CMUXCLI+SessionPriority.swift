@@ -19,7 +19,7 @@ extension CMUXCLI {
         sessionPriorityUsage + "\n\n" + String(localized: "cli.sessionPriority.help", defaultValue: """
         status: list the window's workspaces in priority order with their tier, difficulty and the effort and model cmux wants their Claude sessions to run at, plus what each pane is doing about it. This is the default.
 
-        difficulty <easy|normal|hard|auto>: set a workspace's difficulty. auto clears the override so cmux infers it again.
+        difficulty <easy|normal|hard|auto>: set a workspace's difficulty. auto clears your override.
 
         manual <on|off>: tell cmux a person is driving this workspace's Claude sessions (on), so it leaves their effort alone, or hand them back (off).
 

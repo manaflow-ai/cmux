@@ -2091,7 +2091,7 @@ enum CmuxEmbeddedConfigSchema {
               "type": "boolean",
               "default": false,
               "descriptionKey": "schemaDescriptions.automation.sessionPriorityEnabled",
-              "description": "When on, cmux starts each Claude Code session with an effort (and optional model) from the matrix, based on whether the session is urgent or slow and how hard its task is. Off by default."
+              "description": "When on, cmux restarts idle Claude Code terminals to change their effort (and optional model) to the matrix value for their workspace's priority and difficulty, then resumes each conversation. Off by default."
             },
             "urgentCount": {
               "type": "integer",

@@ -215,7 +215,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.automation.sessionPriority", defaultValue: "Prioritize Claude Sessions by Sidebar Order"),
             [
                 "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix",
-                String(localized: "settings.automation.sessionPriority.subtitle", defaultValue: "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less.")
+                String(localized: "settings.automation.sessionPriority.subtitle", defaultValue: "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation.")
             ].joined(separator: " ")
         ),
         setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),

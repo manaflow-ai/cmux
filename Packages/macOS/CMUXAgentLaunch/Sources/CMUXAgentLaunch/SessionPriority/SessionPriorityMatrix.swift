@@ -106,7 +106,7 @@ public struct SessionPriorityMatrix: Equatable, Sendable {
         return string
     }
 
-    /// The target for a cell; empty when the cell is absent.
+    /// The target for a cell; empty when the cell is `{}`.
     public func target(tier: SessionPriorityTier, difficulty: ClaudeSessionDifficulty) -> SessionPriorityTarget {
         cells[tier]?[difficulty] ?? SessionPriorityTarget()
     }

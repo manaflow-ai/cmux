@@ -26,7 +26,7 @@ struct SessionPrioritySettingsCard: View {
                 ),
                 subtitle: String(
                     localized: "settings.automation.sessionPriority.subtitle",
-                    defaultValue: "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less.",
+                    defaultValue: "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation.",
                     bundle: .module
                 )
             ) {
