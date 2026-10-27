@@ -167,10 +167,10 @@ test("on New Tab the menu holds no empty rows under its own (it opens down, so i
   ).toBe(0);
 });
 
-test("a chat's menu still holds the tallest tab's height (it opens up, so the rail stays under the pointer)", async () => {
+test("a chat menu sizes to its visible rows without hidden height fillers", async () => {
   await openMenu(false);
   const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBeGreaterThan(0);
+  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBe(0);
 });
 
 test("Fast mode exposes one checked menu row with a visual switch and no bare state word", async () => {
