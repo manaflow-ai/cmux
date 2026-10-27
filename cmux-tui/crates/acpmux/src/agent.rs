@@ -346,9 +346,12 @@ async fn end_direct(
     let Ok(mut slot) = tokio::time::timeout(budget * 2, slot.lock()).await else { return false };
     let Some(child) = slot.as_mut() else { return true };
     // Exited (now reaped): its group may be another's now, so it is not signalled; its writer
-    // stopped above, so a descendant that kept its stdin gets nothing more of the message.
-    if !matches!(child.try_wait(), Ok(None)) {
-        return true;
+    // stopped above, so a descendant that kept its stdin gets nothing more of the message. A
+    // failed check proves neither, so the caller tries again (review 87).
+    match child.try_wait() {
+        Ok(Some(_)) => return true,
+        Ok(None) => {}
+        Err(_) => return false,
     }
     #[cfg(unix)]
     if let Some(pg) = pid {
@@ -382,23 +385,45 @@ fn end_hosted(record: crate::agent_host::HostRecord) -> tokio::task::JoinHandle<
 }
 
 /// A direct agent's stdin writer, which a cut stops (`Fence::cut_or_end`): `ended` turns true
-/// once it stopped, after which nothing more of a message reaches its stdin.
+/// once it stopped, after which nothing more of a message reaches its stdin. `writing` is the
+/// fence of the message it is writing.
 #[derive(Clone)]
 struct WriterStop {
     abort: tokio::task::AbortHandle,
     ended: tokio::sync::watch::Receiver<bool>,
+    writing: Arc<std::sync::Mutex<Option<Fence>>>,
+}
+
+impl WriterStop {
+    /// Its agent ended: the writer stops, and the message it was writing, which a descendant
+    /// that kept its stdin may never read, fails, so no holder waits on it for ever (review 87
+    /// of #23322).
+    async fn agent_ended(&self) {
+        self.abort.abort();
+        let mut ended = self.ended.clone();
+        if tokio::time::timeout(LEADER_DRAIN, ended.wait_for(|e| *e)).await.is_ok() {
+            let writing = self.writing.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(f) = writing {
+                f.failed();
+            }
+        }
+    }
 }
 
 /// A direct agent's stdin queue (`ChildAgent::spawn`): once its writer stops, also by a cut, what
-/// it still queues is cut, so no holder waits on it, and `WriterStop::ended` turns true.
+/// it still queues is cut (or failed, once a translator took it), so no holder waits on it, and
+/// `WriterStop::ended` turns true.
 struct WriterQueue(mpsc::Receiver<(String, Option<Fence>)>, tokio::sync::watch::Sender<bool>);
 
 impl Drop for WriterQueue {
     fn drop(&mut self) {
         self.0.close();
         while let Ok((_, fence)) = self.0.try_recv() {
-            if let Some(f) = fence {
-                f.cut();
+            // One a translator took is never written now (`ChildAgent::hand_on`).
+            if let Some(f) = fence
+                && !f.cut()
+            {
+                f.failed();
             }
         }
         self.1.send_replace(true);
@@ -597,6 +622,8 @@ impl ChildAgent {
         #[cfg(test)]
         let seam = agent.input_seam.clone();
         let (ended_tx, ended) = tokio::sync::watch::channel(false);
+        let writing = Arc::new(std::sync::Mutex::new(None));
+        let in_flight = writing.clone();
         let writer = tokio::spawn(async move {
             let mut stdin = stdin;
             let mut queue = WriterQueue(stdin_rx, ended_tx);
@@ -606,6 +633,9 @@ impl ChildAgent {
                 if fence.as_ref().is_some_and(|f| !f.begin()) {
                     continue;
                 }
+                if let Some(f) = &fence {
+                    *in_flight.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.clone());
+                }
                 #[cfg(test)]
                 pause_input(&seam, &line, true).await;
                 if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
@@ -614,12 +644,13 @@ impl ChildAgent {
                     }
                     break;
                 }
+                in_flight.lock().unwrap_or_else(|e| e.into_inner()).take();
                 if let Some(f) = fence {
                     f.written();
                 }
             }
         });
-        let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended });
+        let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended, writing });
 
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = &agent.codex {
@@ -815,6 +846,9 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
+                if let Some(stop) = agent_for_exit.writer_stop.get() {
+                    stop.agent_ended().await;
+                }
                 let _ = inbound
                     .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
                     .await;
@@ -1018,6 +1052,14 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             // The host writes it and logs it back as an `out` entry.
             return h.link().line_fenced(msg.to_value(), fence.cloned()).await;
+        }
+        // A translator's state moves on with what it translates (Claude's permission asks, the
+        // app-server's approvals), so a message it takes is as good as taken: never cut while
+        // queued, which could leave its agent waiting on an ask the translator let go of; a cut
+        // ends that agent instead (review 88 of #23322).
+        if (self.codex.is_some() || self.translator.is_some()) && fence.is_some_and(|f| !f.begin())
+        {
+            return Err(anyhow!("agent {}: {FENCE_CUT}", self.name));
         }
         (self.tap)(Direction::Out, msg, None);
         if let Some(cx) = &self.codex {
