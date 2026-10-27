@@ -278,25 +278,34 @@ import Testing
     /// asks for one more read (not a second at once), and the reading lands when it returns.
     @Test func aSlowReadNeverHoldsTheEventsTurn() async throws {
         let folder = try Self.folder()
-        let (release, releasing) = AsyncStream<Void>.makeStream()
-        let shown = folder.appendingPathComponent("blue.png")
+        let (firstRelease, releasingFirst) = AsyncStream<Void>.makeStream()
+        let (secondRelease, releasingSecond) = AsyncStream<Void>.makeStream()
+        let (secondStarted, startingSecond) = AsyncStream<Void>.makeStream()
+        let first = folder.appendingPathComponent("blue.png"), second = folder.appendingPathComponent("red.png")
         var reads = 0, running = 0, mostAtOnce = 0
         let watch = DesktopWallpaperWatch(read: {
             reads += 1
+            let isFirst = reads == 1
             running += 1
             mostAtOnce = max(mostAtOnce, running)
             defer { running -= 1 }
-            await Task.detached { for await _ in release {} }.value
-            return Self.reading(shown, folder: folder)
+            if !isFirst { startingSecond.yield() }
+            let gate = isFirst ? firstRelease : secondRelease
+            await Task.detached { for await _ in gate {} }.value
+            return Self.reading(isFirst ? first : second, folder: folder)
         }, sample: { _ in Self.blue })
         watch.tintEnabled = true
         watch.refresh()
         watch.refresh()
         #expect(watch.picture == nil && watch.tint == nil, "the read has not returned: nothing applied yet")
-        releasing.finish()
+
+        releasingFirst.finish()
+        for await _ in secondStarted { break }
+        #expect(watch.picture?.reportedURL == first, "the first reading applied before the read the event asked for")
+        releasingSecond.finish()
         await watch.settled()
         #expect(reads == 2 && mostAtOnce == 1, "the event during the read reads once more, after it")
-        #expect(watch.picture?.reportedURL == shown && watch.tint == Self.blue && watch.generation == 0)
+        #expect(watch.picture?.reportedURL == second && watch.generation == 1 && watch.tint == Self.blue)
     }
 
     /// The live read takes the picture (and stats its file) on the watch's queue, never on the

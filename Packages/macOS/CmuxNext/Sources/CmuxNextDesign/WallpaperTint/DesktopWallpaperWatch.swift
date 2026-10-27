@@ -201,15 +201,18 @@ public final class DesktopWallpaperWatch {
         while let task = readTask { await task.value }
     }
 
-    /// A read ended. An event during it reads again (this reading may be older than the event);
-    /// otherwise a reading that differs from the last one is the desktop now.
+    /// A read ended: a reading that differs from the last one is the desktop now. An event during
+    /// the read reads once more after applying it (this reading may be older than the event), so a
+    /// slow WindowServer with events during every read still shows each reading.
     private func landed(_ next: Reading?) {
         readTask = nil
-        if rereads {
-            rereads = false
-            refresh()
-            return
-        }
+        let readsAgain = rereads
+        rereads = false
+        apply(next)
+        if readsAgain { refresh() }
+    }
+
+    private func apply(_ next: Reading?) {
         guard !isHidden(), let reading = next else { return }
         // The same picture: nothing moved, but a color that landed while nothing showed shows now.
         guard reading != current else {
