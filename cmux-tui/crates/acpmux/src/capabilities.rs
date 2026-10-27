@@ -71,6 +71,12 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Owner-VM Codex app-server bridge: access-only external tokens are read
+    // from the private broker file and never exposed through ACP frames.
+    Capability {
+        id: "codex-external-access-v1",
+        wire: &[method::SESSION_NEW, method::SESSION_PROMPT],
+    },
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
@@ -128,6 +134,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // retry a subagent, so the pane shows a subagent's Retry button only
     // under it.
     Capability { id: "subagent-retry-v1", wire: &[method::MUX_RETRY] },
+    // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
+    // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
+    Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

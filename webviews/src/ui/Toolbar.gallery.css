@@ -5,7 +5,7 @@
   min-height: 220px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .toolbar-gallery-copy {
@@ -13,6 +13,7 @@
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .toolbar-gallery-copy strong {
@@ -44,6 +45,7 @@
   border-radius: 5px;
   color: var(--cmux-text, CanvasText);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .toolbar-gallery .ui-toolbar-button[disabled] {
@@ -79,4 +81,5 @@
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

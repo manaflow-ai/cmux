@@ -22,7 +22,7 @@ nonisolated struct FeedHandoffPolicy: Sendable {
 
     /// The text to hand off for `item`, nil when it stays local.
     func content(for item: FeedLocalItem) -> (title: String, body: String)? {
-        let source = NotificationCenterService.source(item.source)
+        let source = NotificationSource(wire: item.source)
         if let workspace = item.context.workspace, mutedWorkspaces.contains(workspace) { return nil }
         guard preferences.desktop != .never, preferences.postsDesktop(for: source), !arrivedInQuietHours(item) else { return nil }
         return mirrored(item)
@@ -38,7 +38,7 @@ nonisolated struct FeedHandoffPolicy: Sendable {
     private func mirrored(_ item: FeedLocalItem) -> (title: String, body: String)? {
         let mirror = preferences.feedMirror
         let text: (String, String)?
-        switch NotificationCenterService.source(item.source) {
+        switch NotificationSource(wire: item.source) {
         case .terminal:
             switch mirror.terminal {
             case .off: text = nil
