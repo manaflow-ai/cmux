@@ -59,6 +59,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         replacements.sending(method: method, connection: connection)
     }
 
+    /// A start or open refused now while a Sandboxed send runs (``AcpmuxPaneReplacements/refuses(method:)``).
+    func refusesPageFrame(method: String?) -> Bool {
+        replacements.refuses(method: method)
+    }
+
     /// A page frame ``sendingPageFrame(method:)`` let through did not go out.
     func pageFrameNotSent(method: String?) {
         replacements.notSent(method: method, connection: connection)
