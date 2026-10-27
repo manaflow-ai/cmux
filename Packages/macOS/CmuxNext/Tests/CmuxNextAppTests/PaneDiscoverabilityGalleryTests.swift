@@ -56,7 +56,9 @@ import Testing
             TabItem(id: TabID("terminal"), title: "Terminal", icon: .symbol("terminal")),
         ]
         let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
-        let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
+        let reveal = LaunchReveal()
+        reveal.markAllReady()
+        let pane = PaneContentView(stripModel: model, reveal: reveal)
         pane.frame = NSRect(x: 24, y: 22, width: 852, height: 122)
         pane.stripView.opensNewTabMenuOnPress = variant.opensMenu
         pane.stripView.buttonReveal.pointerInStrip = variant.opensMenu
@@ -78,6 +80,7 @@ import Testing
         pane.layoutSubtreeIfNeeded()
         pane.stripView.layoutSubtreeIfNeeded()
         pane.toolbar?.view.layoutSubtreeIfNeeded()
+        #expect(pane.stripView.alphaValue == 1, "gallery must capture the revealed tab strip")
         root.displayIfNeeded()
         CATransaction.flush()
         let scale: CGFloat = 2
