@@ -89,16 +89,6 @@ extension CEFRuntime {
         }
     }
 
-    /// The host exited (task 091 calls this in the exit turn): every reply still awaited fails with
-    /// `hostGone`, and every profile proxy is handed to the next host again before a page of its
-    /// profile opens. A host's verdict on a proxy says nothing about the host after it, whose
-    /// Chromium context starts without the proxy (#24432 fails closed).
-    func hostGone() {
-        hostStart?.replies.failAll(.hostGone)
-        profileProxyChecks.removeAll()
-        unappliedProfileProxies.formUnion(profileProxies.keys)
-    }
-
     private static func tabError(_ error: CEFHostReplyError) -> BrowserTabError {
         if case .timedOut(let what, let limit) = error { return .timedOut("Chromium Host \(what) (\(limit))") }
         return .closed

@@ -5,6 +5,8 @@
 use super::*;
 
 #[cfg(unix)]
+mod chief_owner_exit;
+#[cfg(unix)]
 mod dev_orphan_exit;
 #[cfg(unix)]
 #[path = "server_lifecycle.rs"]
@@ -69,6 +71,13 @@ where
     // Any owner, with leftoverDaemonIdleExit on (server_lifecycle.rs).
     #[cfg(unix)]
     let idle_exit = server_lifecycle::start_for_owner(mux, chief_brains.is_some());
+    // A Chief owner an app started stops soon after that app exits, when
+    // nothing needs it (chief_owner_exit.rs).
+    #[cfg(unix)]
+    let chief_owner_exit = chief_owner_exit::start_for_owner(
+        mux,
+        chief_brains.as_ref().map_or_else(Arc::default, |brains| brains.live()),
+    );
     wait_for_stop(|| {
         shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()
     });
@@ -93,6 +102,10 @@ where
     #[cfg(unix)]
     if let Some(idle_exit) = idle_exit {
         idle_exit.stop();
+    }
+    #[cfg(unix)]
+    if let Some(chief_owner_exit) = chief_owner_exit {
+        chief_owner_exit.stop();
     }
     Ok(())
 }

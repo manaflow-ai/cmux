@@ -146,6 +146,7 @@ extension ControlRouter {
     private static func untilDeadline<T: Sendable>(_ deadline: ContinuousClock.Instant, method: String,
                                                    _ stage: @escaping @MainActor @Sendable () async -> T) async -> T {
         // task-owner: this stage; cancelled at the deadline and awaited before the settle goes on
+        // main-hop-allow: debug: the stage is main-actor async code (the store's settle, the motion idle wait) whose own posts carry classes; the Task only lets the deadline cancel it
         let work = Task { @MainActor in await stage() }
         _ = try? await ControlDeadline.shared.run(method: method, deadline: deadline) {
             await withTaskCancellationHandler { _ = await work.value } onCancel: { work.cancel() }

@@ -447,12 +447,15 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 
 ## Framed IPC grants
 
-Status: grant rule only. The daemon advertises and grants a capability only
-after its transport is in the daemon. No transport is in the daemon yet, so
-`identify` lists none of the four and `set-client-info` grants none. The
-task that adds a transport also turns on its capability: p05-ipc-061 for
-`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
-and the ring task for `terminal-output-ring-v1`
+Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
+[events.md](events.md#attach-streams)); the other three are a grant rule
+only. The daemon advertises and grants a capability only after its
+transport is in the daemon, so `identify` lists only `attach-streams-v1` of
+the four and `set-client-info` grants only it. A request that names a
+`stream` on a connection without the grant is refused with
+`streams_not_granted`. The task that adds a transport also turns on its
+capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for
+`terminal-output-ring-v1`
 (`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
 works the same way: it exposes an interface only after its implementation
 is bound.
@@ -513,6 +516,20 @@ than the daemon's. To get the grant again, the client must echo the
 capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
+
+An equal `api_revision` does not prove that the two method tables are
+equal: a new command is additive and needs no new revision. A REQUEST frame
+with a method id or priority hint that the daemon's table does not have
+closes the connection. A method that the daemon serves only as a line gets
+the ERROR `method_not_framed` before it runs, so a retry would run it after
+the requests written behind it. So, on a connection that is offered
+`ipc-frames-v2`, `identify {revisions: true}` also returns
+`sdk_schema_digest` (FNV-1a 64 of the `sdk-schema.json` bytes that the
+daemon's method tables come from, as 16 lowercase hex digits) and
+`framed_methods` (the method ids that the daemon answers on frames, in id
+order). A client sends REQUEST frames only when its own table has the same
+digest, and only for the methods in `framed_methods`. It sends every other
+command as a line.
 
 ### Attach frames
 
