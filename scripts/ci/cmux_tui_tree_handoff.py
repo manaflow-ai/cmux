@@ -101,7 +101,10 @@ def handoff(repo: str, run_id: int, key: str) -> None:
 
     def log_of(job: Mapping[str, Any]) -> str | None:
         result = _gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
-        return result.stdout if result.returncode == 0 else None
+        if result.returncode != 0:
+            print(f"::warning::could not read the log of job {job['id']} ({job.get('name')}): {result.stderr.strip()}")
+            return None
+        return result.stdout
 
     if quota_only_failure(jobs, log_of):
         print(f"::warning title=tree hand-off skipped::run {run_id} failed only on GitHub's rate limit or "
@@ -114,15 +117,24 @@ def handoff(repo: str, run_id: int, key: str) -> None:
         return
     for artifact, deferred, branch in candidates:
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
-        run = json.loads(result.stdout) if result.returncode == 0 and result.stdout.strip() else {}
-        allowed, why = may_rerun(run)
+        if result.returncode != 0 or not result.stdout.strip():
+            print(f"::warning::could not read run {deferred} ({branch}): {result.stderr.strip()}")
+            continue
+        allowed, why = may_rerun(json.loads(result.stdout))
         if not allowed:
             print(f"Not re-running run {deferred} ({branch}): {why}.")
             continue
-        if _gh("run", "rerun", str(deferred), "--repo", repo).returncode != 0:
+        rerun = _gh("run", "rerun", str(deferred), "--repo", repo)
+        if rerun.returncode != 0:
+            print(f"::warning::could not re-run run {deferred} ({branch}): {rerun.stderr.strip()}")
             continue
-        _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
         print(f"Re-ran run {deferred} ({branch}, {why}), which deferred to this one, to build tree {key}.")
+        # The marker is used once. If it cannot be deleted, a later owner may re-run this run again, but only
+        # up to MAX_ATTEMPT: the cap is read from the run itself, not from the marker.
+        deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+        if deleted.returncode != 0:
+            print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
+            raise SystemExit(1)
         return
     print(f"::warning::no run that deferred tree {key} to this one could be re-run")
 

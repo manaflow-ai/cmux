@@ -39,7 +39,7 @@ if args[:2] == ["run", "rerun"]:
     sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
 path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
-    sys.exit(0)
+    sys.exit(1 if state.get("delete_fails") else 0)
 if path.endswith("/logs"):
     job = path.split("/")[-2]
     if job in state.get("log_errors", []):
@@ -58,6 +58,8 @@ if "/artifacts?" in path:
         print(json.dumps(artifact))
     sys.exit(0)
 run = path.rsplit("/", 1)[1]
+if run not in state["runs"]:
+    print("HTTP 404", file=sys.stderr); sys.exit(1)
 print(json.dumps(state["runs"][run]))
 """
 
@@ -182,6 +184,27 @@ class CommandTests(unittest.TestCase):
         result, _ = self.run_handoff({"jobs_error": True, "jobs_pages": []})
         self.assertEqual(result.returncode, 1)
         self.assertIn(f"::warning::tree {KEY} was not handed off", result.stdout)
+
+    def test_delete_failure_warns_and_fails_the_step(self):
+        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": True,
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, _ = self.run_handoff(state)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Re-ran run 12", result.stdout)
+        self.assertIn("::warning::could not delete deferred marker 31", result.stdout)
+
+    def test_unreadable_log_run_and_rerun_failures_warn(self):
+        state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]], "log_errors": ["2"],
+                 "rerun_fails": ["13"],
+                 "artifacts": [marker(31, 14), marker(32, 13), marker(33, 12)],
+                 "runs": {"13": {"status": "completed", "run_attempt": 1},
+                          "12": {"status": "completed", "run_attempt": 1}}}
+        result, _ = self.run_handoff(state)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("::warning::could not read the log of job 2", result.stdout)
+        self.assertIn("::warning::could not read run 14", result.stdout)
+        self.assertIn("::warning::could not re-run run 13", result.stdout)
+        self.assertIn("Re-ran run 12", result.stdout)
 
     def test_missing_token_warns(self):
         result, _ = self.run_handoff({"jobs_pages": []}, token="")
