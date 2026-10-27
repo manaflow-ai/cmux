@@ -227,12 +227,13 @@ def run_first_key(session, poster):
     """Each trial: newSurface, then --first-key-keys keys at --interval from the reply (key 0 is the first key a person
     types into the new tab); per key index the probe row's key-to-frame and hops, or why it has none."""
     trials = session["first_key"] = []
+    session_start = probe_count()  # the probe CSV is shared by every session; each launch numbers presses from 0
     for trial in range(opts.first_key):
         t0 = time.perf_counter()
         reply = action("newSurface")
         reply_ms = round((time.perf_counter() - t0) * 1000, 2)
         start = probe_count()
-        before = hid_input.probe_rows(PROBE)
+        before = hid_input.probe_rows(PROBE)[session_start:]
         base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
         sent = []
         for index in range(opts.first_key_keys):
