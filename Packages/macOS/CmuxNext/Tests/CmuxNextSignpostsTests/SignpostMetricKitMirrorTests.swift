@@ -17,6 +17,8 @@ struct SignpostMetricKitMirrorTests {
         signposter(.action).end(.actionPerform, interval)
     }
 
+    // MetricKit only: off Apple platforms nothing is mirrored (OSSignposterLinuxTests).
+    #if canImport(MetricKit)
     @Test func actionIntervalsReachTheMirrorWhileOn() {
         mirror.setOn(true)
         let action = signposter(.action)
@@ -31,6 +33,7 @@ struct SignpostMetricKitMirrorTests {
         action.end(.actionGate, gate)
         #expect(action.interval(.actionPerform, message) { 7 } == 7)
     }
+    #endif
 
     @Test func perFrameAndPerPumpIntervalsAreNotMirrored() {
         mirror.setOn(true)

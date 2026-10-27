@@ -1,4 +1,4 @@
-import os
+import CmuxNextCompat
 
 // The layout motion intervals (`motion.frame`, `motion.run`) with their numbers: like every ``Signposter``
 // interval, each is one `OSSignposter` interval (Instruments, `log stream --signpost`), the MetricKit mirror's

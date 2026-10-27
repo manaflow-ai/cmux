@@ -1,7 +1,6 @@
 import CmuxNextCompat
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
-import os
 import Testing
 
 /// The records a test runtime writes, in order, each stamped from a clock that advances 10 ns per read: until

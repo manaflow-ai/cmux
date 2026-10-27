@@ -1,5 +1,6 @@
-import Carbon.HIToolbox
+import CmuxNextCompat
 import CmuxNextMetrics
+import CoreFoundation
 public import Foundation
 
 /// The always-on `key.frame` interval (``SignpostName/keyToFrame``): from the app dispatching a key-down to the end
@@ -73,7 +74,7 @@ public final class KeyFrameSignpost {
     /// The app's key-frame signposts: ``Signposter/key``, ended by an observer on the main run loop, gated by the
     /// system's secure event input.
     public convenience init() {
-        self.init(signposter: .key, secureEventInput: { IsSecureEventInputEnabled() })
+        self.init(signposter: .key, secureEventInput: { KeyFrameSignpost.systemSecureEventInput() })
         installOnMainRunLoop()
     }
 

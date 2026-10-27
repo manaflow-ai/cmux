@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextTrace
-import os
 
 // The `cef.geometry` and `cef.host_input` points (p09-observability task 038, perf-hot `cef-geometry` and
 // `cef-host-input`; owner PL-motion-cef). `cef.geometry` is one thread slice (B/E) per parent window geometry change

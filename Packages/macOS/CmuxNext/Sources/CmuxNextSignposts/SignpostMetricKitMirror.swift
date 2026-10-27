@@ -1,6 +1,7 @@
 import CmuxNextCompat
+#if canImport(MetricKit)
 public import MetricKit
-public import os
+#endif
 
 /// Mirrors catalog intervals to MetricKit while opt-in hang reports are on
 /// (plans/cmux-next/hang-reports-DESIGN.md section 2).
@@ -10,7 +11,8 @@ public import os
 /// ``Signposter`` begin and end of a mirrored name (``mirrors(_:)``) is repeated there with the
 /// catalog name and no message, so MetricKit returns a duration histogram per name
 /// (`MXSignpostMetric`). Off (the default), the cost per interval is one relaxed atomic load; on,
-/// two `mxSignpost` events and no lock.
+/// two `mxSignpost` events and no lock. Where MetricKit does not exist (Linux) the switch is kept and nothing
+/// is mirrored: ``begin(_:)`` returns nil.
 ///
 /// ```swift
 /// SignpostMetricKitMirror.shared.setOn(settings.hangReports)
@@ -22,12 +24,14 @@ public final class SignpostMetricKitMirror: Sendable {
 
     private let on = Atomic<Bool>(false)
 
+    #if canImport(MetricKit)
     /// One MetricKit log per category of a mirrored name, made at the first read (``setOn(_:)`` with true,
     /// never while off).
     // crash-allow: OSLog handles are immutable and thread-safe (OSLog is not marked Sendable); a static let is initialized once (dispatch_once) and never written, so readers need no lock.
     nonisolated(unsafe) private static let logs: [SignpostCategory: OSLog] = Dictionary(
         Set(SignpostName.allCases.filter(mirrors).map(\.traceCategory))
             .map { ($0, MXMetricManager.makeLogHandle(category: $0.rawValue)) }, uniquingKeysWith: { first, _ in first })
+    #endif
 
     init() {}
 
@@ -36,7 +40,9 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Turns mirroring on (hang reports on) or off.
     public func setOn(_ value: Bool) {
+        #if canImport(MetricKit)
         if value { _ = Self.logs }
+        #endif
         on.store(value, ordering: .relaxed)
     }
 
@@ -58,15 +64,21 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Mirrors a begin; returns the id the end needs, nil while off or for a name not mirrored.
     func begin(_ name: SignpostName) -> OSSignpostID? {
+        #if canImport(MetricKit)
         guard isOn, Self.mirrors(name), let log = Self.logs[name.traceCategory] else { return nil }
         let id = OSSignpostID(log: log)
         mxSignpost(.begin, log: log, name: name.staticName, signpostID: id)
         return id
+        #else
+        return nil
+        #endif
     }
 
     /// Mirrors the end of an interval whose begin was mirrored (even if mirroring went off since).
     func end(_ name: SignpostName, id: OSSignpostID) {
+        #if canImport(MetricKit)
         guard let log = Self.logs[name.traceCategory] else { return }
         mxSignpost(.end, log: log, name: name.staticName, signpostID: id)
+        #endif
     }
 }

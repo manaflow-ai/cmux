@@ -39,7 +39,7 @@ struct CreateTabTimingTests {
         interval.standInShown()
         #expect(log.phases == [.asyncBegin], "the instant waits for the stand-in's commit")
         pollingTurn()
-        #expect(log.phases == [.asyncBegin, .instant])
+        try #require(log.phases == [.asyncBegin, .instant])
         #expect(log.records[1].arg0 == CreateTabInterval.Kind.chromium.traceCode)
         #expect(log.records[1].arg1 == interval.intentID, "the instant names the same intent")
 

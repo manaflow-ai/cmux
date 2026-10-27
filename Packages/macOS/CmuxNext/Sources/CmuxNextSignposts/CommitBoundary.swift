@@ -1,5 +1,6 @@
+import CmuxNextCompat
+import CmuxNextTrace
 public import CoreFoundation
-import Darwin
 
 /// Runs work once, right after the next Core Animation commit of the main run loop.
 ///
@@ -82,7 +83,7 @@ public struct CommitBoundary: Sendable {
             | CFRunLoopActivity.afterWaiting.rawValue
         let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, false, Self.order) { _, activity in
             let commit = Commit(outcome: activity == .afterWaiting ? .missed : .committed,
-                                commitEndNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+                                commitEndNanos: TraceClock().nowNanos())
             // main-proof: the observer is added to the main run loop only (below).
             MainActor.assumeIsolated { body(commit) }
         }

@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextTrace
-import os
 
 // The `cef.pump` interval with its numbers: one `OSSignposter` interval (Instruments, `log stream --signpost`) per
 // Chromium message pump pass, and one trace ring thread slice (B/E) per pass while a recording runs. Like Chrome's

@@ -1,4 +1,4 @@
-public import os
+import CmuxNextCompat
 
 /// Always-on launch signposts (category ``SignpostCategory/launch``, Debug and Release): one point event
 /// per launch mark and the launch phase intervals, so `log stream --signpost --predicate 'category ==

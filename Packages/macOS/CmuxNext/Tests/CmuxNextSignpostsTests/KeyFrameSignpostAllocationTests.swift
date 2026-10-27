@@ -4,10 +4,15 @@ import CmuxNextMetrics
 import CmuxNextSignpostsC
 @testable import CmuxNextTrace
 import CoreFoundation
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
 import Testing
 
+// libmalloc's allocation hook: Darwin only. Off Darwin the five allocation counts below are not compiled, and the
+// ring and decoding tests run as they do on macOS.
+#if canImport(Darwin)
 /// libmalloc's allocation hook type (`malloc_logger_t`): type flags, three arguments, the result, frames to skip.
 private typealias MallocLogger = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
 
@@ -59,6 +64,7 @@ private struct ThreadMallocs {
         return MallocTally.allocations.load(ordering: .relaxed)
     }
 }
+#endif
 
 /// The ring records a test runtime publishes while no ring is attached, in order.
 private final class StubRecords: Sendable {
@@ -146,6 +152,7 @@ struct KeyFrameSignpostAllocationTests {
         }
     }
 
+    #if canImport(Darwin)
     @Test func theCounterSeesThisThreadsMallocs() throws {
         let mallocs = try #require(ThreadMallocs(), "libmalloc exports malloc_logger")
         let cMallocs = mallocs.count {
@@ -194,6 +201,7 @@ struct KeyFrameSignpostAllocationTests {
         let made = mallocs.count { overBudgetEvents(signposter, count: 1_000) }
         #expect(made == 0)
     }
+    #endif
 
     @Test("key.frame decodes as AB then AE with one id, the target and age in the begin, how it ended in the end")
     func keyFrameRecordsDecodeAsAnAsyncSlice() throws {

@@ -16,7 +16,7 @@ extern "C" {
 // and `stall` categories of the cmux subsystem; the names and messages are
 // the catalog's (SignpostName.keyToFrame, .keyFlow, .stallMainTask,
 // .stallOverBudget). A string argument is NUL-terminated and read only
-// during the call.
+// during the call. Off Apple platforms they emit nothing (signposts.c).
 
 // "com.cmuxterm.app.next" (tests compare it with SignpostCategory.subsystem).
 const char *cmux_signpost_subsystem(void);
@@ -53,6 +53,14 @@ void cmux_signpost_stall_task_end(uint64_t id);
 // One stall.over_budget point event:
 // `class=<class> owner=<owner> ms=<task time, 2 decimals> budget_ms=<budget, 2 decimals>`.
 void cmux_signpost_stall_over_budget(const char *task_class, const char *owner, double ms, double budget_ms);
+
+#if !defined(__APPLE__)
+// A new signpost id, unique in the process. Off Apple platforms there is no
+// unified log: the emitters above are no-ops, and the key, stall and
+// OSSignposter ids (CmuxNextSignposts/Platform/OSSignposter+Linux.swift) all
+// come from this one counter, since the trace ring keys async slices by id.
+uint64_t cmux_signpost_next_id(void);
+#endif
 
 #ifdef __cplusplus
 }

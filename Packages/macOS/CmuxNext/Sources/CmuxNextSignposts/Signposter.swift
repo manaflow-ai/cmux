@@ -1,5 +1,5 @@
+import CmuxNextCompat
 public import CmuxNextTrace
-public import os
 
 /// Always-on signpost intervals for one ``SignpostCategory``, the same in Debug and Release.
 ///

@@ -1,4 +1,4 @@
-import os
+import CmuxNextCompat
 
 // The `switch.app_activation` begin with its numbers: one `OSSignposter` interval, the MetricKit mirror's and one
 // trace ring async slice (AB/AE) while the `switch` category is on. The message fields are formatted by the log system

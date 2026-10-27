@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextTrace
-import os
 
 // The `key.omnibar_suggest` and `key.palette_search` slices (p09-observability task 040, perf-hot `omnibar-key` and
 // `palette-key`; owners PL-typing and the Performance Lead). Each is one thread slice (B/E) per synchronous pass of a

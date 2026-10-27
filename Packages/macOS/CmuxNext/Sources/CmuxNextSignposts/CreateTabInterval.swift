@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextTrace
-import os
 
 /// One new tab's ``SignpostName/createTab`` interval, in every build (p09-observability task 030, PL-cef-tab):
 /// begun in the turn of the person's key (or click), ended once at the tab's first themed content frame, or

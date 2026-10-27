@@ -33,7 +33,7 @@ public nonisolated struct CommitBoundaryAudit: Sendable, Hashable {
     /// The main run loop's audit now.
     @MainActor
     public static func mainRunLoop() -> CommitBoundaryAudit {
-        CommitBoundaryAudit(description: CFCopyDescription(CFRunLoopGetMain()) as String)
+        CommitBoundaryAudit(description: mainRunLoopDescription())
     }
 
     /// Core Animation's commit observers among ``observers``.

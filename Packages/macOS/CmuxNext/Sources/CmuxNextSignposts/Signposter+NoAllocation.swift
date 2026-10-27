@@ -1,6 +1,6 @@
+import CmuxNextCompat
 import CmuxNextSignpostsC
 import CmuxNextTrace
-import os
 
 // The signposts that run per key, per key hop and per scheduled main task, with no heap allocation: they emit
 // through os_signpost's C macros (CmuxNextSignpostsC), which format typed fields into a stack buffer the compiler

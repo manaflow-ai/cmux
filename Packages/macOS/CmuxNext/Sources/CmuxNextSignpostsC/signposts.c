@@ -1,9 +1,13 @@
 #include "CmuxNextSignpostsC.h"
 
+#include <stddef.h>
+#if defined(__APPLE__)
 #include <dispatch/dispatch.h>
 #include <os/log.h>
 #include <os/signpost.h>
-#include <stddef.h>
+#else
+#include <stdatomic.h>
+#endif
 
 #define SUBSYSTEM "com.cmuxterm.app.next"
 #define KEY_CATEGORY "key"
@@ -15,6 +19,21 @@
 #define STALL_TASK_NAME "stall.main_task"
 #define STALL_OVER_BUDGET_NAME "stall.over_budget"
 
+const char *cmux_signpost_subsystem(void) { return SUBSYSTEM; }
+
+const char *cmux_signpost_key_category(void) { return KEY_CATEGORY; }
+
+const char *cmux_signpost_stall_category(void) { return STALL_CATEGORY; }
+
+const char *cmux_signpost_key_frame_name(void) { return KEY_FRAME_NAME; }
+
+const char *cmux_signpost_key_flow_name(void) { return KEY_FLOW_NAME; }
+
+const char *cmux_signpost_stall_task_name(void) { return STALL_TASK_NAME; }
+
+const char *cmux_signpost_stall_over_budget_name(void) { return STALL_OVER_BUDGET_NAME; }
+
+#if defined(__APPLE__)
 static os_log_t key_log;
 static dispatch_once_t key_log_once;
 static os_log_t stall_log;
@@ -40,20 +59,6 @@ static os_log_t stall(void) {
   dispatch_once_f(&stall_log_once, NULL, make_stall_log);
   return stall_log;
 }
-
-const char *cmux_signpost_subsystem(void) { return SUBSYSTEM; }
-
-const char *cmux_signpost_key_category(void) { return KEY_CATEGORY; }
-
-const char *cmux_signpost_stall_category(void) { return STALL_CATEGORY; }
-
-const char *cmux_signpost_key_frame_name(void) { return KEY_FRAME_NAME; }
-
-const char *cmux_signpost_key_flow_name(void) { return KEY_FLOW_NAME; }
-
-const char *cmux_signpost_stall_task_name(void) { return STALL_TASK_NAME; }
-
-const char *cmux_signpost_stall_over_budget_name(void) { return STALL_OVER_BUDGET_NAME; }
 
 uint64_t cmux_signpost_key_frame_id(void) { return (uint64_t)os_signpost_id_generate(key()); }
 
@@ -97,3 +102,49 @@ void cmux_signpost_stall_over_budget(const char *task_class, const char *owner, 
   os_signpost_event_emit(stall(), OS_SIGNPOST_ID_EXCLUSIVE, STALL_OVER_BUDGET_NAME,
                          "class=%{public}s owner=%{public}s ms=%.2f budget_ms=%.2f", task_class, owner, ms, budget_ms);
 }
+
+#else
+// No unified log off Apple platforms (Platform/OSSignposter+Linux.swift in
+// CmuxNextSignposts): nothing is emitted, and every id comes from one relaxed
+// counter, starting above OS_SIGNPOST_ID_NULL (0), so the trace ring's async
+// slices still pair.
+static _Atomic uint64_t next_id = 1;
+
+uint64_t cmux_signpost_next_id(void) { return atomic_fetch_add_explicit(&next_id, 1, memory_order_relaxed); }
+
+uint64_t cmux_signpost_key_frame_id(void) { return cmux_signpost_next_id(); }
+
+void cmux_signpost_key_frame_begin(uint64_t id, int terminal, double age_ms) {
+  (void)id;
+  (void)terminal;
+  (void)age_ms;
+}
+
+void cmux_signpost_key_frame_end(uint64_t id, int missed) {
+  (void)id;
+  (void)missed;
+}
+
+void cmux_signpost_key_flow_hop(const char *hop, uint64_t flow, int64_t age_us) {
+  (void)hop;
+  (void)flow;
+  (void)age_us;
+}
+
+uint64_t cmux_signpost_stall_task_id(void) { return cmux_signpost_next_id(); }
+
+void cmux_signpost_stall_task_begin(uint64_t id, const char *task_class, const char *owner) {
+  (void)id;
+  (void)task_class;
+  (void)owner;
+}
+
+void cmux_signpost_stall_task_end(uint64_t id) { (void)id; }
+
+void cmux_signpost_stall_over_budget(const char *task_class, const char *owner, double ms, double budget_ms) {
+  (void)task_class;
+  (void)owner;
+  (void)ms;
+  (void)budget_ms;
+}
+#endif

@@ -1,4 +1,4 @@
-public import os
+import CmuxNextCompat
 
 /// An open ``SignpostName/keyToFrame`` interval returned by ``Signposter/begin(_:target:ageMicros:)``; end it
 /// exactly once with the ``KeyFrameInterval`` overload of `Signposter.end(_:_:_:)`. A plain value (the signpost

@@ -1,4 +1,4 @@
-public import os
+import CmuxNextCompat
 
 /// An open interval returned by ``Signposter/begin(_:_:)``; end it exactly once.
 public nonisolated struct SignpostInterval {

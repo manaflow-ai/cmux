@@ -1,4 +1,4 @@
-import os
+import CmuxNextCompat
 
 // The `create.workspace` interval with its numbers: one `OSSignposter` interval, the MetricKit mirror's and one
 // trace ring async slice (AB/AE) while the `create` category is on. The input age is formatted by the log system

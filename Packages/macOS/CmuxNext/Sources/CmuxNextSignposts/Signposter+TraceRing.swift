@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextTrace
-import os
 
 // The trace ring side of ``Signposter``: how its records encode an interval's begin, end and numbers
 // (the layout is in Signposter.swift's doc comment and plans/cmux-next/trace.md).

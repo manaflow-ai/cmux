@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextTrace
 public import CoreFoundation
 
