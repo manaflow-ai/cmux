@@ -277,8 +277,7 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
     asm.mark(socketpair_not);
 
     if notify {
-        // E1: write opens. E2 adds mkdir/mknod/symlink; F adds the
-        // rename/unlink/chmod/chown/time/xattr tables here, after all denies.
+        // Write opens and every name/metadata mutation follow the deny rules.
         for (nr, argument) in [
             (libc::SYS_openat, SECCOMP_DATA_ARG2_LO),
             #[cfg(target_arch = "x86_64")]
@@ -303,6 +302,50 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
         #[cfg(target_arch = "x86_64")]
         {
             asm.jump(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_creat as u32, 0, 1);
+            asm.stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_USER_NOTIF);
+        }
+        #[allow(unused_mut)] // The legacy syscall extension exists only on x86_64.
+        let mut mutations = vec![
+            libc::SYS_mkdirat,
+            libc::SYS_mknodat,
+            libc::SYS_symlinkat,
+            libc::SYS_renameat,
+            libc::SYS_renameat2,
+            libc::SYS_unlinkat,
+            libc::SYS_truncate,
+            libc::SYS_fchmodat,
+            452, /* fchmodat2 */
+            libc::SYS_fchownat,
+            libc::SYS_utimensat,
+            libc::SYS_setxattr,
+            libc::SYS_lsetxattr,
+            libc::SYS_removexattr,
+            libc::SYS_lremovexattr,
+            463,
+            466, /* setxattrat, removexattrat */
+            libc::SYS_fchmod,
+            libc::SYS_fchown,
+            libc::SYS_fsetxattr,
+            libc::SYS_fremovexattr,
+            libc::SYS_ftruncate,
+        ];
+        #[cfg(target_arch = "x86_64")]
+        mutations.extend([
+            libc::SYS_mkdir,
+            libc::SYS_mknod,
+            libc::SYS_symlink,
+            libc::SYS_rename,
+            libc::SYS_unlink,
+            libc::SYS_rmdir,
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ]);
+        for nr in mutations {
+            asm.jump(BPF_JMP | BPF_JEQ | BPF_K, nr as u32, 0, 1);
             asm.stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_USER_NOTIF);
         }
     }
