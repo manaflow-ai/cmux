@@ -1,4 +1,4 @@
-import { expect, jest, test } from "bun:test";
+import { expect, jest, spyOn, test } from "bun:test";
 import { USER_SCROLL_INTENT_MS, userScrollIntent } from "../src/agent-session/acpmux/conversation/userScroll";
 
 test("quiet notification waits for the last input, stops during drag, and cleans up", () => {
@@ -30,6 +30,30 @@ test("quiet notification waits for the last input, stops during drag, and cleans
   } finally {
     remove();
     intent.reset();
+    jest.useRealTimers();
+  }
+});
+
+test("an early fractional timeout rearms without notifying while input is held", () => {
+  jest.useFakeTimers();
+  const clock = spyOn(performance, "now").mockReturnValue(0);
+  const intent = userScrollIntent({} as HTMLElement);
+  let notices = 0;
+  const remove = intent.subscribeQuiet(() => notices++);
+  try {
+    intent.mark();
+    clock.mockReturnValue(999.25);
+    jest.advanceTimersByTime(1000);
+    expect(intent.isHeld()).toBe(true);
+    expect(notices).toBe(0);
+    clock.mockReturnValue(1000.25);
+    jest.advanceTimersByTime(1);
+    expect(intent.isHeld()).toBe(false);
+    expect(notices).toBe(1);
+  } finally {
+    remove();
+    intent.reset();
+    clock.mockRestore();
     jest.useRealTimers();
   }
 });

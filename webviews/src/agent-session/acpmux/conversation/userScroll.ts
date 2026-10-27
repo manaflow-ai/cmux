@@ -29,9 +29,13 @@ function createIntent() {
     quietTimer = setTimeout(
       () => {
         quietTimer = undefined;
+        if (performance.now() - at < USER_SCROLL_INTENT_MS) {
+          scheduleQuiet();
+          return;
+        }
         for (const listener of quietListeners) listener();
       },
-      Math.max(0, USER_SCROLL_INTENT_MS - (performance.now() - at)),
+      Math.max(1, Math.ceil(USER_SCROLL_INTENT_MS - (performance.now() - at))),
     );
   };
   return {
