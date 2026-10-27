@@ -64,10 +64,10 @@ public final class HitTestAudit {
     let onlyClassKeys: [UInt]?
     /// The hooks of the last install, kept so a reinstall reuses the blocks it made.
     var hooks: [HookEntry] = []
-    /// An install or uninstall is running (it awaits the scan and the swap off main).
+    /// The state the last ``install()`` or ``uninstall()`` asked for.
+    private var wantsInstalled = false
+    /// A ``converge()`` is running (it awaits the scan and the swap off main).
     private var isChanging = false
-    /// The installs and uninstalls waiting for the running one, first come first.
-    private var waiting: [CheckedContinuation<Void, Never>] = []
     #endif
 
     /// An audit of every loaded view class, timed on `CLOCK_UPTIME_RAW`.
@@ -104,11 +104,13 @@ public final class HitTestAudit {
     }
 
     /// Installs the hooks and the event brackets and starts recording from empty; true once recording. False, and
-    /// nothing hooked, in a build without hooks.
+    /// nothing hooked, in a build without hooks. Called while another install or uninstall runs, it returns at once
+    /// with the state now, and the running one carries out the latest call.
     @discardableResult
     public func install() async -> Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
-        await serially { await $0.installNow() }
+        wantsInstalled = true
+        await converge()
         return isInstalled
         #else
         return false
@@ -117,9 +119,11 @@ public final class HitTestAudit {
 
     /// Stops recording now, cancels the event brackets and puts every original IMP back (off the main thread: each
     /// set flushes method caches). What was recorded stays readable in ``report()`` until the next ``install()``.
+    /// Called while another install or uninstall runs, it returns at once and the running one uninstalls.
     public func uninstall() async {
         #if DEBUG || CMUX_BENCH_HOOKS
-        await serially { await $0.uninstallNow() }
+        wantsInstalled = false
+        await converge()
         #endif
     }
 
@@ -148,20 +152,15 @@ public final class HitTestAudit {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Runs `work` after every install and uninstall asked for before it. The running one hands its turn to the
-    /// first waiter when it ends.
-    private func serially(_ work: @MainActor (HitTestAudit) async -> Void) async {
-        if isChanging {
-            await withCheckedContinuation { waiting.append($0) }
-        } else {
-            isChanging = true
+    /// Installs or uninstalls until the state is the one last asked for. One runs at a time: a call made while one
+    /// runs leaves its wish in ``wantsInstalled`` for the running one.
+    private func converge() async {
+        guard !isChanging else { return }
+        isChanging = true
+        while wantsInstalled != isInstalled {
+            if wantsInstalled { await installNow() } else { await uninstallNow() }
         }
-        await work(self)
-        if waiting.isEmpty {
-            isChanging = false
-        } else {
-            waiting.removeFirst().resume()
-        }
+        isChanging = false
     }
 
     private func installNow() async {
