@@ -3308,7 +3308,7 @@ export class AcpmuxDirectClient {
   /// A sender no listed chat names is kept, so a list that names it later reads the rows again.
   /// What a `user_message` record's row shows: the transcript's prompt rows, and the rail's prompts
   /// older than the transcript (earlierPrompts.ts), which must read the same.
-  private promptShown(msg: any, unknown = this.unknownSenders) {
+  private shownPrompt(msg: any, unknown = this.unknownSenders) {
     // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
     const taskResult = offerResult(msg);
     const received = offersShown() ? taskResult : undefined;
@@ -3322,7 +3322,7 @@ export class AcpmuxDirectClient {
     // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
     // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
     // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
-    const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+    const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
     const incoming = received
       ? undefined
       : blank
@@ -3345,7 +3345,7 @@ export class AcpmuxDirectClient {
   private earlierPromptRow(record: EventRecord): AcpmuxRow | undefined {
     if (record.kind !== "user_message") return undefined;
     const msg = (record.msg ?? {}) as any;
-    const { shown } = this.promptShown(msg, this.earlierSenders);
+    const { shown } = this.shownPrompt(msg, this.earlierSenders);
     const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
     return {
       id: `user-${record.seq}`,
@@ -3977,7 +3977,7 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        const { received, raw, shown, untyped } = this.promptShown(msg);
+        const { received, raw, shown, untyped } = this.shownPrompt(msg);
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -6449,6 +6449,23 @@ export class AcpmuxDirectClient {
     else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
+  }
+
+  /// Materializes the transcript through an indexed prompt so the rail can hand the existing
+  /// history/anchor path a real row. This deliberately delegates every page to `loadOlder`: its
+  /// in-flight, selection-generation and history-epoch guards remain the single source of truth.
+  async loadThrough(seq: number): Promise<void> {
+    if (!Number.isFinite(seq) || seq < 1) return;
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    for (let pages = 0; pages < OLDER_PAGES_PER_ASK * 200; pages += 1) {
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (this.rows.has(`user-${seq}`) || this.historyExhausted || (this.firstSeq ?? 1) <= 1) return;
+      const before = this.firstSeq;
+      await this.loadOlder();
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (before === this.firstSeq && !this.loadingOlder) return;
+    }
   }
 
   /// Folds whole turns older than every held event into rows above them, without folding the held

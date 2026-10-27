@@ -173,6 +173,67 @@ test("a failed read stops the reading instead of retrying in a loop", async () =
   expect(idle.queue).toHaveLength(0);
 });
 
+test("an in-flight index page is inert after a chat switch or dispose", async () => {
+  const idle = manualIdle();
+  let resolve!: (page: PromptPage) => void;
+  let changes = 0;
+  const earlier = new EarlierPrompts(
+    () => new Promise<PromptPage>((done) => (resolve = done)),
+    toRow,
+    () => {
+      changes++;
+    },
+    idle,
+  );
+  earlier.start("chat-a", 500);
+  idle.queue.shift()!();
+  earlier.stop();
+  resolve({ events: [{ seq: 2, at: 2, kind: "user_message", dir: "mux", msg: { text: "stale" } }], hasMore: false });
+  await flush();
+  expect(changes).toBe(0);
+  expect(earlier.shown(500)).toHaveLength(0);
+  expect(earlier.loading).toBe(false);
+});
+
+test("index-only pages leave the transcript cursor and row identities alone", async () => {
+  const history = records(
+    CHAT,
+    Array.from(
+      { length: 240 },
+      (_, index) => ["mux", "user_message", { text: `Question ${index + 1}`, promptId: `p-${index + 1}` }] as Step,
+    ),
+  );
+  const pane = await fakeClient(history, { page: 40 });
+  await settle(40);
+  const before = pane.snapshot();
+  const firstSeq = before.historyFrom;
+  const rows = before.rows;
+  await settle(120);
+  expect(pane.snapshot().historyFrom).toBe(firstSeq);
+  expect(pane.snapshot().rows).toBe(rows);
+  expect(pane.reads.some((params) => params.kinds?.includes("user_message"))).toBe(true);
+  expect(pane.reads.some((params) => params.kinds?.includes("transcript"))).toBe(false);
+});
+
+test("loadThrough materializes an indexed prompt through history paging", async () => {
+  const history = records(
+    CHAT,
+    Array.from(
+      { length: 240 },
+      (_, index) => ["mux", "user_message", { text: `Question ${index + 1}`, promptId: `p-${index + 1}` }] as Step,
+    ),
+  );
+  const pane = await fakeClient(history, { page: 40 });
+  await settle(40);
+  const cursor = pane.snapshot().historyFrom;
+  await pane.client.loadThrough(5);
+  expect(pane.snapshot().historyFrom).toBeLessThan(cursor ?? 0);
+  expect(pane.rows().some((row) => row.id === "user-5")).toBe(true);
+  // The index method has no view or scroll handle; only the normal transcript page changed here.
+  expect(pane.reads.some((params) => params.kinds?.includes("transcript"))).toBe(true);
+  expect(pane.client.loadThrough.toString()).not.toContain("scrollTop");
+});
+
 // The transcript's own reading of one history against the rail's: a chat with steers, prompts sent
 // now that go on with the turn they stopped (one whose stop lands at a page's edge), one removed
 // before it ran, a failed turn, and addressed messages from other chats.
