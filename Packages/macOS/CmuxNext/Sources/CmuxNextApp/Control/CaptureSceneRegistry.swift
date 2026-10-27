@@ -315,7 +315,7 @@ extension CaptureSceneRegistry {
         let painted = view?.model.hasPainted == true
         let inWindow = view?.webView.window != nil
         let loading = view?.webView.isLoading == true
-        let row = services.windows.controller(for: windowID)?.sidebar.model?.sections.flatMap(\.workspaces).first { $0.id.rawValue == workspace.id }
+        let row = services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).first { $0.id.rawValue == workspace.id }
         let rowReady = row?.title == expected
         let pending = row?.rowState.isPending == true
         let ready = nameMatches && sourceAuto && tab != nil && sessionMatches && generatedMatches && painted && inWindow && !loading && rowReady && !pending
