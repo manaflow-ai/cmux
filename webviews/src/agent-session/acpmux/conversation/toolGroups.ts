@@ -66,6 +66,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
   // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
   const messageFiles = new Map<string, string>();
+  const messageFileEndedAt = new Map<string, number | undefined>();
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
@@ -89,7 +90,17 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     const tool = item.tool;
     const dispatch = tool ? dispatchCall(item) : undefined;
-    const send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
+    let send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
+    if (send && messageFiles.size) {
+      const startsAt = tool?.startedAt;
+      const ordered =
+        startsAt !== undefined && [...messageFileEndedAt.values()].every((end) => end !== undefined && end <= startsAt);
+      if (!ordered) {
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+      }
+    }
     const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
@@ -106,16 +117,25 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         (tool.background && tool.background.state !== "completed")
       ) {
         messageFiles.clear();
+        messageFileEndedAt.clear();
         return;
       }
       for (const change of recordedMessageBodyChangesForTool(tool)) {
         if ("reset" in change) {
           messageFiles.clear();
+          messageFileEndedAt.clear();
           continue;
         }
-        if (change.text === undefined) messageFiles.delete(change.path);
-        else {
+        if (change.text === undefined) {
+          messageFiles.delete(change.path);
+          messageFileEndedAt.delete(change.path);
+        } else {
+          // A newly accepted producer supersedes every previous path spelling. We cannot resolve
+          // aliases without filesystem access, so clear all candidates before recording it.
+          messageFiles.clear();
+          messageFileEndedAt.clear();
           messageFiles.set(change.path, change.text);
+          messageFileEndedAt.set(change.path, tool.endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
         }
       }

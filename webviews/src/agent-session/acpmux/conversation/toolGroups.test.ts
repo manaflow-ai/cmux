@@ -105,12 +105,16 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
     title: "Bash",
     kind: "execute",
     command: "cat > /tmp/review.md <<'EOF'\n## Ready\n\n- checks pass\nEOF",
+    startedAt: 1,
+    endedAt: 2,
   });
   const send = item({
     title: "Bash",
     kind: "execute",
     command: "acpmux send --no-wait coord-deputy - < /tmp/review.md",
     output: "queued",
+    startedAt: 3,
+    endedAt: 4,
   });
   const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
   expect(group?.type).toBe("send");
@@ -121,6 +125,32 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   const standalone = toolGroups([send]).find((entry) => entry.type === "send");
   expect(standalone?.type).toBe("send");
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
+});
+
+test("a later accepted writer replaces all prior path spellings, and unknown timing drops bodies", () => {
+  const first = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/a <<'EOF'\nOLD\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const alias = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/./a <<'EOF'\nNEW\nEOF",
+    startedAt: 3,
+    endedAt: 4,
+  });
+  const send = item({ title: "Bash", kind: "execute", command: "acpmux send lane - < /tmp/a", startedAt: 5 });
+  const body = toolGroups([first, alias, send]).find((entry) => entry.type === "send");
+  expect(body?.type).toBe("send");
+  if (body?.type === "send") expect(body.send.text).toBeUndefined();
+  const unknownOrder = toolGroups([first, { ...send, tool: { ...send.tool!, startedAt: undefined } }]).find(
+    (entry) => entry.type === "send",
+  );
+  expect(unknownOrder?.type).toBe("send");
+  if (unknownOrder?.type === "send") expect(unknownOrder.send.text).toBeUndefined();
 });
 
 test("producer cache remains bounded across many completed writer replays", () => {
@@ -145,11 +175,14 @@ test("unchanged streamed tool revisions reuse the bounded body parser cache", ()
     title: "Bash",
     kind: "execute",
     command: "cat > /tmp/review.md <<'EOF'\nready\nEOF",
+    startedAt: 1,
+    endedAt: 2,
   });
   const send = item({
     title: "Bash",
     kind: "execute",
     command: "acpmux send lane - < /tmp/review.md",
+    startedAt: 3,
   });
   toolGroups([writer, send]);
   expect(recordedMessageBodyParseCountForTests()).toBe(2);

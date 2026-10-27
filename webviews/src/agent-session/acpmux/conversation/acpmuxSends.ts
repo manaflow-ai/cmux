@@ -97,6 +97,7 @@ export type ShellCommand = {
   stdin?: ShellWord | "file";
   stdinQuoted?: boolean;
   stdinUnsafe?: true;
+  stdinRedirects?: number;
   /// The path used by a file stdin redirect. It is only resolved when a prior command in
   /// this same recorded shell call wrote a literal here-document to that path.
   stdinFile?: ShellWord;
@@ -130,6 +131,7 @@ export function shellCommands(line: string): ShellCommand[] {
   let stdin: ShellCommand["stdin"];
   let stdinQuoted = false;
   let stdinUnsafe = false;
+  let stdinRedirects = 0;
   let stdinFile: ShellCommand["stdinFile"];
   let writes = false;
   let redirectWrites = 0;
@@ -157,6 +159,7 @@ export function shellCommands(line: string): ShellCommand[] {
         ...(stdin && { stdin }),
         ...(stdinQuoted && { stdinQuoted: true as const }),
         ...(stdinUnsafe && { stdinUnsafe: true as const }),
+        ...(stdinRedirects && { stdinRedirects }),
         ...(stdinFile && { stdinFile }),
         ...(writes && { writes: true as const }),
         ...(redirectWrites && { redirectWrites }),
@@ -174,6 +177,7 @@ export function shellCommands(line: string): ShellCommand[] {
     stdin = undefined;
     stdinQuoted = false;
     stdinUnsafe = false;
+    stdinRedirects = 0;
     stdinFile = undefined;
     writes = false;
     redirectWrites = 0;
@@ -195,7 +199,8 @@ export function shellCommands(line: string): ShellCommand[] {
         lines.push(text);
       }
       const body = lines.length ? `${lines.join("\n")}\n` : "";
-      if (doc.stdin) doc.command.stdin = { text: body, literal: doc.quoted || !/[$`]/.test(body) };
+      if (doc.stdin)
+        doc.command.stdin = { text: body, literal: doc.quoted || (!/[$`\\]/.test(body) && !body.includes("\\\n")) };
       if (!doc.quoted) {
         const found = substitutions(body);
         if (found.length) doc.command.runs = [...(doc.command.runs ?? []), ...found];
@@ -234,6 +239,10 @@ export function shellCommands(line: string): ShellCommand[] {
       // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` keeps the
       // command's output on the terminal and must not become a message body source.
       const fd = /^\d+/.exec(redirect[0])?.[0];
+      if (op.startsWith("<")) {
+        stdinRedirects += 1;
+        if (stdinRedirects > 1) stdinUnsafe = true;
+      }
       if (WRITES.has(op) || op === ">&" || op === "<&") {
         redirectWrites += 1;
         if (
@@ -333,7 +342,14 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
   // `;` is the parser's synthetic terminator for a standalone heredoc command. Every other
   // operator may skip the write or alter its working directory before the send.
   if (command.op !== "" && command.op !== ";") return { reset: true };
-  if (command.grouped || command.stdinUnsafe || command.redirectUnsafe || (command.redirectWrites ?? 0) > 1)
+  if (
+    command.grouped ||
+    command.runs?.length ||
+    command.stdinUnsafe ||
+    (command.stdinRedirects ?? 0) !== 1 ||
+    command.redirectUnsafe ||
+    (command.redirectWrites ?? 0) > 1
+  )
     return { reset: true };
   const words = unwrapped(command.words);
   const name = program(words[0]);
