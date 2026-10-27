@@ -350,7 +350,7 @@ public final class UpdaterService {
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
-            return probe()
+            return probe(.userBlocking)  // the person asked: the answer lands in their class
         }
     }
 
