@@ -44,12 +44,14 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
         for name in names where name.hasSuffix(".ips") && prefixes.contains(where: { name.lowercased().hasPrefix($0) }) {
             let url = directory.appendingPathComponent(name)
             // Regular files only: opening a FIFO named like a report would wait for a writer forever.
-            guard let attributes = try? files.attributesOfItem(atPath: url.path),
+            guard let attributes: [FileAttributeKey: Any] = try? files.attributesOfItem(atPath: url.path),
                   attributes[.type] as? FileAttributeType == .typeRegular,
                   let modified = attributes[.modificationDate] as? Date, modified > since, modified <= latest else { continue }
             newest = max(newest, modified)
             events.append(Self.event(report: url, modified: modified))
         }
+        // decode-trap-allow: newest is a date this harvest bounded: since (cursorDate's window, or now minus
+        // firstLookBack) or a report dated after since and at most now plus clockSlack.
         let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
         return ErrorHarvest(events: events, cursor: String(ms))
     }
@@ -101,8 +103,7 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
 
     private static func first(_ pattern: String, in text: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range])
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+        return match.capture(1, in: text)
     }
 }

@@ -97,9 +97,9 @@ extension TerminalSession {
         surfaceView.applyAnnouncedGrid(TerminalGridSize(columns: local.columns, rows: local.rows), restored: true)
         await lane.drained()
         let result = lane.lastLocalHistoryResult
-        guard result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) else {
+        guard result == GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.code else {
             noteLocalHistoryMismatch()
-            return result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue)
+            return result == GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.code
         }
         noteLocalSnapshot()
         return true

@@ -113,6 +113,6 @@ actor DiffSidecarPool: DiffSidecarRunning {
             return
         }
         // The slot passes to the next waiter: `active` stays the same.
-        waiters.removeFirst().continuation.resume(returning: true)
+        waiters.removeFirst().continuation.resume(returning: true) // trap-class: invariant the guard above returned on none
     }
 }

@@ -78,6 +78,8 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
 
     static func ms(_ measurement: Measurement<UnitDuration>) -> Int {
         let value = measurement.converted(to: .milliseconds).value
+        // decode-trap-allow: a finite value, held to the histogram's range (0 up to its open top bucket, maxMs)
+        // before the conversion.
         return value.isFinite ? Int(min(max(value, 0), Double(HistogramBucket.maxMs))) : 0
     }
 }

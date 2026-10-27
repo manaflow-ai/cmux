@@ -46,7 +46,7 @@ nonisolated extension LocalPTYTerminalIO {
         // alive for the call.
         let count = unsafe Darwin.read(fd, &buffer, capacity)
         if count > 0 {
-            continuation.yield(.output(Data(buffer[0..<count])))
+            continuation.yield(.output(Data(buffer.prefix(count))))
             return .more
         }
         if count < 0, errno == EINTR { return .more }

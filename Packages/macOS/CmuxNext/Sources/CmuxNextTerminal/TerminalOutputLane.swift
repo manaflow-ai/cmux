@@ -35,7 +35,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     var lastReadyRestored: Bool { readyRestored.load(ordering: .acquiring) }
     /// Result of the last local-history restore (a
     /// `ghostty_surface_local_history_result_e`; read after ``drained()``).
-    private let localHistoryResult = Atomic<Int32>(Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
+    private let localHistoryResult = Atomic<Int32>(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code)
     var lastLocalHistoryResult: Int32 { localHistoryResult.load(ordering: .acquiring) }
 
     private struct Backlog {
@@ -158,7 +158,7 @@ nonisolated final class TerminalOutputLane: Sendable {
             // SAFETY: as above.
             guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             // SAFETY: as above; the caller's live surface.
-            unsafe ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            unsafe ghostty_surface_process_output(surface, base, UInt(buffer.count)) // trap-class: invariant a count is never negative
         }
     }
 
@@ -202,7 +202,7 @@ nonisolated final class TerminalOutputLane: Sendable {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
-            var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+            var result = GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code
             defer { localHistoryResult.store(result, ordering: .releasing) }
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane; Ghostty reads bytes.count bytes of `data` and
@@ -213,16 +213,16 @@ nonisolated final class TerminalOutputLane: Sendable {
                     // SAFETY: as above.
                     guard let base = unsafe bytes.bindMemory(to: UInt8.self).baseAddress,
                           let expected = unsafe check.bindMemory(to: UInt8.self).baseAddress else {
-                        return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+                        return GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code
                     }
                     // SAFETY: as above.
-                    return unsafe Int32(ghostty_surface_restore_snapshot_local_history(
-                        surface, base, bytes.count, expectedRows, expected, check.count))
+                    return unsafe ghostty_surface_restore_snapshot_local_history(
+                        surface, base, bytes.count, expectedRows, expected, check.count)
                 }
             }
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
-            if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
+            if result != GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.code {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }
         }
@@ -318,4 +318,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         }
         waiters.forEach { $0.resume(returning: ()) }
     }
+}
+
+extension ghostty_surface_local_history_result_e {
+    /// The result as `ghostty_surface_restore_snapshot_local_history` returns it (a C int).
+    nonisolated var code: Int32 { Int32(truncatingIfNeeded: rawValue) }
 }
