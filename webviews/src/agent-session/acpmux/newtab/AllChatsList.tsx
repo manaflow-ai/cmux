@@ -429,7 +429,10 @@ export function AllChatsList({
     if (!onBring || selected.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      // Let focused controls keep their native keyboard action. In particular, the inline
+      // later-page retry is a button: swallowing Enter here would open the current selection
+      // instead of retrying the failed page.
+      if (event.defaultPrevented || target?.closest("button, input, textarea, select, a, [role=menu]")) return;
       if (event.key === "Enter") {
         event.preventDefault();
         onBring(selected);
