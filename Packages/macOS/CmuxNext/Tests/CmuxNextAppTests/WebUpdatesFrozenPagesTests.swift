@@ -84,7 +84,7 @@ struct WebUpdatesFrozenPagesTests {
         #expect(pages.filter { $0.asks > 0 }.count == 1, "a hidden or frozen page was asked")
         #expect(pages[0].asks == 2, "the shown page is asked twice, the second right before the swap")
         #expect(pages.map(\.reloads) == [1, 0, 0, 0, 0])
-        #expect(pages.dropFirst().allSatisfy(\.stale))
+        #expect(pages.dropFirst().allSatisfy { $0.stale })
         #expect(!pages[0].stale)
     }
 
