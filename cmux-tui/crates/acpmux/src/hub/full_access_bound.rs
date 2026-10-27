@@ -72,18 +72,21 @@ impl FullAccessView {
 
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
+        // The count first: the inbound loop applies a report before it takes back the report's
+        // count, so a report applied after this read is in the reads below (review 3 of #26052).
+        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
+        #[cfg(test)]
+        between_view_reads(session);
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let meta = session.meta();
-        #[cfg(test)]
-        between_view_reads(session);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
-            reported: session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0,
+            reported,
         }
     }
 }
@@ -697,6 +700,15 @@ impl Hub {
             {
                 let _held = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
                 child.end_on_purpose();
+            }
+            // A mode or option report it sent that the inbound loop has not applied yet is not
+            // the next agent's (review 3 of #26052).
+            {
+                let mut ended =
+                    session.floor.ended_agents.lock().unwrap_or_else(|e| e.into_inner());
+                ended.push(child.generation);
+                let excess = ended.len().saturating_sub(8);
+                ended.drain(..excess);
             }
             self.stop_auto_resume(session);
             self.cancel_pending_permissions(session);

@@ -53,6 +53,10 @@ pub(crate) struct FloorState {
     /// agent whose report waits in the queue (review 69 of #23322). None are left once its agent
     /// ends or a new host starts.
     pub(super) unapplied_full_access: AtomicU64,
+    /// The last few agents MDM's off ended (`end_managed_full_access`), by generation: a mode or
+    /// option report one of them sent that the inbound loop has not applied yet is dropped, not
+    /// applied to the agent after it (review 3 of #26052).
+    pub(super) ended_agents: StdMutex<Vec<u64>>,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,

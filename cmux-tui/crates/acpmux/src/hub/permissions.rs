@@ -58,6 +58,20 @@ impl Hub {
                             }
                             continue;
                         }
+                        // A mode or option report of an agent MDM's off ended: its count went with
+                        // it, and it is not the next agent's (review 3 of #26052).
+                        let kind =
+                            params.as_ref().and_then(|p| p["update"]["sessionUpdate"].as_str());
+                        if matches!(kind, Some("current_mode_update" | "config_option_update"))
+                            && session
+                                .floor
+                                .ended_agents
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .contains(&agent)
+                        {
+                            continue;
+                        }
                         let replayed = session
                             .replaying
                             .lock()
