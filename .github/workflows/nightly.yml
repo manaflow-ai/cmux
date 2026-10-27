@@ -2951,7 +2951,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Never waits for the tip's tree: it takes the newest published one.
+    # Takes the newest published tree; waits for the tip's on a miss.
     timeout-minutes: 75
     outputs:
       commit: ${{ steps.resume_source.outputs.build_sha || steps.resolve.outputs.commit }}
