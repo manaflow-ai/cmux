@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import os
@@ -30,6 +30,10 @@ import os
 /// the loop waits for the daemon socket to change or `retryWake` to fire.
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
+///
+/// With ``DaemonConnectionConfiguration/reportsDiagnosticSites`` the reader decodes each
+/// `server-diagnostic-site` line once into its transport's relay and routes the event on as `unknown` with no
+/// payload; once the handshake names the daemon life, the sites reach ``diagnosticSites`` as sightings of it.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -50,6 +54,8 @@ public actor DaemonConnection {
     public nonisolated let eventSourceID: UUID = UUID()
     /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
     public nonisolated let mutationCauses = MutationCauseLedger()
+    /// The daemon's diagnostic sites this connection read, each once per daemon life, held until a sink is installed.
+    public nonisolated let diagnosticSites = DaemonDiagnosticSiteRelay<DaemonDiagnosticSite.Sighting>()
     /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``; and each subscriber.
     nonisolated let route: DaemonEventRoute
 
@@ -287,10 +293,19 @@ public actor DaemonConnection {
             let raw = configuration.role == .pageRelay
             let decoder = transport.decoder
             let mutationCauses = mutationCauses
+            // The subscribe of the handshake starts the daemon's replay before identify is read: held until then.
+            let transportSites = configuration.reportsDiagnosticSites ? DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>() : nil
             transport.start(
                 onCausedEvent: { [weak self] name, line, index, wireCause in
-                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
-                        : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    let event: DaemonEvent
+                    if let transportSites, name == DaemonDiagnosticSite.eventName {
+                        // Routed on with no payload: the sequence counts it; nothing but the relay reads it.
+                        if let site = try? decoder.decode(DaemonDiagnosticSite.self, from: line) { transportSites.deliver(site) }
+                        event = .unknown(name: name, payload: .null)
+                    } else {
+                        event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                            : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    }
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,
                         cause: event.cause(wire: wireCause, recorded: mutationCauses))
@@ -316,6 +331,8 @@ public actor DaemonConnection {
             } ?? false
             self.identity = identity
             self.endpoint = endpoint
+            let life = DaemonDiagnosticSite.Sighting.life(pid: identity.pid, generation: identity.generation.rawValue)
+            transportSites?.install { [diagnosticSites] in diagnosticSites.deliver(.init(site: $0, daemonLife: life)) }
             phase = .ready(DaemonReadyConnection(transport: transport, serial: serial, identity: identity, userOriginAllowed: userOriginAllowed))
             releaseHandoffHold()
             resumeReadyWaits(serial: serial)
