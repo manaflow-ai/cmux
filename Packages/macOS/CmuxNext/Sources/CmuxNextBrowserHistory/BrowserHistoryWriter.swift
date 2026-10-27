@@ -58,7 +58,7 @@ public final class BrowserHistoryWriter {
         self.sleep = sleep
         self.send = send
         observation = Task { [weak self, page] in
-            for await state in ObservationStream({ HistoryKey(page.state) }) {
+            for await state in ObservationStream({ HistoryKey(page.state, revision: page.sessionStateRevision) }) {
                 self?.pageDidChange(state)
             }
         }
@@ -117,6 +117,10 @@ public final class BrowserHistoryWriter {
 
     private func write(_ session: BrowserSavedSession) async {
         guard var history = Self.history(session) else { return }
+        // Entry page states hold form values and can name chosen files (task p01-process-093): they
+        // go under the engine state's rules, this Mac's daemon only and a probe that found no
+        // private field, else none.
+        var keepsPageStates = false
         if keepsEngineState, let page {
             // A form post (its body can name uploaded files) also keeps the page out for good: a
             // later load of the same address clears the entry's flag but not the engine's body.
@@ -133,25 +137,31 @@ public final class BrowserHistoryWriter {
             // with every engine entry known.
             let native = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.map(\.url)
             let list = native?.compactMap { $0 }
+            if probed, !showedPrivateField, let shown = page.state.url, Self.keepsFileAccess(session.entries.map(\.url), shown: shown) {
+                keepsPageStates = true
+            }
             if probed, !showedPrivateField, let list, list.count == native?.count,
                let shown = page.state.url, shown == session.entries[session.current].url,
                Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
                 history = history.with(engineState: Self.engineState(of: page))
-            } else if !probed, !showedPrivateField, let kept = recorded?.engineState,
-                      recorded?.with(engineState: nil) == history {
-                history = history.with(engineState: kept)
+            } else if !probed, !showedPrivateField, let recorded, recorded.with(engineState: nil) == history {
+                // The probe did not run: what the daemon holds for these entries stays.
+                history = recorded
+                keepsPageStates = true
             }
         }
+        if !keepsPageStates { history = history.withoutPageStates() }
         savedEngineState = history.engineState != nil
         guard history != recorded else { return }
         if await send(history) { recorded = history }
     }
 
-    /// `session` as the daemon stores it, bounded.
+    /// `session` as the daemon stores it, bounded, with the page states that fit.
     static func history(_ session: BrowserSavedSession) -> FrontendBrowserHistory? {
         FrontendBrowserHistory(entries: session.entries.map { entry in
-            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost ? true : nil)
-        }, index: session.current).bounded()
+            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY,
+                                         formPost: entry.formPost ? true : nil, pageState: entry.pageState)
+        }, index: session.current).bounded()?.fittingPageStates()
     }
 
     static let hasPrivateField = """
@@ -217,10 +227,23 @@ public final class BrowserHistoryWriter {
     /// The saved entries of `history` (nil when it has none to restore).
     public static func session(_ history: FrontendBrowserHistory) -> BrowserSavedSession? {
         let entries = history.entries.compactMap { entry in
-            URL(string: entry.url).map { BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost == true) }
+            URL(string: entry.url).map {
+                BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost == true, pageState: entry.pageState)
+            }
         }
         guard entries.count == history.entries.count, entries.indices.contains(history.index) else { return nil }
         return BrowserSavedSession(entries: entries, current: history.index)
+    }
+
+    /// `history`'s entries as a Chromium page restores them with their page states
+    /// (`cmux_shim_tab_restore_entries`, task p01-process-093), when it was saved at `url` (its
+    /// current entry), an entry has a page state, and none came from a form post (BR-R1); nil otherwise.
+    public static func restoreEntries(_ history: FrontendBrowserHistory?, at url: URL?) -> BrowserSavedSession? {
+        guard let history, let url, history.entries.indices.contains(history.index),
+              history.entries[history.index].url == url.absoluteString,
+              !history.entries.contains(where: { $0.formPost == true }),
+              history.entries.contains(where: { $0.pageState != nil }) else { return nil }
+        return session(history)
     }
 
     /// `work`'s result, or nil when `budget` passes first (the work then
@@ -252,20 +275,23 @@ public final class BrowserHistoryWriter {
     }
 
     /// The page changes that can change its history: a new URL or title,
-    /// each load's start and end, and Back/Forward availability.
+    /// each load's start and end, Back/Forward availability, and an entry's
+    /// page state (`BrowserSessionRestoring.sessionStateRevision`).
     private struct HistoryKey: Equatable, Sendable {
         var url: URL?
         var title: String?
         var isLoading: Bool
         var canGoBack: Bool
         var canGoForward: Bool
+        var revision: Int
 
-        init(_ state: BrowserTabState) {
+        init(_ state: BrowserTabState, revision: Int) {
             url = state.url
             title = state.title
             isLoading = state.isLoading
             canGoBack = state.canGoBack
             canGoForward = state.canGoForward
+            self.revision = revision
         }
     }
 }

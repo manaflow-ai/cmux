@@ -1,6 +1,8 @@
 //! Opaque per-tab session history of frontend-rendered browsers
-//! (`frontend-browser-history-v1`): back/forward entries and scroll a
-//! frontend restores across a relaunch. The daemon only checks that it is a
+//! (`frontend-browser-history-v1`): back/forward entries, scroll and each
+//! entry's encoded engine page state (`page_state`: Chromium's PageState with
+//! scroll offsets and form text, task p01-process-093) a frontend restores
+//! across a relaunch or a Chromium host restart. The daemon only checks that it is a
 //! bounded JSON object. It is not presentation state: it appends no journal
 //! record and never reaches the presentation snapshot, tree snapshots, or
 //! deltas. A row lives as long as its `frontend_browser_tabs` row: the
@@ -185,6 +187,52 @@ mod tests {
         );
         registry.set_frontend_browser_history(FRONTEND_BROWSER, None).unwrap();
         assert_eq!(registry.frontend_browser_history(FRONTEND_BROWSER).unwrap(), None);
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Each entry's page state (task p01-process-093) comes back byte for
+    /// byte, after a reopen too: the record stays opaque, so a restored
+    /// Chromium tab gets every entry's scroll offsets and form text. The app
+    /// keeps a full history under the bound (`FrontendBrowserHistory`'s
+    /// 60 KiB `maxStoredBytes`), and one past it changes nothing stored.
+    #[test]
+    fn frontend_browser_history_keeps_each_entry_page_state() {
+        let root = temp_root("frontend-browser-history-page-state");
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        put_test_frontend_browser(&mut registry);
+        // Base64 as the app sends it: '/' and '+' included, which JSON may escape.
+        let state = |i: usize| format!("AAAA/+{i}=").repeat(250);
+        let history = |count: usize| {
+            let entries: Vec<serde_json::Value> = (0..count)
+                .map(|i| {
+                    serde_json::json!({
+                        "url": format!("https://example.com/form/{i}"),
+                        "scroll_y": 120,
+                        "page_state": state(i),
+                    })
+                })
+                .collect();
+            serde_json::json!({"entries": entries, "index": count - 1}).to_string()
+        };
+        let kept = history(25);
+        assert!(kept.len() <= MAX_FRONTEND_BROWSER_HISTORY_BYTES, "{} bytes", kept.len());
+        registry.set_frontend_browser_history(FRONTEND_BROWSER, Some(&kept)).unwrap();
+        let oversized = history(40);
+        assert!(oversized.len() > MAX_FRONTEND_BROWSER_HISTORY_BYTES);
+        let error =
+            registry.set_frontend_browser_history(FRONTEND_BROWSER, Some(&oversized)).unwrap_err();
+        assert!(error.to_string().contains("exceeds"));
+
+        drop(registry);
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let read = registry.frontend_browser_history(FRONTEND_BROWSER).unwrap().unwrap();
+        let read: serde_json::Value = serde_json::from_str(&read).unwrap();
+        let entries = read["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 25);
+        for (i, entry) in entries.iter().enumerate() {
+            assert_eq!(entry["page_state"].as_str(), Some(state(i).as_str()), "entry {i}");
+        }
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Session history across relaunch (`CEFRestoredSession`).
+/// Session history across relaunch (`CEFRestoredSession`), with each entry's page state
+/// (`CEFTab+PageState`, task p01-process-093).
 extension CEFTab: BrowserSessionRestoring {
     public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) {
         restored.restore(entries, current: current)
@@ -14,4 +15,7 @@ extension CEFTab: BrowserSessionRestoring {
     public func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
         await restored.savedSession(measuringScroll: measuringScroll)
     }
+
+    /// Changes when a kept page state does, so the history writer saves the tab again.
+    public var sessionStateRevision: Int { pageStateRevision }
 }

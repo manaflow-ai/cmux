@@ -212,10 +212,10 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 60;
-inline constexpr char kShimAbiID[] = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9";
+inline constexpr int kEventKindCount = 61;
+inline constexpr char kShimAbiID[] = "66d6a8ed7c49959962eb6f67912161b67c27fd0df32a8ce3afad55e4c4b753ec";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7304fab0f0017e94749bd638e1928fef65ebbfe55fa0e3e51c448532b08d02c6";
+inline constexpr char kWireID[] = "b80be24f7e0381e318bed4def1926475784ef82c8d768582bf96968fee2f12c5";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -595,17 +595,6 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto call_result = cmux_shim_browser_set_page_visibility(ctx.Browser(arg_browser_id), arg_visibility);
       (void)call_result;
       ctx.Ack(wire_token);
-      return true;
-    }
-    case kOpTabEntryPageState: {
-      const auto arg_browser_id = r.I32();
-      const auto arg_index = r.I32();
-      if (!r.ok() || !r.AtEnd()) return false;
-      const auto call_result = cmux_shim_tab_entry_page_state(ctx.Browser(arg_browser_id), arg_index);
-      TlvWriter reply_w;
-      reply_w.Str(call_result);
-      if (call_result != nullptr) cmux_shim_free(call_result);
-      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpTabRestoreEntries: {
@@ -2206,6 +2195,7 @@ inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {4, -1, kOpTabNavigationState},  // CMUX_SHIM_ADDRESS
     {8, -1, kOpTabNavigationState},  // CMUX_SHIM_LOAD_START
     {3, -1, kOpTabNavigationState},  // CMUX_SHIM_BEFORE_CLOSE
+    {66, -1, kOpTabNavigationState},  // CMUX_SHIM_PAGE_STATE
     {-1, -1, kOpNavigationRestoreSupported},  // attach
     {2, -1, kOpExtList},  // CMUX_SHIM_AFTER_CREATED
     {16, 7, kOpExtList},  // CMUX_SHIM_TAB_EVENT:7

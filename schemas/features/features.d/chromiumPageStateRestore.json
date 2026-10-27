@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumPageStateRestore",
+  "owner": "PL-cef-layer",
+  "description": "A Chromium tab saves each history entry's page state (scroll position and typed form text) with its history on this Mac, and a restored tab (after a relaunch or a Chromium host restart) comes back with them; needs a Chromium fork at API 31.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

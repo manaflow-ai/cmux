@@ -43,6 +43,11 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Each tab keeps its history entries' page states (scroll offsets, form text) in its saved
+    /// history and restores them with the entries, in process and in host mode (feature
+    /// `chromiumPageStateRestore`, set by the App; `CEFTab+PageState`, task p01-process-093).
+    /// Read as each tab is made.
+    public var keepsPageStates = false
 
     /// Creates a source.
     ///

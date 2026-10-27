@@ -525,6 +525,19 @@ int main(int argc, char* argv[]) {
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   host.SetPageShowActivity(&page_activity);
+  // A page state report waits for idle (host_page_state.h, task p01-process-093): one main
+  // run loop timer per burst of reports, as CommandStorageManager's save timer.
+  host.SetPageStateIdle([](std::function<void()> task) {
+    auto run = std::make_shared<std::function<void()>>(std::move(task));
+    // wakeup-allow: deadline one-shot, armed only by a page state report and never while one runs (PageStatePushes)
+    NSTimer* timer = [NSTimer timerWithTimeInterval:cmux_host::kPageStateIdleMs / 1000.0
+                                            repeats:NO
+                                              block:^(NSTimer*) {
+                                                (*run)();
+                                              }];
+    timer.tolerance = cmux_host::kPageStateIdleMs / 4000.0;
+    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+  });
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.

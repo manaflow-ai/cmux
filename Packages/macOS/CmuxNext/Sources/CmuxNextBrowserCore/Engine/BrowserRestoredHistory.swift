@@ -9,15 +9,31 @@ public nonisolated struct BrowserSavedEntry: Hashable, Sendable {
     public var title: String?
     public var scrollY: Double?
     public var formPost: Bool
+    /// The engine's encoded page state of the entry (Chromium's PageState: scroll offsets and form
+    /// values, task p01-process-093); nil when the engine has none for it or it is not kept.
+    public var pageState: String?
 
-    public init(url: URL, title: String? = nil, scrollY: Double? = nil, formPost: Bool = false) {
+    public init(url: URL, title: String? = nil, scrollY: Double? = nil, formPost: Bool = false, pageState: String? = nil) {
         self.url = url
         self.title = title
         self.scrollY = scrollY
         self.formPost = formPost
+        self.pageState = pageState
     }
 
     package var navigationEntry: BrowserNavigationEntry { BrowserNavigationEntry(url: url, title: title) }
+}
+
+/// One engine entry's page state as the engine last reported it, with the
+/// URL the entry showed then (``BrowserRestoredHistory/session(around:shown:pageStates:)``).
+public nonisolated struct BrowserEntryPageState: Hashable, Sendable {
+    public var url: URL
+    public var state: String
+
+    public init(url: URL, state: String) {
+        self.url = url
+        self.state = state
+    }
 }
 
 /// Back/forward entries saved before a relaunch that the engine no longer
@@ -80,10 +96,19 @@ public nonisolated struct BrowserRestoredHistory: Hashable, Sendable {
 
     /// The saved entries, with their scroll positions, around the engine's
     /// own list (`native`, else just the shown page), for saving.
-    public func session(around native: BrowserNavigationList?, shown: BrowserNavigationEntry) -> BrowserSavedSession {
+    /// `pageStates` are the engine's page states of `native`'s entries by
+    /// index, each with the URL it was read at: an entry that shows another
+    /// URL now gets none.
+    public func session(around native: BrowserNavigationList?, shown: BrowserNavigationEntry,
+                        pageStates: [Int: BrowserEntryPageState] = [:]) -> BrowserSavedSession {
         let own = native ?? BrowserNavigationList(entries: [shown], current: 0)
+        let states = native == nil ? [:] : pageStates
         // An entry without a URL (nothing committed) cannot be saved.
-        let saved = own.entries.map { entry in entry.url.map { BrowserSavedEntry(url: $0, title: entry.title) } }
+        let saved = own.entries.enumerated().map { index, entry in
+            entry.url.map { url in
+                BrowserSavedEntry(url: url, title: entry.title, pageState: states[index].flatMap { $0.url == url ? $0.state : nil })
+            }
+        }
         var arranged: [BrowserSavedEntry?] = back.map(Optional.some)
         arranged += saved.prefix(1)
         arranged += forward.map(Optional.some)

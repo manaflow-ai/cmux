@@ -12,6 +12,8 @@
 #                           alone and through the dispatcher (task p01-process-052)
 #   host_wheel_ack_test.cpp the wheel acks, alone and through the dispatcher
 #                           (task p01-process-234)
+#   host_page_state_test.cpp  the page state pushes at idle (host_page_state.h,
+#                           task p01-process-093)
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
@@ -23,7 +25,7 @@
 # Linux and macOS.
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
-# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
+# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h, host_page_state.h,
 # host_page_activity.h, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -90,6 +92,8 @@ sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_wheel_ack_test" "$host/tests/host_wheel_ack_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_wheel_ack_test"
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_page_state_test" "$host/tests/host_page_state_test.cpp"
+"$work/host_page_state_test"
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"

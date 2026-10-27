@@ -16,6 +16,7 @@ struct CEFRestoredSessionHost: BrowserRestoredSessionHost {
     var isClosed: Bool { tab.isClosed }
     var nativeHistory: (back: Bool, forward: Bool) { tab.nativeHistory }
     func nativeNavigationList() -> BrowserNavigationList? { tab.nativeNavigationList() }
+    func nativePageStates() -> [Int: BrowserEntryPageState] { tab.nativePageStates() }
     func goToNativeEntry(offset: Int) -> Bool { tab.goToNativeEntry(offset: offset) }
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool) {
         tab.machine.apply(.historyChanged(canGoBack: canGoBack, canGoForward: canGoForward))

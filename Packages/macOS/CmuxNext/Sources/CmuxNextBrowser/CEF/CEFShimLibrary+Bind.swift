@@ -125,6 +125,7 @@ nonisolated extension CEFShimLibrary {
         let cTabRestoreNavigation: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_tab_restore_navigation")
         tabRestoreNavigation = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cTabRestoreNavigation(a0, s1) } }
         navigationRestoreSupported = try r("cmux_shim_navigation_restore_supported")
+        pageStates = try unsafe CEFShimPageStateOps(r, free: cFree)
         let cExtList: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = try unsafe r("cmux_shim_ext_list")
         extList = { a0 in unsafe Self.take(cExtList(a0), cFree) }
         let cExtSetEnabled: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32 = try unsafe r("cmux_shim_ext_set_enabled")

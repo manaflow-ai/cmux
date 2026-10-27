@@ -214,10 +214,10 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 60;
-inline constexpr char kShimAbiID[] = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9";
+inline constexpr int kEventKindCount = 61;
+inline constexpr char kShimAbiID[] = "66d6a8ed7c49959962eb6f67912161b67c27fd0df32a8ce3afad55e4c4b753ec";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7304fab0f0017e94749bd638e1928fef65ebbfe55fa0e3e51c448532b08d02c6";
+inline constexpr char kWireID[] = "b80be24f7e0381e318bed4def1926475784ef82c8d768582bf96968fee2f12c5";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -560,16 +560,6 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_visibility(int arg_browser_id, i
   op_w.I32(arg_visibility);
   (void)Post(kOpBrowserSetPageVisibility, 0, op_w);
   return 1;
-}
-
-CMUX_SHIM_EXPORT char* cmux_shim_tab_entry_page_state(int arg_browser_id, int arg_index) {
-  TlvWriter op_w;
-  op_w.I32(arg_browser_id);
-  op_w.I32(arg_index);
-  const uint32_t op_token = NextToken();
-  const bool op_sent = PostForReply(kOpTabEntryPageState, op_token, op_w);
-  (void)op_sent;
-  return nullptr;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int arg_browser_id, const cmux_shim_restore_entry* arg_entries, int arg_count, int arg_current) {

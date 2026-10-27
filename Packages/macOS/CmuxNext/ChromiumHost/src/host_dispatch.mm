@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <utility>
 
@@ -198,7 +199,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == kOpTabPageStateWatch) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -208,6 +210,10 @@ void HostContext::Handle(control::Message& message) {
       if (message.op == kOpInitialize) return Bad("a second initialize");
       if (message.op == kOpTextInputWatch) {
         if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
+        return;
+      }
+      if (message.op == kOpTabPageStateWatch) {
+        if (!HandlePageStateWatch(message)) Bad("a malformed page state watch");
         return;
       }
       if (message.op == kOpTextInputStats) {
@@ -410,6 +416,44 @@ bool HostContext::HandleTextInputWatch(const control::Message& message) {
   text_input_.Forget(browser);
   ReplyResult(message.token, cmux_shim_browser_text_input_watch(browser, nullptr, nullptr));
   return true;
+}
+
+// The browser's own watch in the fork: the fork calls OnPageState for each
+// entry that commits or whose page state changes, and PageStatePushes sends
+// each such entry once at idle. A watch of an unknown browser (or on a fork
+// without the call) answers 0 and watches nothing.
+bool HostContext::HandlePageStateWatch(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const int32_t watch = r.I32();
+  if (!r.ok() || !r.AtEnd() || (watch != 0 && watch != 1)) return false;
+  const int browser = Browser(client);
+  int result = 0;
+  if (watch) {
+    page_states_.Watch(browser);
+    result = cmux_shim_tab_page_state_watch(browser, &HostContext::OnPageState, this);
+    if (!result) page_states_.Forget(browser);
+  } else {
+    page_states_.Forget(browser);
+    result = cmux_shim_tab_page_state_watch(browser, nullptr, nullptr);
+  }
+  if (message.token != 0) ReplyResult(message.token, result);
+  return true;
+}
+
+void HostContext::OnPageState(void* ctx, int browser_id, int index) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  host->page_states_.Reported(browser_id, index);
+}
+
+void HostContext::PushPageState(int chromium_id, int32_t index) {
+  char* state = cmux_shim_tab_entry_page_state(chromium_id, index);
+  const size_t length = state != nullptr ? std::strlen(state) : 0;
+  // An entry over the bound goes out with none: cmux then keeps no state for it, never an older one.
+  const bool sent = length > 0 && length <= kMaxPageStateBytes;
+  ForwardEvent(CMUX_SHIM_PAGE_STATE, chromium_id, index, sent ? 1 : 0, 0, sent ? state : "", "");
+  if (state != nullptr) cmux_shim_free(state);
 }
 
 bool HostContext::HandleLayerHosting(const control::Message& message) {
@@ -737,6 +781,7 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   UpdatePageActivity();
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
+  page_states_.Forget(chromium_id);  // and the page state watch
   wheel_acks_.Forget(chromium_id);
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();

@@ -25,6 +25,9 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
     /// waking from hibernation). `initialURL` is the fallback when the
     /// engine cannot restore it.
     public var restoreState: BrowserRestoreState?
+    /// Entries with their page states to restore instead (Chromium at fork API 31, task
+    /// p01-process-093); an engine that cannot falls back to `restoreState`, then `initialURL`.
+    public var restoreEntries: BrowserSavedSession?
     /// The remote-localhost derived store, nil for the profile's own store
     /// (plans/cmux-next/remote-localhost.md section 3).
     public var machineStore: BrowserMachineStore?

@@ -63,6 +63,12 @@
 //                                              that display's, task 221); held as
 //                                              kOpBrowserAccessibilityToken is, the newest
 //                                              one only
+//   kOpTabPageStateWatch                        i32 browser, i32 watch: the host arms
+//                                              (or ends) the fork's page state watch of
+//                                              the browser and pushes its changed
+//                                              entries at idle (host_page_state.h, task
+//                                              093); a token != 0 is answered with i32
+//                                              the fork's result
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -77,6 +83,8 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_PAGE_STATE: a watched tab's entry page state, at
+//              idle (host_page_state.h)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
@@ -103,6 +111,7 @@
 #include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
+#include "host_page_state.h"
 #include "host_resize.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
@@ -241,6 +250,8 @@ class HostContext {
   // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
   // of the browser's oldest unacked wheel (WheelSent).
   static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // cmux_shim_tab_page_state_watch's fn; ctx is this HostContext.
+  static void OnPageState(void* ctx, int browser_id, int index);
   // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
   // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
   // the fork's first ack of that browser after the acks of the wheels sent
@@ -302,6 +313,12 @@ class HostContext {
   const GeometryStats& geometry_stats() const { return geometry_stats_; }
 
   const TextInputPushes& text_input() const { return text_input_; }
+  const PageStatePushes& page_states() const { return page_states_; }
+  // Where the page state pushes wait for idle (browser_host_main.mm, before
+  // Attach); nullptr pushes each report at once.
+  void SetPageStateIdle(PageStatePushes::RequestIdle request_idle) {
+    page_states_.SetRequestIdle(std::move(request_idle));
+  }
   const WheelAcks& wheel_acks() const { return wheel_acks_; }
 
   // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
@@ -341,6 +358,11 @@ class HostContext {
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
+  // kOpTabPageStateWatch: false for a malformed op.
+  bool HandlePageStateWatch(const control::Message& message);
+  // Reads `chromium_id`'s entry `index` in the fork and sends it as
+  // CMUX_SHIM_PAGE_STATE (PageStatePushes' push).
+  void PushPageState(int chromium_id, int32_t index);
   // kOpBrowserSetLayerHosting: the shim's call, and then, once the page
   // window's pixels are in the context cmux shows, the fork's detached
   // hosting of that window (set_detached_hosting(1), API 30), so no page
@@ -462,6 +484,8 @@ class HostContext {
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
+  // Browsers cmux watches the page state of, by Chromium id (task 093).
+  PageStatePushes page_states_{[this](int browser, int32_t index) { PushPageState(browser, index); }};
   PageResizes* resizes_ = nullptr;
   // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
   // unacked wheels, by Chromium id.

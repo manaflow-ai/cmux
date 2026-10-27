@@ -177,7 +177,7 @@ final class CEFRuntime {
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
-    private var callbackToken: CallbackToken? // every shim callback's context, never the runtime's address (from(_:))
+    private(set) var callbackToken: CallbackToken? // every shim callback's context, never the runtime's address (from(_:))
     /// The argv Chromium started with, owned for the runtime's life.
     private var switchArguments: CEFSwitchArguments?
     /// The off-main library load; every concurrent first tab awaits it.

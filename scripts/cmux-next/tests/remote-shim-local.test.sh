@@ -63,3 +63,10 @@ source "$root/scripts/cmux-next/lib/cxx.sh"
 "${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 -pthread -I"$root/$(dirname "$shimh")" \
   -o "$work/test" "$host/tests/remote_shim_local_test.cpp" -x c++ "$host/client/remote_shim_local.mm"
 "$work/test"
+# The page state exports (client/remote_shim_page_state.mm, task 093).
+for name in cmux_shim_tab_page_state_watch cmux_shim_tab_entry_page_state; do
+  ! grep -qE "^$name"$'\t' "$work/missing" || fail "$name: local but not defined by hand in ChromiumHost/client"
+done
+"${cxx[@]}" -std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$root/$(dirname "$shimh")" -I"$host/src" \
+  -o "$work/page-state-test" "$host/tests/remote_shim_page_state_test.cpp" -x c++ "$host/client/remote_shim_page_state.mm"
+"$work/page-state-test"

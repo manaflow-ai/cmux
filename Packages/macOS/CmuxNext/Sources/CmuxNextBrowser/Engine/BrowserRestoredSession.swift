@@ -10,12 +10,20 @@ protocol BrowserRestoredSessionHost {
     var nativeHistory: (back: Bool, forward: Bool) { get }
     /// The engine's own back/forward list; nil when it cannot list it.
     func nativeNavigationList() -> BrowserNavigationList?
+    /// The page states the engine reported for its own list's entries, by index (Chromium,
+    /// task p01-process-093); empty for an engine that reports none.
+    func nativePageStates() -> [Int: BrowserEntryPageState]
     func goToNativeEntry(offset: Int) -> Bool
     /// Shows Back and Forward as available or not.
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool)
     func currentScrollY() async -> Double?
     func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
     func load(_ url: URL)
+}
+
+extension BrowserRestoredSessionHost {
+    /// WebKit keeps its page state in its own session state (`interactionState`), not per entry.
+    func nativePageStates() -> [Int: BrowserEntryPageState] { [:] }
 }
 
 /// A tab's back/forward entries saved before a relaunch
@@ -118,7 +126,7 @@ class BrowserRestoredSession {
         }
         guard let url = tab.state.url else { return nil }
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
-        var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
+        var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown, pageStates: tab.nativePageStates())
         guard session.entries.indices.contains(session.current) else { return nil }
         for index in session.entries.indices {
             if session.entries[index].scrollY == nil { session.entries[index].scrollY = knownScrollY[session.entries[index].url] }

@@ -437,7 +437,10 @@ public final class CEFEngine: BrowserEngine {
         tab.navigationGuard = configuration.navigationGuard
         host.add(tab)
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
-        if case .chromium(let state)? = configuration.restoreState, let shim = runtime.shim,
+        tab.pageStates.keeps = runtimeSource.keepsPageStates
+        if let entries = configuration.restoreEntries, tab.restoresPageStates(entries) {
+            tab.pageStates.pendingEntries = entries
+        } else if case .chromium(let state)? = configuration.restoreState, let shim = runtime.shim,
            shim.navigationRestoreSupported() == 1, shim.forkAPIVersion() >= CEFTab.navigationRestoreForkAPI {
             tab.pendingRestore = state
         }

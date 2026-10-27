@@ -166,6 +166,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabNavigationState: (Int32) -> String?
     let tabRestoreNavigation: (Int32, String?) -> Int32
     let navigationRestoreSupported: @convention(c) () -> Int32
+    /// Each history entry's page state: watch, read, restore (fork API 31, task p01-process-093).
+    let pageStates: CEFShimPageStateOps
     // Fork API v3 (the shim returns 0/NULL on older forks).
     let extList: (Int32) -> String?
     let extSetEnabled: (Int32, String?, Int32) -> Int32

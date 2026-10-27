@@ -235,6 +235,14 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
+  // Host mode only (task p01-process-093): the Chromium Host's push of one
+  // history entry's page state of a tab cmux watches
+  // (cmux_shim_tab_page_state_watch), read in the host at idle. request =
+  // the entry's index, a = 1 when s1 is its encoded page state (0: none, or
+  // over the push's bound). The remote shim keeps it for
+  // cmux_shim_tab_entry_page_state and calls the watch's fn; the event fn
+  // never sees it, and the in-process shim never sends it.
+  CMUX_SHIM_PAGE_STATE = 66,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -626,6 +634,11 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_visibility(int browser_id, int v
 // Entry strings are UTF-8 with explicit lengths; page_state_length 0 for none.
 // Restore returns 1, 0 for an unknown browser, -1 when it has committed
 // entries, -2 when a navigation could not be dropped, -3 for bad entries.
+// In host mode (task p01-process-093) the watch and the read are the remote
+// shim's: the host watches each tab cmux watches and pushes each changed
+// entry's page state at idle (CMUX_SHIM_PAGE_STATE), the remote shim keeps
+// it and calls fn, and the read answers from what it kept (NULL for an entry
+// the host never pushed); the restore is one post, which returns 1 when sent.
 CMUX_SHIM_EXPORT char* cmux_shim_tab_entry_page_state(int browser_id, int index);
 CMUX_SHIM_EXPORT int cmux_shim_tab_page_state_watch(int browser_id,
                                                     void (*fn)(void* context, int browser_id, int index),

@@ -16,8 +16,11 @@
 // committed history: AFTER_CREATED, ADDRESS (a commit, same-document ones
 // too) and LOAD_START, never at TITLE, LOAD_END or LOADING_STATE. Chrome's
 // SessionTabHelper does the same: it records a tab's history at
-// NavigationEntryCommitted (components/sessions/content/session_tab_helper.cc),
-// and page state after the load is task 093's (at idle or hide). A value over
+// NavigationEntryCommitted (components/sessions/content/session_tab_helper.cc).
+// Page state that changes after the load (scroll, form text) reaches the
+// history at CMUX_SHIM_PAGE_STATE, which the host sends at idle for a tab
+// cmux watches (host_page_state.h, task 093), as SessionService records an
+// entry again at NavigationEntryChanged. A value over
 // the frame bound goes out as a forget (HostContext::PushMirror), so the cache
 // never keeps an older history.
 //

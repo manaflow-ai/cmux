@@ -1164,7 +1164,7 @@
     },
     {
       "name": "cmux_shim_tab_entry_page_state",
-      "class": "async",
+      "class": "local",
       "args": [
         {
           "name": "browser_id",
@@ -1180,8 +1180,8 @@
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
-      "reply_event": "wire:REPLY",
-      "reason": "One entry's encoded page state, read at idle after the watch reports it (task 093); in host mode host_mirror.mm reads it in the host and pushes it to the daemon record instead."
+      "reply_event": null,
+      "reason": "Client-only work (task 093): the host reads it at idle for each entry the watch reports and pushes it in CMUX_SHIM_PAGE_STATE (HOST/src/host_page_state.h); the client (ChromiumHost/client/remote_shim_page_state.mm) keeps the last one of each entry of a watched tab and answers from it, a copy freed with cmux_shim_free, NULL for an entry the host never pushed or pushed with none. No call crosses the wire, so cmux reads it in its watch's fn, as in process."
     },
     {
       "name": "cmux_shim_tab_page_state_watch",
@@ -1207,7 +1207,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn per browser and calls it on main from the host's page state push (task 093); only the watch on/off crosses the wire."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_page_state.mm) keeps fn per browser and calls it on main from the host's CMUX_SHIM_PAGE_STATE push, after keeping its state for cmux_shim_tab_entry_page_state; only the watch on/off crosses the wire, as this export's op id with i32 browser, i32 watch, and the host arms the fork's watch for that browser and coalesces its reports to one push per entry at idle (HOST/src/host_page_state.h, task 093). A start before attach or one the transport refuses returns 0, a stop returns 0 as the fork's does; the host's exit ends every watch."
     },
     {
       "name": "cmux_shim_tab_restore_entries",
@@ -2363,11 +2363,12 @@
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_ADDRESS",
         "CMUX_SHIM_LOAD_START",
-        "CMUX_SHIM_BEFORE_CLOSE"
+        "CMUX_SHIM_BEFORE_CLOSE",
+        "CMUX_SHIM_PAGE_STATE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, only at the events that change the committed history (ADDRESS, LOAD_START), as SessionTabHelper records a tab at NavigationEntryCommitted, so a read in LOAD_START's turn has the new entry; a value over the frame bound is a forget, never the older value. BEFORE_CLOSE pushes no value (forget). PageState refresh at idle or hide is task 093."
+      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, only at the events that change the committed history (ADDRESS, LOAD_START), as SessionTabHelper records a tab at NavigationEntryCommitted, so a read in LOAD_START's turn has the new entry; a value over the frame bound is a forget, never the older value. BEFORE_CLOSE pushes no value (forget). A watched tab's CMUX_SHIM_PAGE_STATE pushes it again at idle (task 093), so hibernation and duplicate read the page state of the last scroll and form edit."
     },
     {
       "name": "cmux_shim_tab_restore_navigation",
@@ -4806,6 +4807,14 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_PAGE_STATE",
+      "value": 66,
+      "refreshes": [
+        "tab.navigation_state[browser_id]"
+      ],
+      "reason": "Host mode only (task 093): a watched tab's entry page state, read in the host at idle (HOST/src/host_page_state.h): request = the entry's index, a = 1 when s1 is the encoded page state. The remote shim (HOST/client/remote_shim_page_state.mm) keeps it and calls the watch's fn; the app's event fn never sees it."
     }
   ],
   "optional_exports": [

@@ -109,6 +109,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
+    /// Page states: the entries to restore with theirs, those the fork reported (`CEFTab+PageState`).
+    @ObservationIgnored var pageStates = CEFTabPageStates()
+    /// Bumped when a kept page state changes, so the history writer saves it (`sessionStateRevision`).
+    var pageStateRevision = 0
     /// The renderer ended while the tab was hidden: reload when shown
     /// (a crashed background tab reloads when it is selected).
     @ObservationIgnored var reloadWhenShown = false
@@ -246,7 +250,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// as its first navigation (no blank entry before it).
     func takeInitialURLString() -> String {
         loadAfterAttach = nil
-        guard pendingRestore == nil else { return "" }
+        guard pendingRestore == nil, pageStates.pendingEntries == nil else { return "" }
         if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
             loadAfterAttach = pendingURL
             return ""
@@ -291,14 +295,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
         }
-        if let state = pendingRestore {
-            pendingRestore = nil
-            // 1 = restored; fork API 10 reports why not (-1 committed entries,
-            // -2 navigation not dropped, -3 state does not decode).
-            let code = runtime.shim?.tabRestoreNavigation(browser, state) ?? 0
-            host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
-            if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
-        }
+        restoreHistory(browser: browser)
         refreshExtensionActions()
     }
 
@@ -338,6 +335,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         delegate = opener?.delegate
         keyRouter = opener?.keyRouter
         devToolsObserver = opener?.devToolsObserver
+        inheritPageStates(from: opener)
     }
 
     func makeNavigationID() -> BrowserNavigationID {

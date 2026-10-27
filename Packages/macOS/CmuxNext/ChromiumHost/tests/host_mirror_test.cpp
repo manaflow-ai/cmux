@@ -17,7 +17,12 @@
 //     keywords of a tab cmux never asked about are in the cache in the turn
 //     of their events (task 017), and each refresh row of those mirrors in the
 //     generated kMirrorRefreshes names exactly the tabs of its scope: the
-//     event's tab, its Chromium window's tabs, or its profile's tabs.
+//     event's tab, its Chromium window's tabs, or its profile's tabs;
+//   - a watched tab's entry page state (task 093): a burst of the fork's
+//     reports is one read and one push at idle, cmux's watch fn reads the
+//     state in its turn through the remote shim with no call to the host, the
+//     tab's history goes out again with it, the event fn never sees it, an
+//     entry over the bound reads as none, and a stop or a close keeps none.
 // Built and run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <dlfcn.h>
 #include <sys/socket.h>
@@ -118,6 +123,8 @@ struct Client {
   decltype(&cmux_shim_ext_commands) ext_commands;
   decltype(&cmux_shim_omnibox_keywords) omnibox_keywords;
   decltype(&cmux_shim_free) free;
+  decltype(&cmux_shim_tab_page_state_watch) page_state_watch;
+  decltype(&cmux_shim_tab_entry_page_state) entry_page_state;
 
   // A string read: nullopt for NULL (no value in the cache).
   std::optional<std::string> Take(char* value) const {
@@ -166,6 +173,8 @@ Client LoadClient() {
   Bind(library, "cmux_shim_ext_commands", &c.ext_commands);
   Bind(library, "cmux_shim_omnibox_keywords", &c.omnibox_keywords);
   Bind(library, "cmux_shim_free", &c.free);
+  Bind(library, "cmux_shim_tab_page_state_watch", &c.page_state_watch);
+  Bind(library, "cmux_shim_tab_entry_page_state", &c.entry_page_state);
   return c;
 }
 
@@ -189,6 +198,14 @@ struct Shim {
   int entries_reads = 0;
   int window_id_reads = 0;
   int window_count_reads = 0;
+  // Task 093: the fork's page state watches and each entry's state, by Chromium's browser id.
+  struct PageStateWatch {
+    void (*fn)(void*, int, int);
+    void* context;
+  };
+  std::map<int, PageStateWatch> page_state_watch;
+  std::map<std::pair<int, int>, std::string> page_states;
+  int page_state_reads = 0;
 } shim;
 
 void Emit(int kind, int browser, int request, int64_t a = 0, int64_t b = 0, const char* s1 = "") {
@@ -254,6 +271,19 @@ char* cmux_shim_ext_list(int browser_id) { return ValueOf(shim.ext_list, browser
 char* cmux_shim_ext_commands(int browser_id) { return ValueOf(shim.ext_commands, browser_id); }
 char* cmux_shim_omnibox_keywords(int browser_id) { return ValueOf(shim.omnibox_keywords, browser_id); }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_tab_page_state_watch(int browser_id, void (*fn)(void*, int, int), void* context) {
+  if (!shim.history.count(browser_id) || fn == nullptr) {
+    shim.page_state_watch.erase(browser_id);
+    return 0;  // the fork's answer for an unknown browser, also when fn is NULL
+  }
+  shim.page_state_watch[browser_id] = {fn, context};
+  return 1;
+}
+char* cmux_shim_tab_entry_page_state(int browser_id, int index) {
+  ++shim.page_state_reads;
+  auto found = shim.page_states.find({browser_id, index});
+  return found == shim.page_states.end() ? nullptr : strdup(found->second.c_str());
+}
 int cmux_shim_tab_window_id(int browser_id) {
   ++shim.window_id_reads;
   auto found = shim.window_of.find(browser_id);
@@ -746,6 +776,85 @@ void WindowsAndProfilesFollowTheTabs() {
   Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
 }
 
+// What cmux's page state watch fn saw: the entry and the state it read in its turn.
+struct PageStateCall {
+  int browser;
+  int index;
+  std::optional<std::string> state;
+};
+std::vector<PageStateCall> page_state_calls;
+
+void OnPageStateWatch(void*, int browser, int index) {
+  page_state_calls.push_back({browser, index, client.Take(client.entry_page_state(browser, index))});
+}
+
+// The fork's report of a watched entry (a commit, a scroll, a form edit).
+void ReportPageState(int chromium, int index) {
+  auto watch = shim.page_state_watch.find(chromium);
+  if (watch != shim.page_state_watch.end()) watch->second.fn(watch->second.context, chromium, index);
+}
+
+// Task 093: the acceptance's wire. The record keeps page_state per entry
+// because cmux's fn reads each entry's state in the push's turn.
+void PageStateReachesTheWatchAtIdle() {
+  World w;
+  page_state_calls.clear();
+  std::vector<std::function<void()>> idle;
+  w.host.SetPageStateIdle([&idle](std::function<void()> task) { idle.push_back(std::move(task)); });
+  auto run_idle = [&idle] {
+    std::vector<std::function<void()>> tasks;
+    tasks.swap(idle);
+    for (auto& task : tasks) task();
+  };
+  const int tab = w.CreateWindow("file:///form.html");
+  const int chromium = shim.next_browser - 1;
+  Check(client.page_state_watch(tab, &OnPageStateWatch, nullptr) == 1, "the watch is sent");
+  Check(PumpUntil([&] { return shim.page_state_watch.count(chromium) == 1; }), "the host arms the fork's watch");
+  Check(client.page_state_watch(tab, &OnPageStateWatch, nullptr) == 1, "a second watch replaces fn and sends nothing");
+
+  shim.page_states[{chromium, 0}] = "scroll=120;input=hello";
+  for (int i = 0; i < 4; ++i) ReportPageState(chromium, 0);
+  Check(idle.size() == 1 && shim.page_state_reads == 0, "a burst of reports waits for one idle task, unread");
+  const int state_reads = shim.state_reads;
+  run_idle();
+  Check(PumpUntil([] { return !page_state_calls.empty(); }), "the push reaches cmux's watch");
+  Check(page_state_calls.size() == 1 && page_state_calls[0].browser == tab && page_state_calls[0].index == 0 &&
+            page_state_calls[0].state == std::optional<std::string>("scroll=120;input=hello"),
+        "the fn reads the entry's state in its turn, under cmux's id");
+  Check(shim.page_state_reads == 1, "one read for the burst");
+  Check(shim.state_reads == state_reads + 1, "the tab's history with page state goes out again with it");
+  bool event_fn_saw = false;
+  for (const Event& event : w.events) event_fn_saw = event_fn_saw || event.kind == CMUX_SHIM_PAGE_STATE;
+  Check(!event_fn_saw, "the event fn never sees the push");
+  Check(client.Take(client.entry_page_state(tab, 0)) == std::optional<std::string>("scroll=120;input=hello"),
+        "a later read answers from the kept state");
+  Check(!client.Take(client.entry_page_state(tab, 1)), "an entry the host never pushed reads as none");
+
+  shim.page_states[{chromium, 0}] = std::string(cmux_host::kMaxPageStateBytes + 1, 'x');
+  ReportPageState(chromium, 0);
+  run_idle();
+  Check(PumpUntil([] { return page_state_calls.size() == 2; }), "an entry over the bound is pushed too");
+  Check(page_state_calls.size() == 2 && !page_state_calls[1].state, "with none, never the older state");
+
+  Check(client.page_state_watch(tab, nullptr, nullptr) == 0, "a stop answers 0, as the fork's");
+  Check(PumpUntil([&] { return shim.page_state_watch.count(chromium) == 0; }), "the host ends the fork's watch");
+  ReportPageState(chromium, 0);
+  Check(idle.empty(), "an ended watch reports nothing");
+
+  Check(client.page_state_watch(tab, &OnPageStateWatch, nullptr) == 1, "a new watch is sent");
+  Check(PumpUntil([&] { return shim.page_state_watch.count(chromium) == 1; }), "the host arms it again");
+  shim.page_states[{chromium, 1}] = "second";
+  ReportPageState(chromium, 1);
+  run_idle();
+  Check(PumpUntil([] { return page_state_calls.size() == 3; }), "the new watch's push");
+  --shim.live;
+  Emit(CMUX_SHIM_BEFORE_CLOSE, chromium, 0);
+  w.PumpUntilEvent(CMUX_SHIM_BEFORE_CLOSE);
+  Check(!client.Take(client.entry_page_state(tab, 1)), "a closed tab keeps no state");
+  Check(w.host.page_states().watches() == 0, "the host forgets the closed tab's watch");
+  Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
+}
+
 }  // namespace
 
 int main() {
@@ -764,6 +873,7 @@ int main() {
   SitePanelAndExtensionsWithNoWatch();
   RefreshRowsMatchTheirScope();
   WindowsAndProfilesFollowTheTabs();
+  PageStateReachesTheWatchAtIdle();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-mirror tests: ok");
   return EXIT_SUCCESS;

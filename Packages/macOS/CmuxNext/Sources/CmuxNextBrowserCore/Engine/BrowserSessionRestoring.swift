@@ -12,6 +12,14 @@ public protocol BrowserSessionRestoring: AnyObject {
     /// with the scroll positions the tab knows; `measuringScroll` also asks
     /// the shown page. Nil before the tab shows a page.
     func savedSession(measuringScroll: Bool) async -> BrowserSavedSession?
+    /// Changes when something the saved session holds changes without a navigation (an entry's
+    /// page state: a scroll, a form edit; task p01-process-093), so the history writer saves again.
+    var sessionStateRevision: Int { get }
+}
+
+extension BrowserSessionRestoring {
+    /// An engine whose saved session changes only with its navigations.
+    public var sessionStateRevision: Int { 0 }
 }
 
 /// A tab's back/forward entries, oldest first, and the one it shows.

@@ -37,14 +37,19 @@ extension BrowserHistoryStarts {
         let saved = await BrowserHistoryWriter.within(Self.budget, sleep: service.sleep) {
             await service.fetchHistory(daemon, tab.surface)
         }
-        guard let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef),
-              BrowserHistoryWriter.keepsFileAccess(of: saved, shown: url) else {
-            outcomes[key] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
+        // Entries with their page states (task p01-process-093) where the engine restores them, else
+        // the navigation state.
+        let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef)
+        let entries = BrowserHistoryWriter.restoreEntries(saved, at: url)
+        guard state != nil || entries != nil, BrowserHistoryWriter.keepsFileAccess(of: saved, shown: url) else {
+            let noState = saved?.engineState == nil && entries == nil
+            outcomes[key] = saved == nil ? "address" : noState ? "address-no-state" : "address-file-access"
             return configuration
         }
         var restored = configuration
         restored.restoreState = state
-        outcomes[key] = "engine"
+        restored.restoreEntries = entries
+        outcomes[key] = entries == nil ? "engine" : "engine-entries"
         markEngineRestored(key)
         return restored
     }

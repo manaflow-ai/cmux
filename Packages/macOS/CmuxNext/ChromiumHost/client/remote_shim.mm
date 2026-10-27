@@ -7,7 +7,8 @@
 //                 INITIALIZE is kOpInitialize: cmux_shim_initialize's five paths, severity,
 //                 locale, accept languages and switches (StrList)
 //   host -> cmux  HELLO       after the attach MIRRORs (chromium_host_tlv.h)
-//                 kOpEvent    i32 kind, i32 browser, i32 request, i64 a, i64 b, str s1, str s2
+//                 kOpEvent    i32 kind, i32 browser, i32 request, i64 a, i64 b, str s1, str s2;
+//                             CMUX_SHIM_PAGE_STATE goes to remote_shim_page_state.mm
 //                 kOpMirror   i32 mirror op, bytes key (EncodeFields), then bytes value, or no
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
@@ -21,6 +22,7 @@
 #include "host_energy_saver.h"
 #include "host_resize.h"
 #include "remote_shim_mirror.h"
+#include "remote_shim_page_state.h"
 #include "remote_shim_runtime.h"
 
 #include <cassert>
@@ -635,6 +637,7 @@ class Runtime {
   // destroys the channel there: destroying a Channel joins that thread, done by then.
   void Disconnect() {
     if (!channel_) return;
+    page_state::Detach();  // the host's browsers, and so their watches, went with it
     channel_->Close();
     closing_.emplace(generation_, std::move(channel_));
     ++generation_;
@@ -697,6 +700,13 @@ class Runtime {
         const std::string s1 = r.Str().value_or(std::string());
         const std::string s2 = r.Str().value_or(std::string());
         if (!r.ok() || !r.AtEnd()) return false;
+        // A page state push goes to cmux's watch fn, never to its event fn (remote_shim_page_state.h); one
+        // for a watch cmux just ended is dropped.
+        if (page_state::IsPushEvent(kind)) {
+          page_state::Deliver(browser, request, a == 1, s1);
+          return true;
+        }
+        if (kind == CMUX_SHIM_BEFORE_CLOSE) page_state::BrowserClosed(browser);
         if (event_fn_) event_fn_(event_ctx_, kind, browser, request, a, b, s1.c_str(), s2.c_str());
         return true;
       }
@@ -740,6 +750,7 @@ class Runtime {
         host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
         hello_ = true;
         Flush();
+        page_state::Attach(&page_state_transport_);
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
         return true;
       }
@@ -748,7 +759,15 @@ class Runtime {
     }
   }
 
+  static bool SendPageStateWatch(void* context, int browser_id, bool watching) {
+    TlvWriter args;
+    args.I32(browser_id);
+    args.I32(watching ? 1 : 0);
+    return static_cast<Runtime*>(context)->Post(kOpTabPageStateWatch, 0, args);
+  }
+
   cmux_remote_shim_callbacks callbacks_ = {};
+  const page_state::Transport page_state_transport_{this, &SendPageStateWatch};
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;

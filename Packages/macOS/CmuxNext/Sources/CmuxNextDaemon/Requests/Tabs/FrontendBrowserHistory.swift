@@ -13,18 +13,24 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
         /// restore, a duplicate or a wake never sends it again without the
         /// person (BR-R1). Absent when false.
         public var formPost: Bool?
+        /// The engine's encoded page state of the entry (Chromium's PageState: scroll offsets and
+        /// form values, task p01-process-093), restored with the entry. Only this Mac's daemon
+        /// keeps it, as ``EngineState``; absent when none.
+        public var pageState: String?
 
-        public init(url: String, title: String? = nil, scrollY: Double? = nil, formPost: Bool? = nil) {
+        public init(url: String, title: String? = nil, scrollY: Double? = nil, formPost: Bool? = nil, pageState: String? = nil) {
             self.url = url
             self.title = title
             self.scrollY = scrollY
             self.formPost = formPost
+            self.pageState = pageState
         }
         // The wire names both ways: requests and replies.
         enum CodingKeys: String, CodingKey {
             case url, title
             case scrollY = "scroll_y"
             case formPost = "form_post"
+            case pageState = "page_state"
         }
     }
 
@@ -71,6 +77,38 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
         guard state != nil, let encoded = try? JSONEncoder().encode(history), encoded.count <= maxStoredBytes else {
             history.engineState = nil
             return history
+        }
+        return history
+    }
+
+    /// This history without any entry's page state (a remote daemon, a page that showed a private field).
+    public func withoutPageStates() -> Self {
+        dropPageStates { _ in true }
+    }
+
+    /// This history with the page states that fit in `maxStoredBytes`: those of the entries
+    /// farthest from the current one go first, so the shown page keeps its scroll and form text.
+    public func fittingPageStates(maxStoredBytes: Int = Self.maxStoredBytes) -> Self {
+        let current = index
+        let byDistance = entries.enumerated().filter { $0.element.pageState != nil }.map(\.offset)
+            .sorted { (($0 - current).magnitude, $0) > (($1 - current).magnitude, $1) }
+        var dropped: Set<Int> = []
+        var history = self
+        for next in byDistance {
+            guard let encoded = try? JSONEncoder().encode(history), encoded.count > maxStoredBytes else { break }
+            dropped.insert(next)
+            history = dropPageStates { dropped.contains($0) }
+        }
+        return history
+    }
+
+    /// This history with no page state at the entries `drops` names, by position.
+    private func dropPageStates(_ drops: (Int) -> Bool) -> Self {
+        var history = self
+        history.entries = entries.enumerated().map { offset, entry in
+            var kept = entry
+            if drops(offset) { kept.pageState = nil }
+            return kept
         }
         return history
     }
