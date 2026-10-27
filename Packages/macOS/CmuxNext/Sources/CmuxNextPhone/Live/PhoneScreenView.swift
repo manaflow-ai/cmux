@@ -84,6 +84,10 @@ public final class PhoneScreenView: NSView {
 
     private func makePresenter() -> any RemoteFramePresenter {
         let made = RemoteFramePresenters().make(.layerContents)
+        // The render queue sizes the drawable to a new frame before main lays `content` out again:
+        // aspect fit keeps a rotated frame from stretching into the old rect until then.
+        made.layer.contentsGravity = .resizeAspect
+        made.layer.backgroundColor = NSColor.black.cgColor
         made.onFrameSize = { [weak self] size in self?.liveSizeChanged(size) }
         made.onFrameShown = { [weak self] in self?.liveFrameShown() }
         presenter = made

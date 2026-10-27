@@ -15,18 +15,22 @@ import Testing
     static let landscape = CGSize(width: 260, height: 120)
 
     /// `count` frames of one simulator framebuffer of `size`, each a separate callback on `queue`
-    /// as SimulatorKit makes them, at the simulator's 60 fps.
-    nonisolated static func feed(_ frames: PhoneLiveFrames, size: CGSize, count: Int, on queue: DispatchQueue) {
-        for index in 0..<count {
-            queue.asyncAfter(deadline: .now() + .milliseconds(16 * index)) {
-                guard let surface = Self.surface(size) else { return }
-                _ = frames.frame(surface)
+    /// as SimulatorKit makes them, at the simulator's 60 fps. Returns once the last one was handed on,
+    /// so the next feed's frames never interleave with these.
+    nonisolated static func feed(_ frames: PhoneLiveFrames, size: CGSize, count: Int, on queue: DispatchQueue) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            for index in 0..<count {
+                // The serial queue runs the blocks in deadline order: the last one runs last.
+                queue.asyncAfter(deadline: .now() + .milliseconds(16 * index)) {
+                    if let surface = Self.surface(size) { _ = frames.frame(surface) }
+                    if index == count - 1 { done.resume() }
+                }
             }
         }
     }
 
-    nonisolated static func surface(_ size: CGSize, format: OSType = kCVPixelFormatType_32BGRA) -> IOSurface? {
-        IOSurface(properties: [.width: Int(size.width), .height: Int(size.height), .bytesPerElement: 4, .pixelFormat: format])
+    nonisolated static func surface(_ size: CGSize, format: OSType = kCVPixelFormatType_32BGRA, bytesPerElement: Int = 4) -> IOSurface? {
+        IOSurface(properties: [.width: Int(size.width), .height: Int(size.height), .bytesPerElement: bytesPerElement, .pixelFormat: format])
     }
 
     @Test(.timeLimit(.minutes(1))) func aFrameTakesNoMainTurnOnlyTheFirstAndASizeChangeDo() async throws {
@@ -34,16 +38,25 @@ import Testing
         let view = PhoneScreenView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         let frames = view.startLive()
 
-        Self.feed(frames, size: Self.portrait, count: 60, on: queue)
+        await Self.feed(frames, size: Self.portrait, count: 60, on: queue)
         try await Self.until("the portrait size reached the view") { view.mapping.screen == Self.portrait }
-        Self.feed(frames, size: Self.landscape, count: 60, on: queue)
+        await Self.feed(frames, size: Self.landscape, count: 60, on: queue)
         try await Self.until("the landscape size reached the view") { view.mapping.screen == Self.landscape }
         // A size the view has: no main turn at all.
-        Self.feed(frames, size: Self.landscape, count: 60, on: queue)
-        try await Self.until("the frames went out") { await Self.drained(queue) }
+        await Self.feed(frames, size: Self.landscape, count: 60, on: queue)
         await Self.settle()
 
         #expect(view.liveMainTurns == 2, "main turns \(view.liveMainTurns) for 180 frames and 2 sizes")
+        view.close()
+    }
+
+    /// The render queue sizes the drawable before main lays the screen out again: the presenter's layer
+    /// keeps the frame's aspect until then, on black, instead of stretching a rotated frame.
+    @Test func thePresenterLayerKeepsTheFramesAspect() {
+        let view = PhoneScreenView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        let frames = view.startLive()
+        #expect(frames.presenter.layer.contentsGravity == .resizeAspect)
+        #expect(frames.presenter.layer.backgroundColor == NSColor.black.cgColor)
         view.close()
     }
 
@@ -75,18 +88,15 @@ import Testing
         let bgra = try #require(Self.surface(Self.portrait))
         let tenBit = try #require(Self.surface(Self.portrait, format: kCVPixelFormatType_ARGB2101010LEPacked))
         let packedYUV = try #require(Self.surface(Self.portrait, format: kCVPixelFormatType_422YpCbCr8))
+        let halfFloat = try #require(Self.surface(Self.portrait, format: kCVPixelFormatType_64RGBAHalf, bytesPerElement: 8))
         #expect(PhoneLiveFrames.canDraw(bgra))
-        #expect(PhoneLiveFrames.canDraw(tenBit))
+        // The copy shader writes 8-bit samples unchanged: deep and extended-range surfaces stay stills.
+        #expect(!PhoneLiveFrames.canDraw(tenBit))
+        #expect(!PhoneLiveFrames.canDraw(halfFloat))
         #expect(!PhoneLiveFrames.canDraw(packedYUV))
     }
 
     // MARK: Helpers
-
-    /// True once every block queued on `queue` before it (and their delayed frames) ran.
-    nonisolated static func drained(_ queue: DispatchQueue) async -> Bool {
-        try? await Task.sleep(for: .milliseconds(16 * 60 + 50))
-        return await withCheckedContinuation { done in queue.async { done.resume(returning: true) } }
-    }
 
     /// Lets every main-actor job already posted run.
     static func settle() async {

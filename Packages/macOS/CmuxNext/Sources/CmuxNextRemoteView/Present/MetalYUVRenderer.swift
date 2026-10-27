@@ -6,7 +6,7 @@ import QuartzCore
 
 /// The presenter's `CAMetalLayer`, shared by the main actor, which places and
 /// scales it, and the render actor, which sizes and draws its drawables.
-nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main and the render queue touch disjoint layer state: main sets frame, isHidden, contentsGravity, filters and contentsScale, and device and pixel format before the first draw; the render queue only sets drawableSize (in its own CATransaction) and calls nextDrawable. Core Animation locks the layer in each property accessor
+nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main and the render queue touch disjoint layer state: main sets frame, isHidden, contentsGravity, backgroundColor, filters and contentsScale, and device, pixel format and the first colorspace before the first draw; the render queue only sets drawableSize and colorspace (in its own CATransaction) and calls nextDrawable. Core Animation locks the layer in each property accessor
     let layer: CAMetalLayer
 
     init(_ layer: CAMetalLayer) {
@@ -20,6 +20,12 @@ nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main 
 /// may wait there for one of the two drawables. Its texture cache and the
 /// layer's drawable size are touched only there.
 ///
+/// The shaders compile on the render queue at the first draw, never on the
+/// thread that makes the renderer (a pane's init on main), as Chrome builds
+/// its pipelines on the GPU thread. The layer's `colorspace` follows each
+/// frame's colour tags, so Core Animation colour-matches the drawable to the
+/// display as it does a tagged IOSurface.
+///
 /// The render queue is on threading-model.md's closed user-interactive list: the remote desktop's frames are a
 /// compositor-class motion path, which Chrome runs at `ThreadType::kDisplayCritical`
 /// (base/threading/platform_thread.h; user-interactive in base/threading/platform_thread_apple.mm).
@@ -28,26 +34,35 @@ actor MetalYUVRenderer {
     private nonisolated let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let shared: SharedMetalLayer
+    private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
-    private let pipeline: any MTLRenderPipelineState
-    private let rgbPipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
+    /// Built at the first draw, on the render queue (once: nil when the shaders do not build).
+    private lazy var pipelines: Pipelines? = Self.makePipelines(device: device)
+    /// The colour tags of the last frame drawn (the layer's colorspace was set from them).
+    private var colorTags: CFDictionary?
 
+    /// The YUV and the RGB pipeline, from one compiled library.
+    private nonisolated struct Pipelines {
+        let yuv: any MTLRenderPipelineState
+        let rgb: any MTLRenderPipelineState
+    }
+
+    /// Nil where Metal is missing. Compiles nothing: the pipelines are built at the first draw.
     init?(layer shared: SharedMetalLayer) {
         guard let device = shared.layer.device ?? MTLCreateSystemDefaultDevice(),
-              let commandQueue = device.makeCommandQueue(),
-              let pipeline = Self.makePipeline(device: device),
-              let rgbPipeline = Self.makePipeline(device: device, fragment: "rv_fragment_rgb") else { return nil }
+              let commandQueue = device.makeCommandQueue() else { return nil }
         var cache: CVMetalTextureCache?
         // SAFETY: Core Video writes one +1 cache to the local `cache`, live for the call;
         // the nil attribute dictionaries are not read.
         guard unsafe CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
               let cache else { return nil }
         shared.layer.device = device
+        // Untagged frames are sRGB; a nil colorspace would show the samples with no colour matching.
+        shared.layer.colorspace = Self.sRGB
         self.shared = shared
+        self.device = device
         self.commandQueue = commandQueue
-        self.pipeline = pipeline
-        self.rgbPipeline = rgbPipeline
         textureCache = cache
     }
 
@@ -64,28 +79,39 @@ actor MetalYUVRenderer {
     /// or a plane that does not map to a texture).
     private func render(_ frame: RemoteDecodedFrame) -> Bool {
         let buffer = frame.pixelBuffer
+        guard let pipelines else { return false }
         if CVPixelBufferGetPlaneCount(buffer) == 2 {
             guard let luma = texture(buffer, plane: 0, format: .r8Unorm),
                   let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
             let fullRange: Float = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? 1 : 0
-            return draw(buffer, pipeline: pipeline, textures: [luma, chroma], fullRange: fullRange)
+            return draw(buffer, pipeline: pipelines.yuv, textures: [luma, chroma], fullRange: fullRange)
         }
-        // A four-channel RGB frame (a simulator's framebuffer, a host that sends RGB): one texture, a copy shader.
+        // A four-channel 8-bit RGB frame (a simulator's framebuffer, a host that sends RGB): one texture, a copy shader.
         guard let format = Self.rgbTextureFormat(CVPixelBufferGetPixelFormatType(buffer)),
               let rgb = texture(buffer, plane: 0, format: format) else { return false }
-        return draw(buffer, pipeline: rgbPipeline, textures: [rgb], fullRange: 0)
+        return draw(buffer, pipeline: pipelines.rgb, textures: [rgb], fullRange: 0)
     }
 
     /// The Metal format that reads a one-plane buffer of `pixelFormat`, nil for one this renderer
-    /// does not draw.
+    /// does not draw. Only 8-bit, gamma-encoded RGB: the copy shader writes the samples unchanged into
+    /// an 8-bit drawable, so a 10-bit or half-float (extended-linear) buffer would lose its range and
+    /// transfer. Those take the still-frame path, which Core Animation colour-matches.
     nonisolated static func rgbTextureFormat(_ pixelFormat: OSType) -> MTLPixelFormat? {
         switch pixelFormat {
         case kCVPixelFormatType_32BGRA: .bgra8Unorm
         case kCVPixelFormatType_32RGBA: .rgba8Unorm
-        case kCVPixelFormatType_ARGB2101010LEPacked: .bgr10a2Unorm
-        case kCVPixelFormatType_64RGBAHalf: .rgba16Float
         default: nil
         }
+    }
+
+    nonisolated static var sRGB: CGColorSpace? { CGColorSpace(name: CGColorSpace.sRGB) }
+
+    /// The colour space `buffer`'s samples are in: its own, else the one its colour tags (`tags`, its
+    /// propagated attachments: primaries, transfer function, ICC profile) name, else sRGB.
+    nonisolated static func colorSpace(of buffer: CVPixelBuffer, tags: CFDictionary?) -> CGColorSpace? {
+        if let own = CVImageBufferGetColorSpace(buffer)?.takeUnretainedValue() { return own }
+        if let tags, let named = CVImageBufferCreateColorSpaceFromAttachments(tags)?.takeRetainedValue() { return named }
+        return sRGB
     }
 
     /// Whether this renderer draws buffers of `pixelFormat`: NV12 (video or full range) or one-plane RGB.
@@ -101,11 +127,18 @@ actor MetalYUVRenderer {
                       fullRange: Float) -> Bool {
         let layer = shared.layer
         let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
-        if layer.drawableSize != size {
+        // The frame's colour tags; the space is made again only when they change (a stream keeps them).
+        let tags = CVBufferCopyAttachments(buffer, .shouldPropagate)
+        let tagsChanged = !Self.same(tags, colorTags)
+        if layer.drawableSize != size || tagsChanged {
             // An explicit transaction: this thread has no run loop to commit an implicit one.
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer.drawableSize = size
+            if layer.drawableSize != size { layer.drawableSize = size }
+            if tagsChanged {
+                colorTags = tags
+                layer.colorspace = Self.colorSpace(of: buffer, tags: tags)
+            }
             CATransaction.commit()
         }
         guard let drawable = layer.nextDrawable(),
@@ -144,10 +177,27 @@ actor MetalYUVRenderer {
         return status == kCVReturnSuccess ? texture : nil
     }
 
-    nonisolated static func makePipeline(device: any MTLDevice, fragment name: String = "rv_fragment") -> (any MTLRenderPipelineState)? {
+    private nonisolated static func same(_ a: CFDictionary?, _ b: CFDictionary?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case let (a?, b?): CFEqual(a, b)
+        default: false
+        }
+    }
+
+    /// Compiles the shader source once and builds the YUV and the RGB pipeline from that library.
+    private nonisolated static func makePipelines(device: any MTLDevice) -> Pipelines? {
         guard let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let vertex = library.makeFunction(name: "rv_vertex"),
-              let fragment = library.makeFunction(name: name) else { return nil }
+              let yuv = makePipeline(device: device, vertex: vertex, fragment: library.makeFunction(name: "rv_fragment")),
+              let rgb = makePipeline(device: device, vertex: vertex, fragment: library.makeFunction(name: "rv_fragment_rgb"))
+        else { return nil }
+        return Pipelines(yuv: yuv, rgb: rgb)
+    }
+
+    private nonisolated static func makePipeline(device: any MTLDevice, vertex: any MTLFunction,
+                                                 fragment: (any MTLFunction)?) -> (any MTLRenderPipelineState)? {
+        guard let fragment else { return nil }
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment

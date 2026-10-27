@@ -77,7 +77,40 @@ import Testing
         try await Self.until("the render queue let its layer go") { layer == nil }
     }
 
+    /// Core Animation colour-matches the drawable as it did the tagged IOSurface: the layer's colorspace
+    /// is the frame's own, and sRGB for an untagged frame, never nil (no matching at all).
+    @Test(.timeLimit(.minutes(1))) func theLayerColourMatchesEachFramesColourSpace() async throws {
+        let presenter = try #require(LayerContentsPresenter(), "no Metal device here")
+        let metalLayer = try #require(presenter.layer as? CAMetalLayer)
+        #expect(Self.name(metalLayer.colorspace) == CGColorSpace.sRGB as String, "an untagged layer must still match as sRGB")
+
+        let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let tagged = try #require(Self.frame(1))
+        CVBufferSetAttachment(tagged.pixelBuffer, kCVImageBufferCGColorSpaceKey, p3, .shouldPropagate)
+        presenter.present(tagged)
+        try await Self.until("the P3 frame shows") { presenter.shownFrame?.frame == 1 }
+        #expect(Self.name(metalLayer.colorspace) == CGColorSpace.displayP3 as String)
+
+        let untagged = try #require(Self.frame(2))
+        presenter.present(untagged)
+        try await Self.until("the untagged frame shows") { presenter.shownFrame?.frame == 2 }
+        #expect(Self.name(metalLayer.colorspace) == CGColorSpace.sRGB as String)
+    }
+
+    /// Only 8-bit RGB and NV12 stream: the copy shader would clip a half-float frame and drop a 10-bit
+    /// frame's depth.
+    @Test func deepAndExtendedRangeFormatsAreNotDrawn() {
+        #expect(MetalYUVRenderer.draws(pixelFormat: kCVPixelFormatType_32BGRA))
+        #expect(MetalYUVRenderer.draws(pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange))
+        #expect(!MetalYUVRenderer.draws(pixelFormat: kCVPixelFormatType_64RGBAHalf))
+        #expect(!MetalYUVRenderer.draws(pixelFormat: kCVPixelFormatType_ARGB2101010LEPacked))
+    }
+
     // MARK: Helpers
+
+    nonisolated static func name(_ space: CGColorSpace?) -> String? {
+        space?.name.map { $0 as String }
+    }
 
     /// A decoded frame: an IOSurface-backed, Metal-compatible BGRA buffer.
     nonisolated static func frame(_ number: UInt32, width: Int = 320, height: Int = 200) -> RemoteDecodedFrame? {
