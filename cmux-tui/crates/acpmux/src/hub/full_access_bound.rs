@@ -1041,6 +1041,41 @@ mod tests {
         assert!(runs_full_access(&view).is_some(), "a report applied between the reads was missed");
     }
 
+    /// Review 4 of #26052: a report the tap counts while the view reads the mode (not applied
+    /// yet) is seen by the view.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_counted_while_the_view_is_read_counts() {
+        let (_hub, chat, _) = two_chats_on(&[], false).await;
+        chat.meta.lock().unwrap().modes = Some(json!({"currentModeId": "normal"}));
+        BETWEEN_VIEW_READS.set(Some(|s: &Session| {
+            s.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+        }));
+        let view = FullAccessView::of_session(&chat);
+        assert!(runs_full_access(&view).is_some(), "a report counted between the reads was missed");
+    }
+
+    /// Review 4 of #26052: a report the off's ended agent sends after its end is not counted for
+    /// the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_ended_agent_is_not_counted() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        // The ended agent's tap.
+        let tap = hub.session_tap(&chat);
+        hub.end_managed_full_access(&chat).await;
+        let report = crate::rpc::Message::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "ended",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+        };
+        tap(crate::agent::Direction::In, &report, None);
+        assert_eq!(
+            chat.floor.unapplied_full_access.load(Ordering::SeqCst),
+            0,
+            "an ended agent's late report was counted"
+        );
+    }
+
     /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
     /// another operation holds (a start that cannot end its agent). That session's end is left
     /// pending for the next check, and the push returns.
