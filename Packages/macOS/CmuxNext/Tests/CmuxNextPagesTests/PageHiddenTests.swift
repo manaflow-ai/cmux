@@ -224,27 +224,67 @@ struct PageHiddenTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         let engine = try #require(view.webKitPieces)
-        #expect(engine.media != nil, "the engine watches its view's sound and capture")
-        #expect(engine.media?.held == [], "a page that plays nothing holds nothing")
-        var playing: Set<PageKeepReasons.KeepReason> = []
-        let watch = PageWebKitMediaWatch(view: engine.view, keepReasons: view.keepReasons) { _ in playing }
+        let media = try #require(engine.media, "the engine watches its view's sound and capture")
+        #expect(media.held == [], "a page that plays nothing holds nothing")
+        // WebKit's capture state, through KVO of a view the test controls.
+        var capturing = false
+        let source = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let capture = PageWebKitMediaWatch(view: source, keepReasons: view.keepReasons) { _ in capturing }
         let nodes = Self.follow(view)
         nodes.tab.set(.hidden)
         #expect(engine.view.isHidden)
 
-        playing = [.audible]
-        Self.notify(engine.view, PageWebKitMediaWatch.captureKeys[0]) // WebKit's KVO notice
+        media.soundDidChange(true) // the observer script's report
         #expect(view.keepReasons.current.contains(.audible))
         #expect(!engine.view.isHidden, "a page with sound stays visible to WebKit")
-        playing = [.capture]
-        Self.notify(engine.view, PageWebKitMediaWatch.captureKeys[1])
+        capturing = true
+        Self.notify(source, "microphoneCaptureState") // WebKit's KVO notice
+        media.soundDidChange(false)
         #expect(!view.keepReasons.current.contains(.audible))
+        #expect(view.keepReasons.current.contains(.capture))
         #expect(!engine.view.isHidden, "a camera or microphone keeps it visible")
-        playing = []
-        Self.notify(engine.view, PageWebKitMediaWatch.captureKeys[1])
+        capturing = false
+        Self.notify(source, "microphoneCaptureState")
         #expect(view.keepReasons.current.isDisjoint(with: [.audible, .capture]))
         #expect(engine.view.isHidden, "hidden in the turn the sound and capture end")
-        withExtendedLifetime(watch) {}
+        withExtendedLifetime(capture) {}
+    }
+
+    /// Live: the sound report reaches the watch from the host's content world only; page script has no
+    /// handler to post to, so it cannot hold its page visible.
+    @Test(.timeLimit(.minutes(1)))
+    func onlyTheHostWorldReportsSound() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = makeHost(Self.webKitHosting())
+        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        defer { host.close(view) }
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        let engine = try #require(view.webKitPieces)
+        window.contentView?.addSubview(view)
+        await view.waitUntilLoaded()
+        let fromPage = try await engine.view.callAsyncJavaScript(
+            "return typeof window.webkit?.messageHandlers?.\(PageWebKitMediaWatch.channel)", in: nil, contentWorld: .page) as? String
+        #expect(fromPage == "undefined", "page script reaches no sound handler")
+        _ = try await engine.view.callAsyncJavaScript(
+            "window.webkit.messageHandlers.\(PageWebKitMediaWatch.channel).postMessage(true); return true",
+            in: nil, contentWorld: PageWebKitMediaWatch.world)
+        let held: Bool? = await PageTestWait.value("sound report") { done in
+            Self.whenHeld(.audible, by: view, done)
+        }
+        #expect(held == true)
+    }
+
+    /// Calls `done(true)` once `view` holds `reason` (the report comes after the script's turn).
+    private static func whenHeld(_ reason: PageKeepReasons.KeepReason, by view: PageWebView, _ done: @escaping (Bool) -> Void) {
+        if view.keepReasons.current.contains(reason) { return done(true) }
+        let previous = view.keepReasons.onChange
+        view.keepReasons.onChange = { [weak view] in
+            previous?()
+            guard let view, view.keepReasons.current.contains(reason) else { return }
+            view.keepReasons.onChange = previous
+            done(true)
+        }
     }
 
     /// Posts the KVO notice of `key` on `view`, as WebKit does when its media state changes.
