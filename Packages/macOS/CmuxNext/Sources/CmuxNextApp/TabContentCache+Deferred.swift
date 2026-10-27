@@ -58,7 +58,7 @@ extension TabContentCache {
         guard let tab = tabModel(key) else { return }  // a remote machine's tab included
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
             // Still no Chromium: wait again, on the address the person asked for.
-            _ = chromiumUnavailable(tab, url: url ?? URL(string: tab.url), reason: reason)
+            _ = chromiumUnavailable(tab, url: url ?? tab.url.flatMap(URL.init(string:)), reason: reason)
         } else if let entry = browser(for: tab), let url, url.absoluteString != tab.url {
             entry.tab.load(url)
         }
