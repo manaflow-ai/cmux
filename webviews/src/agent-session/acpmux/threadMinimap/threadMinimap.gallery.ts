@@ -214,7 +214,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
         const card = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__card");
         const style = ctx.document.createElement("style");
-        style.textContent = ".acpmux-minimap__card[data-prompt] { max-height: none; }";
+        style.textContent =
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: unset; } " +
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { max-height: none !important; }";
         ctx.document.head.append(style);
         await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
       },
