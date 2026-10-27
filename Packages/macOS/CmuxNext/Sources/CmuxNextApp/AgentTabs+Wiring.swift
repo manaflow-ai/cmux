@@ -165,6 +165,10 @@ extension AgentTabStore {
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
         }
+        tabs.cloudCredentialTransfer = { [weak services] chat, request in
+            guard let services else { return false }
+            return await CloudCredentialRecovery.run(chat: chat, request: request, services: services)
+        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
