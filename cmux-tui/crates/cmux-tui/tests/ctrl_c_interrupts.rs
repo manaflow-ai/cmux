@@ -48,6 +48,10 @@ impl Daemon {
     /// A daemon whose terminals without an argv run `shell` (`SHELL`), with a
     /// private home so no rc file of the host's account runs.
     fn start_with_shell(shell: &str) -> Self {
+        Self::start_with_shell_env(shell, None)
+    }
+
+    fn start_with_shell_env(shell: &str, integration: Option<&str>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-ctrlc-{}-{stamp}", std::process::id()));
         fs::create_dir_all(dir.join("home")).unwrap();
@@ -65,6 +69,7 @@ impl Daemon {
             .env("SHELL", shell)
             .env("HOME", dir.join("home"))
             .env("ZDOTDIR", dir.join("home"))
+            .env("CMUX_TUI_SHELL_INTEGRATION", integration.unwrap_or(""))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(fs::File::create(dir.join("daemon.log")).unwrap());
@@ -283,4 +288,76 @@ fn ctrl_c_interrupts_a_foreground_command_in_the_login_shell() {
         json!({"cmd": "send", "surface": surface, "text": "echo AFTER-EXIT=$?\r"}),
     );
     wait_for_screen(&daemon, surface, "AFTER-EXIT=130", &format!("Ctrl-C in {shell}"));
+}
+
+/// Throwaway diagnostic (dogfood-ctrlc): which shells lose Ctrl-C, and why.
+#[test]
+fn zz_ctrl_c_shell_matrix_probe() {
+    let mut report = Vec::new();
+    for (shell, integration) in
+        [("/bin/zsh", true), ("/bin/zsh", false), ("/bin/bash", true), ("/bin/bash", false)]
+    {
+        if !Path::new(shell).exists() {
+            continue;
+        }
+        let daemon =
+            Daemon::start_with_shell_env(shell, if integration { None } else { Some("none") });
+        let name = "matrix";
+        request(
+            &daemon.socket,
+            json!({"cmd": "new-workspace", "name": name, "cols": 120, "rows": 30}),
+        );
+        let tree = request(&daemon.socket, json!({"cmd": "list-workspaces"}));
+        let key = tree["workspaces"]
+            .as_array()
+            .and_then(|workspaces| workspaces.iter().find(|workspace| workspace["name"] == name))
+            .and_then(|workspace| workspace["key"].as_str())
+            .unwrap()
+            .to_owned();
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "create-terminal", "key": key, "cols": 120, "rows": 30}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        request(
+            &daemon.socket,
+            json!({"cmd": "send", "surface": surface, "text": "echo SHELL-UP\r"}),
+        );
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !screen(&daemon, surface).lines().any(|line| line.trim_end() == "SHELL-UP")
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let probe = "set -o | grep -i -E '^(monitor|interactive) ' ; trap; \
+            perl -MPOSIX -e 'printf(\"PROBE INT=%s pid=%d pgrp=%d tpgid=%d\\n\", ($SIG{INT}//\"DEFAULT\"), $$, getpgrp(), POSIX::tcgetpgrp(0)); sleep 600'\r";
+        request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": probe}));
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !screen(&daemon, surface).contains("PROBE INT=") && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        request(&daemon.socket, json!({"cmd": "send-key", "surface": surface, "keys": ["ctrl+c"]}));
+        std::thread::sleep(Duration::from_millis(1500));
+        request(
+            &daemon.socket,
+            json!({"cmd": "send", "surface": surface, "text": "echo AFTER-EXIT=$?\r"}),
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut passed = false;
+        while Instant::now() < deadline {
+            if screen(&daemon, surface).lines().any(|line| line.trim_end() == "AFTER-EXIT=130") {
+                passed = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        report.push(format!(
+            "MATRIX shell={shell} integration={integration} interrupted={passed}\n{}\n",
+            screen(&daemon, surface)
+        ));
+    }
+    let all = report.join("\n");
+    println!("{all}");
+    assert!(!all.contains("interrupted=false"), "{all}");
 }
