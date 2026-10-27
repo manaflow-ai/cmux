@@ -83,6 +83,9 @@ nonisolated final class TerminalLinkFilter: Sendable {
         state.withLock { $0.cwd = cwd }
     }
 
+    /// The folder asks use now (``setWorkingDirectory(_:)``).
+    var workingDirectory: String? { state.withLock { $0.cwd } }
+
     /// The cached answer for `text`; starts a check when there is none or it is old.
     func isLink(_ text: String) -> Bool {
         let now = ContinuousClock.now
