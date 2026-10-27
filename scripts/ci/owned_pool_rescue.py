@@ -278,6 +278,18 @@ about 30 in all for an hour-long run. A read that fails is retried
 READ_ATTEMPTS times before the watch gives up; a failed cancel or re-run is
 never retried.
 
+The cmux-bot installation's 5000 requests an hour are shared with other
+jobs and ran dry overnight on 2026-10-27 (48 refusals in five windows), so
+GitHub.request() makes every repeated GET conditional (If-None-Match; a 304
+costs nothing, and a queued run's jobs listing rarely changes between looks;
+every read still asks GitHub, so no decision uses a stored answer), and paces
+the reads by GET /rate_limit (free) and each answer's rate-limit headers:
+below BUDGET_FLOOR left, a watch looks every IDLE_POLL_SECONDS and the sweeper skips its
+side-lane failure listing; below BUDGET_RESERVE it waits for the reset
+instead of spending refusals. With BOT_APP_ID and BOT_APP_KEY the script
+mints a new installation token before the old one's hour is up (the 5-hour
+sweeper's token expired at minute 60 and every read after it was a 401).
+
 A CI run's owned jobs may wait on purpose. pr_runner_pool.py puts a run on
 an owned pool while its jobs are expected to start there no later than on
 Blacksmith, and within CI_PR_POOL_QUEUE_ROUNDS job lengths (default 1, at
@@ -306,7 +318,9 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -1071,6 +1085,60 @@ def rate_limit_wait(code: int, headers: Mapping[str, str], body: str, now: float
     return float(min(RATE_LIMIT_FIRST_WAIT_SECONDS << min(tries, 8), RATE_LIMIT_MAX_WAIT_SECONDS))
 
 
+# GitHub.request()'s budget (the module docstring's last paragraph on the request budget).
+BUDGET_FLOOR = 1000
+BUDGET_RESERVE = 100
+BUDGET_READ_SECONDS = 30
+# An installation token lasts 60 minutes; a new one is minted after this many seconds.
+TOKEN_REFRESH_SECONDS = 45 * 60
+BOT_PERMISSIONS = {"actions": "write", "checks": "read", "contents": "read", "issues": "write",
+                   "pull_requests": "write"}
+_CACHE_LIMIT = 4000
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def app_jwt(app_id: str, key: str, now: float | None = None,
+            run: Callable[..., Any] = subprocess.run) -> str:
+    """An App JWT (RS256), signed by openssl: the runner's Python has no RSA."""
+    now = time.time() if now is None else now
+    iss: int | str = int(app_id) if app_id.isdigit() else app_id
+    head = _b64(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
+    claims = _b64(json.dumps({"iat": int(now) - 60, "exp": int(now) + 540, "iss": iss},
+                             separators=(",", ":")).encode())
+    signing = f"{head}.{claims}"
+    # mkstemp's file is 0600; the key never reaches argv or the log.
+    with tempfile.NamedTemporaryFile("w", suffix=".pem") as handle:
+        handle.write(key)
+        handle.flush()
+        signature = run(["openssl", "dgst", "-sha256", "-sign", handle.name], input=signing.encode(),
+                        capture_output=True, check=True, timeout=30).stdout
+    return f"{signing}.{_b64(signature)}"
+
+
+def app_token_minter(app_id: str, key: str, repo: str) -> Callable[[], str]:
+    """A function returning a new installation token of the App for `repo`, with BOT_PERMISSIONS."""
+    def call(method: str, url: str, jwt: str, body: Mapping | None = None) -> Mapping[str, Any]:
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(url, method=method, headers=_headers(jwt), data=data)
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read() or b"{}")
+
+    def mint() -> str:
+        jwt = app_jwt(app_id, key)
+        installation = call("GET", f"{API}/repos/{repo}/installation", jwt)
+        found = call("POST", f"{API}/app/installations/{int(installation['id'])}/access_tokens", jwt,
+                     {"repositories": [repo.split("/", 1)[-1]], "permissions": BOT_PERMISSIONS})
+        return str(found["token"])
+    return mint
+
+
+def _kind(path: str) -> str:
+    return re.sub(r"/[0-9]+", "/{n}", path.split("?", 1)[0])
+
+
 class GitHub:
     """The Actions API. Reads may use `read_token`, writes always use `token`.
 
@@ -1092,6 +1160,128 @@ class GitHub:
         # Each watch (the sweeper runs one per thread on this one client) has its own
         # RATE_LIMIT_WAIT_SECONDS, so one run's waits never spend another's.
         self._limits = threading.local()
+        self._lock = threading.Lock()
+        # GET answers by (token, path): (ETag, body, monotonic time read or confirmed).
+        self._cache: dict[tuple[str, str], tuple[str, bytes, float]] = {}
+        # Requests by (kind, "charged" | "not modified"), for the budget lines.
+        self.counts: dict[tuple[str, str], int] = {}
+        self.started = time.monotonic()
+        self._budget: tuple[float, int | None, float | None] = (-1e9, None, None)
+        # Set by main() with BOT_APP_ID and BOT_APP_KEY: a new token before the hour is up.
+        self.mint: Callable[[], str] | None = None
+        self._minted_at = time.monotonic()
+        # Bumped when reads move to another token's pool: a budget reading of the old pool is dropped.
+        self._pool = 0
+        # Every Authorization the minted App (GH_TOKEN) has used: only its 401s mint a new token.
+        self._app_auths = {self.headers["Authorization"]}
+
+    def _count(self, path: str, outcome: str) -> None:
+        with self._lock:
+            key = (_kind(path), outcome)
+            self.counts[key] = self.counts.get(key, 0) + 1
+
+    def usage(self) -> str:
+        """`N charged (P/h), M not modified` since the client started, and the costliest kinds."""
+        with self._lock:
+            counts = dict(self.counts)
+        total = {outcome: sum(n for (_, seen), n in counts.items() if seen == outcome)
+                 for outcome in ("charged", "not modified")}
+        hours = max((time.monotonic() - self.started) / 3600, 1 / 60)
+        kinds = sorted(((n, kind) for (kind, seen), n in counts.items() if seen == "charged"), reverse=True)[:4]
+        return (f"REST {total['charged']} charged ({total['charged'] / hours:.0f}/h), "
+                f"{total['not modified']} not modified (304)"
+                + ("; " + ", ".join(f"{kind} {n}" for n, kind in kinds) if kinds else ""))
+
+    def budget_left(self) -> tuple[int | None, float | None]:
+        """(remaining, reset epoch) of the read token's core pool, from GET /rate_limit, which costs
+        nothing; read at most every BUDGET_READ_SECONDS. (None, None) when it cannot be read."""
+        with self._lock:
+            read_at, remaining, reset = self._budget
+            if time.monotonic() - read_at < BUDGET_READ_SECONDS:
+                return remaining, reset
+            self._budget = (time.monotonic(), remaining, reset)  # one reader at a time
+            pool, headers = self._pool, dict(self.read_headers)
+        try:
+            self._fresh_token()
+            with self._lock:
+                if pool == self._pool:
+                    headers = dict(self.read_headers)
+            request = urllib.request.Request(f"{API}/rate_limit", headers=headers)
+            with urllib.request.urlopen(request, timeout=20) as response:
+                core = (json.loads(response.read() or b"{}").get("resources") or {}).get("core") or {}
+            remaining, reset = int(core["remaining"]), float(core["reset"])
+        except (*READ_ERRORS, KeyError, TypeError) as error:
+            print(f"could not read the API budget ({error})", flush=True)
+            remaining, reset = None, None
+        with self._lock:
+            if pool == self._pool:
+                self._budget = (time.monotonic(), *self._merged(remaining, reset))
+            return self._budget[1], self._budget[2]
+
+    def _note_budget(self, seen: Mapping[str, str] | None, pool: int | None) -> None:
+        """A read-token answer's own rate-limit headers keep budget_left() current between its reads.
+        `pool` is the read pool the request was sent on (None: not the read token's); an answer from a
+        pool the reads have since left says nothing about the current one."""
+        if pool is None:
+            return
+        try:
+            remaining = int((seen or {}).get("X-RateLimit-Remaining") or "")
+            reset = float((seen or {}).get("X-RateLimit-Reset") or "")
+        except (ValueError, TypeError, AttributeError):
+            return
+        if ((seen or {}).get("X-RateLimit-Resource") or "core") != "core":
+            return
+        with self._lock:
+            if pool == self._pool:
+                self._budget = (self._budget[0], *self._merged(remaining, reset))
+
+    def _merged(self, remaining: int | None, reset: float | None) -> tuple[int | None, float | None]:
+        """The newer reading, under the lock: a later window replaces an older one, and within one
+        window the lowest balance wins (answers can arrive out of order)."""
+        _, known, known_reset = self._budget
+        if remaining is None or known is None or known_reset is None or reset is None or reset > known_reset:
+            return remaining, reset
+        if reset < known_reset:
+            return known, known_reset
+        return min(known, remaining), reset
+
+    def pace(self, interval: float) -> float:
+        """How long to wait before the next non-urgent read: `interval`, IDLE_POLL_SECONDS below
+        BUDGET_FLOOR, or until the reset below BUDGET_RESERVE (refused reads would only add waits)."""
+        remaining, reset = self.budget_left()
+        if remaining is None or remaining >= BUDGET_FLOOR:
+            return interval
+        if remaining < BUDGET_RESERVE and reset is not None:
+            return max(interval, reset - time.time() + 5)
+        return max(interval, IDLE_POLL_SECONDS)
+
+    def _fresh_token(self, stale: str | None = None) -> None:
+        """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
+        it is still `stale` (the Authorization a request was refused with: concurrent 401s mint once)."""
+        if self.mint is None or stale is None and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
+            return
+        with self._lock:
+            if stale is not None and self.headers["Authorization"] != stale:
+                return  # another thread already minted
+            if stale is None and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
+                return
+            try:
+                token = self.mint()
+            except Exception as error:  # noqa: BLE001 - the old token is still tried
+                print(f"::warning title=GitHub API budget::could not mint a new token "
+                      f"({type(error).__name__}); trying again in a minute", flush=True)
+                self._minted_at = time.monotonic() - TOKEN_REFRESH_SECONDS + 60
+                return
+            old = self.headers["Authorization"]
+            # In place: request() tells the two token's headers apart by identity. Only the App's
+            # token (GH_TOKEN) is replaced, in whichever header set carries it; a different
+            # READ_TOKEN is left alone.
+            for headers in (self.headers, self.read_headers):
+                if headers["Authorization"] == old:
+                    headers["Authorization"] = f"Bearer {token}"
+            self._app_auths.add(f"Bearer {token}")
+            self._minted_at = time.monotonic()
+        print("minted a new cmux-bot installation token", flush=True)
 
     @property
     def rate_limit_waited(self) -> float:
@@ -1133,33 +1323,75 @@ class GitHub:
         return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
-                before_retry: Callable[[], None] | None = None) -> Any:
+                before_retry: Callable[[], None] | None = None, refreshed: bool = False) -> Any:
+        self._fresh_token()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
+        with self._lock:
+            # One token for the whole request, read under the lock _fresh_token() swaps it under.
+            sent = dict(headers)
+            cached = self._cache.get((sent["Authorization"], path)) if method == "GET" else None
+            # The read pool this request counts against, or None (GITHUB_TOKEN's writes and fallbacks).
+            pool = self._pool if headers is self.read_headers else None
+        key = (sent["Authorization"], path)
         data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=sent, data=data)
+        if cached is not None:
+            # Always asked again (never served from memory): a 304 says the answer is still current.
+            request.add_header("If-None-Match", cached[0])
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
                 seen = getattr(response, "headers", None) or {}
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
+                etag = seen.get("ETag") if method == "GET" else None
+                self._note_budget(seen, pool)
             self._limits.tries = 0
+            self._count(path, "charged")
+            if etag:
+                with self._lock:
+                    if len(self._cache) >= _CACHE_LIMIT:
+                        old = time.monotonic() - 15 * 60
+                        self._cache = {k: v for k, v in self._cache.items() if v[2] > old}
+                    self._cache[key] = (etag, body, time.monotonic())
         except urllib.error.HTTPError as error:
+            self._note_budget(error.headers, pool)
+            if error.code == 304 and cached is not None:
+                # Not modified: GitHub does not count it against the budget.
+                self._limits.tries = 0
+                self._count(path, "not modified")
+                return json.loads(cached[1]) if cached[1] else None
+            if (error.code == 401 and self.mint is not None and not refreshed
+                    and sent["Authorization"] in self._app_auths):
+                # Only the minted App's own token (GH_TOKEN, current or just replaced); a different
+                # READ_TOKEN keeps the fallback to GITHUB_TOKEN below.
+                # The token expired before its refresh (a 401 is not charged): mint one, unless another
+                # thread already replaced the token this request carried, and send it again once.
+                self._fresh_token(stale=sent["Authorization"])
+                if before_retry is not None:
+                    before_retry()  # what a write acts on may have changed while the token was minted
+                return self.request(method, path, own_token=own_token,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    refreshed=True)
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side),
                 # unless what it acts on changed meanwhile (before_retry raises).
                 if before_retry is not None:
                     before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry)
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    refreshed=refreshed)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
-                return self.request(method, path, own_token=True)
-            self.read_headers = self.headers
-            return self.request(method, path)
+                return self.request(method, path, own_token=True, refreshed=refreshed)
+            with self._lock:
+                self.read_headers = self.headers
+                self._budget = (-1e9, None, None)  # another token's pool: read it afresh
+                self._pool += 1
+            return self.request(method, path, refreshed=refreshed)
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response
@@ -1614,7 +1846,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # makes ci-main-full-suite.yml open the red-CI issue before
                 # the re-run starts, and a cancelled one does not.
                 log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
-                sleep(IDLE_POLL_SECONDS)
+                wait = IDLE_POLL_SECONDS
+                if getattr(api, "pace", None) is not None:
+                    # Never sleeps past the deadline's look by more than a second.
+                    wait = min(api.pace(wait), max(1.0, (deadline - now()).total_seconds() + 1))
+                sleep(wait)
                 continue
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):
@@ -1648,6 +1884,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         log(f"::warning::{job.get('name') or job.get('id')} was still waiting for its reserved "
                             f"runner {runner} at the watch limit")
             return "stop", "watch limit reached"
+        pace = getattr(api, "pace", None)
+        if pace is not None:
+            # A spent budget waits for its reset, but never past the deadline's look.
+            interval = min(pace(interval), max(1.0, (deadline - now()).total_seconds() + 1))
         sleep(interval)
 
 
@@ -1910,8 +2150,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(text, flush=True)
         lines.append(text)
 
+    clients: list[Any] = []
+
     def finish(outcome: str) -> int:
         log(outcome)
+        if clients and hasattr(clients[0], "usage"):
+            log(clients[0].usage())  # this job's REST spend, for the per-workflow budget
         if env.get("GITHUB_STEP_SUMMARY"):
             with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
                 handle.write("### Persistent-pool rescue\n\n" + "\n".join(f"- {line}" for line in lines) + "\n")
@@ -1930,6 +2174,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GITHUB_REPOSITORY") or ""
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository,
                            read_token=env.get("READ_TOKEN") or "")
+    if api is None and env.get("BOT_APP_ID") and env.get("BOT_APP_KEY"):
+        # GH_TOKEN is the App's: its replacement is minted before the hour is up (GitHub._fresh_token()).
+        client.mint = app_token_minter(env["BOT_APP_ID"], env["BOT_APP_KEY"], repository)
+    clients.append(client)
     if (env.get("SWEEP") or "").strip() == "1":
         # One job for every marked run (sweep()); its per-run lines go to the log only.
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
@@ -2295,7 +2543,12 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         # A side lane uploads no marker: its run is found once a refused job has failed it, every
         # SIDE_FAILURE_TICKS ticks (paging through every workflow's failures costs a few requests).
         failed: list[tuple[int, int]] = []
-        if ticks % SIDE_FAILURE_TICKS == 0:
+        remaining = (client.budget_left()[0] if hasattr(client, "budget_left") else None)
+        low = remaining is not None and remaining < BUDGET_FLOOR
+        if ticks % SIDE_FAILURE_TICKS == 0 and low:
+            log(f"{remaining} API requests left: the failed side-lane runs wait for a later tick")
+            ticks -= 1  # listed on the first tick with the budget back
+        elif ticks % SIDE_FAILURE_TICKS == 0:
             try:
                 failed = client.failed_runs(SWEEP_LISTING, oldest, since, SWEEP_LISTING_PAGES)
             except READ_ERRORS as error:
@@ -2313,9 +2566,12 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             if adopt(run_id, False, refusals_known=refusals_listed):
                 failed_seen.add((run_id, attempt))  # not before: a read that failed is tried again
         threads = [thread for thread in threads if thread.is_alive()]
-        log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
-            f"{client.limit or '?'} API requests left this hour")
-        wait(tick_seconds)
+        usage = f"; {client.usage()}" if hasattr(client, "usage") else ""
+        log(f"tick: {len(threads)} run(s) watched, {remaining if remaining is not None else client.remaining or '?'} of "
+            f"{client.limit or '?'} API requests left this hour{usage}")
+        # Below BUDGET_FLOOR a tick every IDLE_POLL_SECONDS; spent, the next one after the reset.
+        pause = client.pace(tick_seconds) if hasattr(client, "pace") else tick_seconds
+        wait(min(pause, max(tick_seconds, sweep_seconds - (now() - started).total_seconds())))
     log("handing over: stopping watches; rescues under way finish")
     stopping.set()
     # One grace for all of them: a rescue started before the stop settles
