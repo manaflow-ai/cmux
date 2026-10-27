@@ -120,6 +120,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         other => other,
     });
     match command {
+        #[cfg(unix)]
+        Some(Command::CodexAuthBroker { home, codex }) => {
+            crate::cli::codex_auth_broker::run(home, codex).await
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
