@@ -15226,137 +15226,6 @@
         }
       }
     },
-    "cloud.machineUpdate.unsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ runs a cmux too old to update in place. Use a new Cloud machine instead."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يشغّل %@ إصدارًا من cmux أقدم من أن يُحدَّث في مكانه. استخدم جهاز Cloud جديدًا بدلًا منه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ koristi cmux prestar za ažuriranje na licu mjesta. Umjesto toga koristi novu Cloud mašinu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kører en cmux, der er for gammel til at blive opdateret på stedet. Brug en ny Cloud-maskine i stedet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auf %@ läuft ein cmux, das zu alt ist, um es direkt zu aktualisieren. Verwende stattdessen eine neue Cloud-Maschine."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ejecuta un cmux demasiado antiguo para actualizarlo en el sitio. Usa una nueva máquina de Cloud."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ exécute un cmux trop ancien pour être mis à jour sur place. Utilisez plutôt une nouvelle machine Cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ esegue un cmux troppo vecchio per essere aggiornato sul posto. Usa invece una nuova macchina Cloud."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の cmux は古すぎるため、その場でアップデートできません。新しい Cloud マシンを使ってください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ដំណើរការ cmux ចាស់ពេកដើម្បីធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង។ សូមប្រើម៉ាស៊ីន Cloud ថ្មីជំនួសវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@의 cmux가 너무 오래되어 그 자리에서 업데이트할 수 없습니다. 대신 새 Cloud 머신을 사용하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kjører en cmux som er for gammel til å oppdateres på stedet. Bruk en ny Cloud-maskin i stedet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ działa na cmux zbyt starym, by zaktualizować go na miejscu. Użyj zamiast tego nowej maszyny Cloud."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ executa um cmux antigo demais para ser atualizado no local. Use uma nova máquina do Cloud."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ работает слишком старый cmux, чтобы обновить его на месте. Используйте новую машину Cloud."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ใช้ cmux ที่เก่าเกินกว่าจะอัปเดตในที่ได้ ใช้เครื่อง Cloud ใหม่แทน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ yerinde güncellenemeyecek kadar eski bir cmux çalıştırıyor. Bunun yerine yeni bir Cloud makinesi kullan."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ працює надто старий cmux, щоб оновити його на місці. Натомість скористайтеся новою машиною Cloud."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ chạy cmux quá cũ để cập nhật tại chỗ. Hãy dùng một máy Cloud mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 上的 cmux 太旧，无法就地更新。请改用新的 Cloud 机器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 上的 cmux 太舊，無法就地更新。請改用新的 Cloud 機器。"
-          }
-        }
-      }
-    },
     "cloud.machineUpdate.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -18224,6 +18093,137 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Makinede ssh ayarlanamadı: %@"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося налаштувати ssh на машині: %@"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể thiết lập ssh trên máy: %@"}}
+      }
+    },
+    "cloud.machineUpdate.unsupportedKeepsWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ إصدارًا من cmux أقدم من أن يُحدَّث في مكانه. تستمر محادثاته وطرفياته في العمل، وتبقى الميزات الأحدث من إصدار cmux فيه متوقفة هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ koristi cmux prestar za ažuriranje na licu mjesta. Njegovi chatovi i terminali i dalje rade; funkcije novije od njegovog cmuxa tamo ostaju isključene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kører en cmux, der er for gammel til at blive opdateret på stedet. Dens chats og terminaler bliver ved med at virke; funktioner, der er nyere end dens cmux, forbliver slået fra der."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ verwendet ein cmux, das zu alt für ein Update vor Ort ist. Chats und Terminals laufen dort weiter; Funktionen, die neuer als dieses cmux sind, bleiben dort aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa un cmux demasiado antiguo para actualizarse en su sitio. Sus chats y terminales siguen funcionando; las funciones más nuevas que su cmux quedan desactivadas allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ utilise un cmux trop ancien pour être mis à jour sur place. Ses discussions et terminaux continuent de fonctionner ; les fonctionnalités plus récentes que son cmux y restent désactivées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa un cmux troppo vecchio per essere aggiornato sul posto. Le sue chat e i suoi terminali continuano a funzionare; le funzioni più recenti del suo cmux restano disattivate lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は古いため、その場で更新できません。チャットとターミナルはそのまま動作します。その cmux より新しい機能はそこではオフのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ដំណើរការ cmux ចាស់ពេកដើម្បីធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង។ ការជជែក និងទែមីណាល់របស់វានៅតែដំណើរការ ហើយមុខងារថ្មីជាង cmux របស់វានៅតែបិទនៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux는 너무 오래되어 그 자리에서 업데이트할 수 없습니다. 채팅과 터미널은 계속 작동하며, 그 cmux보다 새로운 기능은 그곳에서 꺼진 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kjører en cmux som er for gammel til å oppdateres på stedet. Chattene og terminalene fortsetter å virke; funksjoner som er nyere enn dens cmux, forblir av der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ma cmux zbyt stary, by zaktualizować go na miejscu. Czaty i terminale nadal działają; funkcje nowsze niż ten cmux pozostają tam wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa um cmux antigo demais para ser atualizado no local. Os chats e terminais continuam funcionando; os recursos mais novos que esse cmux ficam desativados lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ работает cmux, слишком старый для обновления на месте. Чаты и терминалы продолжают работать; функции новее этого cmux там остаются выключенными."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ใช้ cmux ที่เก่าเกินกว่าจะอัปเดตในที่ได้ แชทและเทอร์มินัลยังทำงานต่อได้ ส่วนฟีเจอร์ที่ใหม่กว่า cmux ของเครื่องนั้นจะยังปิดอยู่ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yerinde güncellenemeyecek kadar eski bir cmux çalıştırıyor. Sohbetleri ve terminalleri çalışmaya devam eder; cmux sürümünden yeni özellikler orada kapalı kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ працює cmux, надто старий для оновлення на місці. Чати й термінали працюють далі; функції, новіші за цей cmux, там залишаються вимкненими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chạy cmux quá cũ để cập nhật tại chỗ. Các cuộc trò chuyện và terminal vẫn hoạt động; những tính năng mới hơn cmux của máy đó vẫn tắt ở đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 运行的 cmux 太旧，无法就地更新。它的聊天和终端仍可正常使用；比其 cmux 更新的功能在那里保持关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 執行的 cmux 太舊，無法就地更新。它的聊天和終端機仍可正常使用；比其 cmux 更新的功能在那裡保持關閉。"
+          }
+        }
       }
     }
   },

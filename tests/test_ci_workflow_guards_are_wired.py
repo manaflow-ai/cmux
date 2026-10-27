@@ -44,7 +44,14 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
-UNWIRED: set[str] = set()
+UNWIRED: set[str] = {
+    # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
+    # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
+    # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
+    # rule changes and the toml entry moves to a CI lane.
+    "tests/test_cmux_next_guardrails.py",
+    "tests/test_settings_stamp_not_committed.py",
+}
 
 
 def tracked_tests() -> list[str]:

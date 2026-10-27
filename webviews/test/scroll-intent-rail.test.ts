@@ -204,9 +204,9 @@ await requireBrowserLane("scroll-intent-rail.test.ts", async () => {
       node.dispatchEvent(new WheelEvent("wheel"));
       animateScroll(node, () => 100, 0, [0, 0, 1, 1]);
       held.push(node.scrollTop === 0);
-      animateScroll(node, () => 100, 0, [0, 0, 1, 1], undefined, { explicit: true });
+      animateScroll(node, () => 100, 0, [0, 0, 1, 1], undefined, undefined, { explicit: true });
       held.push(node.scrollTop === 100);
-      animateScroll(node, () => 500, 60_000, [0, 0, 1, 1], undefined, { explicit: true });
+      animateScroll(node, () => 500, 60_000, [0, 0, 1, 1], undefined, undefined, { explicit: true });
       node.dispatchEvent(new WheelEvent("wheel"));
       await new Promise(requestAnimationFrame);
       held.push(node.scrollTop === 100);

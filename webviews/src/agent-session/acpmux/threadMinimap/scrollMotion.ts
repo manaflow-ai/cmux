@@ -27,13 +27,15 @@ export function stopScroll(node: HTMLElement): void {
 }
 
 /// Scrolls `node` to `target()` over `duration` ms on `curve`. The target is read each frame, so rows
-/// that measure meanwhile move the landing with them. A zero duration jumps.
+/// that measure meanwhile move the landing with them. A zero duration jumps. Replacing or cancelling
+/// the ride notifies `cancelled`; a completed ride calls only `then`.
 export function animateScroll(
   node: HTMLElement,
   target: () => number,
   duration: number,
   curve: CubicBezier,
   then?: () => void,
+  cancelled?: () => void,
   options: { explicit?: boolean } = {},
 ): void {
   const intent = userScrollIntent(node);
@@ -47,11 +49,15 @@ export function animateScroll(
   const from = node.scrollTop;
   const start = performance.now();
   let frame = 0;
-  const end = () => {
+  const cleanup = () => {
     cancelAnimationFrame(frame);
     for (const name of READER_INPUTS) node.removeEventListener(name, end);
     unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
+  };
+  const end = () => {
+    cleanup();
+    cancelled?.();
   };
   const unsubscribeIntent = intent.subscribe(end);
   const step = (now: number) => {
@@ -59,7 +65,7 @@ export function animateScroll(
     node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
-      end();
+      cleanup();
       then?.();
     }
   };
