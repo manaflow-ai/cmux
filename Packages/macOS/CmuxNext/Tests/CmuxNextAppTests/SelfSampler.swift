@@ -35,17 +35,21 @@ final class SelfSampler {
     /// Starts sampling this process for `seconds`; the report goes to a temporary file named after `name`.
     init(name: String, seconds: Int) throws {
         self.seconds = seconds
-        let directory = FileManager.default.temporaryDirectory
-        output = directory.appendingPathComponent("\(name)-\(getpid()).sample.txt")
-        errors = directory.appendingPathComponent("\(name)-\(getpid()).sample-stderr.txt")
-        try? FileManager.default.removeItem(at: output)
+        let directory = FileManager.default.temporaryDirectory, run = "\(name)-\(getpid())-\(UUID().uuidString.prefix(8))"
+        output = directory.appendingPathComponent("\(run).sample.txt")
+        errors = directory.appendingPathComponent("\(run).sample-stderr.txt")
         FileManager.default.createFile(atPath: errors.path, contents: nil)
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
         process.arguments = [String(getpid()), String(seconds), "1", "-mayDie", "-file", output.path]
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = try FileHandle(forWritingTo: errors)
         process.terminationHandler = { [exited] _ in exited.fire() }
-        try process.run()
+        do {
+            process.standardError = try FileHandle(forWritingTo: errors)
+            try process.run()
+        } catch {
+            try? FileManager.default.removeItem(at: errors)
+            throw error
+        }
         let budget = TimeInterval(seconds) + Self.grace
         deadline = Task { @MainActor [self, exited] in
             guard (try? await Task.sleep(for: .seconds(budget))) != nil, process.isRunning else { return }
@@ -63,6 +67,10 @@ final class SelfSampler {
     func finish() async -> String? {
         await exited.wait()
         deadline?.cancel()
+        defer {
+            try? FileManager.default.removeItem(at: output)
+            try? FileManager.default.removeItem(at: errors)
+        }
         let budget = TimeInterval(seconds) + Self.grace
         if stopped || process.isRunning {
             Issue.record("/usr/bin/sample did not exit within \(Int(budget)) s and was stopped; stderr: \(stderrText)")
@@ -72,7 +80,11 @@ final class SelfSampler {
             Issue.record("/usr/bin/sample exited with status \(process.terminationStatus); stderr: \(stderrText)")
             return nil
         }
-        return try? String(contentsOf: output, encoding: .utf8)
+        guard let report = try? String(contentsOf: output, encoding: .utf8) else {
+            Issue.record("/usr/bin/sample exited 0 but wrote no readable report at \(output.path); stderr: \(stderrText)")
+            return nil
+        }
+        return report
     }
 
     private var stderrText: String {
@@ -82,7 +94,7 @@ final class SelfSampler {
 }
 
 /// Fires once `sample` exits, or once the deadline gave a stopped `sample` `stopGrace` to exit.
-private final class SelfSamplerExit: @unchecked Sendable {
+private nonisolated final class SelfSamplerExit: @unchecked Sendable {
     private let lock = NSLock()
     private var fired = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
