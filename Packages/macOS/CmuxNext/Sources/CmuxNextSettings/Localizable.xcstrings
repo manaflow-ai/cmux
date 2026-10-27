@@ -47525,127 +47525,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         }
       }
@@ -47656,127 +47656,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."
           }
         }
       }
