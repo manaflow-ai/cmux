@@ -70,7 +70,12 @@ struct TabCard<Content: View>: View {
     var body: some View {
         let m = theme.metrics
         VStack(spacing: 0) {
-            ScaledContent(pageSize: pageSize) { content }
+            // A hidden card's content is not built: the zooming page (or the
+            // live page on its card) draws it, and a hidden chat card kept
+            // re-rendering every streamed token under the page.
+            ZStack {
+                if !contentHidden { ScaledContent(pageSize: pageSize) { content } }
+            }
                 .frame(width: width, height: height)
                 .clipShape(.rect(cornerRadius: radius, style: .continuous))
                 // A stretchable shadow image: `.shadow` on the clipped card
@@ -166,6 +171,9 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// Select Tabs mode and its selection.
     @State private var selecting = false
     @State private var selection = TabSelection()
+    /// The content band whose cards are built (`GridBand`); nil until the
+    /// scroll view first reports its geometry (the top of the grid).
+    @State private var band: GridBand?
 
     var body: some View {
         let tabs = source.tabs
@@ -217,6 +225,11 @@ struct TabOverview<Source: TabsDataSource>: View {
             .scrollPosition($position)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll] _, y in
                 if scroll.offset != y { scroll.offset = y }
+            }
+            // The built cards follow the scroll a row at a time: this body
+            // runs when the band moves, not on every scroll frame.
+            .onScrollGeometryChange(for: GridBand.self, of: { [layout] in layout.band(offset: $0.contentOffset.y + $0.contentInsets.top) }) { _, b in
+                if band != b { band = b }
             }
             .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
             .scrollIndicators(.hidden)
@@ -273,14 +286,28 @@ struct TabOverview<Source: TabsDataSource>: View {
         let departed: DepartingCard?
     }
 
+    /// The cards in the built band (`GridBand`), plus any card a gesture or
+    /// the zoom holds (swiped, lifted for its menu, dragged, standing for
+    /// the zooming page), then cards still flying off after a swipe.
+    // perf-hot: O(tabs) arithmetic per grid body, O(band) cards built tabs-grid-cull
     private func gridCards() -> [GridCard] {
         let tabs = source.tabs
-        var cards = tabs.enumerated().map { GridCard(tab: $0.element, index: $0.offset, departed: nil) }
+        let band = band ?? layout.band(offset: 0)
+        var cards: [GridCard] = []
+        cards.reserveCapacity(16)
+        for (index, tab) in tabs.enumerated() where band.contains(layout.card(index)) || holds(tab.id) {
+            cards.append(GridCard(tab: tab, index: index, departed: nil))
+        }
         let listed = Set(tabs.map(\.id))
         for d in swipes.departing where !listed.contains(d.id) {
             cards.append(GridCard(tab: d.tab, index: tabs.count, departed: d))
         }
         return cards
+    }
+
+    /// A card kept built outside the band: a gesture or the zoom owns it.
+    private func holds(_ id: String) -> Bool {
+        id == hiddenTabId || id == dragging || id == swipes.menuCard || swipes.isRaised(id)
     }
 
     /// One grid card with its tap, long press and swipe; pinned tabs are

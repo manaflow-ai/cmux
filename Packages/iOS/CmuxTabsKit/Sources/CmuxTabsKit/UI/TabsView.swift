@@ -143,11 +143,17 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
             // Kept mounted (hidden) so opening it does not pay for building
-            // the grid on the first animation frame.
+            // the grid on the first animation frame. While it is hidden it
+            // is dormant: a change on the page (the toolbar collapsing, a
+            // tab's title) does not re-run it (`DormantGate`).
+            DormantGate(dormant: !overviewVisible) {
             TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                         // On the settled grid the page layer draws the active
-                        // tab's card live (the same view as the page).
-                        hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : zoomTabId,
+                        // tab's card live (the same view as the page); on the
+                        // page and in the zoom it is the page itself, so its
+                        // card is not built (a streaming chat's card re-rendered
+                        // every token under the page).
+                        hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID),
                         gridInteractive: zoomState.gridInteractive,
                         swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
@@ -161,6 +167,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onScrolling: { source.overviewScrollingChanged($0) },
                         onQueueSelect: { queuedOpen = $0 },
                         onPressChanged: { pressedCard = $0 })
+            }
+                .equatable()
                 .opacity(overviewVisible ? 1 : 0)
                 .allowsHitTesting(overviewVisible)
                 .accessibilityHidden(!zoomState.gridInteractive)
@@ -820,6 +828,20 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
     }
 }
+/// Holds back updates from the parent while the grid is hidden: two dormant
+/// values compare equal, so SwiftUI keeps the grid as it was instead of
+/// re-running it for every change on the page. Waking (the grid starting
+/// to show) compares unequal and the grid gets the current values at once.
+/// The grid's own observation (its tabs, its cards' content) still applies.
+struct DormantGate<Content: View>: View, Equatable {
+    let dormant: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View { content }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.dormant && rhs.dormant }
+}
+
 /// A mask showing everything but the grid's bottom bar, as far as the
 /// bar's controls have faded in (`shown`, 0 on the page, 1 on the grid).
 struct BarCutout: View {

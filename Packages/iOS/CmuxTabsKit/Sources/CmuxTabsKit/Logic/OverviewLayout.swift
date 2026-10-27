@@ -121,3 +121,48 @@ struct OverviewLayout: Equatable, Sendable {
     }
 }
 
+
+/// The part of the grid's content whose cards are built: the visible rect
+/// and a margin above and below it, snapped to whole rows so it changes
+/// once per row scrolled, not on every scroll frame. Cards outside it are
+/// not in the view tree (a grid of 80 tabs builds and lays out about a
+/// dozen), as a collection view keeps only the cells near the screen.
+struct GridBand: Equatable, Sendable {
+    /// Content coordinates (the grid's scroll content).
+    var minY: CGFloat
+    var maxY: CGFloat
+
+    init(minY: CGFloat, maxY: CGFloat) {
+        self.minY = minY
+        self.maxY = maxY
+    }
+
+    /// The band for a scroll `offset` and a `viewport` tall screen: the
+    /// offset snapped down to a multiple of `step`, then `margin` added on
+    /// both sides (and one step below, which the snap may have uncovered).
+    init(offset: CGFloat, viewport: CGFloat, step: CGFloat, margin: CGFloat) {
+        let step = max(1, step)
+        let snapped = (max(0, offset) / step).rounded(.down) * step
+        minY = snapped - margin
+        maxY = snapped + step + viewport + margin
+    }
+
+    /// Whether a card (with its title row below it) is inside the band.
+    func contains(_ card: CGRect, below: CGFloat = OverviewLayout.titleRow) -> Bool {
+        card.maxY + below >= minY && card.minY <= maxY
+    }
+}
+
+extension OverviewLayout {
+    /// The band of built cards at scroll `offset`: one row of margin on each
+    /// side, so a card is built before it scrolls in and a reflow's cards
+    /// enter and leave out of sight.
+    func band(offset: CGFloat) -> GridBand {
+        GridBand(offset: offset, viewport: size.height, step: pitch, margin: max(pitch, size.height / 4))
+    }
+
+    /// Indices of the cards inside `band`, in grid order.
+    func indices(in band: GridBand) -> [Int] {
+        (0..<count).filter { band.contains(card($0)) }
+    }
+}
