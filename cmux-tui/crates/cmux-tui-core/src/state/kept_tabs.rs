@@ -15,6 +15,7 @@ use crate::workspace_registry::WorkspaceRegistry;
 
 impl Mux {
     /// Record `tabs` (public tab id, shell directory, last title) as kept.
+    #[track_caller]
     pub(crate) fn commit_kept_tabs(&self, tabs: &[KeptTab]) -> anyhow::Result<()> {
         store::validate_kept_tabs(tabs)?;
         if tabs.is_empty() {
@@ -49,6 +50,7 @@ impl Mux {
     /// renames anyway (no process needed); another tab without a surface (a
     /// host still being adopted) is refused, since its surface would bring
     /// its own name.
+    #[track_caller]
     pub(crate) fn ensure_tab_renamable(
         state: &State,
         registry: &WorkspaceRegistry,
@@ -64,6 +66,7 @@ impl Mux {
     /// After a committed tab rename: the tree reads a kept tab's name from
     /// the presentation snapshot (`kept_tabs` joined with the tab resource),
     /// so reload it at once for a kept tab.
+    #[track_caller]
     pub(crate) fn reload_kept_tab_name(&self, tab_id: Option<&str>) -> anyhow::Result<()> {
         if tab_id.is_none_or(|id| !self.presentation_snapshot().kept_tabs.contains_key(id)) {
             return Ok(());
@@ -76,6 +79,7 @@ impl Mux {
     }
 
     /// Forget the records of `tab_ids` (a cancelled keep-layout handoff).
+    #[track_caller]
     pub(crate) fn forget_kept_tabs(&self, tab_ids: &[String]) -> anyhow::Result<()> {
         if tab_ids.is_empty() {
             return Ok(());

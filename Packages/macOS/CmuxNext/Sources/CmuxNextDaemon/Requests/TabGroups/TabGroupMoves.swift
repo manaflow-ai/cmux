@@ -3,7 +3,7 @@ import Foundation
 /// Reorders a group in its strip or moves it into another pane at `index`.
 public struct MoveTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "move-tab-group"
+    public static let commandName: DaemonCommandName = "move-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var pane: PaneID
@@ -20,7 +20,7 @@ public struct MoveTabGroupRequest: DaemonRequest {
 /// Drops a whole group on a pane edge.
 public struct MoveTabGroupToSplitRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "move-tab-group-to-split"
+    public static let commandName: DaemonCommandName = "move-tab-group-to-split"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var pane: PaneID
@@ -39,7 +39,7 @@ public struct MoveTabGroupToSplitRequest: DaemonRequest {
 /// Drops a whole group between strip columns.
 public struct MoveTabGroupToColumnRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "move-tab-group-to-column"
+    public static let commandName: DaemonCommandName = "move-tab-group-to-column"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var target: ColumnDropTarget
@@ -55,7 +55,7 @@ public struct MoveTabGroupToColumnRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case group, pane, screen, afterColumn, width, transaction }
+    enum CodingKeys: String, CodingKey { case group, pane, screen, afterColumn = "after_column", width, transaction }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(group, forKey: .group)

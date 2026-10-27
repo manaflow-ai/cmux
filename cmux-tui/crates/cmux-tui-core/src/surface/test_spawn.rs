@@ -174,7 +174,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: terminal_runtime::TerminalCell::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 command_tracker: Mutex::new(Default::default()),
@@ -219,6 +219,8 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                publication_posted: AtomicBool::new(false),
+                publications: Arc::default(),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),
                 kitty_graphics_limits: Box::new(RankedMutex::new(
@@ -236,9 +238,11 @@ impl Surface {
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                last_input_flow: Default::default(),
+                input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -267,5 +271,44 @@ impl Surface {
             reservation.commit(&surface, initial_kitty_limits)?;
         }
         Ok(surface)
+    }
+
+    /// Records the bytes written to this test surface's PTY from now on, in
+    /// write order (the test runtime's writer otherwise discards them).
+    #[cfg(test)]
+    pub(crate) fn capture_pty_input_for_test(&self) -> PtyInputCapture {
+        let capture = PtyInputCapture::default();
+        let pty = self.as_pty().expect("a terminal surface");
+        let mut runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("a test surface writes its PTY itself");
+        };
+        *writer = Box::new(capture.clone());
+        capture
+    }
+}
+
+/// The PTY input of a test surface ([`Surface::capture_pty_input_for_test`]).
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct PtyInputCapture(Arc<Mutex<Vec<u8>>>);
+
+#[cfg(test)]
+impl PtyInputCapture {
+    /// Every byte written so far.
+    pub(crate) fn written(&self) -> Vec<u8> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+}
+
+#[cfg(test)]
+impl Write for PtyInputCapture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }

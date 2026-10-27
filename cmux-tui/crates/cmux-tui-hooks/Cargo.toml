@@ -12,12 +12,13 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cmux-process.workspace = true
+cmux-threads.workspace = true
 getrandom = { workspace = true, features = ["std"] }
 libc.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml_edit.workspace = true
-wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-tui-platform.workspace = true

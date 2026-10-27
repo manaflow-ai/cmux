@@ -21,10 +21,10 @@ use crate::SidebarPluginStatus;
 use crate::assign_short_ids;
 use crate::model::State;
 
-use super::CreateSurfaceWithReceiptRequest;
 use super::MutationRequest;
 use super::get_surface;
 use super::public_client_id;
+use super::tabs_wire::{CreateSurfaceWithReceiptParams, NotifyParams};
 use super::workspace_mutation;
 use crate::Actor;
 use crate::Mux;
@@ -104,7 +104,7 @@ pub(super) fn sidebar_plugin(
 pub(super) fn create_surface_with_receipt_command(
     mux: &Arc<Mux>,
     client: u64,
-    request: Box<CreateSurfaceWithReceiptRequest>,
+    request: Box<CreateSurfaceWithReceiptParams>,
 ) -> anyhow::Result<Value> {
     create_surface_with_receipt(mux, client, *request)
 }
@@ -113,15 +113,8 @@ pub(super) fn ids(mux: &Arc<Mux>, kind: Option<String>) -> anyhow::Result<Value>
     mux.with_state(|state| ids_json(state, kind.as_deref()))
 }
 
-pub(super) fn notify(
-    mux: &Arc<Mux>,
-    actor: Actor,
-    title: String,
-    body: String,
-    level: Option<String>,
-    surface: Option<SurfaceId>,
-    source: Option<String>,
-) -> anyhow::Result<Value> {
+pub(super) fn notify(mux: &Arc<Mux>, actor: Actor, params: NotifyParams) -> anyhow::Result<Value> {
+    let NotifyParams { title, body, level, surface, source } = params;
     if title.is_empty() {
         anyhow::bail!("title is required");
     }
@@ -296,9 +289,9 @@ fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
 fn create_surface_with_receipt(
     mux: &Arc<Mux>,
     client: u64,
-    request: CreateSurfaceWithReceiptRequest,
+    request: CreateSurfaceWithReceiptParams,
 ) -> anyhow::Result<Value> {
-    let CreateSurfaceWithReceiptRequest {
+    let CreateSurfaceWithReceiptParams {
         operation,
         origin,
         receipt,

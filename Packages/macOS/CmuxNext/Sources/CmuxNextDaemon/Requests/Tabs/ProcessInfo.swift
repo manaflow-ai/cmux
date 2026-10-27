@@ -40,7 +40,7 @@ public struct TerminalProcessInfoRequest: DaemonRequest {
         }
     }
 
-    public static let command = "process-info"
+    public static let commandName: DaemonCommandName = "process-info"
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
 }

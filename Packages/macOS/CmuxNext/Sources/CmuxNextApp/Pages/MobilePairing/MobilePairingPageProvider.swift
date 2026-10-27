@@ -31,6 +31,9 @@ final class MobilePairingPageProvider: PageProvider {
         self.services = services
     }
 
+    /// The person's own steps from the page (Phone Access on or off) that have not answered.
+    private(set) var personCallsInFlight = 0
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let services else { throw PageError.closed }
         switch op {
@@ -44,6 +47,8 @@ final class MobilePairingPageProvider: PageProvider {
             guard let settings = services.settings else {
                 throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
             }
+            personCallsInFlight += 1
+            defer { personCallsInFlight -= 1 }
             try await settings.setSetting(at: SessionSettings.allowConnectionsPath, to: .bool(on), by: .user)
             return .object([:])
         default:
@@ -66,7 +71,9 @@ final class MobilePairingPageProvider: PageProvider {
                 last = fingerprint
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event is an empty "status changed" signal the page answers with one `status` read:
+        // the newest one says all the dropped ones did.
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 
     /// Everything `status` reads that can change while the page is open.

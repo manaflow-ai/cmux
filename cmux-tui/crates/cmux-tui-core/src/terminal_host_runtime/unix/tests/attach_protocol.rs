@@ -52,7 +52,7 @@ fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -94,6 +94,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -130,7 +131,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
     resolver.join().unwrap();
     drop(attachment);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -211,6 +212,7 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -375,6 +377,7 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -528,7 +531,7 @@ fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -643,7 +646,7 @@ fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 

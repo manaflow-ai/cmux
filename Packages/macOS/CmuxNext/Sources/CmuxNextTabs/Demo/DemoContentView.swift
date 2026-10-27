@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 final class DemoContentView: NSView {
     private let top = TabStripDemo.makeModel()
@@ -13,22 +15,27 @@ final class DemoContentView: NSView {
     private let log = NSTextField(labelWithString: "")
     private var strips: [TabStripView] = []
     private var session: DemoDragSession?
+    private let input: InputEventTap
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, input: InputEventTap) {
+        self.input = input
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = Palette.windowBackground.cgColor
         wire(top, other: bottom)
         wire(bottom, other: top)
 
-        let savedBar = SavedGroupsBarView(model: saved)
+        // The demo's one scheduler and node, as the App has one of each.
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+        let node = VisibilityNode(root: "tabs-demo", own: .visible)
+        let savedBar = SavedGroupsBarView(model: saved, mainWork: deadlines.work)
         saved.intentHandler = { [weak self] intent in
             guard let self, case .open(let id) = intent, let item = self.saved.groups.first(where: { $0.id == id }) else { return }
             self.log.stringValue = Strings.demoLog(String(describing: intent))
             self.reopen(item)
         }
-        let topStrip = TabStripView(model: top, background: .glass)
-        let bottomStrip = TabStripView(model: bottom, background: .glass)
+        let topStrip = TabStripView(model: top, background: .glass, input: input, deadlines: deadlines, visibilityNode: node)
+        let bottomStrip = TabStripView(model: bottom, background: .glass, input: input, deadlines: deadlines, visibilityNode: node)
         topStrip.dragsWindowFromEmptySpace = false
         bottomStrip.dragsWindowFromEmptySpace = false
         for strip in [topStrip, bottomStrip] { strip.previewProvider = provider }
@@ -107,10 +114,10 @@ final class DemoContentView: NSView {
             self.log.stringValue = Strings.demoLog(String(describing: intent))
             switch intent {
             case .dragBegan(let start):
-                self.session = DemoDragSession(source: .tab(start), strips: self.strips) { [weak self] in self?.session = nil }
+                self.session = DemoDragSession(source: .tab(start), strips: self.strips, input: self.input) { [weak self] in self?.session = nil }
                 return
             case .groupDragBegan(let start):
-                self.session = DemoDragSession(source: .group(start), strips: self.strips) { [weak self] in self?.session = nil }
+                self.session = DemoDragSession(source: .group(start), strips: self.strips, input: self.input) { [weak self] in self?.session = nil }
                 return
             case .group(.save(let id)):
                 if let group = model.group(id), !self.saved.groups.contains(where: { $0.id == id }) {

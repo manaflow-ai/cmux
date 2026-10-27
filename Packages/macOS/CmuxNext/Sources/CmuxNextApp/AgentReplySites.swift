@@ -1,11 +1,16 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCompat
+import CmuxNextFavicons
+import CmuxNextRemoteFetch
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// The App's side of an agent pane's reply links (D4, D6): the settings, and the favicon and
 /// title of a linked page from what cmux already holds. A favicon comes only from an open browser
-/// tab of the same site whose icon the favicon loader has cached for that tab's profile; nothing
+/// tab of the same site whose icon the tab strips' favicon store (else the favicon loader) holds
+/// for that tab's profile, so a memory release that drops it hands it back with the strip; nothing
 /// is fetched, and a tab of an incognito workspace is never read. A pull request link's hover card
 /// reads that pull request with the user's GitHub CLI (``AgentReplyPullRequests``).
 @MainActor
@@ -18,8 +23,11 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
-        links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
-        links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
+        links.pullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url) }
+        links.registerPullRequests = { [replies = services.pullRequests.replies] urls in replies.register(urls) }
+        links.useResolver(SystemRemoteResolver(runner: services.work))
+        links.workspaceQueries = services.workspaceQueries
+        links.browsers = AgentPaneWorkspaceBrowsers(queries: services.workspaceQueries)
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {
@@ -37,7 +45,8 @@ struct AgentReplySites {
                 if site.title == nil, Self.samePage(tab.url, url), !tab.title.isEmpty { site.title = tab.title }
                 if site.iconPNG == nil, let icon = tab.icon {
                     let profile = services.browserProfiles.engineProfile(forTab: tab.key)
-                    site.iconPNG = BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(Self.png)
+                    site.iconPNG = services.favicons.cachedImage(for: icon.absoluteString, profile: profile).flatMap { Self.png($0.cgImage) }
+                        ?? BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(Self.png)
                 }
             }
             if site.iconPNG != nil || site.title != nil { out[url] = site }
@@ -55,7 +64,10 @@ struct AgentReplySites {
     }
 
     static func png(_ image: NSImage) -> Data? {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+        image.bestCGImage.flatMap { Self.png($0) }
+    }
+
+    static func png(_ cgImage: CGImage) -> Data? {
+        NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
     }
 }

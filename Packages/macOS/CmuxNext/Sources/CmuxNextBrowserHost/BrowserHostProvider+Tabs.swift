@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -11,20 +12,41 @@ struct AccessKey: Hashable {
 }
 
 extension BrowserHostProvider {
-    /// Reads the tab list and every CEF tab's extension access under
-    /// Observation tracking, then sends what changed. Each tracking pass
-    /// fires once; a newer pass (or `refreshTabs`) makes older ones no-ops.
-    func observeTabs() {
-        observation += 1
-        let pass = observation
+    /// Follows the tab list and every CEF tab's extension access, and sends what changed. Only
+    /// agents use it, and the read walks every tab (and may read extension manifests from disk), so
+    /// it runs only in an automation-class task (owner `browser-host.tabs`, p06-scheduler-036),
+    /// never in the turn of a change or in a person's input response: a change posts the task, which
+    /// reads again, tracked for the next change. A burst of changes before it runs is one read.
+    /// Idempotent.
+    func followTabs() {
+        guard !followingTabs else { return }
+        followingTabs = true
+        readTabsTracked()
+    }
+
+    /// Reads the tab list now, untracked, and sends what changed: for state that is not
+    /// observable (visibility, a page created or released), and for a tab a call just opened or
+    /// closed, which the host learns before the call's reply.
+    func readTabsNow() {
+        let (tabs, access) = readTabs()
+        applyTabs(tabs, access)
+    }
+
+    /// Reads with a one-shot tracking whose change posts the next read as one automation task.
+    private func readTabsTracked() {
+        let work = mainWork, owner = tabsTaskOwner
+        // view-observation-allow: ServiceObservation re-reads in the change's turn and flushes a person's change in their input response; this O(session) read is for agents only.
         let (tabs, access) = withObservationTracking {
             readTabs()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.observation == pass else { return }
-                self.observeTabs()
-            }
+        } onChange: { @Sendable [weak self] in
+            guard let self else { return }
+            // node-free: agents drive tabs nobody sees; the host learns them while they are hidden.
+            work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.readTabsTracked() }
         }
+        applyTabs(tabs, access)
+    }
+
+    private func applyTabs(_ tabs: [ProviderTab], _ access: [String: ProviderTabAccess]) {
         latestTabs = tabs
         latestAccess = access
         sendTabChanges()
@@ -80,7 +102,7 @@ extension BrowserHostProvider {
     /// `waitForEvent("popup")` fires and its calls on the new tab find it.
     /// Neither tab announced (incognito, another machine's): nothing goes out.
     public func reportTabCreated(targetID: String, openerTargetID: String) {
-        observeTabs()
+        readTabsNow()
         guard connection != nil, let tab = announced[targetID], announced[openerTargetID] != nil else { return }
         send(.event(name: "tab.created", payload: .object([
             "targetId": .string(targetID), "openerTargetId": .string(openerTargetID), "url": .string(tab.url),

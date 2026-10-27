@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -19,6 +20,7 @@ extension WebKitDriver {
     /// `cookies.clear`).
     func cookiesSet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
+        // wall-clock: a cookie's `expires` is Unix seconds (RFC 6265).
         let now = Date().timeIntervalSince1970
         var made: [HTTPCookie] = []
         for item in try params.array("cookies") {
@@ -71,6 +73,7 @@ extension WebKitDriver {
             throw DriverError(.unsupported, "cookies.clear: this app keeps no cookie backups, so it clears nothing")
         }
         let record = CookieBackupRecord(site: host, profile: tab.profileID.rawValue.uuidString,
+                                        // wall-clock: the backup record's date is shown and kept, Unix ms.
                                         createdAt: (Date().timeIntervalSince1970 * 1000).rounded(),
                                         cookies: matched.map(BackedUpCookie.init))
         let plain: Data
@@ -82,7 +85,7 @@ extension WebKitDriver {
         // Files and the Keychain off the main actor (a Keychain prompt must not block the UI).
         let saved: Result<String, CookieBackupError>
         do throws(CookieBackupError) {
-            saved = try await Self.backupIO { () throws(CookieBackupError) -> Result<String, CookieBackupError> in
+            saved = try await backupIO { () throws(CookieBackupError) -> Result<String, CookieBackupError> in
                 backups.pruneExpired()
                 if let full = backups.full(plainBytes: plain.count) { return .failure(CookieBackupError(full)) }
                 return .success(try backups.save(plain))
@@ -110,11 +113,11 @@ extension WebKitDriver {
         }
         let record: CookieBackupRecord
         do throws(CookieBackupError) {
-            let plain = try await Self.backupIO { () throws(CookieBackupError) -> Data in
+            let plain = try await backupIO { () throws(CookieBackupError) -> Data in
                 backups.pruneExpired()
                 return try backups.load(restoreID)
             }
-            guard let decoded = try? JSONDecoder().decode(CookieBackupRecord.self, from: plain) else {
+            guard let decoded = try? JSONDecoder().blockingDecode(CookieBackupRecord.self, from: plain) else {
                 throw CookieBackupError("the backup \(restoreID) is damaged")
             }
             record = decoded
@@ -126,6 +129,7 @@ extension WebKitDriver {
             throw DriverError(.invalid, "cookies.restore: the store these cookies came from is closed")
         }
         let existing = Set(await store.allCookies().map { [$0.name, $0.domain, $0.path] })
+        // wall-clock: a cookie's `expires` is Unix seconds (RFC 6265).
         let now = Date().timeIntervalSince1970
         var restored = 0, kept = 0, expired = 0
         for cookie in record.cookies {
@@ -139,7 +143,7 @@ extension WebKitDriver {
             }
         }
         do throws(CookieBackupError) {
-            try await Self.backupIO { () throws(CookieBackupError) in try backups.remove(restoreID) }
+            try await backupIO { () throws(CookieBackupError) in try backups.remove(restoreID) }
         } catch {
             throw DriverError(.invalid, "cookies.restore: \(error.message)")
         }
@@ -147,11 +151,15 @@ extension WebKitDriver {
                         "expired": .number(Double(expired)), "site": .string(record.site)])
     }
 
-    /// Runs backup file and Keychain work on a background thread.
-    nonisolated static func backupIO<T: Sendable>(
+    /// Runs backup file and Keychain work on the app's system lane (``cookieBackupLanes``; the Keychain
+    /// key read waits for securityd), never on main or the cooperative pool. An agent's call waits for it.
+    func backupIO<T: Sendable>(
         _ body: @escaping @Sendable () throws(CookieBackupError) -> T
     ) async throws(CookieBackupError) -> T {
-        try await Task.detached { Result<T, CookieBackupError>(catching: body) }.value.get()
+        guard let lanes = cookieBackupLanes else { throw CookieBackupError("cookie backups have no lane to run on") }
+        let result = try? await lanes.runSystem(.userBlocking) { Result<T, CookieBackupError>(catching: body) }
+        guard let result else { throw CookieBackupError("the cookie backup work was cancelled") }
+        return try result.get()
     }
 
     /// Cookie reads with no target: the session's first tab names the profile.

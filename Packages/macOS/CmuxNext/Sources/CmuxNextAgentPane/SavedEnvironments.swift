@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The New Tab page's saved environments (``AgentPaneEnvironment``), kept on this Mac in
@@ -73,11 +74,11 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
             return []
         }
         unreadable = false
-        let document = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let document = data.flatMap { try? JSONSerialization.blockingJSONObject(with: $0) } as? [String: Any]
         var valid: [AgentPaneEnvironment] = []
         for entry in document?["environments"] as? [Any] ?? [] {
             let decoded = (try? JSONSerialization.data(withJSONObject: entry))
-                .flatMap { try? JSONDecoder().decode(AgentPaneEnvironment.self, from: $0) }?
+                .flatMap { try? JSONDecoder().blockingDecode(AgentPaneEnvironment.self, from: $0) }?
                 .validated()
             if let decoded, decoded.id != nil { valid.append(decoded) } else { foreign.append(entry) }
         }
@@ -86,7 +87,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     }
 
     private func write(_ all: [AgentPaneEnvironment]) throws {
-        let entries = try all.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } + foreign
+        let entries = try all.map { try JSONSerialization.blockingJSONObject(with: JSONEncoder().encode($0)) } + foreign
         let data = try JSONSerialization.data(withJSONObject: ["environments": entries], options: [.prettyPrinted, .sortedKeys])
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -106,7 +107,8 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
                 throw error
             }
             // A plain rename: the new file's own 0600 mode replaces whatever the old one had.
-            guard rename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
+            // SAFETY: rename reads the NUL-terminated copies of the two paths made for the call.
+            guard unsafe rename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error

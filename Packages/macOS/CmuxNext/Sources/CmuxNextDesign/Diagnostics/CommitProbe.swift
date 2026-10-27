@@ -15,6 +15,7 @@ public final class CommitProbe {
         override func display() {
             let onCommit = onCommit, displayed = CACurrentMediaTime()
             // wakeup-allow: one block per probe display, only while a debug probe records
+            // main-hop-allow: the probe times the commit's end, so its block runs when the commit's run loop source returns; a posted task would time the queue
             CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
                 MainActor.assumeIsolated { onCommit?(displayed, CACurrentMediaTime()) } // main-proof: queued on the main run loop
             }

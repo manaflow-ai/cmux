@@ -228,6 +228,7 @@ impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
     /// writer. Missing or tombstoned terminals remove notification links, while
     /// agent reports remain durable historical projections keyed by terminal.
+    #[track_caller]
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -246,6 +247,7 @@ impl WorkspaceRegistry {
 
     /// Current agent projections, optionally filtered by terminal and state, decoded from
     /// their stored results (adapter and hook session id included).
+    #[track_caller]
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -269,6 +271,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
+    #[track_caller]
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -283,6 +286,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(super) fn durable_notifications(
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
@@ -401,6 +405,7 @@ impl WorkspaceRegistry {
 
     /// Read marks stored for one notification, for tests that verify pruning.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn durable_notification_read_clients(
         &self,
         notification_id: &str,
@@ -411,6 +416,7 @@ impl WorkspaceRegistry {
     /// Per-client read marks keyed by notification id, each list sorted and
     /// unique. Rows for notifications the ledger evicted are pruned at the
     /// next acknowledgement, so this stays bounded.
+    #[track_caller]
     fn durable_notification_reads(&self) -> anyhow::Result<HashMap<String, Vec<String>>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -428,6 +434,7 @@ impl WorkspaceRegistry {
         Ok(reads)
     }
 
+    #[track_caller]
     fn durable_agents(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -506,6 +513,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
+    #[track_caller]
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -540,6 +548,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {
         let stored = self
             .connection
@@ -594,6 +603,7 @@ impl WorkspaceRegistry {
 
     /// Every native frontend's projections (the resource API's own rows
     /// excluded), for the launch snapshot (`launch-snapshot-v1`).
+    #[track_caller]
     pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -632,6 +642,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -695,6 +706,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn insert_corrupt_terminal_defaults_for_test(&self) {
         self.connection
             .get()
@@ -713,6 +725,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.connection
             .get()

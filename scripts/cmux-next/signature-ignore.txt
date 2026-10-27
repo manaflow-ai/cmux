@@ -1,0 +1,179 @@
+# Stack frames that crash_signature.py drops before it takes the top 3 frames.
+#
+# The list matches ClusterFuzz's STACK_FRAME_IGNORE_REGEXES
+# (google/clusterfuzz src/clusterfuzz/stacktraces/constants.py): frames of the
+# runtime, libc, allocators, assertion helpers and sanitizers say how a process
+# died, not where the bug is. One Python regex per line, searched in the
+# normalized function name. A line that starts with `image:` is searched in the
+# frame's image (binary) name instead, and one that starts with `file:` in the
+# frame's source file (Rust backtraces print it on an `at` line). `#` starts a
+# comment.
+
+# --- Images: the whole binary is runtime or system plumbing.
+image:^libsystem_
+image:^libdyld
+image:^dyld$
+image:^libdispatch
+image:^libobjc
+image:^libswift
+image:^libc\+\+
+image:^libclang_rt\.
+image:^libc\.so
+image:^libpthread
+image:^ld-linux
+image:^libgcc_s
+
+# --- Source files: Rust std, core and alloc (their inlined helpers print as
+# bare `index`, `unwrap`, `expect`), crates from the registry, and the panic hook.
+file:^/rustc/
+file:/\.cargo/(registry|git)/
+file:(^|/)cmux-panic-log/
+
+# --- Swift runtime and stdlib assertion helpers (also matched when the image is unknown).
+^_?swift_
+^\$ss17_assertionFailure
+^\$ss18_fatalErrorMessage
+^(Swift\.)?_assertionFailure\(
+^(Swift\.)?_fatalErrorMessage\(
+^(Swift\.)?fatalError\(
+^(Swift\.)?precondition(Failure)?\(
+^(Swift\.)?assert(ionFailure)?\(
+^(Swift\.)?_preconditionFailure\(
+^(Swift\.)?_unimplementedInitializer\(
+^(Swift\.)?Array\._checkSubscript
+^(Swift\.)?Array\._checkIndex
+^(Swift\.)?Array\.subscript\.(getter|setter|modify|read)
+^(Swift\.)?ContiguousArray\.subscript\.
+^(Swift\.)?Dictionary\.subscript\.
+^(Swift\.)?_ArrayBuffer\.
+^(Swift\.)?_ContiguousArrayBuffer\.
+^(Swift\.)?Optional\.unsafelyUnwrapped
+^(Swift\.)?UnsafeContinuation\.
+^(Swift\.)?CheckedContinuation\.
+
+# --- Swift compiler-made thunks: the real function is the next frame.
+^(reabstraction )?thunk( helper)? (for|from)\b
+^outlined (init|copy|destroy|retain|release|assign|consume|variadic)
+^partial apply forwarder
+^@objc completion handler block implementation
+
+# --- libsystem, libc and the C allocator.
+^_?_?pthread_kill$
+^_?pthread_kill$
+^_?raise$
+^_?abort$
+^_?abort_with_payload
+^_?__abort_with_payload
+^_?exit$
+^_?_exit$
+^_?tgkill$
+^__GI_
+^_?__chk_fail
+^_?__stack_chk_fail
+^_?__assert_
+^_?__assert_rtn$
+^_?malloc$
+^_?free$
+^_?calloc$
+^_?realloc$
+^_?posix_memalign$
+^_?malloc_zone_
+^_?_malloc_zone_
+^_?mem(cpy|move|set|cmp|chr)$
+^_?__mem(cpy|move|set)_
+^_?str(len|cpy|ncpy|cmp|ncmp|chr|dup|ndup)$
+^_?__libc_start
+^_?_start$
+^_?start$
+^_?_sigtramp$
+^_?__sigtramp
+
+# --- C++ runtime.
+^__cxa_
+^__cxxabiv1::
+^std::__terminate
+^std::terminate
+^std::__1::__terminate
+^operator new
+^operator delete
+^__gxx_personality
+
+# --- ObjC exception machinery (the throwing caller is the next frame).
+^_?objc_exception_throw$
+^_?objc_exception_rethrow$
+^_?objc_terminate
+^_?__exceptionPreprocess$
+^_?_CF_forwarding_prep_
+^_?___forwarding___$
+^[-+]\[NSException raise
+^\+\[NSException exceptionWithName
+^-\[NSAssertionHandler handleFailure
+^_?_NSArrayRaise
+^_?_CFThrowFormattedException$
+^_?_CFThrow
+
+# --- libdispatch frames when the image is not named.
+^_?_dispatch_
+^_?dispatch_(sync|async|once|barrier|main)
+^_?_os_unfair_lock
+^_?os_unfair_lock
+
+# --- Rust panic machinery and std runtime.
+^core::panicking::
+^core::option::(expect|unwrap)_failed
+^core::option::Option::(expect|unwrap)$
+^core::result::unwrap_failed
+^core::result::Result::(expect|unwrap)$
+^core::slice::index::
+^core::str::slice_error_fail
+^core::cell::panic_already
+^core::ops::function::
+^std::panicking::
+^std::panic::
+^std::rt::
+^std::sys::
+^std::sys_common::
+^std::backtrace::
+^std::backtrace_rs::
+^std::thread::Builder::spawn_unchecked
+^std::thread::lifecycle
+^(__rustc::)?rust_begin_unwind$
+^rust_panic
+^__rust_
+^__rustc::
+^__r[dg]l_(alloc|dealloc|realloc)
+^alloc::alloc::
+^alloc::raw_vec::
+^<[^>]* as core::ops::function::Fn(Once|Mut)?>::call
+^<[^>]* as core::slice::index::SliceIndex>::
+^<[^>]* as core::ops::index::Index(Mut)?>::index
+^cmux_panic_log::
+^tokio::runtime::
+^backtrace::
+# libtest's harness: the test body is the frame above it.
+^test::
+
+# --- Chromium, CEF and PartitionAlloc CHECK helpers (base/check.h, base/immediate_crash.h).
+^logging::
+^base::debug::
+^base::ImmediateCrash
+^base::internal::OnNoMemory
+^base::TerminateBecauseOutOfMemory
+^partition_alloc::internal::(logging|OnNoMemory|PartitionExcessiveAllocationSize|PartitionOutOfMemory|DCheck|RawCheck|CheckFailure)
+^partition_alloc::internal::.*::OnNoMemory
+^partition_alloc::TerminateBecauseOutOfMemory
+^allocator_shim::
+^cef_log
+^cef::.*::LogMessage
+
+# --- Sanitizer runtimes.
+^__sanitizer
+^__interceptor_
+^__(asan|tsan|ubsan|lsan|msan)(_|::)
+^_asan_
+^_tsan_
+^___interceptor_
+^wrap_
+^__sanitizer_print_stack_trace
+^print_address_description
+^asan_thread_start

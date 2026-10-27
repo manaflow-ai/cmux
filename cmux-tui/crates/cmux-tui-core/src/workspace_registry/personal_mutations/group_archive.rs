@@ -48,6 +48,7 @@ pub(crate) fn public_group(archive: &Value) -> Value {
 /// closed and reopened in the same reopen are found by their new key
 /// (`placements`: closed key, reopened key). Returns whether personal rows
 /// changed.
+#[track_caller]
 pub(crate) fn restore_group(
     transaction: &Transaction<'_>,
     archive: &Value,

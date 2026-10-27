@@ -53,9 +53,18 @@ public final class AppsClient {
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
     static let logLimit = 500
+    /// The decoded bundle images every scene and section header of these apps draws; its owner
+    /// registers it as a memory consumer.
+    @ObservationIgnored public let bundleImages: AppBundleImageCache
 
-    public init(transport: any AppsTransport) {
+    /// Makes a client.
+    ///
+    /// - Parameters:
+    ///   - transport: The supervisor connection.
+    ///   - bundleImages: The decoded bundle image cache (the composition root makes one).
+    public init(transport: any AppsTransport, bundleImages: AppBundleImageCache) {
         self.transport = transport
+        self.bundleImages = bundleImages
         availability = transport.availability
         transport.onEvent = { [weak self] event in self?.handle(event) }
     }
@@ -178,6 +187,8 @@ public final class AppsClient {
         guard availability.isAvailable else { return }
         let request = projection.listRequested()
         listing?.cancel()
+        // main-hop-allow: list() is the main-actor transport's daemon read (its I/O runs off main); the mirror takes the
+        // reply in its one resume, and a newer refresh cancels it
         listing = Task { [weak self, transport] in
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
             self?.projection.applyList(reply.apps, revision: reply.revision, request: request)

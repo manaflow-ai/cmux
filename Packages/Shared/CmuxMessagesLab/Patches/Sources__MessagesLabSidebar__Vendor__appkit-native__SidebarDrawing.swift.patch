@@ -1,6 +1,225 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
-@@ -236,11 +236,7 @@
+@@ -4,7 +4,7 @@
+ 
+ /// What a row or tile bitmap depends on. Everything here is a value read on the main thread,
+ /// so a background queue can render from it.
+-struct SidebarRenderContext {
++struct SidebarRenderContext: Sendable { // cmux: checked Sendable (Swift 6), it crosses to every render thread
+     var metrics: SidebarMetrics
+     var palette: SidebarPalette
+     var scale: CGFloat
+@@ -21,7 +21,7 @@
+ }
+ 
+ /// One bitmap's identity.
+-struct SidebarBitmapKey: Hashable {
++struct SidebarBitmapKey: Hashable, Sendable { // cmux: Sendable (Swift 6)
+     /// `tile`: a pinned tile's name; `tileBubble`: its newest-message bubble.
+     enum Kind: Hashable { case row, time, tile, tileBubble }
+     var kind: Kind
+@@ -35,12 +35,32 @@
+ 
+ /// Bitmaps of one sidebar, least recently used out first, with a byte budget. Main thread
+ /// only (the render queue hands its results to the main thread).
+-final class SidebarBitmapCache {
++@MainActor // cmux: Swift 6 (main thread only, as above)
++final class SidebarBitmapCache { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
+     private var map: [SidebarBitmapKey: (image: CGImage, bytes: Int, used: UInt64)] = [:]
+     private var clock: UInt64 = 0
+     private(set) var bytes = 0
+-    let budget: Int
+-    init(budget: Int = 40 << 20) { self.budget = budget }
++    /// cmux: MessagesLab's 40 MB until the host sizes the cache (`setBudget(bytes:)`, p07-memory-081).
++    static let defaultBudget = 40 << 20
++    private(set) var budget: Int
++    init(budget: Int = SidebarBitmapCache.defaultBudget) { self.budget = budget }
++    /// cmux: the host's cap (p07-memory-081). Lowering it frees nothing: the next insert trims to it.
++    func setBudget(bytes: Int) { budget = max(0, bytes) }
++    /// cmux: frees the least recently used bitmaps until at most `fraction` of the bytes held now remain (0 frees
++    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap its layer shows; the next pass draws
++    /// what is missing.
++    func trim(toFraction fraction: Double) {
++        guard !fraction.isNaN else { return }
++        let target = CrashGuard.int(Double(bytes) * min(max(fraction, 0), 1), in: 0...max(bytes, 0))
++        guard bytes > target else { return }
++        var dropped: [CGImage] = []
++        for (key, v) in map.sorted(by: { $0.value.used < $1.value.used }) where bytes > target {
++            map[key] = nil
++            bytes -= v.bytes
++            dropped.append(v.image)
++        }
++        SidebarDraw.release(dropped)
++    }
+ 
+     func image(_ k: SidebarBitmapKey) -> CGImage? {
+         guard var e = map[k] else { return nil }
+@@ -74,34 +94,31 @@
+ 
+ /// Circle avatars by spec, diameter, scale and appearance; shared by the rows, tiles and the
+ /// header. Locked (the render queue reads it).
+-final class SidebarAvatarCache {
++final class SidebarAvatarCache: Sendable { // cmux: checked Sendable (Swift 6), the map under its lock
+     private struct Key: Hashable { var spec: AvatarSpec; var d: CGFloat; var scale: CGFloat; var dark: Bool }
+-    private var map: [Key: CGImage] = [:]
+-    private let lock = NSLock()
++    private let images = OSAllocatedUnfairLock<[Key: CGImage]>(initialState: [:])
+ 
+     func image(_ spec: AvatarSpec, diameter d: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
+         let k = Key(spec: spec, d: d, scale: ctx.scale, dark: ctx.palette.dark)
+-        lock.lock()
+-        if let img = map[k] { lock.unlock(); return img }
+-        lock.unlock()
++        if let held = images.withLock({ $0.value(for: k) }) { return held }
+         guard let img = SidebarDraw.bitmap(size: CGSize(width: d, height: d), ctx: ctx, { g in
+             SidebarDraw.avatar(spec, in: CGRect(x: 0, y: 0, width: d, height: d), g, ctx.palette)
+         }) else { return nil }
+-        lock.lock()
+-        if map.count > 4000 { map.removeAll() }
+-        map[k] = img
+-        lock.unlock()
++        images.withLock { m in
++            if m.count > 4000 { m.removeAll() }
++            _ = m.updateValue(img, forKey: k) // dictionary write
++        }
+         return img
+     }
+-    func removeAll() { lock.lock(); map.removeAll(); lock.unlock() }
++    func removeAll() { images.withLock { $0.removeAll() } }
+ }
+ 
+ /// The drawing: pure functions of a summary and a render context (any thread).
+ enum SidebarDraw {
+     static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // no force unwrap
+-    /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
+-    /// "assets" folder).
+-    static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
++    /// Where `AvatarSpec.image` paths resolve: the app bundle's "assets" folder (cmux: a
++    /// constant, the renderers read it on every core; cmux's avatars are `file:` URLs).
++    static let assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
+     /// Frees bitmaps off the main thread (a large free can block it), after Core Animation
+     /// has dropped its references in the current turn.
+     static func release(_ images: [CGImage]) {
+@@ -109,50 +126,67 @@
+         DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
+     }
+     // no force unwrap: Core Text's UI font lookup returns an optional.
+-    static let nameFont = uiFont(.emphasizedSystem, SidebarMetrics.nameSize)
+-    static let previewFont = uiFont(.system, SidebarMetrics.previewSize)
+-    static let timeFont = uiFont(.system, SidebarMetrics.timeSize)
+-    static let pinNameFont = uiFont(.system, SidebarMetrics.pinNameSize)
+-    static let bubbleFont = uiFont(.system, 11)
+-    static let sectionFont = uiFont(.emphasizedSystem, 11)
++    // cmux: the fixed fonts are made once and shared by every render thread (SidebarFont, Swift 6),
++    // read with no lock; only the monogram and emoji sizes use the held store below.
++    private struct FixedFonts: Sendable {
++        let name = SidebarFont(SidebarDraw.uiFont(.emphasizedSystem, SidebarMetrics.nameSize))
++        let preview = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.previewSize))
++        let time = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.timeSize))
++        let pinName = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.pinNameSize))
++        let bubble = SidebarFont(SidebarDraw.uiFont(.system, 11))
++        let section = SidebarFont(SidebarDraw.uiFont(.emphasizedSystem, 11))
++    }
++    private static let fixedFonts = FixedFonts()
++    static var nameFont: CTFont { fixedFonts.name.font }
++    static var previewFont: CTFont { fixedFonts.preview.font }
++    static var timeFont: CTFont { fixedFonts.time.font }
++    static var pinNameFont: CTFont { fixedFonts.pinName.font }
++    static var bubbleFont: CTFont { fixedFonts.bubble.font }
++    static var sectionFont: CTFont { fixedFonts.section.font }
+ 
+-    // the UI font, or Helvetica at that size when Core Text returns none.
++    // the UI font, or Helvetica at that size when Core Text returns none; held for the process.
+     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
+-        // crash-allow: a factory for the static lets and the held monogram cache only (never per draw; cx-qpqs)
+-        CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
++        held(HeldFont(face: .ui(type.rawValue), size: size)) {
++            // SAFETY: CTFontCreateWithName's matrix pointer is nil (the identity matrix); Core Text reads nothing through it.
++            // crash-allow: made once under the fonts lock and held for the process (cx-qpqs)
++            unsafe CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
++        }
+     }
+ 
+-    // monogram fonts held per half point for the process: avatars draw on
+-    // concurrentPerform threads, and a font made and dropped per draw can come
+-    // back nil there (cx-qpqs).
+-    private static let monogramFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
++    // Fonts held for the process, one per face and size: avatars and rows draw on
++    // concurrentPerform threads, and a font made and dropped per draw can come back nil there
++    // (cx-qpqs). The sizes are a few fixed ones (monograms and emoji per half point).
++    private enum HeldFace: Hashable { case ui(UInt32), emoji }
++    private struct HeldFont: Hashable { var face: HeldFace; var size: CGFloat }
++    private static let fonts = OSAllocatedUnfairLock<[HeldFont: SidebarFont]>(initialState: [:])
++    /// The held font for `key`, made by `make` on a miss; a font two threads made at once is held once.
++    private static func held(_ key: HeldFont, _ make: () -> CTFont) -> CTFont {
++        if let held = fonts.withLock({ $0.value(for: key) }) { return held.font }
++        let made = SidebarFont(make())
++        return fonts.withLock { store in
++            if let held = store.value(for: key) { return held }
++            store.updateValue(made, forKey: key) // dictionary write
++            return made
++        }.font
++    }
+     // emoji avatar fonts held per exact size, like the monogram fonts (avatar diameters are a few
+     // fixed sizes, so the store stays small).
+-    private static let emojiFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
+     static func emojiFont(_ size: CGFloat) -> CTFont {
+-        emojiFonts.withLock { fonts in
+-            if let held = fonts[size] { return held }
+-            // crash-allow: made once under the emojiFonts lock and held for the process (cx-qpqs)
+-            let font = CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil)
+-            fonts.updateValue(font, forKey: size) // dictionary write
+-            return font
+-        }
++        // SAFETY: the matrix pointer is nil (the identity matrix); Core Text reads nothing through it.
++        // crash-allow: made once under the fonts lock and held for the process (cx-qpqs)
++        held(HeldFont(face: .emoji, size: size)) { unsafe CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil) }
+     }
+     static func monogramFont(_ size: CGFloat) -> CTFont {
+-        let key = (size * 2).rounded() / 2
+-        return monogramFonts.withLock { fonts in
+-            if let held = fonts[key] { return held }
+-            let font = uiFont(.emphasizedSystem, key)
+-            fonts.updateValue(font, forKey: key) // dictionary write
+-            return font
+-        }
++        uiFont(.emphasizedSystem, (size * 2).rounded() / 2)
+     }
+ 
+     /// A flipped (top-left origin) bitmap in the context's color space at its scale.
+     static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage? { // nil when the bitmap cannot be allocated
+         let w = max(1, CrashGuard.int((size.width * ctx.scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * ctx.scale).rounded(.up))) // no trap on NaN
+         // no force unwraps; an allocation that fails draws nothing (logged once).
+-        guard let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
++        // SAFETY: the data pointer is nil, so Core Graphics allocates the pixels, owns them and frees them with the
++        // context; no memory of the caller is read or written.
++        guard let g = unsafe CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
+             return SidebarBitmapFailure.checked(nil, size: size)
+         }
+@@ -168,7 +202,10 @@
+             NSAttributedString.Key(kCTFontAttributeName as String): font,
+             NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]))
+     }
+-    static func width(_ l: CTLine) -> CGFloat { CGFloat(CTLineGetTypographicBounds(l, nil, nil, nil)) }
++    static func width(_ l: CTLine) -> CGFloat {
++        // SAFETY: the three out-pointers are nil, which Core Text documents as "not wanted"; nothing is written.
++        CGFloat(unsafe CTLineGetTypographicBounds(l, nil, nil, nil))
++    }
+     static func truncated(_ l: CTLine, _ w: CGFloat, _ font: CTFont, _ color: CGColor) -> CTLine {
+         guard width(l) > w else { return l }
+         return CTLineCreateTruncatedLine(l, Double(max(1, w)), .end, line("…", font, color)) ?? l
+@@ -212,7 +249,8 @@
+             g.saveGState()
+             g.addEllipse(in: r); g.clip()
+             // an optional gradient draws nothing when it fails (SidebarCrashSafe).
+-            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
++            // SAFETY: Core Graphics reads one location per color, 2, the locations array's count, during the call only.
++            let grad = unsafe CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
+             g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
+             g.restoreGState()
+             let font = monogramFont((r.width * 0.42).rounded()) // held, no force unwrap (cx-qpqs)
+@@ -236,11 +274,7 @@
          case let .emoji(e):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
@@ -13,12 +232,10 @@
          case let .group(members):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
-@@ -261,8 +257,35 @@
-                 avatar(member ?? .monogram(""), in: sub, g, p)
-             }
+@@ -263,6 +297,33 @@
          }
-+    }
-+
+     }
+ 
 +    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
 +    /// diameter at every size, so the pinned tile and the row draw one avatar.
 +    static let emojiShare: CGFloat = 0.6
@@ -37,8 +254,8 @@
 +        let l = line(e, emojiFont(size), black)
 +        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
 +        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
-     }
- 
++    }
++
 +    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
 +    static func drawnBounds(_ l: CTLine) -> CGRect {
 +        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
@@ -49,7 +266,60 @@
      // MARK: Row
  
      /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
-@@ -405,7 +428,8 @@
+@@ -298,8 +359,11 @@
+     /// Name and preview at the list's text width; `timeWidth`: the time part's width.
+     static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
+                         text: SidebarTextCache) -> CGImage? { // nil when the bitmap cannot be allocated
+-        let t = rowTextLines(c, emphasized: emphasized, ctx: ctx, timeWidth: timeWidth, text: text)
+-        return drawRowText(name: t.name, preview: t.preview, ctx: ctx)
++        // cmux: the measurement's lines are this thread's until the bitmap is drawn (SidebarTextCache).
++        text.withMeasured(c, emphasized: emphasized, palette: ctx.palette, generation: ctx.generation) { m in
++            let t = rowTextLines(c, m, ctx: ctx, timeWidth: timeWidth)
++            return drawRowText(name: t.name, preview: t.preview, ctx: ctx)
++        }
+     }
+ 
+     /// Everything a row's text bitmap depends on other than its key: where the name is truncated
+@@ -307,7 +371,7 @@
+     /// truncated (nil: not truncated). The lines are drawn left-aligned at x 0, so two text widths
+     /// with the same layout draw the same pixels (the wider bitmap's extra columns are empty; the
+     /// layer's contents gravity is top-left, nothing is scaled).
+-    struct RowTextLayout: Equatable {
++    struct RowTextLayout: Equatable, Sendable { // cmux: Sendable (Swift 6), it comes back from the render threads
+         var name: CGFloat?
+         var breaks: [Int]
+         var lastLine: Bool
+@@ -319,18 +383,21 @@
+     /// screen, drawn at another width, has these pixels already); nil when the bitmap cannot be allocated.
+     static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
+                         text: SidebarTextCache, unless shown: RowTextLayout?) -> (image: CGImage?, layout: RowTextLayout)? {
+-        let t = rowTextLines(c, emphasized: emphasized, ctx: ctx, timeWidth: timeWidth, text: text)
+-        if let shown, shown == t.layout { return (nil, t.layout) }
+-        guard let image = drawRowText(name: t.name, preview: t.preview, ctx: ctx) else { return nil }
+-        return (image, t.layout)
++        // cmux: the measurement's lines are this thread's until the bitmap is drawn (SidebarTextCache).
++        text.withMeasured(c, emphasized: emphasized, palette: ctx.palette, generation: ctx.generation) { m in
++            let t = rowTextLines(c, m, ctx: ctx, timeWidth: timeWidth)
++            if let shown, shown == t.layout { return (nil, t.layout) }
++            guard let image = drawRowText(name: t.name, preview: t.preview, ctx: ctx) else { return nil }
++            return (image, t.layout)
++        }
+     }
+ 
+-    /// A row's name line, preview lines and their layout at the list's text width.
+-    private static func rowTextLines(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
+-                                     text: SidebarTextCache) -> (name: CTLine, preview: [CTLine], layout: RowTextLayout) {
++    /// A row's name line, preview lines and their layout at the list's text width, from the
++    /// measurement `m` (cmux: the caller holds it, `SidebarTextCache.withMeasured`).
++    private static func rowTextLines(_ c: ConversationSummary, _ m: SidebarTextCache.Measured, ctx: SidebarRenderContext,
++                                     timeWidth: CGFloat) -> (name: CTLine, preview: [CTLine], layout: RowTextLayout) {
+         let M = SidebarMetrics.self
+         let w = ctx.metrics.textWidth
+-        let m = text.measure(c, emphasized: emphasized, palette: ctx.palette, generation: ctx.generation)
+         let nameW = w - timeWidth - M.timeGap
+         let name = truncated(m.name, nameW, nameFont, m.nameColor)
+         var layout = RowTextLayout(name: name === m.name ? nil : nameW, breaks: [], lastLine: false, truncatedAt: nil, scale: ctx.scale)
+@@ -405,7 +472,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
@@ -59,7 +329,7 @@
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -422,8 +446,10 @@
+@@ -422,8 +490,10 @@
          return (n, b)
      }
      /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
@@ -72,7 +342,7 @@
      }
      /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
      static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-@@ -432,7 +458,7 @@
+@@ -432,7 +502,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -81,7 +351,17 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -485,16 +511,33 @@
+@@ -450,7 +520,8 @@
+         return bitmap(size: CGSize(width: bw2 + 1, height: bh + 5), ctx: ctx) { g in
+             let br = CGRect(x: 1, y: 0, width: bw2, height: bh)
+             g.setFillColor(p.bubble)
+-            g.addPath(CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)); g.fillPath()
++            // SAFETY: the transform pointer is nil, so Core Graphics reads no memory through it.
++            g.addPath(unsafe CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)); g.fillPath()
+             // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
+             g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
+             for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: 13 + CGFloat(i) * 13 - 1, g) }
+@@ -485,21 +556,39 @@
          return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
      }
  
@@ -112,38 +392,154 @@
 +        // Centred on the name's lowercase letters (11 pt font, baseline 11 pt in the 16 pt line).
 +        let d = tileDotDiameter
 +        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
-     }
++    }
 +
 +    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
 +    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
 +        let d = SidebarMetrics.dotDiameter
 +        let x0 = m.tileRect(0).minX
 +        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
-+    }
+     }
  }
  
  /// The list's motion (render-server animations only; no main-thread frames). Start values are the
-@@ -648,7 +691,7 @@
+ /// transcript's fits on real Messages (catalyst Springs.swift and springs.json), used here
+ /// UNVERIFIED: no reference of the list in motion exists (appkit-native/SIDEBAR-PARITY.md).
++@MainActor // cmux: Swift 6, the list moves its layers on the main thread only
+ enum SidebarMotion {
+     /// Off: every change shows at once (benches; a host may turn it off).
+     static var enabled = true
+@@ -609,12 +698,13 @@
+     static let dotDiameter: CGFloat = 6
+     static let dotPitch: CGFloat = 8
+     /// The transcript's two tail circles (9 pt at the bubble's lower left, 5 pt below-left of it), scaled.
+-    static let tailPath: CGPath = {
++    /// cmux: made per tail (a tile that starts typing), so no path is shared between threads.
++    static var tailPath: CGPath {
+         let p = CGMutablePath()
+         p.addEllipse(in: CGRect(x: 0.5 * k, y: size.height - 7 * k, width: 9 * k, height: 9 * k))
+         p.addEllipse(in: CGRect(x: -3.5 * k, y: size.height + 1 * k, width: 5 * k, height: 5 * k))
+         return p
+-    }()
++    }
+     /// Measured pulse (transcript): period 1.0 s, dots 0.247 s apart, a Gaussian of width 0.22 s.
+     static let period: CFTimeInterval = 1.0
+     static let phaseStep = 0.247
+@@ -648,9 +738,9 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
 -    var isPulsing: Bool { Self.stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
-+    var isPulsing: Bool { stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
++    @MainActor var isPulsing: Bool { stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } } // cmux: main actor (Swift 6)
      /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
-     static var stillPhase: Double?
+-    static var stillPhase: Double?
++    @MainActor static var stillPhase: Double? // cmux: main actor (Swift 6)
      private static func level(_ i: Int, phase t: Double) -> Double {
-@@ -658,9 +701,12 @@
+         var x = t - 0.45 - Double(i) * phaseStep
+         x -= x.rounded()
+@@ -658,9 +748,13 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
-+    /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
-+    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
-     func animate() {
+-    func animate() {
 -        if let ph = Self.stillPhase {
 -            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
++    /// cmux: the still phase, also the first dot's peak under Reduce Motion or the host's still loops
++    /// (cx-sya4n: nothing loops; Energy Saver, p14-energy-027).
++    @MainActor private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.stillsLoops ? 0.45 : nil) }
++    @MainActor func animate() { // cmux: main actor (Swift 6), the list's thread
 +        if let ph = stillPhase {
 +            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
 +            for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
              return
          }
          let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
+@@ -682,7 +776,12 @@
+ 
+ /// Text measurement per conversation (the name line and the preview's typesetter), shared by
+ /// every width: a live resize only breaks lines again. Locked (render queue and main).
+-final class SidebarTextCache {
++/// cmux: Sendable (Swift 6) over unchecked state: its store holds measurements, which are not
++/// Sendable, in `OSAllocatedUnfairLock(uncheckedState:)`, and `lent` guards them instead of the
++/// checker. A typesetter and its lines are Core Text layout objects, which one thread at a time may
++/// use (Core Text Programming Guide, "Thread Safety"), so a measurement is lent to one caller for
++/// the length of `withMeasured`; a second caller that wants it meanwhile measures its own.
++final class SidebarTextCache: Sendable {
+     struct Measured {
+         let name: CTLine
+         let nameColor: CGColor
+@@ -691,33 +790,56 @@
+         let secondary: CGColor
+     }
+     private struct Key: Hashable { var id: ConversationID; var version: Int; var emphasized: Bool; var generation: Int }
+-    private var map: [Key: Measured] = [:]
+-    private var order: [Key] = []
+-    private let lock = NSLock()
++    /// The measurements, their keys oldest first, and the keys lent out now.
++    private struct Store {
++        var map: [Key: Measured] = [:]
++        var order: [Key] = []
++        var lent: Set<Key> = []
++
++        /// Takes `m` back for `k` (lent by `withMeasured`) and drops the oldest third past the capacity.
++        mutating func giveBack(_ k: Key, _ m: Measured) {
++            lent.remove(k)
++            if map.updateValue(m, forKey: k) == nil { order.append(k) } // dictionary write
++            let capacity = SidebarTextCache.capacity
++            guard order.count > capacity else { return }
++            for old in order.prefix(capacity / 3) { map.removeValue(forKey: old) }
++            order.removeFirst(capacity / 3)
++        }
++    }
++    // cmux: unchecked state, as a measurement is not Sendable; `lent` keeps it with one caller at a time.
++    private let store = OSAllocatedUnfairLock(uncheckedState: Store())
+     static let capacity = 600
+ 
+-    func measure(_ c: ConversationSummary, emphasized: Bool, palette p: SidebarPalette, generation: Int) -> Measured {
++    /// `body` with the measurement of `c`, made on a miss and kept for the next caller.
++    func withMeasured<R>(_ c: ConversationSummary, emphasized: Bool, palette p: SidebarPalette, generation: Int,
++                         _ body: (Measured) -> R) -> R {
+         let k = Key(id: c.id, version: c.version, emphasized: emphasized, generation: generation)
+-        lock.lock()
+-        if let m = map[k] { lock.unlock(); return m }
+-        lock.unlock()
++        let lease = store.withLockUnchecked { s -> (held: Measured?, lent: Bool) in
++            guard s.lent.insert(k).inserted else { return (nil, false) }
++            return (s.map.value(for: k), true)
++        }
++        let m = lease.held ?? Self.measure(c, emphasized: emphasized, palette: p)
++        defer { if lease.lent { store.withLockUnchecked { $0.giveBack(k, m) } } }
++        return body(m)
++    }
++
++    private static func measure(_ c: ConversationSummary, emphasized: Bool, palette p: SidebarPalette) -> Measured {
+         let nameColor = emphasized ? p.selectedText : p.name
+         let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // no force unwrap
+         let text = SidebarStrings.preview(c)
+         let attr = NSAttributedString(string: text, attributes: [
+             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,
+             NSAttributedString.Key(kCTForegroundColorAttributeName as String): secondary])
+-        let m = Measured(name: SidebarDraw.line(c.title, SidebarDraw.nameFont, nameColor), nameColor: nameColor,
+-                         preview: c.typing ? nil : CTTypesetterCreateWithAttributedString(attr), previewLength: attr.length, secondary: secondary)
+-        lock.lock()
+-        if map[k] == nil { order.append(k) }
+-        map[k] = m
+-        if order.count > Self.capacity {
+-            for old in order.prefix(Self.capacity / 3) { map[old] = nil }
+-            order.removeFirst(Self.capacity / 3)
++        return Measured(name: SidebarDraw.line(c.title, SidebarDraw.nameFont, nameColor), nameColor: nameColor,
++                        preview: c.typing ? nil : CTTypesetterCreateWithAttributedString(attr), previewLength: attr.length, secondary: secondary)
++    }
++
++    func removeAll() {
++        store.withLockUnchecked { s in
++            // Lent measurements come back later under keys of an older generation (never read again).
++            s.map.removeAll()
++            s.order.removeAll()
+         }
+-        lock.unlock()
+-        return m
+     }
+-    func removeAll() { lock.lock(); map.removeAll(); order.removeAll(); lock.unlock() }
+ }
++

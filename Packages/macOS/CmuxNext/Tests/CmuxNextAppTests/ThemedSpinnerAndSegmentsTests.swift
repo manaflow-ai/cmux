@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextRemoteView
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// Theme sweep 3, batch C: the palette's loading spinner, a sidebar notice's spinner and a remote
@@ -12,6 +13,11 @@ import Testing
 /// system's selected segment. In a purple room the spinners are the app's status indicator in the
 /// scope's loading ink (`Palette.textSecondary`) and the selected segment is the theme's selection.
 @MainActor @Suite(.serialized) struct ThemedSpinnerAndSegmentsTests {
+    /// The test window's own state (a host's windows may never report visible).
+    private final class FakeWindowState {
+        var value: Visibility = .occluded
+    }
+
     @Test func thePaletteLoadingSpinnerDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let bar = PaletteSearchBar(frame: NSRect(x: 0, y: 0, width: 600, height: 44))
@@ -57,13 +63,21 @@ import Testing
 
     /// Review of #19844: the palette fills its panel before ordering it in, so its spinner moved to a
     /// window that was not yet visible and stayed still once the panel showed. A chrome spinner
-    /// follows its own window's occlusion and spins once the window is visible.
+    /// follows its window's visibility node and spins once the window is visible.
     @Test func aSpinnerInstalledBeforeItsWindowShowsFollowsItsWindow() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 44), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
+        // The window's state comes from the test, so the check holds on a host whose windows never
+        // report visible (headless CI) as well as on one where they do.
+        let center = NotificationCenter()
+        let screen = FakeWindowState()
+        let source = WindowVisibilitySource.of(window, events: WindowEvents(window: window, center: center),
+                                               read: { _ in screen.value })
         let bar = PaletteSearchBar(frame: NSRect(x: 0, y: 0, width: 600, height: 44))
         let content = try #require(window.contentView)
         scope.root(content)
@@ -71,18 +85,14 @@ import Testing
         bar.update(query: "", placeholder: "Search", chips: [], rootTitle: "Commands", style: .token, keywordHint: nil,
                    isLoading: true)
         let spinner = try #require(Self.all(StatusIndicatorView.self, in: bar).first { !$0.isHidden })
-        let center = NotificationCenter()
-        spinner.notificationCenter = center
+        #expect(spinner.visibilityNode.parent === source.node, "the spinner sits under its window's node")
+        #expect(spinner.indicator.runningAnimation == nil, "a spinner in a window not yet on screen keeps no loop")
 
-        window.orderFrontRegardless()
-        let visible = window.occlusionState.contains(.visible)
-        // Start from the opposite state, so the check holds on a host whose windows never report
-        // visible (headless CI) as well as on one where they do.
-        spinner.isWindowVisible = !visible
+        screen.value = .visible
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        #expect(spinner.isWindowVisible == visible, "the spinner follows its window's occlusion (visible: \(visible))")
+        #expect(spinner.visibilityNode.isVisible, "the spinner follows its window's node")
         let config = StatusIndicatorAppearance.shared.config
-        if visible, config.animatesLoops {
+        if config.animatesLoops {
             // The configured loading glyph, the same one tabs and rows draw (synced spinners, 2026-10-20).
             let busy = StatusIndicatorPlan.make(.busy, style: config.style(hint: nil), animates: true,
                                                 set: config.iconSet, isStatic: config.isStatic)

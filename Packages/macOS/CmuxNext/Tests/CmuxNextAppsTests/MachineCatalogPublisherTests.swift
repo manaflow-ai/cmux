@@ -11,6 +11,9 @@ struct MachineCatalogPublisherTests {
     private let owner: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private let other: ResourceID = "machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
+    /// A scheduler of its own per test: the registry follow's flushes post on it (automation runs on the next turn).
+    static func work() -> MainWorkScheduler { MainWorkScheduler(budget: MainFrameBudget()) }
+
     private func record() -> MachineCatalogRecord {
         MachineCatalogRecord(id: other, name: "server", origin: .ssh, status: .running,
                              platform: .init(os: "linux", arch: "aarch64"), capabilities: ["terminal"])!
@@ -20,7 +23,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
         let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
-        let publisher = MachineCatalogPublisher(source: { registry.value })
+        let publisher = MachineCatalogPublisher(source: { registry.value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         let first = try #require(await events.next())
@@ -39,7 +42,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
         let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
-        let publisher = MachineCatalogPublisher(source: { registry.value })
+        let publisher = MachineCatalogPublisher(source: { registry.value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         _ = try #require(await events.next())
@@ -55,7 +58,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
         let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: []))
-        let publisher = MachineCatalogPublisher(source: { registry.value })
+        let publisher = MachineCatalogPublisher(source: { registry.value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         #expect(try #require(await events.next()).sequence == 1)
@@ -71,7 +74,7 @@ struct MachineCatalogPublisherTests {
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [])
         let registry = CatalogTestRegistry(value)
-        let publisher = MachineCatalogPublisher(source: { registry.value })
+        let publisher = MachineCatalogPublisher(source: { registry.value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         _ = try #require(await events.next())
@@ -93,7 +96,7 @@ struct MachineCatalogPublisherTests {
         var oldEvents = old.attempts.makeAsyncIterator()
         var newEvents = fresh.attempts.makeAsyncIterator()
         let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: old, epoch: 1, machines: []))
-        let publisher = MachineCatalogPublisher(source: { registry.value })
+        let publisher = MachineCatalogPublisher(source: { registry.value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         _ = try #require(await oldEvents.next())
@@ -118,7 +121,7 @@ struct MachineCatalogPublisherTests {
             count += 1
             reads.continuation.yield(count)
             return count == 1 ? value : nil
-        })
+        }, on: Self.work())
         defer { publisher.stop(); reads.continuation.finish() }
         publisher.start()
         while let count = await events.next() { if count >= 2 { break } }
@@ -131,7 +134,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter(failures: [error, nil])
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()])
-        let publisher = MachineCatalogPublisher(source: { value }, backoff: .init(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
+        let publisher = MachineCatalogPublisher(source: { value }, on: Self.work(), backoff: .init(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
         defer { publisher.stop() }
         publisher.start()
         let first = try #require(await events.next())
@@ -147,7 +150,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter(failures: [error])
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [])
-        let publisher = MachineCatalogPublisher(source: { value })
+        let publisher = MachineCatalogPublisher(source: { value }, on: Self.work())
         defer { publisher.stop() }
         publisher.start()
         _ = try #require(await events.next())

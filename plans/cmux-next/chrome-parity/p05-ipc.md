@@ -344,7 +344,7 @@ Each queue is printed by `python3 scripts/cmux-next/ipc-census.py --queue QN` as
 `--record` writes base counts to plans/cmux-next/ipc-targets.json. The raw query is given so a reviewer can
 check it.
 
-- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(: String)? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory. 235 at base. `--callers <dir>` lists call-site files.
+- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory (a `DaemonRequest` declares `commandName: DaemonCommandName`; the first form of the query, without `Name`, missed every one of them). 235 at base; `ipc-census.py --record` keeps the current count in ipc-targets.json. `--callers <dir>` lists call-site files.
 - Q2 daemon sniffers (063-070): `git grep -n 'fn try_handle' -- cmux-tui/crates/cmux-tui-core/src/server`. 16.
 - Q3 F10 receipt waits (121-126, 134): today's wrapper pattern `\.commit_terminal\(|commit_workspace_registry\(|commit_effect_intent\(|\.send_durable(_until)?\(|\.send_producer\(` (17) plus direct callers `commit_registry_intent(_with)?\(` and `flush_terminal_journal\(` outside their definitions, excluding tests.
 - Q4 side connections (095, 100-105, 108, 151): multi-line scan for `LineTransport(path:` and `DaemonConnection(` (with the argument on the same or next line), plus `NWConnection(to: .unix`, raw `connect(` to daemon sockets, and `DaemonBridge.open`; minus the allowlist.
@@ -380,7 +380,8 @@ check it.
 - Merge conflicts. Family-scoped ids avoid collisions; api-compat-check before every push; hot files serialized
   (rule 11); sniffer tasks edit only their own ROUTES.
 - Build time. Generated Swift is limited to `clients: macos` methods, in a leaf target, per-family files; task
-  194 measures leaf-edit and schema-edit rebuilds before and after.
+  194 measures leaf-edit and schema-edit rebuilds before and after. The method table (023) is one file: it is
+  small data, and every output is rewritten on any schema edit, so per-family files would gain nothing.
 - Head-of-line. Streams stay off by default (095) until 056, 072, 086, 087, 099 and 144 land and B1 shows IPC-8;
   task 094 flips the default with that evidence.
 - Scope. The CLI-to-app control socket, cmux-pane-protocol and acpmux keep their own framing in this push.
@@ -682,6 +683,10 @@ lists dictionary-valued fields whose bytes change on purpose. Test: SWIFT(CmuxNe
 Change: `DaemonWireEvent` with a case per event plus `unknown(name, raw)`; `decode(line:)` finds the name with a
 byte scan (full-parse fallback) then decodes once; `decode(eventID:payload:)` for TYPED_EVENT. Acceptance: a
 counting decoder over 20 fixture lines shows 1 decode per event. Test: SWIFT(CmuxNextWireGenTests).
+A TYPED_EVENT payload is the event's JSON object, `event` included; an id the table does not know is `unknown`,
+never an error. CmuxNextWireGenPlugin builds the fixture schema's `DaemonWireEvent` into CmuxNextIPCTests
+(`--event-output`), where the counted decode runs. Follow-up p05-ipc-195 (after 020) passes `--event-output` for
+CmuxNextIPC itself, once TypeEmitter's payload types build.
 
 **p05-ipc-023 method tables.** Files: cmux-tui/crates/cmux-ipc/build.rs, cmux-tui/crates/cmux-ipc/src/methods.rs,
 app:CmuxNextWireGen/TableEmitter.swift, app:CmuxNextIPC/MethodTable.swift. Change: per-family dense arrays
@@ -779,6 +784,22 @@ Tests/CmuxNextIPCTests/FrameReaderTests.swift. Change: recvmsg into pooled refco
 and 0xFF frames; no-copy slices only for OUTPUT/SNAPSHOT/REPLAY payloads >= 4 KiB; copy JSON lines and small
 frames; fd FIFO. Acceptance: golden fixtures decode like Rust; large OUTPUT payload base address lies in the read
 buffer; a held small event retains <= its own size; bad input gives a typed error. Test: SWIFT(FrameReaderTests).
+Interface (057's fuzz `Subject` calls exactly this; change both together): `FrameReader(limits:
+FrameReader.Limits(maxLine: Int, maxFramePayload: UInt32))`, a limit of 0 accepted (only empty lines or empty
+payloads pass); `negotiateFrames()`; besides the recvmsg path, `push(_: UnsafeRawBufferPointer)` that copies bytes
+received elsewhere, allowed at any time, also after `markEndOfStream()` and after a bad message; `markEndOfStream()`;
+`next() throws(BadMessage) -> Message?` (nil: needs bytes, or a clean end), `Message` an enum of exactly
+`.json(line)` and `.frame(Frame)`, the line an owned `Collection<UInt8>` without its `\n` that stays valid after
+later calls (not a `String`); `Frame.header.encode() -> [UInt8]` gives the 16 wire bytes and `Frame.payload` is a
+`Collection<UInt8>`; `BadMessage.reason: String` is the Rust `BadMessage::reason()` string. Rules: the order of
+checks and the reason strings of cmux-ipc reader.rs and frame.rs (050). A message boundary at 0xFF is a frame:
+`frames_not_negotiated` before `negotiateFrames()`; once its 16 header bytes are there, `unknown_kind`, then
+`oversize` (len > min(maxFramePayload, 32 MiB)), then for call kinds `unknown_priority` and `unknown_flags`, for
+stream-data kinds stream 0 is `data_on_control_stream`; a partial frame at the end of stream is `truncated`. Any
+other boundary starts a JSON line up to `\n`: longer than maxLine (delimiter excluded) is `line_too_long`, also
+before its `\n` arrives; bytes that are not strict UTF-8 are `invalid_utf8` (the reader checks, not the JSON
+decoder); at the end of stream an unterminated trailing line is a message. The first bad message is the answer of
+every later call, whatever bytes come after it.
 
 **p05-ipc-055 Swift FrameWriter.** Files: app:CmuxNextIPC/FrameWriter.swift,
 app:CmuxNextDaemon/Connection/SocketWriter.swift, Tests/CmuxNextIPCTests/FrameWriterTests.swift. Change:

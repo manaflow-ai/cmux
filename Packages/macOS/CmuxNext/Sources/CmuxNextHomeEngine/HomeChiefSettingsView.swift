@@ -306,6 +306,7 @@ public final class HomeChiefSettingsView: NSView {
         let kept = shownName
         shownName = name
         // task-owner: one rename; ends with the owner's answer
+        // main-hop-allow: the person's rename, userBlocking rest (p06 rule 2): onRename is the app's main-actor async owner request; this task only starts it and shows the answer in its one resume
         return Task { [weak self] in
             guard let self else { return }
             let failure = await onRename(name)
@@ -345,7 +346,7 @@ public final class HomeChiefSettingsView: NSView {
             guard response == .OK, let url = panel.url else { return }
             self?.usePicture(url)
         }
-        if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
+        if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { panel.begin(completionHandler: use) }
     }
 
     @objc func useDefaultPicture() {
@@ -362,6 +363,7 @@ public final class HomeChiefSettingsView: NSView {
         let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
         changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
+        // main-hop-allow: the person's picture pick, userBlocking rest (p06 rule 2): HomeChiefAvatars' write is the daemon registry request or its off-main file copy; this task only starts it and redraws or notes in its one resume
         return Task { [weak self] in
             let written: Bool
             do {

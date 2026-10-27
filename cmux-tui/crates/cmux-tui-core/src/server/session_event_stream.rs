@@ -20,6 +20,7 @@ use crate::resource::WireDecimal;
 use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
 use crate::stream_interrupt::StreamInterrupt;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -231,8 +232,9 @@ pub(super) fn prepare_session_event_stream(
         Some("request a fresh session snapshot"),
         None,
     );
+    // Its items share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound = writer
-        .start_stream(&overflow)
+        .start_control_stream(&overflow)
         .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
     let (canceled, worker_permit) =
         register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;
@@ -261,9 +263,13 @@ pub(super) fn start_session_event_stream(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = std::thread::Builder::new()
-        .name("mux-resource-session-events".into())
-        .spawn(move || run_session_event_stream(&worker_mux, client, &worker_writer, start));
+    let spawn = cmux_threads::spawn(
+        "mux-resource-session-events",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            run_session_event_stream(&worker_mux, client, &worker_writer, start);
+        },
+    );
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let end = resource_stream_end(
@@ -476,7 +482,7 @@ fn delta_item(
 /// (`crate::state::placement_shift`), so a stream that resumes across many
 /// shifted batches reads them once.
 type PlacementCache = Option<((String, (u64, u64, u64)), Arc<Vec<Value>>)>;
-static PLACEMENTS: std::sync::Mutex<PlacementCache> = std::sync::Mutex::new(None);
+static PLACEMENTS: Mutex<PlacementCache> = Mutex::new(None);
 
 fn current_placements(mux: &Mux, generation: &str) -> anyhow::Result<Arc<Vec<Value>>> {
     let mut cache = PLACEMENTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

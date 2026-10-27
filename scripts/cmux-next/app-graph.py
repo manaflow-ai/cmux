@@ -295,7 +295,7 @@ DESTINATIONS: dict[str, Dest] = {
     "top:AppDelegate": Dest(APP, "182", app_dir="Launch"), "top:AppProcessRoot": Dest(APP, "182", app_dir="Launch"),
     "top:CmuxApplication": Dest(APP, "182", app_dir="Launch", gated="PL-cef-helper"),
     "top:CmuxNextApp": Dest(APP, "182", app_dir="Launch"), "top:Launch": Dest(APP, "182", app_dir="Launch"),
-    "top:FirstFrameGate": Dest(APP, "182", app_dir="Launch"), "top:BenchHooksMarker": Dest(APP, "182", app_dir="Launch"),
+    "top:BenchHooksMarker": Dest(APP, "182", app_dir="Launch"),
     "top:MainMenu": Dest(APP, "181", app_dir="Menus"), "top:MenuIdentityHeader": Dest(APP, "181", app_dir="Menus"),
     "top:Strings": Dest(APP, "180", app_dir="Composition"),
     # @_exported re-export files: deleted by task 015, never moved
@@ -331,7 +331,7 @@ TOP_FAMILIES = sorted({
     "AppProcessRoot", "PaneController", "PaneContentView", "PaneBrowserTabOpener", "TabContentCache",
     "WindowRootView", "WorkspaceContentController", "EmptyWorkspace", "NewTab", "NewTerminal",
     "NewWorkspaceFocus", "StripNewTab", "RestoredNewTabPages", "CmuxApplication", "CmuxNextApp", "MainMenu",
-    "MenuIdentityHeader", "FirstFrameGate", "BenchHooksMarker", "ActionRouting", "ActionScope", "WorkContextTrail",
+    "MenuIdentityHeader", "BenchHooksMarker", "ActionRouting", "ActionScope", "WorkContextTrail",
     "FeaturePolicyEnforcer", "ManagedPolicyBridge", "UpdaterService", "PersonalGroup", "CloudCreationRows",
     "ChatSettingsPush", "ExtensionMenuRouter", "StaticURL", "WorkingURL", "OutboundTab", "DaemonTerminalIO",
     "GhosttyConfigLiveReload", "ThemeBridge", "ShowcaseState", "UIInspectorController", "SettingsPaletteSource",

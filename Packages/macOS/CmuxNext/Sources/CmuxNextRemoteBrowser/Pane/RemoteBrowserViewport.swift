@@ -1,6 +1,6 @@
 public import CoreGraphics
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The page size a remote tab asks the host for (`rb.screen`, RT4): the
 /// pane's size in CSS pixels at the pane's backing scale. CSS sizes are whole
 /// points (the page sees integer `innerWidth`), so the pixel size is exact.

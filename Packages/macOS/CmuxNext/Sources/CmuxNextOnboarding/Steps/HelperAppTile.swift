@@ -6,13 +6,16 @@ import CmuxNextDesign
 /// (what System Settings' lists accept).
 final class HelperAppTile: NSView, NSDraggingSource {
     private let appURL: URL
+    /// The helper's icon, read off the main thread by the App (cmux's own when it has none yet).
+    private let appIcon: NSImage
     private(set) lazy var hover = ChromeHover(self)
 
-    init(appURL: URL) {
+    init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL
+        appIcon = icon ?? NSImage(named: NSImage.applicationIconName) ?? NSImage()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
+        let icon = NSImageView(image: appIcon)
         icon.imageScaling = .scaleProportionallyUpOrDown
         let name = OnboardingLabel.make(Self.displayName(appURL))
         name.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal) // content-sized panel (cx-k9mc)
@@ -59,11 +62,12 @@ final class HelperAppTile: NSView, NSDraggingSource {
         hover.state.pressed = true
     }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
+    // local-monitor-allow: begins a drag session, which AppKit starts only from a mouseDragged event; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
-        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
-        item.setDraggingFrame(NSRect(x: 10, y: (bounds.height - 32) / 2, width: 32, height: 32), contents: icon)
+        item.setDraggingFrame(NSRect(x: 10, y: (bounds.height - 32) / 2, width: 32, height: 32), contents: appIcon)
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
@@ -73,6 +77,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: repaints its hover fill (ChromeHover) only, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

@@ -11,6 +11,7 @@ use ghostty_vt::{Dirty, StyledRun, UnderlineStyle};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::panic_free::JsonFields;
 use crate::resource::{ResourceError, Selector, SessionPublicId, SidebarViewPublicId};
 use crate::surface::RenderAttachFrameReceiver;
 use crate::{
@@ -29,7 +30,7 @@ pub(crate) fn sidebar_view_id(
     digest.update(b"cmux.protocol/2/sidebar-view/");
     digest.update(session_id.as_str().as_bytes());
     let digest = digest.finalize();
-    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let payload = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>();
     SidebarViewPublicId::parse(format!("sidebar_view_{payload}"))
 }
 
@@ -155,16 +156,16 @@ impl SidebarRenderClientState {
             "rows":rows,
         });
         if size_changed {
-            render["size"] = json!({"cols":frame.frame.size.0,"rows":frame.frame.size.1});
+            render.insert("size", json!({"cols":frame.frame.size.0,"rows":frame.frame.size.1}));
         }
         if foreground_changed {
-            render["default_fg"] = json!(rgb_hex(frame.frame.default_colors.1));
+            render.insert("default_fg", json!(rgb_hex(frame.frame.default_colors.1)));
         }
         if background_changed {
-            render["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
+            render.insert("default_bg", json!(rgb_hex(frame.frame.default_colors.0)));
         }
         if scrollback_changed {
-            render["scrollback_rows"] = json!(frame.scrollback_rows);
+            render.insert("scrollback_rows", json!(frame.scrollback_rows));
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
@@ -251,10 +252,10 @@ fn styled_run_json(run: &StyledRun) -> Value {
         "attrs":run.attrs,
     });
     if let Some(underline) = underline {
-        value["underline"] = json!(underline);
+        value.insert("underline", json!(underline));
     }
     if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
+        value.insert("width_hint", json!(width_hint));
     }
     value
 }

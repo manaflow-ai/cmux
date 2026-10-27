@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Presenter prototypes (`remoteDesktop.debug.presenter`, DEV and NIGHTLY
 /// Debug Settings; section 7). Lawrence picks after the lit-display bench.
@@ -32,21 +33,30 @@ public protocol RemoteFramePresenter: AnyObject, Sendable {
     var layer: CALayer { get }
     /// Called on the main actor when the decoded frame size changes.
     var onFrameSize: ((CGSize) -> Void)? { get set }
+    /// Called on the main actor after each frame went on screen (`shownFrame` is it).
+    var onFrameShown: (() -> Void)? { get set }
     nonisolated func present(_ frame: RemoteDecodedFrame)
     /// The pane's backing scale (layer `contentsScale`).
     func setBackingScale(_ scale: CGFloat)
     /// Frames replaced before display (latest-frame-wins drops).
     nonisolated var discardedFrames: Int { get }
+    /// The frame on screen now, nil before the first: a hidden or discarded tab keeps it as its
+    /// picture (a video layer is not drawn by `cacheDisplay`). It is the buffer the layer shows.
+    var shownFrame: RemoteDecodedFrame? { get }
 }
 
 public struct RemoteFramePresenters {
     public nonisolated init() {}
-    /// The presenter for `kind`. B falls back to A where Metal is missing.
-    public func make(_ kind: RemotePresenterKind) -> any RemoteFramePresenter {
+    /// The presenter for `kind`. B falls back to A where Metal is missing. Its frames show in `mainWork`'s visible
+    /// class (a remote screen's own updates, as a page's or a program's: no input of the person caused them).
+    public func make(_ kind: RemotePresenterKind, mainWork: MainWorkScheduler) -> any RemoteFramePresenter {
         switch kind {
-        case .layerContents: return LayerContentsPresenter()
-        case .metal: return MetalFramePresenter() ?? LayerContentsPresenter()
-        case .sampleBuffer: return SampleBufferPresenter()
+        case .layerContents: return LayerContentsPresenter(mainWork: mainWork)
+        case .metal: return MetalFramePresenter(mainWork: mainWork) ?? LayerContentsPresenter(mainWork: mainWork)
+        case .sampleBuffer: return SampleBufferPresenter(mainWork: mainWork)
         }
     }
+
+    /// The owner of every presenter's show task on the board.
+    static let showOwner = "remote-view.present"
 }

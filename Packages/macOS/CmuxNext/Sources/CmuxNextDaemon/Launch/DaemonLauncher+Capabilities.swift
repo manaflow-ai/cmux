@@ -37,5 +37,5 @@ extension DaemonLauncher {
         }
     }
 
-    static let capabilityLogger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+    static let capabilityLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 }

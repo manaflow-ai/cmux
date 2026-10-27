@@ -1,8 +1,10 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 impl Mux {
+    #[track_caller]
     pub fn report_agent(
         &self,
         surface: SurfaceId,
@@ -27,6 +29,7 @@ impl Mux {
     // internal transaction boundary. Grouping them into a bag would hide the
     // lock-order contract that protects journal replay.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -74,6 +77,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn resource_report_agent_selected(
         &self,
         selectors: crate::ResourceSelectors,
@@ -116,6 +120,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,
@@ -135,8 +140,8 @@ impl Mux {
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
         let mut sequence_guard =
-            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
-        let mut registry = self.workspace_registry.lock().unwrap();
+            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().recover_poison());
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
         {
@@ -147,7 +152,7 @@ impl Mux {
             }
             return Ok((replay, None));
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let (surface, terminal_id) = match target {
             AgentReportTarget::Surface(surface) => {
                 let runtime = state
@@ -240,7 +245,7 @@ impl Mux {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
         let now = now_ms();
-        let mut records = self.agent_records.lock().unwrap();
+        let mut records = self.agent_records.lock().recover_poison();
         // Hook and plugin observations are stronger agent truth than a direct
         // socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
@@ -332,7 +337,7 @@ impl Mux {
         let persisted_source_session =
             if socket_report_ignored { record.session.clone() } else { persisted_source_session };
         let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
-        let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let payload = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>();
         let agent_id =
             AgentPublicId::parse(format!("agent_{payload}")).map_err(anyhow::Error::new)?;
         let session_id = registry.session_id().clone();
@@ -351,7 +356,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.insert("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -455,7 +460,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries = self.agent_roster.lock().recover_poison().roster.entries.clone();
         let agent_session_ids = self
             .agent_records
             .lock()
@@ -465,8 +470,8 @@ impl Mux {
                 Some((terminal_id.clone(), record.agent_session_id.clone()?))
             })
             .collect::<HashMap<_, _>>();
-        let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
-        let state_snapshot = self.state.lock().unwrap();
+        let prompts = self.agent_prompts.lock().recover_poison().prompts.clone();
+        let state_snapshot = self.state.lock().recover_poison();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
                 .surfaces

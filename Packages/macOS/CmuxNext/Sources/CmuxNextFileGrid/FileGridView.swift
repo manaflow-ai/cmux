@@ -23,6 +23,8 @@ public import AppKit
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
     private let scrollView = NSScrollView()
+    /// The grid's scroll view (a page that saves its scroll position reads and sets it there).
+    public var tilesScrollView: NSScrollView { scrollView }
     let collectionView = FileGridCollectionView()
     private let layoutValues = NSCollectionViewFlowLayout()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")

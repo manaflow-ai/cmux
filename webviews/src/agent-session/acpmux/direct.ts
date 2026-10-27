@@ -37,9 +37,11 @@ import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntr
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import { PAGE_FROZEN_CLOSE_REASON } from "./bridgeSocket";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
+import type { CheckpointMethod } from "./checkpoints/protocol";
 import { PermissionGroupClient } from "./permissions/client";
 import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
 import { cancelledArgs, decidedQuestion, QUESTION_RECORD } from "./question/record";
@@ -76,6 +78,9 @@ import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks"
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
 import { recordedConversationEvents } from "./conversation/exportEvents";
+import { onPageLifecycleChange, pageIsActive } from "../../pages/shared/pageLifecycle";
+import type { PagePollSeams } from "../../pages/shared/pagePoll";
+import { RetryBackoff } from "../../pages/shared/retryBackoff";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1225,8 +1230,9 @@ export class AcpmuxDirectClient {
   private peerConnected: Record<string, boolean> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
-  private reconnectTimer?: number;
-  private reconnectDelay = 250;
+  /// The reconnect's backoff, which rests while the page is hidden and tries once on show
+  /// (retryBackoff.ts, p13-webui-069).
+  private readonly reconnect: RetryBackoff;
   /// Called once when an established connection drops. The host then asks Swift
   /// for a fresh handshake, because a restarted daemon has a new port and token.
   private readonly onLost?: () => void;
@@ -1257,6 +1263,8 @@ export class AcpmuxDirectClient {
   onHarnessesChanged?: () => void;
   /// `_acpmux/process_update` listeners (inspector/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
+  /// Stops following the page's lifecycle (pages/shared/pageLifecycle.ts).
+  private readonly unobserveLifecycle: () => void;
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
 
@@ -1268,12 +1276,17 @@ export class AcpmuxDirectClient {
     private readonly gitRoute: GitRoute = "native",
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
+    /// The page's lifecycle and timers for the reconnect backoff, or a test's fakes.
+    pollSeams: PagePollSeams = {},
   ) {
+    this.reconnect = new RetryBackoff({ ...pollSeams, firstMs: 250, maxMs: 30_000 });
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // Hidden, frozen and shown come from the page's own lifecycle (pageLifecycle.ts): no native
+    // stream, and a show or a resume reads nothing.
+    this.unobserveLifecycle = onPageLifecycleChange(this.showChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
     // hands the composer's chips over the same way). Without this the only chat the host ever
@@ -1376,8 +1389,9 @@ export class AcpmuxDirectClient {
     openSocket?: OpenSocket,
     gitRoute?: GitRoute,
     wire?: AcpWireLog,
+    pollSeams?: PagePollSeams,
   ): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire, pollSeams);
     await client.open();
     return client;
   }
@@ -1424,20 +1438,18 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
+        // The host let a frozen page's idle connection go (AgentPaneTransport.closeWhileFrozen) and
+        // hands the close on at the thaw: the daemon is still there, so the same client opens again.
+        const frozen = this.hasConnected && !this.closed && event?.reason === PAGE_FROZEN_CLOSE_REASON;
+        const hold = frozen ? this.holdSnapshots(OPEN_HOLD_MS) : undefined;
         this.handoff.disconnect();
         // acpmux drops a connection's attaches with it; the next attach watches them again.
         this.offerChildren.reset(false);
         this.groupedPermissions.clear();
         this.permissions.disconnected();
         this.rejectPending();
-        this.emit("disconnected");
-        if (!this.hasConnected || this.closed) return;
-        if (this.onLost) {
-          this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
-          const onLost = this.onLost;
-          this.close();
-          onLost();
-        } else this.scheduleReconnect();
+        if (hold !== undefined) this.reopenAfterFreeze(hold);
+        else this.lost();
       };
       socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
@@ -1573,7 +1585,7 @@ export class AcpmuxDirectClient {
         await this.adoptChat(this.host.adopt);
       }
       this.hasConnected = true;
-      this.reconnectDelay = 250;
+      this.reconnect.reset();
       this.wire.lifecycle("connected", {
         sessionId: this.selectedSessionId,
         sessions: this.sessions.length,
@@ -1730,15 +1742,39 @@ export class AcpmuxDirectClient {
     return this.lastSeq;
   }
 
+  /// The connection is gone and the daemon may be too: the pane shows it, and the host is asked for
+  /// a fresh handshake (a restarted daemon has a new port and token) or the client reconnects.
+  private lost(): void {
+    this.emit("disconnected");
+    if (!this.hasConnected || this.closed) return;
+    if (this.onLost) {
+      this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
+      const onLost = this.onLost;
+      this.close();
+      onLost();
+    } else this.scheduleReconnect();
+  }
+
+  /// A frozen page's connection closed for the freeze (`PAGE_FROZEN_CLOSE_REASON`): the same client
+  /// opens again at once and keeps its events, so the open resumes after `lastSeq` and reads what the
+  /// chat recorded meanwhile. What the pane shows stays, held by `hold`, until that read, and no
+  /// "disconnected" frame shows. An open that fails is a loss like any other.
+  private reopenAfterFreeze(hold: number): void {
+    this.wire.lifecycle("frozen close", { message: "opening again after the page's freeze" });
+    this.open().then(
+      () => this.releaseSnapshots(hold),
+      () => {
+        this.releaseSnapshots(hold);
+        // An open whose socket closed after it opened took the loss path in its own onclose.
+        if (!this.closed && !this.reconnect.waiting) this.lost();
+      },
+    );
+  }
+
   private scheduleReconnect(): void {
-    if (this.reconnectTimer !== undefined || this.closed) return;
-    const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(delay * 2, 30_000);
-    this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = undefined;
-      void this.open().catch(() => this.scheduleReconnect());
-    }, delay);
+    if (this.reconnect.waiting || this.closed) return;
+    this.wire.lifecycle("reconnect scheduled", { delayMs: this.reconnect.nextMs });
+    this.reconnect.schedule(() => void this.open().catch(() => this.scheduleReconnect()));
   }
 
   private receive(raw: string): void {
@@ -2228,6 +2264,14 @@ export class AcpmuxDirectClient {
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
   gitCheckpointDiff(from: string, to: string): Promise<unknown> {
     return this.git("git.checkpoint.diff", { from, to, include_patch: true });
+  }
+
+  /// The checkpoint feature's requests (checkpoints/protocol.ts `CHECKPOINT_METHODS`): the native
+  /// host owns them, and mock mode's in-page daemon answers them for the selected session, as it
+  /// answers `git.diff`.
+  gitCheckpoint(method: CheckpointMethod, params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute !== "daemon") return postNative(method, params);
+    return this.request(method, { sessionId: this.selectedSessionId, ...params });
   }
 
   private git(
@@ -5618,10 +5662,9 @@ export class AcpmuxDirectClient {
     this.missingRecheck = undefined;
     clearTimeout(this.stopTimer);
     this.stopTimer = undefined;
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.unobserveLifecycle();
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
-    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = undefined;
+    this.reconnect.cancel();
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
@@ -5884,9 +5927,9 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
-/// hidden, or in an occluded window.
+/// hidden, or in an occluded window; a frozen or parked page is not shown either.
 function pageShown(): boolean {
-  return typeof document === "undefined" || document.visibilityState !== "hidden";
+  return pageIsActive();
 }
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.

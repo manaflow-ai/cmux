@@ -12,7 +12,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
   if (snap.installed.length === 0)
     return <div className="apps-empty">{snap.loading ? "" : t("store.empty.noneInstalled")}</div>;
   return (
-    <div className="apps-scroll">
+    <div className="apps-scroll" data-page-scroll="installed">
       <div className="apps-installed">
         <UpdatesView snap={snap} store={store} strings={strings} />
         {snap.installed.map((app) => {
