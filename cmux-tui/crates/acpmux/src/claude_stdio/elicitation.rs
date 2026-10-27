@@ -124,11 +124,13 @@ impl Translator {
         let id = {
             let mut out = self.control_out.lock().await;
             out.remove(rid)
-        };
+        }?;
+        // An answer that already took the id owns the remaining payloads.
+        // Its direct writer may still be reading them after dropping `out`.
         self.elicitations.lock().await.remove(rid);
         self.suggestions.lock().await.remove(rid);
         self.inputs.lock().await.remove(rid);
-        id
+        Some(id)
     }
 }
 
