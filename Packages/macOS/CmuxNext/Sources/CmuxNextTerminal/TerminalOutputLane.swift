@@ -2,6 +2,7 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 import CmuxNextCompat
+import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -10,7 +11,9 @@ import os
 
 /// Serial, non-main lane for every call that must be serialized with
 /// `ghostty_surface_process_output` (ghostty.h:1373-1380, :1589):
-/// output, grid locks and GHOSTSNP snapshot restores.
+/// output, grid locks and GHOSTSNP snapshot restores. The session's events loop queues all of
+/// them here itself, without the main actor (``TerminalEventRouter``); the grid lock's generation
+/// is the lane's (``TerminalGridLock``).
 ///
 /// `process_output` takes the renderer-state mutex synchronously, so it runs
 /// off the main thread (cmux-tui-contract.md 3.2).
@@ -31,12 +34,8 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// The last READY restore succeeded. Written on `queue`; history after a
     /// failed READY is skipped until the next READY.
     private let readyRestored = Atomic<Bool>(false)
-    /// Whether the last READY restored (read after ``drained()``).
-    var lastReadyRestored: Bool { readyRestored.load(ordering: .acquiring) }
-    /// Result of the last local-history restore (a
-    /// `ghostty_surface_local_history_result_e`; read after ``drained()``).
-    private let localHistoryResult = Atomic<Int32>(Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
-    var lastLocalHistoryResult: Int32 { localHistoryResult.load(ordering: .acquiring) }
+    /// The surface's host-owned grid and its generation, read and changed only on `queue`.
+    let gridLock = TerminalGridLock()
 
     private struct Backlog {
         var bytes = 0
@@ -60,17 +59,24 @@ nonisolated final class TerminalOutputLane: Sendable {
     typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
     /// SAFETY: called only by ``feed(_:_:)`` with the lane's live surface (``liveSurface``).
     @safe private let parse: Parse
+    /// Locks the surface's grid at a generation: `ghostty_surface_set_grid`, or a test's recorder.
+    typealias SetGrid = @Sendable (ghostty_surface_t, UInt16, UInt16, UInt64) -> Void
+    /// SAFETY: called only by ``lockGrid(_:)`` with the lane's live surface (``liveSurface``).
+    @safe private let setGrid: SetGrid
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
          hangs: (any HangWatchScoping)? = nil,
-         // SAFETY: the lane calls `parse` only with its live surface (`parse`'s note).
-         parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) }) {
+         // SAFETY: the lane calls `parse` and `setGrid` only with its live surface (their notes).
+         parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) },
+         setGrid: @escaping SetGrid = { _ = unsafe ghostty_surface_set_grid($0, $1, $2, $3) }) {
         // SAFETY: the view's surface, which the lane reaches only through ``liveSurface``; the view
         // closes the lane before it frees the surface (TerminalSurfaceView.deinit).
         self.surface = unsafe UncheckedPointer(raw: surface)
         // SAFETY: `parse` is called only with the live surface (its note).
         self.parse = unsafe parse
+        // SAFETY: `setGrid` is called only with the live surface (its note).
+        self.setGrid = unsafe setGrid
         self.highWater = highWater
         self.echoStage = echoStage
         self.keyFlows = keyFlows
@@ -83,9 +89,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         hangWatched?.unregister()
     }
 
-    /// Takes a live session event for this lane off the main actor (``TerminalSession``): an output
+    /// Takes a live session event for this lane off the main actor (``TerminalEventRouter``): an output
     /// chunk is queued here once the backlog has room, an echo marker marks its press. False for every
-    /// other event, which the session handles on the main actor.
+    /// other event, which the router routes.
     func takeOffMain(_ event: TerminalIOEvent) async -> Bool {
         switch event {
         case .output(let data):
@@ -166,7 +172,9 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// stream order. Counted as backlog like output, so history pages push
     /// back on the IO the same way. A failed READY leaves the terminal as it
     /// was (logged); a failed history chunk keeps the pages applied so far.
-    func restoreSnapshot(_ data: Data, phase: ghostty_surface_snapshot_phase_e) {
+    /// `restored` gets a READY's result on the lane, once it was restored or failed.
+    func restoreSnapshot(_ data: Data, phase: ghostty_surface_snapshot_phase_e,
+                         restored done: (@Sendable (Bool) -> Void)? = nil) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
@@ -182,7 +190,10 @@ nonisolated final class TerminalOutputLane: Sendable {
                 // SAFETY: as above.
                 return unsafe ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
-            if ready { readyRestored.store(restored, ordering: .releasing) }
+            if ready {
+                readyRestored.store(restored, ordering: .releasing)
+                done?(restored)
+            }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
             #endif
@@ -198,12 +209,16 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// A match restores with history; a mismatch restores the READY without
     /// history (the caller then asks for READY + history); an error changes
     /// nothing. History of a READY before it is abandoned either way.
-    func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data) {
+    /// A restore (with or without history) resized the terminal and its grid lock to `grid` itself, so
+    /// the lock records `grid` with no set_grid (Ghostty keeps the lock's generation). `done` gets the
+    /// result (a `ghostty_surface_local_history_result_e`) on the lane.
+    func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data, grid: TerminalGridSize,
+                             done: @escaping @Sendable (Int32) -> Void) {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
-            defer { localHistoryResult.store(result, ordering: .releasing) }
+            defer { done(result) }
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane; Ghostty reads bytes.count bytes of `data` and
             // check.count of `digest`, both storages alive for the closures, and copies what it keeps.
@@ -222,6 +237,7 @@ nonisolated final class TerminalOutputLane: Sendable {
             }
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
+            if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue) { gridLock.adopt(grid) }
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }
@@ -262,6 +278,16 @@ nonisolated final class TerminalOutputLane: Sendable {
                 return true
             }
             if !parked { waiter.resume(returning: ()) }
+        }
+    }
+
+    /// Locks the surface to `grid` in stream order, behind every chunk queued before it, at the
+    /// lane's next generation (``TerminalGridLock``); nothing when `grid` is already locked.
+    func lockGrid(_ grid: TerminalGridSize) {
+        queue.async { [self] in
+            guard let surface = liveSurface, let lock = gridLock.next(grid) else { return }
+            // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
+            unsafe setGrid(surface, lock.columns, lock.rows, lock.generation)
         }
     }
 

@@ -16,16 +16,6 @@ public nonisolated enum TerminalSnapshotPhase: Sendable, Equatable {
     case images(skipped: Int)
 }
 
-extension TerminalSnapshotPhase {
-    /// A READY (plain or local-history): the restore of a whole screen.
-    var isReady: Bool {
-        switch self {
-        case .ready, .readyLocalHistory: true
-        case .history, .images: false
-        }
-    }
-}
-
 /// The owner's grid and history check of a local-history READY.
 public nonisolated struct TerminalLocalHistory: Sendable, Equatable {
     public var columns: Int
@@ -56,52 +46,4 @@ extension TerminalSession {
     /// The linked libghostty applies Kitty image replays
     /// (`ghostty_surface_apply_kitty_replay`, GhosttyNextKit pin).
     public nonisolated static let appliesKittyReplay = true
-}
-
-extension TerminalSession {
-    /// Restores GHOSTSNP bytes on the live surface's output lane, in stream
-    /// order behind earlier output and the grid lock of the preceding
-    /// `.resize` (a READY keeps that lock's generation and takes its size).
-    /// Returns whether a READY restored (history: whether it was queued).
-    @discardableResult
-    func restoreSnapshot(_ data: Data, phase: TerminalSnapshotPhase) async -> Bool {
-        guard let lane = surfaceView.lane else { return false }
-        switch phase {
-        case .ready:
-            // ghostty-next applies this surface's palette, default colors and
-            // cursor defaults to the restored terminal itself (local policy,
-            // GhosttyNextKit 68ac618db), keeping the program's overrides.
-            lane.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_READY)
-            await lane.drained()
-            return lane.lastReadyRestored
-        case .history:
-            await lane.waitForCapacity()
-            surfaceView.lane?.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_HISTORY)
-            return true
-        case .readyLocalHistory(let local):
-            return await restoreLocalHistory(data, local, on: lane)
-        case .images(let skipped):
-            await lane.waitForCapacity()
-            surfaceView.lane?.applyKittyReplay(data)
-            noteSkippedImages(skipped)
-            return true
-        }
-    }
-
-    /// The local-history READY: the surface's grid record follows the
-    /// restore (no set_grid: the restore reflows the old grid itself). On a
-    /// mismatch the READY is restored without history and the IO asks for a
-    /// fresh READY + history; on an error the IO asks as well.
-    private func restoreLocalHistory(_ data: Data, _ local: TerminalLocalHistory, on lane: TerminalOutputLane) async -> Bool {
-        lane.restoreLocalHistory(data, expectedRows: local.historyRows, digest: local.digest)
-        surfaceView.applyAnnouncedGrid(TerminalGridSize(columns: local.columns, rows: local.rows), restored: true)
-        await lane.drained()
-        let result = lane.lastLocalHistoryResult
-        guard result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) else {
-            noteLocalHistoryMismatch()
-            return result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue)
-        }
-        noteLocalSnapshot()
-        return true
-    }
 }
