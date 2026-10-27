@@ -2319,6 +2319,11 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
         return gated_signing_stall(jobs, at, seen, workflow_text)
 
     def still_stalled() -> None:
+        # The cancel acts on the run's current attempt: never one someone else started since.
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
+            raise SignStallChanged(f"the run is at attempt {run.get('run_attempt')} "
+                                   f"({run.get('status') or 'unknown'}), not attempt {target.attempt} in progress")
         found = look()
         if found is None or found.action != "stalled":
             raise SignStallChanged(found.reason if found else "no signing job is stalled any more")

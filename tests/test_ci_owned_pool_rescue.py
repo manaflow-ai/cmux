@@ -3322,6 +3322,31 @@ class NightlySigningStall(unittest.TestCase):
         self.assertEqual(look.action, "watch")
         self.assertIn("sign-nightly-identity-legacy", look.reason)
 
+    def test_the_guard_never_cancels_an_attempt_someone_else_started(self):
+        clock = Clock()
+        clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        reads = {"count": 0}
+        read_run = api.run
+
+        def run(run_id):
+            # The first look's and rescue()'s own reads see attempt 1; by the read right before the cancel,
+            # another watcher has started attempt 2.
+            reads["count"] += 1
+            found = dict(read_run(run_id))
+            if reads["count"] > 2:
+                found.update(run_attempt=2, status="in_progress")
+            return found
+        api.run = run
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertIn("not attempt 1 in progress", result)
+        self.assertEqual(reads["count"], 3)
+        self.assertEqual(mutations(api), [])
+
     def test_every_retry_inside_request_keeps_the_guard(self):
         import inspect
         import re as re_module
