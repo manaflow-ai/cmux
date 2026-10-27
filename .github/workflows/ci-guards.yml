@@ -1657,7 +1657,10 @@ jobs:
 
       - name: Validate the release signer scripts
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_release_signer_scripts.py
+        run: |
+          python3 tests/test_release_signer_scripts.py
+          python3 tests/test_release_signer_nightly.py
+          python3 tests/test_dev_app_linux.py
 
       - name: Validate release asset guard
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
