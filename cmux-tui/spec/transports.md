@@ -224,6 +224,32 @@ closes the connection, and during a pending handoff it is refused with
 a bad message (`unknown_stream`), and so is one from a remote-relay client
 (`remote_input`).
 
+#### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
+
+A snapshot viewer's `snapshot` events (READY, local-history READY, history and
+images chunks) go as SNAPSHOT frames and the `vt-state` replay as a REPLAY
+frame (p05-ipc-077). The payload of one event is:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0-3 | meta_len | u32 little endian |
+| 4.. | meta | one UTF-8 JSON object, `meta_len` bytes |
+| then | raw | `data_len` bytes, then `pending_len` bytes (REPLAY only, when present) |
+
+The meta is the event's JSON line without its base64 fields (`data`, and
+`pending` for `vt-state`), plus `data_len` and, when the replay has a pending
+sequence, `pending_len`. The raw bytes are what those fields decode to: a
+history chunk's raw DEFLATE, the GHOSTSNP READY prefix, the Kitty replay
+stream, the VT replay and its pending sequence. aux is the PTY offset of the
+READY or of the replay cut. A writer cuts a long event into chunks: a SNAPSHOT
+continues as SNAPSHOT_MORE frames with the same aux; a REPLAY continues as
+REPLAY frames with the same aux, because its payload bytes (the prefix, the
+meta and the synthesized VT replay) are not PTY bytes. The next OUTPUT starts
+at that same offset. The reader takes the offset from the first frame, appends chunks
+until it holds `4 + meta_len + data_len + pending_len` bytes, and then has the
+whole event. A frame that would pass the 32 MiB payload limit is not built;
+that event goes as its JSON line.
+
 Golden vectors for every kind, one mixed stream and each bad-message case are
 in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
 plain fields. Every implementation decodes them the same way.
@@ -435,12 +461,15 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 
 ## Framed IPC grants
 
-Status: grant rule only. The daemon advertises and grants a capability only
-after its transport is in the daemon. No transport is in the daemon yet, so
-`identify` lists none of the four and `set-client-info` grants none. The
-task that adds a transport also turns on its capability: p05-ipc-061 for
-`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
-and the ring task for `terminal-output-ring-v1`
+Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
+[events.md](events.md#attach-streams)); the other three are a grant rule
+only. The daemon advertises and grants a capability only after its
+transport is in the daemon, so `identify` lists only `attach-streams-v1` of
+the four and `set-client-info` grants only it. A request that names a
+`stream` on a connection without the grant is refused with
+`streams_not_granted`. The task that adds a transport also turns on its
+capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for
+`terminal-output-ring-v1`
 (`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
 works the same way: it exposes an interface only after its implementation
 is bound.

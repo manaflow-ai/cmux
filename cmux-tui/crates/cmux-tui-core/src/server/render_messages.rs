@@ -21,6 +21,10 @@ use super::{
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
+/// SNAPSHOT and REPLAY frames: the binary forms of `snapshot` and `vt-state`.
+#[path = "snapshot_frames.rs"]
+pub(super) mod snapshot_frames;
+
 pub(super) struct VtStateMessage {
     pub(super) surface: SurfaceId,
     pub(super) cols: u16,
@@ -565,10 +569,13 @@ pub(super) fn encode_browser_attach_update(
     writer: &MessageWriter,
     surface: SurfaceId,
     update: BrowserAttachUpdate,
+    stream: &OutboundStream,
 ) -> EncodedBrowserAttachUpdate {
     [
-        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame))),
-        update.state.map(|state| writer.encode(&browser_state_message(surface, &state, false))),
+        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame), stream)),
+        update
+            .state
+            .map(|state| writer.encode(&browser_state_message(surface, &state, false), stream)),
     ]
 }
 

@@ -24,10 +24,14 @@ extension SidebarUpdateCardView {
     /// closing (the pointer left and came back) opens again.
     func showNotes() {
         cancelNotesClose()
-        guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
+        guard card != nil, let highlights else { return }
+        // A page made on its first hover, or let go while it waited (feature `memoryOverlayPagesOnFirstUse`), is
+        // made now: the popup opens once it measured itself (``highlightsHeightChanged()``).
+        highlights.willShow()
+        guard highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor, // visibility-walk-allow: the popup's anchor check when a hover opens it, as a hit test
               let cards = hoverCards() else { return }
         let host = notesHost
-        wireNotes(highlights)
+        wireNotes()
         host.adopt(highlights)
         host.fit(height: notesHeight(for: highlights.contentHeight))
         let anchor = window.convertToScreen(convert(bounds, to: nil))
@@ -35,6 +39,19 @@ extension SidebarUpdateCardView {
         cards.presentOwned(Self.notesID, body: body, anchor: anchor, parent: window, interactive: true) { [weak self] in
             self?.notesEnded()
         }
+        highlights.didShow()
+    }
+
+    /// The highlights page measured itself: an open popup fits it; a hover still waiting on a page made for it
+    /// opens the popup now.
+    func highlightsHeightChanged() {
+        guard let highlights, highlights.contentHeight > 0 else { return }
+        guard notesAreShown else {
+            if isHovered, !notesDismissedWhileHovered { showNotes() }
+            return
+        }
+        notesHost.fit(height: notesHeight(for: highlights.contentHeight))
+        hoverCards()?.refitOwned(Self.notesID)
     }
 
     /// The highlights' card left the window (closed and faded out, or a workspace card took it):
@@ -109,15 +126,10 @@ extension SidebarUpdateCardView {
         hoverCards()?.endOwned(Self.notesID)
     }
 
-    /// The page's host hears the pointer and its height.
-    private func wireNotes(_ highlights: any SidebarSurfaceIsland) {
+    /// The page's host hears the pointer (its height comes through ``highlightsHeightChanged()``).
+    private func wireNotes() {
         notesHost.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         notesHost.onPointerEnter = { [weak self] in self?.cancelNotesClose() }
-        highlights.onHeightChange = { [weak self, weak highlights] in
-            guard let self, let highlights, highlights.contentHeight > 0 else { return }
-            self.notesHost.fit(height: self.notesHeight(for: highlights.contentHeight))
-            self.hoverCards()?.refitOwned(Self.notesID)
-        }
     }
 
     /// Whether `point` (screen, default the pointer now) is over the popup,
@@ -135,7 +147,7 @@ extension SidebarUpdateCardView {
 
     /// Whether `point` (screen, default the pointer now) is over the card.
     func pointerIsOverCard(_ point: CGPoint? = nil) -> Bool {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false } // visibility-walk-allow: a hit test at the pointer
         return cardScreenFrame?.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point ?? screenPointer()) ?? false
     }
 
@@ -175,7 +187,7 @@ extension SidebarUpdateCardView {
         notesCloseChecks &+= 1
         if notesPinned { return }
         notesCloseWaited += Self.notesCloseDelay
-        if isHovered && !isHiddenOrHasHiddenAncestor { return }
+        if isHovered && !isHiddenOrHasHiddenAncestor { return } // visibility-walk-allow: the close check's hit test at the pointer
         if let notes = notesFrame, notes.contains(screenPointer()) { return }
         let onTheWay = pointerIsInNotesCorridor() || pointerIsOverCard() || pointerIsOverNotes()
         if onTheWay, notesCloseWaited < Self.notesCorridorLimit { return armNotesClose() }

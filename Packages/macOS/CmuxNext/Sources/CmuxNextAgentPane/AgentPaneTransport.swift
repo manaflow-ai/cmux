@@ -1,6 +1,7 @@
 public import Foundation
 import os
 import CmuxNextCompat
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -42,8 +43,8 @@ import func CmuxSafeConcurrency.withOnceContinuation
             let previous = pacerStorage
             pacerStorage = newValue
             // An AppKit view can replace the default pacer from a synchronous callback. Keep
-            // the old actor-isolated pacer alive until its release runs on the main actor.
-            Task { @MainActor in
+            // the old actor-isolated pacer alive until a later main-thread task releases it.
+            mainWork.post(.background, owner: "agentPane.transport.pacerRelease") {
                 withExtendedLifetime(previous) {}
             }
         }
@@ -173,11 +174,23 @@ import func CmuxSafeConcurrency.withOnceContinuation
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
+    /// The app's one main-thread scheduler: the socket's wakes and the page's sends land on it as classed tasks.
+    public let mainWork: MainWorkScheduler
+    /// The socket's wake, interned once on ``mainWork``'s board (one per arrival burst).
+    private let arrivedOwner: MainTaskOwner
+
+    /// - Parameters:
+    ///   - limits: The bounds of the queues and sends.
+    ///   - pacer: When arrived frames reach the page; nil flushes on the next main-thread task.
+    ///   - gestures: The person's gestures in this pane.
+    ///   - mainWork: The app's one main-thread scheduler (`AppServices.mainWork`).
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
-                gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
+                gestures: AgentPaneUserGestures = AgentPaneUserGestures(), mainWork: MainWorkScheduler) {
         self.limits = limits
         self.gestures = gestures
-        self.pacerStorage = pacer ?? AgentPaneNextTurnPacer()
+        self.mainWork = mainWork
+        arrivedOwner = mainWork.board.owner("agentPane.transport.arrived")
+        self.pacerStorage = pacer ?? AgentPaneNextTurnPacer(mainWork: mainWork)
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
@@ -225,9 +238,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
-                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
-            // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
-            Task { @MainActor [weak self] in self?.arrived(id) }
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self, mainWork, arrivedOwner] in
+            // One wake for the pacer, from the socket's queue: streaming into the chat is visible work (a hidden
+            // pane's pacer holds all but what its page waits on); arrived(_:) ignores a stale connection.
+            mainWork.postFromAnyThread(.visible, owner: arrivedOwner) { [weak self] in self?.arrived(id) }
         }
         self.socket = socket
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
@@ -285,6 +299,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
         guard !draining else { return }
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
+        // main-hop-allow: drain() is the send line's main-actor async loop: each pass's checks run off main (analyze) and its sends on the socket's queue; the task only runs it, in the frames' order
         Task { [weak self] in await self?.drain() }
     }
 

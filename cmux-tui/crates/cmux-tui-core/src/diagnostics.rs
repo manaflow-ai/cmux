@@ -32,7 +32,7 @@ pub use ipc::{
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
-pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
+pub use owner_panic_log::{owner_hang_log_path, owner_log_dir, owner_panic_log_path};
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;

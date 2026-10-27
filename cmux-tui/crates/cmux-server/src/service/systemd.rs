@@ -198,7 +198,8 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
 }
 
 pub fn state(s: &Services<'_>) -> ServiceState {
-    let installed = s.unit_path().is_ok_and(|p| p.is_file());
+    let installed =
+        s.unit_path().is_ok_and(|p| cmux_blocking::fs::metadata(p).is_ok_and(|m| m.is_file()));
     let query = |verb: &str, yes: &str| {
         let out = s.runner.run(&systemctl(s).args([verb, SYSTEMD_UNIT])).ok()?;
         Some(out.stdout_text() == yes)

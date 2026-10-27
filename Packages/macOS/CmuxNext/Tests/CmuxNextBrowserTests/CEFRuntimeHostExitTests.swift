@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextMetrics
@@ -75,6 +76,69 @@ import Testing
         #expect(HostWire.state.withLock { $0.deadWireOps } == 0, "an op went to the dead host's wire")
         #expect(tab.state.processExit == nil, "the page did not start loading again")
         #expect(tab.pendingURL == Self.page, "the page waits for its new browser with the wrong URL")
+    }
+
+    /// The order of the supervisor's two reports of one end: its end observers (``ChromiumHostSupervising/observeHostEnds(_:)``)
+    /// and its exit report (``ChromiumHostExitReporting/onHostEnded``).
+    nonisolated enum ReportOrder: CaseIterable, Sendable {
+        case observersFirst, exitReportFirst
+    }
+
+    /// Task 091: whichever report of the host's end comes first detaches the dead wire before anything resolves. A person's
+    /// close waiting on its try_close answer, with the page's beforeunload open, closes its tab (out of its pane), the
+    /// question's answer goes nowhere, and the crash log records the host once.
+    @Test(arguments: ReportOrder.allCases)
+    func aPersonsCloseTheEndAnswersClosesItsTabAndNothingReachesTheDeadWire(_ order: ReportOrder) async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let pane = tab.host
+        let closer = TabCloser()
+        tab.delegate = closer
+        // The tab holds its delegate weakly; the test's closer outlives it.
+        _ = Unmanaged.passRetained(closer)
+        #expect(tab.beginUserClose(), "the close did not wait for the page's answer")
+        tab.beforeUnloadAsked(token: 5, isReload: false)
+        #expect(tab.asksBeforeUnload)
+
+        switch order {
+        case .observersFirst:
+            supervisor.endObservers()
+            #expect(tab.isClosed, "the person's close waited for an answer the dead host cannot send")
+            supervisor.onHostEnded?(Self.killed)
+        case .exitReportFirst:
+            supervisor.onHostEnded?(Self.killed)
+            supervisor.endObservers()
+        }
+
+        #expect(tab.isClosed && closer.closes == 1)
+        #expect(!pane.tabs.contains { $0 === tab }, "the closed tab stayed in its pane, waiting for a BEFORE_CLOSE")
+        #expect(HostWire.state.withLock { $0.deadWireOps } == 0, "an answer or the close went to the dead host's wire")
+        #expect(HostWire.state.withLock { $0.detaches } == 1)
+        #expect(runtime.crashLog.records.map(\.processType) == ["chromium-host"])
+        #expect(runtime.state == .idle && runtime.shim == nil)
+    }
+
+    /// A host whose end only the observers report (a clean exit) still leaves no wire to send to and no wait.
+    @Test func anEndOnlyTheObserversReportDetachesTheWire() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        _ = Self.tab(runtime, browser: 1)
+        let sent = runtime.sendAsync { $0.tryClose(1) }
+        guard case .later = sent else {
+            Issue.record("the op was not sent for a REPLY")
+            return
+        }
+        var settled: [Result<Int32, CEFHostReplyError>] = []
+        runtime.whenSettled(sent, label: "try close") { settled.append($0) }
+
+        supervisor.endObservers()
+
+        #expect(settled == [.failure(.hostGone)], "a reply awaited from the dead host waits for its deadline")
+        #expect(runtime.state == .idle && runtime.shim == nil)
+        #expect(runtime.awaitsHostRestart)
+        #expect(HostWire.state.withLock { $0.detaches } == 1)
+        #expect(runtime.crashLog.records.isEmpty, "a clean end was logged as a crash")
     }
 
     /// p14-energy-045: an Energy Saver edge while no host runs reaches nobody, so the next host's ready sends the
@@ -158,6 +222,69 @@ import Testing
         #expect(runtime.hostStart != nil)
     }
 
+    // MARK: Crash page (p01-process-082)
+
+    /// The host's end shows the sad tab in the exit turn, before the chrome's next render: that turn cleared
+    /// the page's context, so a render one delivery later would leave a frame of the empty page area. It
+    /// says Chromium stopped and offers Reload.
+    @Test func aHostEndShowsTheCrashPageInTheExitTurn() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let (status, area) = Self.statusViews(showing: tab)
+        defer { withExtendedLifetime(area) {} }
+        #expect(status.goneView.isHidden)
+
+        supervisor.onHostEnded?(Self.hostKilled)
+
+        #expect(!status.goneView.isHidden, "the crash page waited for the chrome's next render")
+        #expect(status.shown.contains { $0 === status.goneView }, "the crash page is no page hole")
+        #if DEBUG
+        #expect(status.goneView.debugText.contains(Strings.pageGoneChromiumHostMessage))
+        #expect(status.goneView.debugText.contains(Strings.pageGoneReload))
+        #endif
+    }
+
+    /// RENDER_TERMINATED shows the same view in its own turn, with Chrome's sad tab message, only for the
+    /// tab the chrome shows: a tab the chrome switched away from shows its crash page when shown again.
+    @Test func aRendererEndShowsTheCrashPageOfTheShownTabInItsTurn() async throws {
+        let (runtime, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        Self.rendererEndShowsTheCrashPage(runtime)
+    }
+
+    /// The in-process backend shows the same crash page in the same turn.
+    @Test func inProcessARendererEndShowsTheCrashPageInItsTurn() throws {
+        let root = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(HostWire.symbol), storage: CEFProfileStorage(root: root))
+        _ = Unmanaged.passRetained(runtime)
+        Self.rendererEndShowsTheCrashPage(runtime)
+    }
+
+    /// The page view drops all the dead host gave it in the exit turn: its context, cursor and the pane's
+    /// cursors by the old host's browser ids (the next host numbers its browsers anew), and the focused field.
+    @Test func aHostEndClearsWhatTheHostGaveThePageView() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let page = tab.host.hostedPage()
+        tab.host.pageCursorChanged(.builtIn(1), browser: 1)
+        page.pageCursor = .builtIn(1)
+        #if DEBUG
+        page.applyTextInputState(ChromiumHostTextInputState(type: .password, selection: 0..<0))
+        #endif
+
+        supervisor.onHostEnded?(Self.hostKilled)
+
+        #expect(page.contextID == 0)
+        #expect(page.pageCursor == nil, "the dead page's cursor stayed over its sad tab")
+        #expect(tab.host.pageCursors.isEmpty, "a cursor of the old host's browser id would show on the next host's")
+        #if DEBUG
+        #expect(page.textInput.state.type == .noField, "the dead host's focused field stayed focused")
+        #endif
+    }
+
     #if DEBUG
     /// The supervisor's path from a real host process to the runtime (task 080 conforms the same way): a
     /// stand-in host launched with the host launcher, SIGKILLed, its end mapped with `pageExit` and reported
@@ -204,6 +331,40 @@ import Testing
         return (runtime, supervisor, wire)
     }
 
+    /// A Chromium Host's SIGKILL as the supervisor reports it (``ChromiumHostExit/pageExit``).
+    private static let hostKilled = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef, process: .chromiumHost)
+
+    /// A chrome's status views over its page area (the views' parent, which the caller keeps: they hold it
+    /// weakly), rendered once for `tab` as the chrome renders the tab it binds.
+    private static func statusViews(showing tab: CEFTab) -> (PageStatusViews, NSView) {
+        let status = PageStatusViews()
+        let area = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        status.install(in: area) { tab }
+        status.render(tab: tab)
+        status.layout(over: area.bounds)
+        return (status, area)
+    }
+
+    /// Two tabs; the chrome showed the first, then the second. The first's renderer end shows nothing here;
+    /// the second's shows Chrome's sad tab in its turn, with no render between.
+    private static func rendererEndShowsTheCrashPage(_ runtime: CEFRuntime) {
+        let first = tab(runtime, browser: 1)
+        let second = tab(runtime, browser: 2)
+        let (status, area) = statusViews(showing: first)
+        defer { withExtendedLifetime(area) {} }
+        status.render(tab: second)
+
+        runtime.handle(.renderTerminated(browser: 1, status: 2, code: Int(SIGSEGV), text: "", end: .first))
+        #expect(first.state.processExit?.reason == .crashed)
+        #expect(status.goneView.isHidden, "a tab the chrome no longer shows put up its crash page")
+
+        runtime.handle(.renderTerminated(browser: 2, status: 2, code: Int(SIGSEGV), text: "", end: .first))
+        #expect(!status.goneView.isHidden, "the crash page waited for the chrome's next render")
+        #if DEBUG
+        #expect(status.goneView.debugText.contains(Strings.pageGoneChromiumMessage))
+        #endif
+    }
+
     /// A tab in a pane of its own whose browser is `browser`.
     private static func tab(_ runtime: CEFRuntime, browser: Int32) -> CEFTab {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
@@ -232,7 +393,18 @@ import Testing
                                       frameworkLocales: ["en.lproj"])
     }
 
-    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
+    private var observers: [@MainActor () -> Void] = []
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
+        observers.append(ended)
+    }
+
+    /// Runs every end observer, as the supervisor does for any end of its host.
+    func endObservers() {
+        for observer in observers { observer() }
+    }
+
+    func hostSaidHello() {}
 
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor
@@ -248,6 +420,17 @@ import Testing
         if let exit = ended.pageExit { onHostEnded?(exit) }
     }
     #endif
+}
+
+/// Closes the tab when it asks to close, as the app's tab owner does.
+@MainActor private final class TabCloser: BrowserTabDelegate {
+    private(set) var closes = 0
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        guard case .close = intent else { return }
+        closes += 1
+        (tab as? CEFTab)?.close()
+    }
 }
 
 /// Whether each preparation of a start's inputs ran on the main thread.
@@ -266,8 +449,8 @@ private nonisolated final class PreparingThreads: Sendable {
 
 /// The remote dylib: the ABI id; attach (records the wire, says hello at once); detach; the reply token;
 /// initialize (succeeds); the fork API version and `set_energy_saver` (recorded); `reload`, `load_url`,
-/// `close` and `create_window`, which count the ops sent while no wire is attached. Every other export
-/// does nothing and returns 0.
+/// `close`, `create_window`, `try_close` (sent for a REPLY: the next token) and `before_unload_reply`, which
+/// count the ops sent while no wire is attached. Every other export does nothing and returns 0.
 private nonisolated enum HostWire {
     private static let abiCString: StaticString = "host-exit-spy-abi"
     static let abi = "\(abiCString)"
@@ -325,6 +508,15 @@ private nonisolated enum HostWire {
             HostWire.op()
             return 0
         }
+        let tryClose: @convention(c) (Int32) -> Int32 = { _ in
+            HostWire.op()
+            HostWire.state.withLock { $0.token += 1 }
+            return 1
+        }
+        let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32 = { _, _ in
+            HostWire.op()
+            return 1
+        }
         let forkAPIVersion: @convention(c) () -> Int32 = { HostWire.state.withLock { $0.forkAPI } }
         let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { enabled, _ in
             HostWire.state.withLock { $0.energySaver.append(enabled) }
@@ -343,6 +535,8 @@ private nonisolated enum HostWire {
         case "cmux_shim_reload", "cmux_shim_close": unsafeBitCast(browserOp, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_load_url": unsafeBitCast(loadURL, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_try_close": unsafeBitCast(tryClose, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_before_unload_reply": unsafeBitCast(beforeUnloadReply, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

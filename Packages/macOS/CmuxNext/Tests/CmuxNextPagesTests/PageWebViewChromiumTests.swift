@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -26,7 +27,7 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         #expect(view.engineDecision == .chromium)
         let start = try #require(view.chromiumStart)
         await start.value
@@ -63,7 +64,7 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         view.open(route: "/get")
         let start = try #require(view.chromiumStart)
         await start.value
@@ -76,13 +77,18 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.immediate
-        // The deadline fires on its own; the page closes when the view falls back.
-        let closed: Bool? = await PageTestWait.value("fallback") { done in
-            hosting.onMade = { page in page.onClose = { done(true) } }
-            #expect(view.chromiumStart != nil)
-        }
-        #expect(closed == true)
+        let rig = LifecycleDeadlineRig()
+        view.chromiumDeadlines = rig.scheduler
+        let start = try #require(view.chromiumStart)
+        await start.value
+        // The page sent nothing: its fallback is armed as visible work (a person waits on the page), and nothing ends
+        // the page before it runs out.
+        let deadline = try #require(view.chromiumSession?.deadline)
+        #expect(deadline.isScheduled)
+        #expect(deadline.workClass == .visible)
+        #expect(hosting.made.first?.closed != true)
+        // Its wake posts the fallback, and the frame runs it: the page closes and the view reopens in WebKit.
+        rig.fire()
         #expect(view.engineDecision == .webKit(.chromiumFailed))
         #expect(hosting.made.first?.closed == true)
         #expect(view.chromiumSession == nil)
@@ -121,7 +127,7 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         let opened: URL? = await PageTestWait.value("open") { done in
@@ -146,7 +152,7 @@ struct PageWebViewChromiumTests {
         let hosting = FakeChromiumHosting()
         let source = OneResource()
         let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         #expect(view.engineDecision == .chromium)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -171,7 +177,7 @@ extension PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         var opened: [URL] = []
         view.fileDrop = PageFileDrop(accepts: { $0.pathExtension == "png" }) { opened.append($0) }
         await view.chromiumStart?.value
@@ -234,7 +240,7 @@ extension PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         #expect(view.router.userGestureEvent?() == nil)
@@ -252,7 +258,7 @@ extension PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         var shown: [[String]] = []
@@ -290,7 +296,7 @@ extension PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         _ = await view.callPageFunction("return text + selector;", arguments: ["text": "a\"b", "selector": NSNull()])
@@ -310,13 +316,13 @@ extension PageWebViewChromiumTests {
         var views: [PageWebView] = []
         for _ in 0..<8 {
             let view = try makeView(hosting)
-            view.chromiumClock = PageTestClock.never
+            view.chromiumDeadlines = LifecycleDeadlineRig.never
             await view.chromiumStart?.value
             views.append(view)
         }
         let window = pageWindow()
         window.contentView?.addSubview(views[0])
-        #expect(views.allSatisfy(\.showsChromium))
+        #expect(views.allSatisfy { $0.showsChromium })
         return (views, window)
     }
 
@@ -330,7 +336,7 @@ extension PageWebViewChromiumTests {
     /// Eight Chromium pages still on their way, the first in `window`: their starts have not run yet.
     private func eightStartingPages(_ hosting: FakeChromiumHosting, in window: NSWindow) throws -> [PageWebView] {
         let views = try (0..<8).map { _ in try makeView(hosting) }
-        views.forEach { $0.chromiumClock = PageTestClock.never }
+        views.forEach { $0.chromiumDeadlines = LifecycleDeadlineRig.never }
         window.contentView?.addSubview(views[0])
         return views
     }
@@ -372,7 +378,7 @@ extension PageWebViewChromiumTests {
         let (views, window) = try await eightPages(hosting)
         endBrowser(hosting)
         // Waiting: every Chromium page closed, no page on WebKit, no new Chromium page.
-        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(hosting.made.allSatisfy { $0.closed })
         #expect(views.allSatisfy { !$0.showsChromium && $0.chromiumRecovery != nil })
         #expect(webKitEngines(views) == 0)
         #expect(hosting.made.count == 8)
@@ -497,7 +503,7 @@ extension PageWebViewChromiumTests {
         for start in views.compactMap(\.chromiumStart) { await start.value }
 
         #expect(hosting.made.count == 8)
-        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(hosting.made.allSatisfy { $0.closed })
         #expect(hosting.supervisorAsks == 8)
         #expect(views.allSatisfy { !$0.showsChromium && $0.chromiumRecovery != nil })
         #expect(onWebKit(views) == 0)
@@ -582,7 +588,7 @@ extension PageWebViewChromiumTests {
     /// A page whose Chromium page attached, with no deadline.
     private func attachedPage(_ hosting: FakeChromiumHosting) async throws -> (PageWebView, FakeChromiumPage) {
         let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         return (view, try #require(hosting.made.first))
     }

@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,9 +11,10 @@ import Testing
 /// asserts 10 ms. Both print the measured numbers. Shared CI runners get
 /// preempted mid-query, and a preemption lands on one pass while a regression
 /// lands on every pass: after an untimed warmup pass, each query counts its
-/// fastest of `timedPasses` passes, against the same budget.
+/// fastest of `timedPasses` passes, against the same budget. With CMUX_PERF_RESULT_DIR each query's fastest
+/// time is result-v1 (lab story swift-omnibox-phase-a).
 nonisolated struct OmniboxPhaseABenchmarkTests {
-    @Test func phaseAStaysInsideItsBudgetOverTwentyThousandRows() {
+    @Test func phaseAStaysInsideItsBudgetOverTwentyThousandRows() throws {
         let rows = OmniboxFixtures.rows(OmniboxQuickIndex.defaultCap, seed: 2026)
         var history = OmniboxQuickIndex()
         history.reset(rows, now: OmniboxFixtures.now)
@@ -53,6 +55,10 @@ nonisolated struct OmniboxPhaseABenchmarkTests {
             byLength[min(text.count, 4), default: []].append(whole)
             primary.append(fastest(of: partPasses) { _ = OmniboxPhaseA.primary(for: text, resolver: query.resolver) })
             lookup.append(fastest(of: partPasses) { _ = history.search(text, now: OmniboxFixtures.now, limit: 8) })
+        }
+        if let results = try PerfResultWriter() {
+            try results.record("swift.omnibox_phase_a.query", unit: .ms, samples: durations.map(PerfResultWriter.milliseconds))
+            try results.record("swift.omnibox_phase_a.history_lookup", unit: .ms, samples: lookup.map(PerfResultWriter.milliseconds))
         }
         func percentile99(_ values: [Duration]) -> Duration { values.isEmpty ? .zero : values.sorted()[values.count * 99 / 100] }
         durations.sort()

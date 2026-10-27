@@ -22,6 +22,12 @@
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
+//! Frames are granted only at this daemon's API revision (capabilities.rs,
+//! `still_allowed`, checked again before every frame), so a body is never
+//! upgraded from another revision (`MessageWriter::upgrade_request`). While a
+//! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
+//! frame (server/pending_handoff.rs).
+//!
 //! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
 //! its header names the stream and the key press's flow id, its payload is
 //! the bytes. It is never parsed and never answered. It runs on the stream's
@@ -89,7 +95,7 @@ pub(super) struct FrameCall {
 }
 
 impl FrameCall {
-    fn new(stream: u16, call: CallAux) -> Self {
+    pub(super) fn new(stream: u16, call: CallAux) -> Self {
         FrameCall {
             stream,
             call: CallAux { flags: CallFlags::empty(), ..call },

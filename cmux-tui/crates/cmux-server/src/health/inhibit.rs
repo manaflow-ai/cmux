@@ -48,13 +48,14 @@ fn inhibit_command(kind: Kind) -> Command {
 
 /// Whether logind grants `kind` to this user now (runs `true` under it).
 pub fn probe(kind: Kind) -> bool {
-    inhibit_command(kind)
-        .arg("true")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    cmux_blocking::process::status(
+        inhibit_command(kind)
+            .arg("true")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .is_ok_and(|s| s.success())
 }
 
 /// One held inhibitor. Dropping it closes the pipe and releases it.
@@ -89,7 +90,7 @@ impl Inhibitor {
 impl Drop for Inhibitor {
     fn drop(&mut self) {
         drop(self.stdin.take());
-        let _ = self.child.wait();
+        let _ = cmux_blocking::process::wait(&mut self.child);
     }
 }
 
