@@ -135,6 +135,14 @@ nonisolated enum DiffPageConfig {
         return .object(members)
     }
 
+    /// `config` that puts back what a discarded page of the tab showed (`payload.viewState`).
+    static func restoring(_ state: JSONValue, in config: JSONValue) -> JSONValue {
+        guard case .object(var members) = config, case .object(var payload)? = members["payload"] else { return config }
+        payload["viewState"] = state
+        members["payload"] = .object(payload)
+        return .object(members)
+    }
+
     /// A page that shows only `message` as an error (the folder is not a
     /// repository, the sidecar is missing).
     static func failure(title: String, message: String) -> JSONValue {

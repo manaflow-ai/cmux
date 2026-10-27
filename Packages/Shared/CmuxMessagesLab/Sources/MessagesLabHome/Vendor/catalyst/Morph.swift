@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import Accelerate
+import os
 
 /// The send morph: the compose field turns into the new bubble.
 ///
@@ -255,31 +256,40 @@ final class MorphBubble {
     /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
     /// send uses them only for an equal layout, size and scale; else it renders as before.
     private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
-    private static let prepLock = NSLock()
-    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
-    private static var prepSerial = 0
-    static var preparedHits = 0
+    /// cmux: the main thread asks and takes, prepQueue fills: the lock owns the prepared send.
+    private struct Prepared {
+        var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
+        var serial = 0
+        var hits = 0
+    }
+    private static let prepLock = OSAllocatedUnfairLock(initialState: Prepared())
+    static var preparedHits: Int { prepLock.withLock { $0.hits } }
     /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
     static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !LongText.isLong(t) else { return }
-        prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
+        let serial = prepLock.withLock { p in
+            p.serial += 1
+            return p.serial
+        }
         prepQueue.async {
-            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
+            let latest = prepLock.withLock { $0.serial == serial }
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
             let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
             guard let tl else { return }
             let images = textImages(tl, size, scale: scale)
-            prepLock.lock()
-            if serial == prepSerial { prepared = (tl, size, scale, images) }
-            prepLock.unlock()
+            prepLock.withLock { p in
+                guard p.serial == serial else { return }
+                p.prepared = (tl, size, scale, images)
+            }
         }
     }
     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
-        prepLock.lock(); defer { prepLock.unlock() }
-        guard let p = prepared, p.size == size, p.scale == scale, p.tl == tl else { return nil }
-        preparedHits += 1
-        return p.images
+        prepLock.withLock { p in
+            guard let prepared = p.prepared, prepared.size == size, prepared.scale == scale, prepared.tl == tl else { return nil }
+            p.hits += 1
+            return prepared.images
+        }
     }
 
     /// Any thread (prepQueue, main): the drawing reads `scale`.
@@ -441,7 +451,10 @@ final class MorphBubble {
         defer { src.free(); dst.free() }
         let k = UInt32(clamping: 2 * max(0, r) + 1) // a negative radius does not trap
         for _ in 0..<3 {
-            vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
+            // SAFETY: src and dst are vImage buffers of one size and pixel format (dst made from src's width, height
+            // and bits per pixel), owned here until the defer frees each once; the call reads src and writes dst
+            // inside their bounds, with no temporary buffer and no background colour pointer (vImage allocates).
+            unsafe vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
             swap(&src, &dst)
         }
         return try? src.createCGImage(format: format)

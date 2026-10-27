@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 import Foundation
 
@@ -62,7 +63,7 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     func read(_ path: String) async -> Data? {
         if let value = attributes.read(name, at: path), value.count <= maxBytes { return value }
         guard let url = copyURL(for: path), let data = try? Data(contentsOf: url),
-              let copy = try? JSONDecoder().decode(Copy.self, from: data), copy.path == path else { return nil }
+              let copy = try? JSONDecoder().blockingDecode(Copy.self, from: data), copy.path == path else { return nil }
         // Reading counts as use for the oldest-first pruning.
         try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
         return Data(copy.value.utf8)

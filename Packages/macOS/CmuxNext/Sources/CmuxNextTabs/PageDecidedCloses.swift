@@ -92,7 +92,7 @@ public final class PageDecidedCloses<Pane: AnyObject, Prepared> {
         gestures[id] = Gesture(first: first, userClose: userClose, prepared: closing.compactMap { prepare($0.pane, $0.ids) },
                                waiting: Set(deciding.flatMap(\.ids)), timer: timer)
         // The gesture's deadline: pages not closed by then are left out (a page asking its question never holds the rest).
-        timer.schedule(after: deadline) { @MainActor [weak self] in self?.finish(id) }
+        timer.scheduleOnMain(after: deadline) { [weak self] in self?.finish(id) }
     }
 
     /// Takes the tabs of `parts` whose page a waiting gesture waits for (the

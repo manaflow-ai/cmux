@@ -10,7 +10,7 @@ extension WorkspaceContentController {
     /// `apply` runs it sends once, at its end. The coordinator drops a
     /// topology equal to the one it holds.
     func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        guard !isParked, !isApplying else { return }
+        guard !isParked, !isApplying, !isTornDown else { return }
         focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
@@ -18,6 +18,26 @@ extension WorkspaceContentController {
         #endif
         focus.send(.topology(focusTopology()))
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
+    }
+
+    /// Brings each pane strip whose record's tabs changed since its last apply up to the store, inside this
+    /// workspace's apply (its topology goes out once, at the end). Each pane's own observation would do it in a later
+    /// main-actor job; until then the topology listed a tab moved to a new pane in both panes, focus waited on it,
+    /// and the moved terminal, already shown in its new pane, did not have the keyboard: keys typed then went to the
+    /// window and were lost (dogfood v2.1, 2026-10-27: the first keys typed into a new terminal from Home's dock).
+    /// O(tabs of this workspace's panes), on a layout change only.
+    func syncStaleStrips() {
+        for controller in panes.values where controller.stripIsStale { controller.syncStripIfStale() }
+    }
+
+    /// A pane's strip observation saw a tab move in or out: the layout (a move to a new pane changes it) and every
+    /// moved strip apply now, and one topology goes out with all of them (a move between existing panes leaves the
+    /// layout as it is: the strips still change together).
+    func applyMovedTabs() {
+        applyLayoutIfChanged()
+        guard !isParked, !isApplying, !isTornDown, panes.values.contains(where: \.stripIsStale) else { return }
+        withApplying { syncStaleStrips() }
+        sendTopology()
     }
 
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
@@ -31,7 +51,7 @@ extension WorkspaceContentController {
     /// A pane's part of the topology changed: every pane that changes in this main-actor turn
     /// shares one build and send (`FocusCoordinator.setNeedsTopology`), not one each (I4).
     func setNeedsTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        guard !isParked, !isApplying else { return }
+        guard !isParked, !isApplying, !isTornDown else { return } // teardown dropped its queued one
         focus.setNeedsTopology(owner: self) { [weak self] in
             guard let self, !self.isParked, !self.isApplying else { return nil }
             #if DEBUG
@@ -101,6 +121,9 @@ extension WorkspaceContentController {
     /// once it left that pane (a tab created there and moved away).
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
+        // A create or repair that lands after teardown: this workspace left the window, so it asks
+        // the window's coordinator for nothing (the next content shown restores its own pane).
+        guard !isTornDown else { return }
         // The coordinator lands an expectation against the topology it holds at once (reducer
         // `Expect`), and again on each later topology: no re-apply or topology send here.
         // The topology names tabs by id: a tab the store has goes by its id; else `rekeySurfaceWait` later.

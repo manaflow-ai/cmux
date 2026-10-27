@@ -6,7 +6,7 @@ import Foundation
 /// no client subscribes is refused `not_subscribed`.
 public struct CloudConversationTypingRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "cloud-conversation-typing"
+    public static let commandName: DaemonCommandName = "cloud-conversation-typing"
     public static let requiredCapability: String? = DaemonCapability.cloudConversationTyping.rawValue
     public var conversation: String
     public var on: Bool

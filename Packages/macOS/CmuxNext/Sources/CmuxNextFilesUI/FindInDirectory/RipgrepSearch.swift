@@ -1,4 +1,5 @@
 import CmuxNextCompat
+package import CmuxNextWakeups
 package import Foundation
 
 /// One ripgrep match: a line of a file under the searched directory.
@@ -76,7 +77,7 @@ package nonisolated struct RipgrepSearch {
 
     /// A `--json` output line, if it is a match.
     package static func parse(_ line: String, root: String) -> RipgrepMatch? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(line.utf8)) as? [String: Any],
               object["type"] as? String == "match",
               let payload = object["data"] as? [String: Any],
               let path = (payload["path"] as? [String: Any]).flatMap(text),
@@ -108,7 +109,11 @@ package nonisolated struct RipgrepSearch {
 
     /// Runs `rg`, off the main actor. Stops it at `limit` matches or when
     /// the caller is cancelled.
-    @concurrent package static func run(_ executable: URL, query: String, root: String, limit: Int = limit) async -> Outcome {
+    ///
+    /// - Parameter launcher: spawns and stops rg off this task; by default one at userBlocking (the person
+    ///   typed the query and waits for the matches).
+    @concurrent package static func run(_ executable: URL, query: String, root: String, limit: Int = limit,
+                                        launcher: ProcessLauncher = searchLauncher()) async -> Outcome {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments(query: query, root: root)
@@ -123,14 +128,14 @@ package nonisolated struct RipgrepSearch {
             exited.continuation.finish()
         }
         do {
-            try process.run()
+            try await launcher.launched(process)
         } catch {
             return .failed(status: -1)
         }
-        // The reading task and its cancellation handler both stop rg. The Process (not Sendable on
-        // the Xcode 26 SDK) moves into the lock, so each side reaches it only under the lock: a
-        // short synchronous critical section called from the synchronous cancellation handler
-        // (CLAUDE.md lock carve-out).
+        // The reading task and its cancellation handler both stop rg (on the launcher's queue). The
+        // Process (not Sendable on the Xcode 26 SDK) moves into the lock, so each side reaches it only
+        // under the lock: a short synchronous critical section called from the synchronous
+        // cancellation handler (CLAUDE.md lock carve-out).
         let running = Mutex(process)
         let (matches, limited) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
@@ -151,9 +156,9 @@ package nonisolated struct RipgrepSearch {
             } catch {}
             return (matches, false)
         } onCancel: {
-            stop(running)
+            stop(running, with: launcher)
         }
-        if limited { stop(running) }
+        if limited { stop(running, with: launcher) }
         var status: Int32 = -1
         for await code in exited.stream { status = code }
         // rg exits 0 with matches, 1 with none, 2 on an error (matches found
@@ -161,11 +166,14 @@ package nonisolated struct RipgrepSearch {
         if !limited, !Task.isCancelled, status > 1, matches.isEmpty { return .failed(status: status) }
         return .matches(matches, limited: limited)
     }
+
+    /// The default launcher of ``run(_:query:root:limit:launcher:)``: userBlocking.
+    package static func searchLauncher() -> ProcessLauncher {
+        ProcessLauncher(label: "com.cmuxterm.next.find-in-directory", priority: .userBlocking)
+    }
 }
 
-/// Stops `rg` if it still runs (a search past its limit, or cancelled).
-private nonisolated func stop(_ running: borrowing Mutex<Process>) {
-    running.withLock { process in
-        if process.isRunning { process.terminate() }
-    }
+/// Stops `rg` if it still runs (a search past its limit, or cancelled), after its launch.
+private nonisolated func stop(_ running: borrowing Mutex<Process>, with launcher: ProcessLauncher) {
+    running.withLock { launcher.terminate($0) }
 }

@@ -20,6 +20,7 @@
 
 use super::open_guard::{refuse_orphaned_journal, sidecar_path};
 use super::*;
+use cmux_threads::checked::fs as files;
 
 /// What [`compact_registry`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +132,7 @@ fn compact_locked(db_path: &Path) -> anyhow::Result<RegistryCompaction> {
         remove_if_present(&shm)?;
         platform::sync_directory(parent)
             .with_context(|| format!("sync registry directory {}", parent.display()))?;
-        fs::rename(&staged, db_path)
+        files::rename(&staged, db_path)
             .with_context(|| format!("install compacted registry {}", db_path.display()))
     })();
     if let Err(error) = installed {
@@ -195,7 +196,7 @@ fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
     remove_if_present(&sidecar_path(staged, "-shm"))?;
     platform::restrict_file(staged)?;
     // Windows FlushFileBuffers needs write access.
-    OpenOptions::new().write(true).open(staged)?.sync_all()?;
+    files::sync_all(&files::open_with(File::options().write(true), staged)?)?;
     Ok(())
 }
 
@@ -216,7 +217,7 @@ fn remove_staged(staged: &Path) -> anyhow::Result<()> {
 }
 
 fn remove_if_present(path: &Path) -> anyhow::Result<()> {
-    match fs::remove_file(path) {
+    match files::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
@@ -224,5 +225,5 @@ fn remove_if_present(path: &Path) -> anyhow::Result<()> {
 }
 
 fn file_len(path: &Path) -> u64 {
-    fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
+    files::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
 }

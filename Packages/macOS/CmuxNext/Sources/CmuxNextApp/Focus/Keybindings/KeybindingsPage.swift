@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -46,6 +47,40 @@ final class KeybindingsPageService: InternalPageProvider {
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes)) else { return NSView() }
         provider.pageWindow = { [weak page] in page?.window }
+        tabs[key] = (page, provider)
         return page
+    }
+
+    /// The page and its ops of each tab, by key.
+    private var tabs: [String: (page: PageWebView, provider: KeybindingsPageProvider)] = [:]
+
+    func tabClosed(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        services.webUI.close(tab.page)
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: every change is written as it is made.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Kept while the page records a shortcut: the keys it takes are an edit not written yet, which
+    /// a rebuilt page cannot show again (Chrome's kUserEdits).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        tabs[key]?.provider.isRecording == true ? [.unsavedEdits] : []
+    }
+
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it); the next view makes its own.
+    func viewDiscarded(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        services.webUI.close(tab.page)
     }
 }

@@ -3,11 +3,14 @@
 // malformed-frame rules, the outbox's coalescing and quota, and a channel on
 // a real socket pair (scripts/cmux-next/tests/chromium-host-wire.test.sh).
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -67,6 +70,7 @@ struct Ui {
   std::vector<control::Message> messages;
   std::vector<control::End> ends;
   int batches = 0;
+  size_t largest_batch_bytes = 0;  // the most payload bytes one drain delivered
 
   control::Channel::Post Poster() {
     return [this](std::function<void()> task) {
@@ -78,6 +82,11 @@ struct Ui {
   control::Channel::OnMessages Receiver() {
     return [this](std::vector<control::Message> batch) {
       ++batches;
+      size_t bytes = 0;
+      for (const auto& m : batch) {
+        for (const auto& field : m.fields) bytes += field.bytes.size();
+      }
+      largest_batch_bytes = std::max(largest_batch_bytes, bytes);
       for (auto& m : batch) messages.push_back(std::move(m));
     };
   }
@@ -474,6 +483,238 @@ static void TestInboxBackPressure() {
   Check(ordered, "and keeps the order");
 }
 
+// Task 020: a 10 MB payload, a PNG of 70 KB beside it, as a page resource
+// body goes: round-trips through two channels, and the socket carries only a
+// small frame and the regions.
+static std::string Pattern(size_t size, uint8_t seed) {
+  std::string bytes(size, '\0');
+  for (size_t i = 0; i < size; ++i) bytes[i] = static_cast<char>((i * 31 + seed) & 0xff);
+  return bytes;
+}
+
+static control::Message LargeResource() {
+  control::Message m;
+  m.op = 0x0301;
+  m.fields = {control::Field::I32(1, 42), control::Field::Str(2, "text/html; charset=utf-8"),
+              control::Field::Bytes(3, Pattern(10 * 1024 * 1024, 7)), control::Field::Bytes(4, Pattern(70000, 3)),
+              control::Field::Str(5, std::string(200000, 'a'))};
+  return m;
+}
+
+static void TestSharedFieldsChoice() {
+  const control::Message large = LargeResource();
+  Check(control::SharedFields(large) == std::vector<size_t>{2, 3, 4}, "every field over 65,535 bytes goes shared");
+  control::Message two;
+  two.fields = {control::Field::Bytes(1, std::string(40000, 'x')), control::Field::Bytes(2, std::string(30000, 'y')),
+                control::Field::Bytes(3, std::string(20000, 'z'))};
+  Check(control::SharedFields(two) == std::vector<size_t>{0}, "then the largest until the body fits");
+  Check(control::SharedFields(GoldenMessage()).empty(), "a frame that fits shares nothing");
+  control::Message too_many = large;
+  too_many.fields.push_back(control::Field::Bytes(6, std::string(70000, 'b')));
+  too_many.fields.push_back(control::Field::Bytes(7, std::string(70000, 'c')));
+  std::vector<uint8_t> out;
+  Check(!control::EncodeShared(too_many, control::SharedFields(too_many), &out), "more regions than descriptors is never sent");
+}
+
+static void TestLargePayloadRoundTrips() {
+  int pair[2];
+  SocketPair(pair);
+  Ui ui_a, ui_b;
+  control::Channel a(pair[0], ui_a.Poster(), ui_a.Receiver(), ui_a.Ender());
+  control::Channel b(pair[1], ui_b.Poster(), ui_b.Receiver(), ui_b.Ender());
+  int pipe_fds[2];
+  Check(::pipe(pipe_fds) == 0, "pipe");
+  control::Message sent = LargeResource();
+  sent.fds = {pipe_fds[1]};
+  Check(a.Send(sent), "a 10 MB resource is sent");
+  ::close(pipe_fds[1]);
+  Check(a.Send(Key(1, 1)), "a key after it");
+  Check(ui_b.Pump([&] { return ui_b.messages.size() == 2; }), "both arrive");
+  if (ui_b.messages.size() == 2) {
+    control::Message& got = ui_b.messages[0];
+    Check(got.fields == LargeResource().fields, "the 10 MB resource round-trips byte for byte");
+    Check(got.fds.size() == 1, "the caller's descriptor arrives; the regions are read and closed");
+    for (int fd : got.fds) ::close(fd);
+    Check(ui_b.messages[1].op == 5, "the key follows it");
+  }
+  ::close(pipe_fds[0]);
+}
+
+// Reads what the peer wrote: the socket bytes and the descriptors.
+static void ReadRaw(int fd, std::vector<uint8_t>* bytes, std::deque<int>* fds) {
+  for (;;) {
+    uint8_t chunk[256 * 1024];
+    iovec iov{chunk, sizeof chunk};
+    alignas(cmsghdr) uint8_t control_bytes[CMSG_SPACE(sizeof(int) * 16)];
+    msghdr header;
+    std::memset(&header, 0, sizeof header);
+    header.msg_iov = &iov;
+    header.msg_iovlen = 1;
+    header.msg_control = control_bytes;
+    header.msg_controllen = sizeof control_bytes;
+    const ssize_t count = ::recvmsg(fd, &header, MSG_DONTWAIT);
+    if (count <= 0) return;
+    for (cmsghdr* c = CMSG_FIRSTHDR(&header); c != nullptr; c = CMSG_NXTHDR(&header, c)) {
+      const size_t n = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+      for (size_t i = 0; i < n; ++i) {
+        int got;
+        std::memcpy(&got, CMSG_DATA(c) + i * sizeof(int), sizeof(int));
+        fds->push_back(got);
+      }
+    }
+    bytes->insert(bytes->end(), chunk, chunk + count);
+  }
+}
+
+static void TestNoSocketFrameOver64KiB() {
+  int pair[2];
+  SocketPair(pair);
+  Ui ui;
+  control::Channel a(pair[0], ui.Poster(), ui.Receiver(), ui.Ender());
+  Check(a.Send(LargeResource()), "sent");
+  std::vector<uint8_t> raw;
+  std::deque<int> fds;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (raw.size() < control::kHeaderSize && std::chrono::steady_clock::now() < deadline) ReadRaw(pair[1], &raw, &fds);
+  Check(raw.size() <= control::kHeaderSize + control::kMaxBody, "the socket carries no message over 64 KiB");
+  Check(fds.size() == 3, "one region per large field");
+  for (int fd : fds) {
+    char probe = 0;
+    Check(::write(fd, &probe, 1) < 0, "a region is not writable by the receiver");
+#if defined(__linux__)
+    const int seals = ::fcntl(fd, F_GET_SEALS);
+    Check(seals >= 0 && (seals & F_SEAL_WRITE) && (seals & F_SEAL_SHRINK) && (seals & F_SEAL_SEAL), "a region is sealed");
+#endif
+  }
+  control::Message decoded;
+  size_t consumed = 0;
+  Check(control::Decode(raw.data(), raw.size(), &fds, &decoded, &consumed) == control::Parse::kFrame &&
+            consumed == raw.size(),
+        "the frame decodes");
+  Check(decoded.fields == LargeResource().fields && decoded.fds.empty() && fds.empty(), "with the regions read and closed");
+  ::close(pair[1]);
+}
+
+// A shared field whose region could change or is short is malformed, and the
+// descriptors are closed.
+static void TestBadRegionIsMalformed() {
+  control::Message m;
+  m.op = 7;
+  m.fields = {control::Field::Bytes(1, std::string(70000, 'r'))};
+  std::vector<uint8_t> frame;
+  Check(control::EncodeShared(m, {0}, &frame), "encodes");
+  auto decode_with = [&](int fd) {
+    std::deque<int> fds{fd};
+    control::Message out;
+    size_t consumed = 0;
+    return control::Decode(frame.data(), frame.size(), &fds, &out, &consumed);
+  };
+  const int good = control::CreateSharedRegion(std::string(70000, 'r'));
+  Check(good >= 0, "a region is made");
+  Check(decode_with(good) == control::Parse::kFrame, "a sealed region of the right size decodes");
+  Check(::fcntl(good, F_GETFD) < 0, "and is closed once read");
+
+  const int short_region = control::CreateSharedRegion(std::string(100, 'r'));
+  Check(decode_with(short_region) == control::Parse::kMalformed, "a region shorter than its count is malformed");
+  Check(::fcntl(short_region, F_GETFD) < 0, "and closed");
+
+  int pipe_fds[2];
+  Check(::pipe(pipe_fds) == 0, "pipe");
+  Check(decode_with(pipe_fds[1]) == control::Parse::kMalformed, "a descriptor that is no sealed region is malformed");
+  Check(::fcntl(pipe_fds[1], F_GETFD) < 0, "and closed");
+  ::close(pipe_fds[0]);
+#if defined(__linux__)
+  const int unsealed = ::memfd_create("unsealed", MFD_CLOEXEC);
+  Check(unsealed >= 0 && ::ftruncate(unsealed, 70000) == 0, "an unsealed memfd");
+  Check(decode_with(unsealed) == control::Parse::kMalformed, "a region its sender can still change is malformed");
+#endif
+  std::vector<uint8_t> zero = frame;
+  std::memset(zero.data() + control::kHeaderSize + control::kFieldHeaderSize, 0, 8);
+  std::deque<int> none{control::CreateSharedRegion("x")};
+  control::Message out;
+  size_t consumed = 0;
+  Check(control::Decode(zero.data(), zero.size(), &none, &out, &consumed) == control::Parse::kMalformed,
+        "a shared field of 0 bytes is malformed");
+  for (int fd : none) ::close(fd);
+
+  // A read-only descriptor of a file its sender could still truncate through
+  // another one: the copy would fault. Only a sealed region is mapped.
+  char path[] = "/tmp/cmux-region-test-XXXXXX";
+  const int writable = ::mkstemp(path);
+  Check(writable >= 0 && ::write(writable, std::string(70000, 'r').data(), 70000) == 70000, "a 70,000-byte file");
+  const int read_only = ::open(path, O_RDONLY);
+  Check(read_only >= 0, "opened read-only");
+  Check(decode_with(read_only) == control::Parse::kMalformed, "a read-only regular file of the right size is malformed");
+  Check(::fcntl(read_only, F_GETFD) < 0, "and closed");
+  ::unlink(path);
+  ::close(writable);
+
+  // Two shared fields of 100 MiB each: each under kMaxSharedBytes, together over it.
+  std::vector<uint8_t> over;
+  auto put = [&over](uint64_t value, int size) {
+    for (int i = 0; i < size; ++i) over.push_back(static_cast<uint8_t>(value >> (8 * i)));
+  };
+  put(2 * (control::kFieldHeaderSize + 8), 4);
+  put(7, 2);
+  put(2, 2);  // two descriptors
+  put(0, 4);
+  for (uint8_t tag : {1, 2}) {
+    over.push_back(6);
+    over.push_back(tag);
+    put(8, 2);
+    put(100ull * 1024 * 1024, 8);
+  }
+  std::deque<int> two{control::CreateSharedRegion("a"), control::CreateSharedRegion("b")};
+  Check(control::Decode(over.data(), over.size(), &two, &out, &consumed) == control::Parse::kMalformed,
+        "shared fields over kMaxSharedBytes together are malformed");
+  for (int fd : two) ::close(fd);
+}
+
+// The reader pauses at the inbox's byte limit as at its message limit, so
+// large payloads never pile up on the heap.
+static void TestInboxByteLimit() {
+  int pair[2];
+  SocketPair(pair);
+  Ui ui_a, ui_b;
+  control::Channel a(pair[0], ui_a.Poster(), ui_a.Receiver(), ui_a.Ender());
+  control::Channel::Options options;
+  options.inbox_bytes_limit = 100000;
+  control::Channel b(pair[1], ui_b.Poster(), ui_b.Receiver(), ui_b.Ender(), options);
+  for (int i = 0; i < 20; ++i) {
+    control::Message m;
+    m.op = 9;
+    m.fields = {control::Field::Bytes(1, std::string(70000, 'a')), control::Field::I32(2, i)};
+    Check(a.Send(m), "sent");
+  }
+  // Let the reader fill the inbox before the UI thread drains it.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  Check(ui_b.Pump([&] { return ui_b.messages.size() == 20; }), "every message arrives");
+  bool ordered = ui_b.messages.size() == 20;
+  for (size_t i = 0; ordered && i < ui_b.messages.size(); ++i) {
+    ordered = ui_b.messages[i].Find(2)->integer == static_cast<int64_t>(i);
+  }
+  Check(ordered, "in order");
+  Check(ui_b.largest_batch_bytes <= 100000 + 70000, "no drain holds more than the limit and one message");
+}
+
+// Shared payloads count toward the quota: a peer that never reads reaches it.
+static void TestSharedBytesCountTowardQuota() {
+  int pair[2];
+  SocketPair(pair);
+  Ui ui;
+  control::Channel a(pair[0], ui.Poster(), ui.Receiver(), ui.Ender());
+  for (int i = 0; i < 1000000 && a.stats().pending_messages == 0; ++i) a.Send(Key(1, i));
+  const size_t before = a.stats().pending_bytes;
+  control::Message m;
+  m.op = 8;
+  m.fields = {control::Field::Bytes(1, std::string(1024 * 1024, 'q'))};
+  Check(a.Send(m), "sent");
+  Check(a.stats().pending_bytes >= before + 1024 * 1024, "the waiting region's bytes are counted");
+  Check(a.stats().pending_bytes > control::kQuotaBytes && a.stats().quota_excess > 0,
+        "a waiting 1 MB region is over the 256 KiB quota");
+  ::close(pair[1]);
+}
+
 int main() {
   TestGolden();
   TestMalformed();
@@ -488,6 +729,12 @@ int main() {
   TestDestroyStopsDelivery();
   TestQuotaCeiling();
   TestInboxBackPressure();
+  TestSharedFieldsChoice();
+  TestLargePayloadRoundTrips();
+  TestNoSocketFrameOver64KiB();
+  TestBadRegionIsMalformed();
+  TestSharedBytesCountTowardQuota();
+  TestInboxByteLimit();
   if (failures) return 1;
   std::printf("chromium_host_control_test: ok\n");
   return 0;

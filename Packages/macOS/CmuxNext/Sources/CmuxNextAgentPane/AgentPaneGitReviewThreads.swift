@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// One review thread of the branch's pull request (cx-ncc.77.2, Codex desktop's inline PR
@@ -49,7 +50,7 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
     /// The JSON object in gh's output, which may have warnings around it.
     static func object(in text: String) -> [String: Any]? {
         guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
-        return try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8)) as? [String: Any]
+        return try? JSONSerialization.blockingJSONObject(with: Data(text[start...end].utf8)) as? [String: Any]
     }
 
     /// The threads in `gh api graphql`'s answer, nil when it is not one.

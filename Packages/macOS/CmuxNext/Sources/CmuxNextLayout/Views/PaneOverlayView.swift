@@ -37,6 +37,8 @@ final class PaneOverlayView: NSView {
     private let attention = CALayer()
     /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
     var attentionLayer: CALayer { attention }
+    /// The focus ring's glow layer (`PaneOverlayView+Glow`).
+    var glowLayer: CALayer { glow }
     private let dimLayer = CALayer()
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
@@ -57,14 +59,20 @@ final class PaneOverlayView: NSView {
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
     private var attentionAgentChat = false
-    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
-    private var attentionLook = AttentionHighlightLook.tunable.defaultValue
-    /// One observation of the look is registered at a time.
-    private var observesAttentionLook = false
+    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo): read when the overlay is
+    /// made, then set by the layout root's one look watch (``setAttentionLook(_:)``).
+    private(set) var attentionLook = AttentionHighlightLook.tunable.value
     private var borderStyle = Border(shows: false)
     private var dimFill = DimFill.pane
-    private var excluded: [CGRect] = []
-    private var excludedBounds: CGRect = .zero
+    /// The rects the overlay hides inside and the bounds they were cut for (`PaneOverlayView+Mask`).
+    var excluded: [CGRect] = []
+    var excludedBounds: CGRect = .zero
+    /// What the exclusion mask covers while this overlay rides its host's spring (``rideMask(from:velocity:)``),
+    /// in this view's coordinates: its rest bounds and its bounds where the ride starts. Nil at rest.
+    var maskRideOuter: CGRect?
+    /// The chrome rides its host's render-server spring (``followRideShadows()`` to ``rideEnded()``): a glow
+    /// that starts to show on the way casts from its springing outline too.
+    var ridesRenderSpring = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -118,7 +126,7 @@ final class PaneOverlayView: NSView {
         layoutLayers()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: the ring, glow, attention, border and dim layer colors, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }
@@ -142,9 +150,9 @@ final class PaneOverlayView: NSView {
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
 
-    /// The rest frames of the chrome sublayers for a pane cell of `size`, from this overlay's shape and
-    /// bands: what ``layoutLayers()`` places and a render-server spring of the chrome carries
-    /// (`PaneOverlayView+RenderSpring.swift`).
+    /// Where the chrome sublayers rest on a cell of `size`, from this overlay's shape: the pane motion
+    /// plan's sublayer frames (`PaneMotionPlan.ChromeFrames`), so a spring's start and its rest are laid
+    /// out by the same function.
     func chromeFrames(cellSize size: CGSize) -> PaneMotionPlan.ChromeFrames {
         PaneMotionPlan.ChromeFrames(cellSize: size,
                                     shape: PaneMotionPlan.ChromeShape(padding: padding, cornerRadius: cornerRadius,
@@ -152,20 +160,20 @@ final class PaneOverlayView: NSView {
                                     bands: PaneMotionPlan.ChromeBands(header: headerHeight, footer: footerHeight))
     }
 
-    /// Each sublayer with its frame in `frames` (the glow's is in the glow clip).
-    func sublayerFrames(_ frames: PaneMotionPlan.ChromeFrames) -> [(layer: CALayer, frame: CGRect)] {
-        [(border, frames.rounded), (attention, frames.rounded), (ring, frames.rounded), (glowClip, frames.rounded),
-         (focusFlash, frames.rounded), (dimLayer, frames.padded), (glow, CGRect(origin: .zero, size: frames.rounded.size))]
+    /// Each chrome sublayer with its frame in `frames`, in its superlayer's coordinates: the dim on the
+    /// padded rect, the border and the rings on the rounded one, the glow filling its clip.
+    func sublayerFrames(_ frames: PaneMotionPlan.ChromeFrames) -> [(CALayer, CGRect)] {
+        [(dimLayer, frames.padded), (border, frames.rounded), (attention, frames.rounded), (ring, frames.rounded),
+         (glowClip, frames.rounded), (focusFlash, frames.rounded), (glow, CGRect(origin: .zero, size: frames.rounded.size))]
     }
 
-    private func layoutLayers() {
+    func layoutLayers() {
         let frames = chromeFrames(cellSize: bounds.size)
-        let rect = frames.rounded, radius = frames.cornerRadius, ringRadius = frames.ringCornerRadius
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (sublayer, frame) in sublayerFrames(frames) { sublayer.frame = frame }
-        for sublayer in [border, attention, dimLayer] { sublayer.cornerRadius = radius }
-        for sublayer in [ring, glowClip, focusFlash, glow] { sublayer.cornerRadius = ringRadius }
+        for sublayer in [border, attention, dimLayer] { sublayer.cornerRadius = frames.cornerRadius }
+        for sublayer in [ring, glowClip, focusFlash, glow] { sublayer.cornerRadius = frames.ringCornerRadius }
         // The dim covers the whole padded rect: only the corners the content
         // area shares with it round (a header squares the top ones, a footer
         // the bottom ones). The view is flipped, so maxY is the bottom.
@@ -179,36 +187,13 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
-        attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
+        // Each glow's shadowPath is its border's band.
+        for glowing in [attention, glow] { Self.castBorderShadow(glowing) }
         CATransaction.commit()
     }
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    /// Hides the overlay inside `rects` (its own coordinates): a docked
-    /// column covering this strip pane, a pane in front of it. Empty removes the mask.
-    func setExcluded(_ rects: [CGRect]) {
-        let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
-        guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
-        excluded = rects
-        excludedBounds = bounds
-        guard let layer else { return }
-        guard !rects.isEmpty else {
-            layer.mask = nil
-            return
-        }
-        let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-        // Subtracted, not even-odd: a docked column and a pane in front can overlap.
-        let path = rects.reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(CGPath(rect: $1, transform: nil)) }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        mask.fillRule = .nonZero
-        mask.frame = bounds
-        mask.path = path
-        CATransaction.commit()
-        if layer.mask !== mask { layer.mask = mask }
-    }
-
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
@@ -268,6 +253,8 @@ final class PaneOverlayView: NSView {
         isFocusedPane = focused
         applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
+        // Focus or a mark that arrives mid-spring (a click during Cmd-D) glows on the presented border.
+        if ridesRenderSpring { followRideShadows() }
     }
 
     /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash
@@ -280,21 +267,10 @@ final class PaneOverlayView: NSView {
     /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
     static let flashMinimumWidth: CGFloat = 2
 
-    /// Reads the highlight look and applies a Debug Settings change once,
-    /// without replaying the ring's animation (no polling).
-    private func observedAttentionLook() -> AttentionHighlightLook {
-        guard !observesAttentionLook else { return attentionLook }
-        observesAttentionLook = true
-        return withObservationTracking {
-            AttentionHighlightLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.attentionLookChanged() }
-        }
-    }
-
-    private func attentionLookChanged() {
-        observesAttentionLook = false
-        attentionLook = observedAttentionLook()
+    /// Applies a Debug Settings change of the highlight look without replaying the ring's animation.
+    func setAttentionLook(_ look: AttentionHighlightLook) {
+        guard look != attentionLook else { return }
+        attentionLook = look
         if attentionMark != nil, attentionSettings.drawsRing {
             Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
@@ -308,7 +284,6 @@ final class PaneOverlayView: NSView {
     private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
-        attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.drawsRing else {
             attention.removeAnimation(forKey: "attention")
             // The look turned off (none) mid-flash: the flash and its glow go with it.
@@ -356,6 +331,8 @@ final class PaneOverlayView: NSView {
             focusFlash.borderColor = Palette.paneFocusRing(focusRing, override: flashAlpha).cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
+            // It casts from its border's band (`castBorderShadow`) as strongly as from the border itself.
+            glow.shadowOpacity = ShadowOutline.opacity(1, under: glow.borderColor)
             let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
             attention.shadowColor = attentionColor.cgColor

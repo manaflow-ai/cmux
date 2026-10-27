@@ -104,7 +104,7 @@ import Testing
         let harness = PaneMotionBench.Harness([LayoutScreen(id: "s", name: "s", layout: .columns(columns))], focused: PaneID("p3-0"))
         _ = await harness.frame()
         let screen = try #require(harness.root.screenViews.values.first)
-        let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+        let hosts = screen.stackedSubviews.compactMap { $0 as? PaneHostView }
         var shown = Dictionary(uniqueKeysWithValues: hosts.map { ($0.pane, $0.frame.minX) })
         harness.model.setColumnWidth(ColumnID("c0"), width: 0.8, transaction: .make(), phase: .ended)
         harness.root.syncWithModel()

@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -17,7 +18,8 @@ final class CommandHistory {
     private unowned let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
     private var refreshing: Task<Void, Never>?
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<SyncState>?
+    private var recordingObservation: ServiceObservation<Bool>?
     /// What each connected daemon was last sent, by machine; a restarted
     /// daemon (new boot generation) starts with recording off and is told again.
     private var sent: [String: Sent] = [:]
@@ -34,22 +36,32 @@ final class CommandHistory {
         self.services = services
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
-    }
-
-    /// Starts keeping the daemons' switch and retention in step with the settings.
+    /// Starts keeping the daemons' switch and retention in step with the settings. Releasing the
+    /// service releases the observations, which stops them. The daemon sync is `background`: nobody
+    /// waits on it. The deletion offer is `userBlocking`: it answers the person's own toggle, whose
+    /// settings write ends after an await, so its will-set carries no person cause.
     func start(settings: SettingsController) {
         let machines = services.machines
-        observation = Task { [weak self] in
-            for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
-                self?.sync(state)
-            }
+        observation = ServiceObservation(.background, owner: "CommandHistory.state", on: services.mainWork) {
+            Self.state(settings: settings, daemons: machines.daemons)
+        } apply: { [weak self] state in
+            self?.sync(state)
+        }
+        recordingObservation = ServiceObservation(.userBlocking, owner: "CommandHistory.recording", on: services.mainWork) {
+            settings.snapshot.recordsTerminalCommands
+        } apply: { [weak self] enabled in
+            self?.recordingChanged(enabled, retentionDays: settings.snapshot.commandRetentionDays)
         }
     }
 
+    /// Recording turned from on to off: offer to delete what was recorded.
+    private func recordingChanged(_ enabled: Bool, retentionDays: Int) {
+        if lastEnabled == true, !enabled { offerDeletion(retentionDays: retentionDays) }
+        lastEnabled = enabled
+    }
+
+    /// What a sync depends on: the two settings and each connected daemon's
+    /// boot generation (its revision for this switch), one value per machine.
     private struct SyncState: Sendable, Equatable {
         var enabled: Bool
         var retentionDays: Int
@@ -68,8 +80,6 @@ final class CommandHistory {
     }
 
     private func sync(_ state: SyncState) {
-        if lastEnabled == true, !state.enabled { offerDeletion(retentionDays: state.retentionDays) }
-        lastEnabled = state.enabled
         for (machine, generation) in state.machines {
             let next = Sent(generation: generation, enabled: state.enabled, retentionDays: state.retentionDays)
             // Sent on every connect, off too: the retention reaches the daemon.

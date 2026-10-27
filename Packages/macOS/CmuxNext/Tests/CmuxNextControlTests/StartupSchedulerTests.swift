@@ -58,6 +58,34 @@ import Testing
         #expect(f.ran.names == ["Updater.start"], "the released work ran once")
     }
 
+    /// p08-startup-068: work that measures the frame waits for a committed frame, not for a missed deadline.
+    @Test func whenFirstFrameCommittedWaitsForTheRealFrameNotAMissedOne() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.early") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(nil)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a reveal-deadline release is not the frame")
+        f.startup.firstFrameCommitted()
+        f.startup.firstFrameCommitted()
+        #expect(f.ran.names == ["Census.early"], "once, at the late frame")
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.late") }
+        #expect(f.ran.names == ["Census.early", "Census.late"], "after the frame: at once")
+    }
+
+    @Test func whenFirstFrameCommittedNeverRunsForALaunchWithNoFrameOrAfterQuit() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(.noWindow)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a windowless launch drew no frame")
+        f.startup.beginQuit()
+        f.startup.firstFrameCommitted()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.afterQuit") }
+        #expect(f.ran.names.isEmpty)
+    }
+
     @Test func aFirstFrameThatWillNeverComeEndsWithItsReason() {
         let f = StartupFixture()
         f.startup.finishRegistration()
@@ -65,6 +93,32 @@ import Testing
         f.startup.firstFrameCommitted()
         f.hand.drain()
         #expect(f.startup.completion?.reason == .noWindow, "not firstFrameCommitted: the launch drew no frame")
+    }
+
+    @Test func afterFirstFrameReturnsOnceTheFirstFrameReleasedItsTasks() async {
+        let f = StartupFixture()
+        let waiter = Task { @MainActor [ran = f.ran] in
+            await f.startup.afterFirstFrame()
+            ran.names.append("Control.start")
+        }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(f.ran.names.isEmpty, "the control socket waited for the first frame")
+        f.startup.firstFrameCommitted()
+        await waiter.value
+        #expect(f.ran.names == ["Control.start"])
+        await f.startup.afterFirstFrame()
+        f.startup.finishRegistration()
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .registrationFinished, "waiting took no ref")
+    }
+
+    @Test func afterFirstFrameReturnsWhenQuitBegins() async {
+        let f = StartupFixture()
+        let waiter = Task { @MainActor in await f.startup.afterFirstFrame() }
+        for _ in 0..<10 { await Task.yield() }
+        f.startup.beginQuit()
+        await waiter.value
+        await f.startup.afterFirstFrame()
     }
 
     @Test func pendingInputDefersMainAfterStartupTasksOnePerFrame() {
@@ -247,7 +301,7 @@ import Testing
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) {
             report.yield("Launch.cleanup main=\(Thread.isMainThread)")
         }
-        // The files lane is serial per priority: had the afterStartup post been submitted, it would run first.
+        // The fixture's files lane is serial per priority: had the afterStartup post been submitted, it would run first.
         f.startup.post(.critical, "Settings.read", on: .lane(.files, .bestEffort)) {
             report.yield("Settings.read main=\(Thread.isMainThread)")
         }
@@ -290,6 +344,27 @@ import Testing
         #expect(onMain == false)
     }
 
+    /// A post on a sequence runs after the sequence's earlier posts, off main, although the files lane runs two
+    /// best-effort items at once: the managed-status writes, each a whole file, never land out of order.
+    @Test func aSequencePostRunsAfterTheSequencesEarlierPosts() async {
+        let f = StartupFixture()
+        f.complete()
+        // Its own work with the app's widths: two best-effort slots.
+        let writes = BackgroundWork(label: "test.startup-sequence").sequence("test.status-writes")
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) {
+            // A slow write: outside the sequence, the next one would land first on the other slot.
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(50))
+            report.yield("first main=\(Thread.isMainThread)")
+        }
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) { report.yield("second") }
+        var reports = seen.makeAsyncIterator()
+        let first = await reports.next()
+        let second = await reports.next()
+        #expect(first == "first main=false")
+        #expect(second == "second")
+    }
+
     @Test func afterBeginQuitNothingRunsAndTheFailsafeIsCancelled() async throws {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Updater.start", on: .main) { [ran = f.ran] in ran.names.append("Updater.start") }
@@ -314,13 +389,34 @@ import Testing
         #expect(f.startup.log.phase == .quitting)
     }
 
+    /// p08-startup-065: a value the completion's own mark must follow (`launch.views_built` before `startup_complete`)
+    /// registers late and still runs before every earlier `whenComplete` observer.
+    @Test func aFirstObserverRegisteredLateRunsBeforeTheEarlierObservers() {
+        let f = StartupFixture()
+        f.startup.whenComplete { [ran = f.ran] _ in ran.names.append("startup_complete") }
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("views_built") }
+        f.complete()
+        #expect(f.ran.names == ["views_built", "startup_complete"])
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("late") }
+        #expect(f.ran.names == ["views_built", "startup_complete", "late"], "after completion it runs at once")
+    }
+
+    @Test func aFirstObserverNeverRunsAfterQuit() {
+        let f = StartupFixture()
+        var ran = false
+        f.startup.whenCompleteFirst { _ in ran = true }
+        f.startup.beginQuit()
+        f.complete()
+        #expect(!ran)
+    }
+
     @Test func afterBeginQuitNoQueuedOrLaterLaneTaskRuns() async {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Launch.cleanup") }
         f.complete()
         let (lane, report) = AsyncStream.makeStream(of: String.self)
         let release = DispatchSemaphore(value: 0)
-        // The files lane is serial per priority: this item holds it, so the items after it queue behind it.
+        // The fixture's files lane is serial per priority: this item holds it, so the items after it queue behind it.
         f.background.post(.bestEffort, mayBlock: .files) {
             report.yield("blocker")
             // concurrency-allow: a files-lane thread in a test, released below right after beginQuit.
@@ -354,55 +450,33 @@ import Testing
     }
 }
 
-/// A scheduler on hand-run frames, a hand-run main hop and a manual failsafe clock.
+/// The shared startup scheduler fixture with this suite's input source, critical allowlist and run records.
 @MainActor
 private final class StartupFixture {
-    let clock: ManualClock
+    let scheduler: StartupTestScheduler
     let input: StartupTestInput
-    let hand: StartupHandHop
-    let uptime: StartupTestUptime
-    let mainWork: MainWorkScheduler
-    let background: BackgroundWork
-    let startup: StartupScheduler
     let ran = StartupRan()
     let laneRan = StartupLaneRan()
-    private var timestamp = 0.0
+    var clock: ManualClock { scheduler.clock }
+    var hand: StartupTestHop { scheduler.hand }
+    var background: BackgroundWork { scheduler.background }
+    var startup: StartupScheduler { scheduler.startup }
 
     /// - Parameter phase: The launch phase of the frame scheduler (default: already settled, so the
     ///   scheduler arms its own failsafe on `clock`).
     init(phase: StartupPhase = .settled()) {
-        let clock = ManualClock()
         let input = StartupTestInput()
-        let hand = StartupHandHop()
-        let uptime = StartupTestUptime()
-        // The frame scheduler's stall timer sleeps on its own clock, so the failsafe is the only sleeper on `clock`.
-        let mainWork = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { uptime.now }),
-                                                 clock: ManualClock(), ledger: WakeupLedger(), startup: phase) { _ in StartupTestLink() }
-        let background = BackgroundWork(label: "test.startup")
-        self.clock = clock
         self.input = input
-        self.hand = hand
-        self.uptime = uptime
-        self.mainWork = mainWork
-        self.background = background
-        startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop,
-                                   clock: clock, ledger: WakeupLedger(), criticalAllowlist: ["Theme.apply", "Settings.read"],
-                                   log: StartupTaskLog())
+        // One files slot per priority, so an item that holds it queues the posts behind it.
+        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"],
+                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"))
     }
 
     /// One display frame, 17 ms after the last.
-    func fire() {
-        uptime.now += 17_000_000
-        timestamp += 1
-        mainWork.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
-    }
+    func fire() { scheduler.fire() }
 
     /// Releases both implicit refs and runs the posted completion.
-    func complete() {
-        startup.finishRegistration()
-        startup.firstFrameCommitted()
-        hand.drain()
-    }
+    func complete() { scheduler.complete() }
 }
 
 /// The names the tasks ran, in order.
@@ -420,42 +494,8 @@ private final class StartupLaneRan: Sendable {
     func add(_ name: String) { state.withLock { $0.append(name) } }
 }
 
-/// A main hop the test runs by hand.
-private final class StartupHandHop: Sendable {
-    private let queued = Mutex<[@MainActor @Sendable () -> Void]>([])
-
-    var hop: StartupMainHop {
-        StartupMainHop { [self] work in queued.withLock { $0.append(work) } }
-    }
-
-    var count: Int { queued.withLock { $0.count } }
-
-    /// Runs every queued hop, and the hops they queue; returns how many ran.
-    @MainActor @discardableResult func drain() -> Int {
-        var ran = 0
-        while true {
-            let batch = queued.withLock { queued -> [@MainActor @Sendable () -> Void] in
-                defer { queued = [] }
-                return queued
-            }
-            if batch.isEmpty { return ran }
-            for work in batch { work() }
-            ran += batch.count
-        }
-    }
-}
-
 @MainActor
 private final class StartupTestInput: InputPendingSource {
     var pending = false
     func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
-}
-
-private final class StartupTestUptime {
-    var now: UInt64 = 1_000_000_000
-}
-
-private final class StartupTestLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }

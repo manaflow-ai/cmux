@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 /// Leo 2026-10-20: "when I'm switching to and from workspaces, we shouldn't be having these wild-ass
@@ -31,7 +32,7 @@ import Testing
 
     static func root() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

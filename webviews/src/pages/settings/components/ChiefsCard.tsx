@@ -19,7 +19,8 @@ import {
 import { formatString, type Strings } from "../../shared/i18n";
 import { useRowState, useStore } from "../context";
 import { locale, t } from "../strings";
-import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
+import { CHIEF_PET_MASCOT } from "../cardRows";
+import { CHIEF_PET_MASCOTS } from "./ChiefPetCard";
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 

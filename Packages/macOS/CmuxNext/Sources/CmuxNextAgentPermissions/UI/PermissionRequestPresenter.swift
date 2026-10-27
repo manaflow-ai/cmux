@@ -14,8 +14,9 @@ public final class PermissionRequestPresenter {
         actions: .init(deny: { [weak self] in self?.requests.denyCurrent() },
                        proceed: { [weak self] in self?.requests.continueCurrent() },
                        close: { [weak self] in self?.closeGuide() }),
-        appURL: appURL))
+        appURL: appURL, appIcon: appIcon))
     private let appURL: (PermissionKind) -> URL?
+    private let appIcon: (PermissionKind) -> NSImage?
     private var following: Task<Void, Never>?
     /// The guide the person closed: the request still waits for its grant, the card stays hidden.
     private var closedGuide: String?
@@ -23,11 +24,14 @@ public final class PermissionRequestPresenter {
     /// - Parameters:
     ///   - requests: the request store.
     ///   - appURL: the app that gets a grant (cmux, or the Computer Use helper).
+    ///   - appIcon: that app's icon, read off the main thread (nil until it is).
     ///   - screen: the screen to show the card on (cmux's key window's).
     public init(requests: AgentPermissionRequests, appURL: @escaping (PermissionKind) -> URL?,
+                appIcon: @escaping (PermissionKind) -> NSImage?,
                 screen: @escaping () -> NSScreen? = { NSApp.keyWindow?.screen ?? NSScreen.main }) {
         self.requests = requests
         self.appURL = appURL
+        self.appIcon = appIcon
         self.screen = screen
     }
 

@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// Move to Cloud (cmuxterm-hq#1874 slice 3): the one action behind the palette's
@@ -87,25 +88,39 @@ struct CloudMove {
     private func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
-        let retries = services.cloud.moveRetries
         toast(toastID, CloudMoveStrings.moving, duration: .seconds(600))
         // An agent's ask in the chat shows the move too (``CloudMoveAsks``).
-        let asks = services.cloud.moveAsks
-        asks.moveStarted(tabID, services: services)
-        let work: ActionWork = Task { @MainActor in
-            do {
-                let machine = try await body()
-                retries[tabID] = nil
-                toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
-                asks.moveEnded(tabID, failure: nil, services: services)
-                return nil
-            } catch {
-                let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
-                asks.moveEnded(tabID, failure: failure.message, services: services)
-                return failure
+        services.cloud.moveAsks.moveStarted(tabID, services: services)
+        let services = self.services, mainWork = self.services.mainWork
+        // R-hop: the run is awaited off main; its end (the retry ledger, the toast, the chat's card) is one
+        // visible task on the app's scheduler, in the run's action scopes (the task carries them, the posted end not).
+        let work: ActionWork = Task { @concurrent in
+            let scopes = ActionScopes.current
+            let outcome: Result<String, any Error>
+            do { outcome = .success(try await body()) } catch { outcome = .failure(error) }
+            return await mainWork.apply(.visible, owner: "CloudMove.end") {
+                scopes.applying { CloudMove(services: services).ended(outcome, tab: tabID, toast: toastID, invocation: invocation) }
             }
         }
         services.registry.track(work)
+    }
+
+    /// The move ended: success clears its retry and says where the chat went; a stop records what
+    /// Retry does and offers it. Either way the chat's ask card follows (``CloudMoveAsks``).
+    private func ended(_ outcome: Result<String, any Error>, tab tabID: String, toast toastID: String,
+                       invocation: ActionInvocation) -> ActionWorkFailure? {
+        let asks = services.cloud.moveAsks
+        switch outcome {
+        case .success(let machine):
+            services.cloud.moveRetries[tabID] = nil
+            toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
+            asks.moveEnded(tabID, failure: nil, services: services)
+            return nil
+        case .failure(let error):
+            let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+            asks.moveEnded(tabID, failure: failure.message, services: services)
+            return failure
+        }
     }
 
     /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
@@ -276,7 +291,7 @@ struct CloudMove {
         }
         let daemon = session.daemon
         // A failed resume ends the wait at once, with its reason.
-        guard await Self.holds(within: .seconds(180), until: {
+        guard await Self.holds(within: .seconds(180), on: services.mainWork, until: {
             session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }) else {
             throw Failure(message: CloudMoveStrings.notConnected(session.machine.title), retry: .move(machineID: session.machineID))
@@ -336,24 +351,15 @@ struct CloudMove {
         handle.onAction = { retry?() }
     }
 
-    /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
-    static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+    /// Whether `condition` holds within `limit`: an ``ObservedCondition`` (a `ServiceObservation` in the visible
+    /// class on `work`) raced against a ``Deadline`` (the limit wakes once, with its ``WakeLeeway`` tolerance; the
+    /// wait is cancelled when the limit wins). `clock` times the limit; tests pass a `ManualClock`.
+    static func holds(within limit: Duration, on work: MainWorkScheduler, clock: any Clock<Duration> = ContinuousClock(),
+                      until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's start
-        return await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await observe(condition) }
-            group.addTask {
-                // wakeup-allow: one-shot deadline for a machine link to come up
-                try? await Task.sleep(for: limit)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
-    }
-
-    private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        for await ready in ObservationStream({ condition() }) where ready { return true }
-        return false
+        return await Deadline(limit, clock: clock).value("CloudMove.holds") {
+            await ObservedCondition(owner: "CloudMove.holds", .visible, on: work).until(condition)
+            return await condition()
+        } ?? false
     }
 }

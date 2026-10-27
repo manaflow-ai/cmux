@@ -265,7 +265,7 @@ impl Tracer {
         }
     }
 
-    fn full_identity(&self) -> &ProcessIdentity {
+    pub(crate) fn full_identity(&self) -> &ProcessIdentity {
         self.identity.get_or_init(|| {
             let mut identity = self.config.identity;
             (self.config.read_slow_identity)(&mut identity);
@@ -373,7 +373,7 @@ impl Tracer {
         let identity = *self.full_identity();
         let path = self.config.dir.join(crate::blackbox_file_name(self.config.role, identity.pid));
         let layout = *self.heap.layout();
-        let mapped = std::fs::create_dir_all(&self.config.dir)
+        let mapped = map::create_private_dir(&self.config.dir)
             .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
         let mapping = mapped.inspect_err(|_| {
             self.map_failures.fetch_add(1, Ordering::Relaxed);
@@ -407,7 +407,7 @@ impl Tracer {
             let layout = RingLayout::of(self.config.recording);
             let path =
                 self.config.dir.join(crate::recording_file_name(self.config.role, identity.pid));
-            let mapped = std::fs::create_dir_all(&self.config.dir)
+            let mapped = map::create_private_dir(&self.config.dir)
                 .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
             let ring = match mapped {
                 Ok(mapping) => {
@@ -462,6 +462,11 @@ impl Tracer {
         Ok(self.status())
     }
 
+    /// Whether a recording runs now (between a `start_recording` and its `stop`): one load.
+    pub fn recording(&self) -> bool {
+        self.control.load(Ordering::Relaxed) == RECORDING
+    }
+
     pub fn status(&self) -> Status {
         let active = self.active_ring();
         let recording = self.recording.get();
@@ -479,6 +484,13 @@ impl Tracer {
             heap_chunks_lost: self.file.get().map_or(0, |file| file.counter(off::HEAP_CHUNKS_LOST)),
             map_failures: self.map_failures.load(Ordering::Relaxed),
         }
+    }
+
+    /// How long the tracer has run, on its start clock: now less the heap ring's
+    /// `start_uptime_ns` (written once, when the tracer was made). No allocation or lock.
+    pub fn uptime_ns(&self) -> u64 {
+        let started = self.heap.a64(off::START_UPTIME_NS).load(Ordering::Relaxed);
+        (self.config.clocks.uptime_ns)().saturating_sub(started)
     }
 
     /// A consistent copy of the active ring, as its file would read. Allocates.

@@ -1,8 +1,11 @@
 public import Foundation
 import WebKit
 
-/// Why ``PageWebView/callPageScript(_:arguments:)`` returned no value from a Chromium page.
+/// Why ``PageWebView/callPageScript(_:arguments:)`` returned no value.
 public nonisolated enum PageScriptError: Error, Sendable, Equatable {
+    /// The page has no document yet: it waits for its first show (``PageWebView/awaitsFirstShow``), or
+    /// its Chromium page is on its way.
+    case notStarted
     /// An argument is not a JSON value.
     case argument(String)
     /// The page's answer was not JSON.
@@ -22,8 +25,16 @@ extension PageWebView {
     ///   - arguments: Its parameters by name; each must be a JSON value (NSNull for null).
     /// - Returns: The returned value; nil for `undefined` or `null`.
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        // No document yet: WebKit would launch the page's WebContent process to run it.
+        if awaitsFirstShow { throw PageScriptError.notStarted }
+        // MQ12 thaws first: a frozen page cannot answer, and it does not freeze until the answer comes.
+        pushes.callStarted()
+        defer { pushes.callEnded() }
+        // The router envelopes waiting for the frame were sent before it.
+        scripts.flush()
         guard let page = chromiumSession?.page else {
-            return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+            guard let view = webKitPieces?.view else { throw PageScriptError.notStarted }
+            return try await view.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
         }
         let names = arguments.keys.sorted()
         let values = try names.map { name in
@@ -35,6 +46,14 @@ extension PageWebView {
         let expression = "(async (\(names.joined(separator: ", "))) => {\n\(body)\n})(\(values.joined(separator: ", ")))"
         let value = try await page.evaluate(expression)
         return value is NSNull ? nil : value
+    }
+
+    /// The fragment the document shows now, which follows the page's own links and history (a
+    /// section the person picked in the page), unlike ``route``, the last one the host asked for;
+    /// ``route`` while no document answers. Nil for a page on its default place (no fragment).
+    public func shownRoute() async -> String? {
+        guard loaded, let hash = try? await callPageScript("return window.location.hash;") as? String else { return route }
+        return hash.isEmpty ? nil : hash
     }
 }
 

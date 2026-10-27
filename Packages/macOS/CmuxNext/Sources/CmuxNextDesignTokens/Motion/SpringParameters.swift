@@ -1,5 +1,4 @@
 package import CCmuxMotionFFI
-public import CoreGraphics
 public import Foundation
 
 /// Spring tuning in SwiftUI terms, with the equivalent Core Animation
@@ -108,8 +107,8 @@ public nonisolated struct SpringValue: Hashable, Sendable {
     /// step at 0.1 s, so a time is solved in exact 0.1 s pieces (the solution composes), at most 100:
     /// at or past the settle horizon, min(10 s, 20 x response), and for a non-finite time, the spring
     /// is at rest. A non-finite or non-positive tuning takes `move`'s, as cmux-motion `finite_or` does,
-    /// so an undamped spring settles too. ColorTransition calls it, and the layout reads what its
-    /// render-server springs show with it (`RenderTrack`, CmuxNextLayout).
+    /// so an undamped spring settles too. (ColorTransition is the only caller; it moves to
+    /// cmux_motion_spring_progress_monotone, after which this goes.)
     public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
                              parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
         let fallback = MotionSpring.move.base

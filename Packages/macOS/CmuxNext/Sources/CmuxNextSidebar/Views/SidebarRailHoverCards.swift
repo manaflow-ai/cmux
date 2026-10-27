@@ -20,10 +20,7 @@ final class SidebarRailHoverCards: HoverCardSource {
 
     static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("rail:\(id.rawValue)") }
 
-    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
-        guard id.rawValue.hasPrefix("rail:") else { return nil }
-        return WorkspaceID(String(id.rawValue.dropFirst("rail:".count)))
-    }
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? { WorkspaceID(railHoverTarget: id) }
 
     /// The pointer moved over, onto or off the rail (`screenPoint`): the coordinator hit-tests.
     func pointerMoved(to screenPoint: CGPoint?) {
@@ -37,7 +34,7 @@ final class SidebarRailHoverCards: HoverCardSource {
     var hoverCardWindow: NSWindow? { rail?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil }
+        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil } // visibility-walk-allow: a hover card hit test at the pointer
         let point = rail.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         guard let tick = rail.tick(at: point), case let .workspace(id) = tick.mark.target,
               let anchor = rail.cardAnchor(tick) else { return nil }
@@ -48,7 +45,7 @@ final class SidebarRailHoverCards: HoverCardSource {
 
     /// Between two rows of the rail (a group gap): the card waits for the next row.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor,
+        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor, // visibility-walk-allow: a hover card hit test at the pointer
               let first = rail.railLayout.ticks.first, let last = rail.railLayout.ticks.last else { return false }
         let point = rail.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         return rail.bounds.contains(point) && point.y >= first.rowY && point.y < last.rowY + rail.railLayout.pitch
@@ -130,5 +127,14 @@ final class SidebarRailCardView: NSView, HoverCardTextReporting {
             // glass-opaque-allow: a 6 pt unread/working status dot inside the card, not a surface; the card is the shared glass panel
             dot.layer?.backgroundColor = (state == .unread ? Palette.notificationBlue : Palette.textSecondary).cgColor
         }
+    }
+}
+
+public extension WorkspaceID {
+    /// The workspace of a rail mark's hover card target (`SidebarRailHoverCards.targetID(_:)`); nil for any other
+    /// target.
+    nonisolated init?(railHoverTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("rail:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("rail:".count)))
     }
 }

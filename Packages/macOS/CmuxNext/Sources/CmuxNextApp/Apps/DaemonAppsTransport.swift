@@ -1,6 +1,7 @@
 import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -39,11 +40,16 @@ final class DaemonAppsTransport: AppsTransport {
     private var epoch = 0
     /// The store's connection epoch of the current availability epoch.
     private var storeEpoch = -1
-    private var following: Task<Void, Never>?
+    /// Follows the connection (``start()``): a visible ``ServiceObservation`` (its apply moves the provider's
+    /// registration and the availability every app section shows, hidden windows' too).
+    private var following: ServiceObservation<(DaemonConnectionState, Int)>?
+    private let mainWork: MainWorkScheduler
     private var subscription: UInt64?
 
-    init(daemon: DaemonService, inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
+    init(daemon: DaemonService, mainWork: MainWorkScheduler,
+         inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
         self.daemon = daemon
+        self.mainWork = mainWork
         let inventory = AgentInventoryProviderBridge(routes: inventoryRoutes)
         self.inventory = inventory
         provider = AppsProviderChannel(link: .daemon(daemon, inventory: inventory))
@@ -59,13 +65,12 @@ final class DaemonAppsTransport: AppsTransport {
             if provider.handle(envelope) { return }
             if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
         }
-        let daemon = daemon
-        update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
-        // task-owner: the transport (lives as long as the app); event-driven (Observation)
-        following = Task { [weak self] in
-            for await (state, epoch) in ObservationStream({ (daemon.store.connectionState, daemon.store.connectionEpoch) }) {
-                self?.update(state, storeEpoch: epoch)
-            }
+        let store = daemon.store
+        // Applies the current state now, then once per change (the transport lives as long as the app).
+        following = ServiceObservation(.visible, owner: "DaemonAppsTransport.connection", on: mainWork) {
+            (store.connectionState, store.connectionEpoch)
+        } apply: { [weak self] connection in
+            self?.update(connection.0, storeEpoch: connection.1)
         }
     }
 

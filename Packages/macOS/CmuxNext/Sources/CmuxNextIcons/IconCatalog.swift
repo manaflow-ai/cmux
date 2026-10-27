@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 
@@ -15,7 +16,7 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
     }
 
     public init(data: Data) throws {
-        self = try JSONDecoder().decode(IconCatalog.self, from: data)
+        self = try JSONDecoder().blockingDecode(IconCatalog.self, from: data)
     }
 
     private enum CodingKeys: String, CodingKey {

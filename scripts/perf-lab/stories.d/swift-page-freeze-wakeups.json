@@ -1,0 +1,17 @@
+{
+  "id": "swift-page-freeze-wakeups",
+  "tier": "builder",
+  "description": "PageFreezeWakeupsBenchmark: interrupt wakeups per second of a WebKit page's WebContent process with a 90 ms timer while it shows and after it is hidden and frozen.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-page-freeze-wakeups", "--filter", "PageFreezeWakeupsBenchmark", "--env", "CMUX_PAGE_FREEZE_WAKEUPS=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.page_freeze\\.(shown|frozen)_wakeups", "unit": "per_s", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests/PageFreezeWakeupsBenchmark.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-webui",
+  "component": "Pages>Freeze"
+}

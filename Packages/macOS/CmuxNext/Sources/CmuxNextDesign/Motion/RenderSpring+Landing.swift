@@ -1,4 +1,5 @@
 import QuartzCore
+import ObjectiveC
 
 extension RenderSpring {
     /// When one ``RenderSpring`` call lands. Chrome's model: an implicit animation observer
@@ -76,19 +77,27 @@ extension RenderSpring {
             done(finished)
         }
 
-        /// The newest landing of each key path on one layer, oldest call first, kept on the layer
-        /// like its spring serial. Calls on one value meet only on its layer, so this is the call
-        /// order the completions keep.
-        final class Table: NSObject {
-            private static let key = "cmux.renderSpring.landings"
+        /// The newest landing of each key path on one layer, oldest call first, and the layer's
+        /// spring serial, kept on the layer as an associated object (it lives as long as the layer).
+        /// Calls on one value meet only on its layer, so this is the call order the completions keep.
+        final class Table {
+            /// Each layer's table.
+            private static let tables = ObjectAssociation<Table>()
             private var newest: [(keyPath: String, landing: Landing)] = []
+            private var serial = 0
 
             /// The table of `layer`, made on first use.
             static func on(_ layer: CALayer) -> Table {
-                if let table = layer.value(forKey: key) as? Table { return table }
+                if let table = tables.value(on: layer) { return table }
                 let table = Table()
-                layer.setValue(table, forKey: key)
+                tables.set(table, on: layer)
                 return table
+            }
+
+            /// The next spring serial on the layer (``RenderSpring`` animation keys).
+            func nextSerial() -> Int {
+                serial &+= 1
+                return serial
             }
 
             /// `landing` takes over `keyPath` and returns the unsettled landings of related key

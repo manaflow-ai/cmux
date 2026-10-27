@@ -91,7 +91,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         case .malformed: return .drop
         case .duplicate: return .close
         }
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
+        guard var object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         if object["method"] != nil {
             if object["method"] as? String == "_acpmux/prompt_accepted", let promptAccepted,
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
@@ -122,7 +122,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
 
     /// A raw JSON id back to its value.
     static func value(_ raw: String) -> Any? {
-        try? JSONSerialization.jsonObject(with: Data(raw.utf8), options: [.fragmentsAllowed])
+        try? JSONSerialization.blockingJSONObject(with: Data(raw.utf8), options: [.fragmentsAllowed])
     }
 
     static func encode(_ object: [String: Any]) -> String? {

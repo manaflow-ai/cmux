@@ -50,7 +50,7 @@ protocol PrimaryInputTarget: AnyObject {
 
 extension PrimaryInputTarget {
     var acceptsRedirectedTyping: Bool {
-        guard let input = primaryInputView, let window = input.window, !input.isHiddenOrHasHiddenAncestor else { return false }
+        guard let input = primaryInputView, let window = input.window, input.isShownForInput else { return false }
         return !(window.firstResponder?.ownsTypedText ?? false)
     }
 
@@ -70,7 +70,7 @@ extension PrimaryInputTarget {
     /// focuses its own target).
     @discardableResult
     func landKeyboard(in window: NSWindow) -> Bool {
-        guard let input = primaryInputView, input.window === window, !input.isHiddenOrHasHiddenAncestor else { return false }
+        guard let input = primaryInputView, input.window === window, input.isShownForInput else { return false }
         if window.firstResponder !== input, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
             window.makeFirstResponder(input)
         }
@@ -92,6 +92,27 @@ extension TabContent {
     /// primary input in `window` now: the caller focuses `focusTarget`.
     @MainActor func landKeyboardInPrimaryInput(in window: NSWindow) -> Bool {
         primaryInput?.landKeyboard(in: window) ?? false
+    }
+}
+
+extension NSWindow {
+    /// Whether a primary input inside `view` may take this window's keyboard when nobody asked for it
+    /// (a surface that shows content by itself: Home's default conversation, its message box installed).
+    /// Nothing in the window holds the keyboard (the window itself or nil is first responder) and, when
+    /// `view` is in a pane of a cmux window, its focus model keeps the keyboard in that pane's content.
+    /// The first responder alone cannot say it: a Chromium page that has the keys leaves the cmux window
+    /// itself first responder, and Home took them from a restored browser page (QA chrome-parity-v2-2-2
+    /// bug 1). Outside every pane (classic Home as a top page), or in a pane the focus model does not
+    /// know yet (its first topology still to come), the first responder rule alone decides.
+    /// - Parameter view: The surface's view, in this window.
+    /// - Returns: True when the surface may give its primary input the keyboard now.
+    @MainActor func keyboardIsFree(for view: NSView) -> Bool {
+        guard firstResponder === self || firstResponder == nil else { return false }
+        guard let controller = windowController as? WindowController,
+              case .content(let pane) = FocusResponderClassifier.classify(view, in: controller) else { return true }
+        let focus = controller.focus.currentState()
+        guard focus.topology.panes.contains(where: { $0.id == pane }) else { return true }
+        return focus.keepsKeyboard(inContentOf: pane)
     }
 }
 

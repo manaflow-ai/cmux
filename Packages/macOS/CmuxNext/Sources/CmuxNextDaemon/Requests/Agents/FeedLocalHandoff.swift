@@ -7,7 +7,7 @@ public struct FeedLocalHandoffBeginRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var item: FeedLocalItem
     }
-    public static let command = "feed-local-handoff-begin"
+    public static let commandName: DaemonCommandName = "feed-local-handoff-begin"
     public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var item: String
     public init(item: String) { self.item = item }
@@ -17,7 +17,7 @@ public struct FeedLocalHandoffBeginRequest: DaemonRequest {
 /// the new owner committed the item; it becomes `moved`.
 public struct FeedLocalHandoffDoneRequest: DaemonRequest {
     public typealias Response = FeedLocalHandoffBeginRequest.Response
-    public static let command = "feed-local-handoff-done"
+    public static let commandName: DaemonCommandName = "feed-local-handoff-done"
     public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var item: String
     public var home: String

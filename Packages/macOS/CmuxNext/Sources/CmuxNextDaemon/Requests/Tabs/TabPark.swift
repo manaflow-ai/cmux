@@ -15,7 +15,7 @@ public struct ParkTabsRequest: DaemonRequest {
         }
     }
 
-    public static let command = "park-tabs"
+    public static let commandName: DaemonCommandName = "park-tabs"
     public static let requiredCapability: String? = DaemonCapability.tabPark.rawValue
     public var surfaces: [SurfaceID]
 

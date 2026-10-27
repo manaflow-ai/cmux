@@ -4,6 +4,7 @@ import CmuxNextPalette
 import CoreGraphics
 import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// Search Tabs over the App's mirror (plans/cmux-next/tab-search.md): every
 /// open tab on every connected machine, in every window, workspace, screen
@@ -69,17 +70,21 @@ final class AppTabSearchSource: TabSearchSource {
         let favicons = services.favicons
         let subscribed = Revision(tabs: changes.revision, favicons: favicons.revision)
         // A change is a signal, not data: the newest one is enough.
+        // `visible`: the open Search Tabs list redraws its rows. A service, not a view: the palette owns the stream.
+        let mainWork = services.mainWork
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task { @MainActor in
-                var last = subscribed
-                for await revision in ObservationStream({ Revision(tabs: changes.revision, favicons: favicons.revision) })
-                where revision != last {
-                    last = revision
-                    continuation.yield()
-                }
-                continuation.finish()
+            var last = subscribed
+            let follow = ServiceObservation(.visible, owner: "AppTabSearchSource.changes", on: mainWork) {
+                Revision(tabs: changes.revision, favicons: favicons.revision)
+            } apply: { revision in
+                guard revision != last else { return }
+                last = revision
+                continuation.yield()
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // The stream ends on any thread; the observation stops on main.
+            continuation.onTermination = { _ in
+                mainWork.postFromAnyThread(.background, owner: "AppTabSearchSource.changesEnd") { follow.cancel() }
+            }
         }
     }
 }

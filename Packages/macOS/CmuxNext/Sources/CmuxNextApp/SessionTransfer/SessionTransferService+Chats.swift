@@ -71,7 +71,7 @@ extension SessionTransferService {
             throw Failure.chatInChats
         }
         guard result.status == 0 else { throw Self.acpmuxFailure(result.stderr, status: result.status) }
-        let moved = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any]
+        let moved = try? JSONSerialization.blockingJSONObject(with: result.stdout) as? [String: Any]
         return moved?["sessionId"] as? String ?? session
     }
 
@@ -99,7 +99,7 @@ extension SessionTransferService {
         guard let result = try? await ProcessRunner.run(executable: environment.executable, arguments: ["--json", "info", session],
                                                         environment: variables, timeout: .seconds(10), clock: ContinuousClock()),
               result.status == 0,
-              let info = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any] else { return false }
+              let info = try? JSONSerialization.blockingJSONObject(with: result.stdout) as? [String: Any] else { return false }
         return info["status"] as? String != "closed"
     }
 
@@ -108,7 +108,7 @@ extension SessionTransferService {
     private nonisolated static func acpmuxFailure(_ stderr: Data, status: Int32) -> Failure {
         let text = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let last = text.split(separator: "\n").last.map(String.init) ?? ""
-        let line = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any]
+        let line = try? JSONSerialization.blockingJSONObject(with: Data(last.utf8)) as? [String: Any]
         let error = line?["error"] as? [String: Any]
         if error?["detail"] as? String == "cwd_missing", let folder = (error?["data"] as? [String: Any])?["cwd"] as? String {
             return .chatFolderMissing(folder)
@@ -120,7 +120,9 @@ extension SessionTransferService {
     /// Whether two paths name one file (a socket reached as `/tmp/…` and `/private/tmp/…`).
     private nonisolated static func sameFile(_ a: String, _ b: String) -> Bool {
         var first = stat(), second = stat()
-        guard stat(a, &first) == 0, stat(b, &second) == 0 else { return a == b }
+        // SAFETY: each stat reads the NUL-terminated copy of its path made for the call and writes one struct
+        // stat into a local live for the call.
+        guard unsafe stat(a, &first) == 0, unsafe stat(b, &second) == 0 else { return a == b }
         return first.st_dev == second.st_dev && first.st_ino == second.st_ino
     }
 
@@ -130,66 +132,29 @@ extension SessionTransferService {
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
         var noSigPipe: Int32 = 1 // it only connects, but no write on it may ever signal
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            raw.copyBytes(from: bytes)
-            raw[bytes.count] = 0
-        }
-        return withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
-            }
-        }
+        // SAFETY: setsockopt reads the Int32 it is given the size of, a local live for the call.
+        _ = unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else { return false }
+        return address.connect(descriptor) == 0
     }
 
     /// Runs `executable` and returns its exit status and output, or nil when it is still running
-    /// after `limit` or the caller is cancelled; it is never ended early. Output goes to files
-    /// (a daemon it starts cannot hold an end-of-file wait open), which go once it exits.
-    /// Throws when it could not start.
-    private nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String],
-                                             limit: Duration) async throws -> (status: Int32, stdout: Data, stderr: Data)? {
-        let files = FileManager.default
-        let directory = files.temporaryDirectory.appendingPathComponent("cmux-transfer-\(UUID().uuidString)")
-        let stdoutURL = directory.appendingPathComponent("stdout"), stderrURL = directory.appendingPathComponent("stderr")
-        let process = Process()
+    /// after `limit` or the caller is cancelled; it is never ended early (ended midway, the source
+    /// chat would stay frozen). The spawn runs off the caller's actor; the output drains while it
+    /// runs, and a daemon it starts cannot hold the result open. The person waits for the move, so
+    /// it runs at userBlocking. Throws when it could not start.
+    nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String], limit: Duration,
+                                     processes: any ProcessRunning = AsyncProcess(),
+                                     clock: any Clock<Duration> = ContinuousClock()) async throws -> (status: Int32, stdout: Data, stderr: Data)? {
+        try Task.checkCancellation()
+        let request = ProcessRequest(executable, arguments, environment: environment, errorOutput: .separate,
+                                     onCancel: .finish, priority: .userBlocking)
         do {
-            try files.createDirectory(at: directory, withIntermediateDirectories: true)
-            files.createFile(atPath: stdoutURL.path, contents: nil)
-            files.createFile(atPath: stderrURL.path, contents: nil)
-            let stdout = try FileHandle(forWritingTo: stdoutURL), stderr = try FileHandle(forWritingTo: stderrURL)
-            defer { try? stdout.close(); try? stderr.close() }
-            process.executableURL = executable
-            process.arguments = arguments
-            process.environment = environment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try Task.checkCancellation()
-            // The first of exit, `limit` and cancellation resumes the caller once (a continuation race,
-            // as ControlDeadline does): nothing waits on a loser.
-            let outcome = FirstOutcome<(status: Int32, stdout: Data, stderr: Data)?>()
-            // Also after the wait gave up: the output is read and its files go.
-            process.terminationHandler = { process in
-                let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
-                try? FileManager.default.removeItem(at: directory)
-                outcome.resolve((process.terminationStatus, out, err))
-            }
-            try process.run()
-            let bound = DemandTimer(owner: "SessionTransfer.runToEnd")
-            bound.schedule(after: limit) { outcome.resolve(nil) }
-            defer { bound.cancel() }
-            return await withTaskCancellationHandler {
-                await outcome.value()
-            } onCancel: {
-                outcome.resolve(nil)
-            }
+            guard let outcome = try await processes.outcome(of: request, waitingAtMost: limit, owner: "SessionTransfer.runToEnd",
+                                                            clock: clock) else { return nil }
+            return (outcome.status, outcome.output, outcome.errorOutput)
         } catch {
-            try? files.removeItem(at: directory)
-            throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
+            throw Failure.chatNotMoved(String(describing: error))
         }
     }
 }
