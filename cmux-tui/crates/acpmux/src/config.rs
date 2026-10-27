@@ -920,11 +920,10 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
-    /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host, a VM cmux created), so the VM boundary is the sandbox:
-    /// a remote chain's Claude Code runs there without Seatbelt
-    /// (`hub/remote_sandbox.rs`). Honored off macOS only. Absent: on exactly
-    /// when cmux created this VM (`hub/vm_host.rs`); `_acpmux/vm_host` sets it.
+    /// `vmHost`: kept and shown (`_acpmux/vm_host` `configured`), never
+    /// trusted. The agent can write this file, so `true` no longer runs a
+    /// remote chain's Claude Code without the sandbox (`hub/vm_host.rs`);
+    /// `_acpmux/vm_host {on: false}` writes `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
     /// `pool`: hidden pre-created sessions that make a harness switch
