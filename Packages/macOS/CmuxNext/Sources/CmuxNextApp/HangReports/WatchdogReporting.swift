@@ -40,6 +40,7 @@ enum WatchdogReporting {
             },
             blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
         let collector = hangReports.collector
+        if let collector { services.crashReporting.attachHangReports(collector) }
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
         if services.blocking.isCompiledIn {
