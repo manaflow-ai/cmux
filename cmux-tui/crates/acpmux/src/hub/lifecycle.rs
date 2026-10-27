@@ -393,8 +393,8 @@ impl Hub {
         let level = |m: &SessionMeta| (m.permission_policy.clone(), crate::web_modes::mode_of(m));
         for _ in 0..ROUNDS {
             let Some(theirs) = live() else { return Ok(()) };
-            if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
-                let narrowed = self.effective_policy(&theirs).await;
+            if inherits_policy && self.policy_set_laxer(&session.meta(), &theirs).await {
+                let narrowed = self.set_policy_of(&theirs).await;
                 self.set_policy(session, narrowed).await;
             }
             if mode_eligible {
