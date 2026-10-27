@@ -402,6 +402,51 @@ class GlobalJobsTests(unittest.TestCase):
         self.assertEqual({(h["caller"], tuple(h["priorities"])) for h in hits},
                          {("Index.detached", ("default",)), ("Cache.global", ("default",)), ("Model.medium", ("default",))})
 
+    def test_the_census_reply_is_read_as_the_app_sends_it(self):
+        # debug.startup.global_jobs (task 082): raw TaskPriority numbers, 0 for none, no lane, run_ms null (the hook
+        # sees the enqueue).
+        jobs = [{"caller": "Feed.refresh()", "via": None, "priority": 17, "origin": "off_main", "enqueued_ms": 40.5,
+                 "run_ms": None},
+                {"caller": "Scan.all()", "via": None, "priority": 0, "origin": "main", "enqueued_ms": 42, "run_ms": None},
+                {"caller": "Open.page()", "via": None, "priority": 25, "origin": "main", "enqueued_ms": 43, "run_ms": None}]
+        state = {"armed": True, "hook": "installed", "frozen": True, "tasks": 3, "pending_tasks": 0, "dropped_tasks": 0,
+                 "resumptions": 12, "actor_jobs": 3, "untracked_tasks": 0}
+        hits, warnings, used = sq.globaljobs_hits(
+            sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
+        self.assertEqual((used, warnings), (1, []))
+        self.assertEqual([(h["caller"], h["priorities"], h["via"], h["total_ms"]) for h in hits],
+                         [("Feed.refresh()", ["utility"], [], 0.0), ("Scan.all()", ["unspecified"], [], 0.0)])
+
+    def test_a_background_work_task_before_completion_is_a_hit(self):
+        # BackgroundWork.task starts its Task.detached at once: the launch fence holds only lane items, so a
+        # work.task(.bestEffort) or work.task(.idle) during launch is Q12 work, named by its caller.
+        jobs = [{"caller": "Index.rebuild()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 41, "run_ms": None},
+                {"caller": "Feed.prefetch()", "via": "background_work_task", "priority": 17, "origin": "off_main",
+                 "enqueued_ms": 44, "run_ms": None},
+                {"caller": "Late.sweep()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 950, "run_ms": None},
+                {"caller": "Lane.job", "lane": "files", "priority": 9, "enqueued_ms": 10, "run_ms": 1}]
+        state = {"armed": True, "hook": "installed", "tasks": 3}
+        hits, _, _ = sq.globaljobs_hits(
+            sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
+        self.assertEqual([(h["caller"], h["priorities"], h["via"]) for h in hits],
+                         [("Feed.prefetch()", ["utility"], ["background_work_task"]),
+                          ("Index.rebuild()", ["background"], ["background_work_task"])])
+        self.assertIn("(via background_work_task)", hits[1]["summary"])
+
+    def test_a_census_that_did_not_record_is_left_out(self):
+        runs = sq.capture_runs([census_run(global_jobs=[], global_job_census={"armed": False}),
+                                census_run(global_jobs=[], global_job_census={"armed": True, "hook": "busy"}),
+                                census_run(global_jobs=[], global_job_census={"armed": True, "hook": "installed",
+                                                                              "dropped_tasks": 7, "untracked_tasks": 0})])
+        _, warnings, used = sq.globaljobs_hits(runs, "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertIn("run 1: the global-job census was not armed", warnings[0])
+        self.assertIn("run 2: global-enqueue hook busy", warnings[1])
+        self.assertIn("run 3: the census did not keep 7 tasks past the ring", warnings[2])
+        self.assertEqual(len(warnings), 3)
+
 
 class CensusFieldTests(unittest.TestCase):
     """A debug.startup result from a build without the census (008 without 080/082/085) is not a clean launch."""
@@ -629,6 +674,19 @@ class CollectTests(unittest.TestCase):
             sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup",
                        extra_method="debug.startup.main_jobs")
         self.assertIn("debug.startup.main_jobs", err.getvalue())
+
+    def test_a_census_mode_arms_its_recorder_and_merges_its_method(self):
+        # A build without debug.startup (task 008) still answers the census's own method.
+        replies = {"debug.startup": {"ok": False, "error": {"code": "method_not_found"}},
+                   "debug.startup.global_jobs": {"ok": True, "result": {"global_jobs": [], "global_job_census": {
+                       "armed": True, "hook": "installed"}}}}
+        bench = FakeBench(lambda method: replies[method], daemon=False)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, sq.method_of("globaljobs"),
+                          extra_method=sq.MODE_METHOD["globaljobs"], extra_env=sq.MODE_ENV["globaljobs"])
+        self.assertEqual(runs[0]["result"], {"global_jobs": [], "global_job_census": {"armed": True, "hook": "installed"}})
+        self.assertEqual({env.get("CMUX_NEXT_GLOBAL_JOB_CENSUS") for _, _, env in bench.launched}, {"1"},
+                         "the priming launch and the measured one")
+        self.assertEqual({env.get("CMUX_NEXT_NO_ACTIVATE") for _, _, env in bench.launched}, {"0"})
 
     def test_a_missing_mark_names_until_mark(self):
         bench = FakeBench(lambda method: {"result": {}})

@@ -21,8 +21,12 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
               or >= --job-count jobs before --first-frame-mark, and each main turn before --until-mark that ran
               outside a StartupScheduler task and the allowlist. A run whose census was not armed or whose hook
               did not install is left out with a warning; a ring that dropped jobs is a warning.
-  globaljobs  Q12, template 083. From `debug.startup`: each caller of utility, background or unprioritized
-              jobs enqueued before --until-mark that is not a BackgroundWork lane job.
+  globaljobs  Q12, template 083. From `debug.startup` and `debug.startup.global_jobs` (task 082; a live run arms
+              the census with CMUX_NEXT_GLOBAL_JOB_CENSUS=1): each caller of utility, background or unprioritized
+              tasks started on the cooperative pool before --until-mark that is not a BackgroundWork lane job. A
+              BackgroundWork.task is listed: it starts at once, outside the launch fence. The census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
+              whose census was not armed or whose hook did not install is left out with a warning; a task the
+              census counted and did not keep is a warning.
   arms        Q13, template 086. From `debug.startup`: each timer, watcher and observer armed before
               --until-mark, with its median arm and first-fire times.
 
@@ -51,15 +55,21 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
     "main_job_census": {"armed", "hook", "dropped_jobs", "dropped_turns", ...},
-    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "enqueued_ms", "run_ms"}],
+    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
+                     "enqueued_ms", "run_ms"}],
+    "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
     "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
     arms: arms). A run without them is left out; no run with them exits 2. Task 080's census answers its three
     keys on its own method, `debug.startup.main_jobs` (main_jobs kinds: main_actor, main_delivery,
     run_loop_block, timer (caller `timer <owner>`), run_loop_sources, run_loop_wake; a caller of `unknown` is a
     job whose stack held no frame of its enqueuer); a live mainjobs run merges that reply into debug.startup's
-    (which it may lack). global_jobs' priority is null when
-    the caller passed none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
+    (which it may lack). Task 082's census answers its two keys
+    on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
+    because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
+    which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
+    merges that reply into debug.startup's (which it may lack). global_jobs' priority is null or 0 when
+    the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
   `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or
   null; a mark at 0 ms counts.
@@ -113,9 +123,10 @@ INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # What a census mode adds to a live run: the environment that arms its recorder and the method that answers it (task
-# 080's main-job census is off unless armed, so the startup benches measure a launch without it).
-MODE_ENV = {"mainjobs": {"CMUX_NEXT_MAIN_JOB_CENSUS": "1"}}
-MODE_METHOD = {"mainjobs": "debug.startup.main_jobs"}
+# 080's main-job census and 082's global-job census are off unless armed, so the startup benches measure a launch
+# without them).
+MODE_ENV = {"mainjobs": {"CMUX_NEXT_MAIN_JOB_CENSUS": "1"}, "globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
+MODE_METHOD = {"mainjobs": "debug.startup.main_jobs", "globaljobs": "debug.startup.global_jobs"}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -589,8 +600,33 @@ def global_priority(value):
     return GLOBAL_PRIORITIES.get(value.lower() if isinstance(value, str) else value)
 
 
+def global_census_state(runs):
+    """The runs whose global-job census recorded (task 082's `global_job_census`), and why others were left out. A
+    result with no summary (a saved file from before it) is kept; one that says not armed, or a hook that did not
+    install (no task recorded), is not a census. What the census counted and did not keep is a warning."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("global_job_census")
+        if not isinstance(state, dict):
+            kept.append(run)
+        elif state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the global-job census was not armed (CMUX_NEXT_GLOBAL_JOB_CENSUS=1), "
+                            "left out")
+        elif state.get("hook") not in (None, "installed"):
+            warnings.append(f"run {index + 1}: global-enqueue hook {state.get('hook')}, left out")
+        else:
+            for field, what in (("dropped_tasks", "tasks past the ring"), ("untracked_tasks", "tasks past the id bitmap"),
+                                ("pending_tasks", "tasks still being written")):
+                if number(state.get(field)):
+                    warnings.append(f"run {index + 1}: the census did not keep {state[field]:g} {what}")
+            kept.append(run)
+    return kept, warnings
+
+
 def globaljobs_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["globaljobs"])
+    armed, refused = global_census_state(runs)
+    kept, warnings = census_runs(armed, (until_mark,), CENSUS_FIELDS["globaljobs"])
+    warnings = refused + warnings
     callers = {}
     for run in kept:
         complete = cutoff(run["marks"], until_mark)
@@ -600,15 +636,18 @@ def globaljobs_hits(runs, until_mark):
             if job.get("lane") or priority is None or (number(job.get("enqueued_ms")) or 0.0) >= complete:
                 continue
             caller = str(job.get("caller", "?"))
-            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set()})
+            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set(), "via": set()})
             entry["count"] += 1
             entry["ms"] += number(job.get("run_ms")) or 0.0
             entry["priorities"].add(priority)
+            if job.get("via"):
+                entry["via"].add(str(job["via"]))
             entry["runs"] += caller not in seen
             seen.add(caller)
-    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "runs": entry["runs"],
-             "count": entry["count"], "total_ms": round(entry["ms"], 2),
-             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane: "
+    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "via": sorted(entry["via"]),
+             "runs": entry["runs"], "count": entry["count"], "total_ms": round(entry["ms"], 2),
+             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane"
+                        f"{''.join(f' (via {via})' for via in sorted(entry['via']))}: "
                         f"{entry['runs']}/{len(kept)} runs, {entry['count']} jobs before {until_mark}"}
             for caller, entry in callers.items()]
     hits.sort(key=lambda hit: (-hit["runs"], -hit["count"], hit["caller"]))

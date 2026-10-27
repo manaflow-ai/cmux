@@ -1381,6 +1381,31 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: counter test: `createWithActiveCGDisplays` not called with the flag; standalone behavior unchanged.
 - Test phase: zig build test (initialized submodule).
 - Size M. Queue: MQ-displaylinks.
+- As built (ghostty-next branch cp/p03-rendering-082, 7436f3b9a, draft PR manaflow-ai/ghostty-next#59; 083 writes
+  against this):
+  - `ghostty_surface_config_s` gets `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb`,
+    `void* vsync_userdata`, after `io_write_userdata` (64-bit offsets 112, 120, 128; size 136).
+    `ghostty_surface_new` fails when `vsync_external` is set without the callback. Split surfaces Ghostty asks
+    for do not inherit the fields.
+  - `void (*ghostty_surface_vsync_wanted_cb)(void* userdata, bool wanted)` runs on the renderer thread, on each
+    edge only (calls alternate, starting with true): true when the surface is visible and has a new frame or an
+    animation (the same condition that started the CVDisplayLink), false when idle or hidden, and false once more
+    when the renderer thread exits. It may call `ghostty_surface_vsync` and nothing else in Ghostty.
+  - `void ghostty_surface_vsync(ghostty_surface_t)`: one refresh; any thread, from `ghostty_surface_new` until
+    `ghostty_surface_free` is called; no effect without `vsync_external`. It notifies the renderer thread's
+    `draw_now`, the async a display link of its own notifies, so frames, coalescing and the early first frame
+    after idle (`drawsNow`) are the same as standalone.
+  - Differences from the spec: no `target_ns` argument. The tick draws at once and the renderer has no use for a
+    deadline (a stale tick still draws the newest cells); a deadline goes with the BeginFrame-args work, not here.
+    The tick is the `draw_now` async, not a mailbox message, so a burst of ticks coalesces as link ticks do.
+    `ghostty_surface_set_display_id` does not change pacing under external vsync: the embedder moves the surface to
+    its display's clock (083).
+  - Pacing lives in `ghostty-next/src/renderer/vsync.zig` (`Pacer`). Standalone, the link is made, run and stopped
+    as before; the "vsync external" tests count the link factory (0 calls of `createWithActiveCGDisplays` with the
+    flag). The flag reaches the renderer as `renderer.Options.vsync_external`, which `Surface.zig` sets from the
+    embedded surface only (`apprt.runtime == apprt.embedded`, so a renamed field fails the lib build). The test
+    "renderer external vsync: ..." runs `renderer.Renderer`'s own sync with its real link factory and counts 0
+    link creates. The gitlink and the GhosttyNextKit pin do not move here: 082 rides pin 1 (task 079).
 
 #### p03-rendering-083 cmux drives surfaces from VSyncHub
 - Files: `.../CmuxNextTerminal/TerminalVSync.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.

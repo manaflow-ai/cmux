@@ -72,6 +72,11 @@ nonisolated final class RunMarkerFile: Sendable {
         return ticket
     }
 
+    /// Runs `work` on the writer's queue, before every write submitted after this call.
+    func enqueue(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
+    }
+
     /// True once `ticket` is on disk; false when `timeout` passes first.
     /// After `close` it answers true: the file was removed on purpose.
     func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
