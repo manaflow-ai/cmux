@@ -60,7 +60,7 @@ impl LocalApi {
         {
             return Err(Error("certificate domain is invalid".into()));
         }
-        let response = self.get(&format!("/localapi/v0/cert/{domain}?type=pair"))?;
+        let mut response = self.get(&format!("/localapi/v0/cert/{domain}?type=pair"))?;
         let mut body = Vec::new();
         response
             .read_to_end(&mut body)
