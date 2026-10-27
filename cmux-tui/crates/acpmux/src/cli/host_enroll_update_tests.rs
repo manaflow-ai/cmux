@@ -117,6 +117,12 @@ fn each_kind_of_host_says_how_it_stays_current() {
         assert_eq!(r.state, StepState::Warn);
         assert!(r.detail.contains("no user systemd"), "{r:?}");
 
+        // Turned off is turned off on a Mac and a Cloud VM too.
+        for os in [&["os=Darwin", "off"][..], &["os=Linux", "cloud", "off", "systemd"]] {
+            let host = Host::new(os);
+            assert_eq!(update(&host, fix).state, StepState::Skip, "{os:?}");
+        }
+
         for host in [mac, cloud, timer, off, no_systemd] {
             assert!(host.fenced.borrow().is_empty(), "nothing installed");
         }
@@ -181,7 +187,7 @@ fn a_stopped_timer_is_said_and_started() {
     let host = Host::new(&["os=Linux", "systemd", "stopped"]);
     let r = update(&host, false);
     assert_eq!(r.state, StepState::Warn, "{r:?}");
-    assert!(r.detail.contains("is stopped"), "{r:?}");
+    assert!(r.detail.contains("off or stopped"), "{r:?}");
     assert!(r.fix.as_deref().unwrap().contains("--fix to start"), "{r:?}");
     assert!(host.fenced.borrow().is_empty());
 
@@ -201,25 +207,47 @@ mod probe_in_a_shell {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
     use std::process::Command;
 
-    /// `systemctl` as a user manager answers: `enabled`, `active`, where each
-    /// unit loads from (`frag`: `own` is ~/.config/systemd/user), and the
-    /// service's drop-ins.
-    struct Manager {
-        enabled: bool,
+    /// The timer's units as a user manager and `~/.config/systemd/user` have
+    /// them.
+    #[derive(Clone, Copy)]
+    struct Units {
+        /// What `is-enabled` says of the timer.
+        enabled: &'static str,
         active: bool,
+        /// The manager knows the units (else `not-found`).
+        loaded: bool,
+        /// Where they load from; `own` is ~/.config/systemd/user.
         frag: &'static str,
-        drop_in: &'static str,
-        /// The service file's text, when not acpmux's.
+        /// The unit that has a drop-in, if one does.
+        drop_in: Option<&'static str>,
+        /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
+        timer: Option<&'static str>,
     }
 
-    const OWN: Manager =
-        Manager { enabled: true, active: true, frag: "own", drop_in: "", service: None };
+    const OWN: Units = Units {
+        enabled: "enabled",
+        active: true,
+        loaded: true,
+        frag: "own",
+        drop_in: None,
+        service: Some(hosts::UPDATE_SERVICE),
+        timer: Some(hosts::UPDATE_TIMER),
+    };
+    const NONE: Units = Units {
+        enabled: "",
+        active: false,
+        loaded: false,
+        frag: "",
+        drop_in: None,
+        service: None,
+        timer: None,
+    };
+    const OTHER_TEXT: &str = "[Service]\nExecStart=/usr/bin/true\n";
 
-    fn probe(m: Manager) -> Found {
+    fn probe(u: Units) -> Found {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!("acpmux-probe-{}-{n}", std::process::id()));
@@ -228,26 +256,34 @@ mod probe_in_a_shell {
         let bin = root.join("bin");
         fs::create_dir_all(&units).unwrap();
         fs::create_dir_all(&bin).unwrap();
-        let service = m.service.unwrap_or(hosts::UPDATE_SERVICE);
-        fs::write(units.join("acpmux-update.service"), service).unwrap();
-        fs::write(units.join("acpmux-update.timer"), hosts::UPDATE_TIMER).unwrap();
-        let frag = if m.frag == "own" { units.display().to_string() } else { m.frag.into() };
+        for (file, text) in [("acpmux-update.service", u.service), ("acpmux-update.timer", u.timer)]
+        {
+            if let Some(text) = text {
+                fs::write(units.join(file), text).unwrap();
+            }
+        }
+        let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
             r#"#!/bin/sh
 [ "$1" = --user ] || exit 2; shift
 case "$1" in
 show-environment) exit 0 ;;
-is-enabled) echo {enabled} ;;
+is-enabled) echo "{enabled}" ;;
 is-active) exit {active} ;;
-show) case "$4" in FragmentPath) echo "{frag}/$2" ;; DropInPaths) [ "$2" = acpmux-update.service ] && echo "{drop_in}" || echo ;; esac ;;
+show) case "$4" in
+  LoadState) echo {load} ;;
+  FragmentPath) [ {load} = loaded ] && echo "{frag}/$2" || echo ;;
+  DropInPaths) [ "$2" = "{drop_in}" ] && echo "/x/$2.d/o.conf" || echo ;;
+  esac ;;
 *) exit 2 ;;
 esac
 "#,
-            enabled = if m.enabled { "enabled" } else { "disabled" },
-            active = if m.active { 0 } else { 3 },
-            drop_in = m.drop_in,
+            enabled = u.enabled,
+            active = if u.active { 0 } else { 3 },
+            load = if u.loaded { "loaded" } else { "not-found" },
+            drop_in = u.drop_in.unwrap_or("-"),
         );
-        let systemctl: PathBuf = bin.join("systemctl");
+        let systemctl = bin.join("systemctl");
         fs::write(&systemctl, fake).unwrap();
         fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
@@ -263,37 +299,48 @@ esac
         parse(&String::from_utf8_lossy(&out.stdout))
     }
 
-    #[test]
-    fn acpmux_own_running_timer() {
-        let found = probe(OWN);
-        assert!(found.systemd && found.timer && !found.stopped && !found.foreign, "{found:?}");
-    }
-
-    #[test]
-    fn a_stopped_timer_is_stopped() {
-        let found = probe(Manager { active: false, ..OWN });
-        assert!(found.stopped && !found.timer && !found.foreign, "{found:?}");
-    }
-
-    #[test]
-    fn a_drop_in_a_unit_elsewhere_or_other_text_is_foreign() {
-        for m in [
-            Manager {
-                drop_in: "/home/x/.config/systemd/user/acpmux-update.service.d/o.conf",
-                ..OWN
-            },
-            Manager { frag: "/etc/systemd/user", ..OWN },
-            Manager { service: Some("[Service]\nExecStart=/usr/bin/true\n"), ..OWN },
-        ] {
-            let found = probe(m);
-            assert!(found.foreign && !found.timer && !found.stopped, "{found:?}");
+    fn kind(found: &Found) -> &'static str {
+        assert!(found.systemd, "{found:?}");
+        match (found.timer, found.stopped, found.foreign) {
+            (true, false, false) => "timer",
+            (false, true, false) => "stopped",
+            (false, false, true) => "foreign",
+            (false, false, false) => "missing",
+            _ => panic!("more than one: {found:?}"),
         }
     }
 
     #[test]
-    fn a_disabled_timer_is_neither() {
-        let found = probe(Manager { enabled: false, ..OWN });
-        assert!(found.systemd && !found.timer && !found.stopped && !found.foreign, "{found:?}");
+    fn acpmux_own_timer_runs_or_is_stopped() {
+        assert_eq!(kind(&probe(OWN)), "timer");
+        for u in [
+            Units { active: false, ..OWN },
+            Units { enabled: "disabled", active: false, ..OWN },
+            Units { enabled: "enabled-runtime", ..OWN },
+            // A half-written install of acpmux's own text: --fix finishes it.
+            Units { timer: None, loaded: false, ..OWN },
+        ] {
+            assert_eq!(kind(&probe(u)), "stopped");
+        }
+        assert_eq!(kind(&probe(NONE)), "missing");
+    }
+
+    #[test]
+    fn a_unit_acpmux_did_not_write_is_foreign_enabled_or_not() {
+        for enabled in ["enabled", "disabled", "enabled-runtime", "static"] {
+            for u in [
+                Units { drop_in: Some("acpmux-update.service"), ..OWN },
+                Units { drop_in: Some("acpmux-update.timer"), ..OWN },
+                Units { frag: "/etc/systemd/user", ..OWN },
+                Units { service: Some(OTHER_TEXT), ..OWN },
+                // Only in the manager, from elsewhere.
+                Units { frag: "/etc/systemd/user", service: None, timer: None, ..OWN },
+                // Only on disk, not loaded, with other text.
+                Units { timer: Some(OTHER_TEXT), service: None, loaded: false, ..OWN },
+            ] {
+                assert_eq!(kind(&probe(Units { enabled, ..u })), "foreign", "{enabled}");
+            }
+        }
     }
 }
 

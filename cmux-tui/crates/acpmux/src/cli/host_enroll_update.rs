@@ -16,11 +16,14 @@ const MARK: &str = "ACPMUX_AU=";
 
 /// What the step reads before it changes anything: the kernel, whether the
 /// host is a cmux Cloud VM, whether automatic updates were turned off, and
-/// whether a user systemd manager runs with the timer enabled in it. An
-/// enabled timer is acpmux's own only when the manager loads both units from
-/// `~/.config/systemd/user` with acpmux's own text and no drop-in changes
-/// them; any other enabled one is someone else's (`foreign`), which runs what
-/// it likes. acpmux's own timer is `timer` while it runs, `stopped` when not.
+/// whether a user systemd manager runs, and the timer's units. A unit is
+/// there when the manager knows it (any load state but `not-found`) or its
+/// file is in `~/.config/systemd/user`, enabled or not. They are acpmux's
+/// own only when each file there holds acpmux's own text and each unit the
+/// manager knows loads from there with no drop-in; any other is someone
+/// else's (`foreign`), which runs what it likes. acpmux's own timer is
+/// `timer` when enabled and running, `stopped` otherwise (a missing file
+/// too: `--fix` writes it).
 pub(super) fn probe_script() -> String {
     let home = hosts::REMOTE_HOME;
     let off = hosts::NO_AUTO_UPDATE;
@@ -30,16 +33,22 @@ pub(super) fn probe_script() -> String {
     format!(
         r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
-if [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ]; then
-au_d=$HOME/.config/systemd/user; au_own=1
-for au_f in acpmux-update.service acpmux-update.timer; do [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=
-au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_own=; [ -z "$au_x" ] || au_own=; done
-cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
+au_d=$HOME/.config/systemd/user; au_there=; au_own=1
+for au_f in acpmux-update.service acpmux-update.timer; do
+au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=error
+[ ! -e "$au_d/$au_f" ] || au_there=1
+case "$au_s" in not-found) ;; *) au_there=1
+[ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=
+au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_own=; [ -z "$au_x" ] || au_own= ;; esac
+done
+if [ -n "$au_there" ]; then
+[ ! -e "$au_d/acpmux-update.service" ] || cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
 {service}ACPMUX_UPDATE_SERVICE
-cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
+[ ! -e "$au_d/acpmux-update.timer" ] || cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
 {timer}ACPMUX_UPDATE_TIMER
 if [ -z "$au_own" ]; then echo {MARK}foreign
-elif systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer; else echo {MARK}stopped; fi
+elif [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
+else echo {MARK}stopped; fi
 fi
 fi"#
     )
@@ -95,12 +104,6 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
         Err(e) => return warn(format!("could not read how {host} updates: {e:#}"), None),
     };
     let ok = |detail: &str| StepResult::new(Step::Update, StepState::Ok, detail);
-    if found.cloud {
-        return ok("a cmux Cloud VM: cmux moves it to the app's build each time it connects");
-    }
-    if found.os == "Darwin" {
-        return ok("a Mac: cmux moves it to this Mac's build each time it connects");
-    }
     if found.off {
         return StepResult::new(
             Step::Update,
@@ -113,12 +116,18 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
             hosts::NO_AUTO_UPDATE
         ));
     }
+    if found.cloud {
+        return ok("a cmux Cloud VM: cmux moves it to the app's build each time it connects");
+    }
+    if found.os == "Darwin" {
+        return ok("a Mac: cmux moves it to this Mac's build each time it connects");
+    }
     if found.timer {
         return ok(EVERY);
     }
     if found.foreign {
         return warn(
-            "an acpmux-update.timer acpmux did not write is enabled here, so cmux does not know what it runs",
+            "an acpmux-update.timer acpmux did not write is here, so cmux does not know what it runs, and leaves it alone",
             None,
         )
         .with_fix(format!(
@@ -127,13 +136,13 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
     }
     if !found.systemd {
         return warn(
-            "no user systemd here, so it cannot update itself; cmux moves it to this Mac's build each time it connects",
+            "no user systemd here, so it cannot update itself; cmux moves it to your Mac's build each time it connects",
             None,
         );
     }
     if !fix {
         let (detail, verb) = if found.stopped {
-            ("acpmux-update.timer is stopped, so it does not update itself", "start")
+            ("acpmux-update.timer is off or stopped, so it does not update itself", "start")
         } else {
             ("acpmux-update.timer is not installed, so it does not update itself", "install")
         };
