@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 24700,
+            "T1": 25600,
             "T2": 41580
           },
           "stories": {
@@ -56,6 +56,7 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -227,7 +228,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12250
+            "T1": 13150
           },
           "stories": {
             "T0": [
@@ -255,6 +256,7 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "qos-inversions",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
