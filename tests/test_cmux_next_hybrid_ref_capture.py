@@ -219,6 +219,11 @@ class Capture(unittest.TestCase):
         self.assertEqual(len(uploads), sum(len(b["parts"]) for b in manifest["blobs"].values()))
 
 
+class Toolchain(unittest.TestCase):
+    def test_xcode_version(self) -> None:
+        self.assertEqual(cap.xcode_version("Xcode 26.6\nBuild version 17F113\n"), "Xcode 26.6 / 17F113")
+
+
 class Snapshot(unittest.TestCase):
     def test_the_snapshot_is_taken_before_the_host_lock_goes(self) -> None:
         text = (ROOT / "scripts/cmux-next/compile-dev-release.sh").read_text()

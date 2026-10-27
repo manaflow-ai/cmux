@@ -84,6 +84,13 @@ def settings(environ=os.environ) -> dict[str, str]:
     return {name: given.get(name, "") for name in SETTINGS}
 
 
+def xcode_version(text: str) -> str:
+    """'Xcode 26.6' and 'Build version 17F113' as 'Xcode 26.6 / 17F113'."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    build = lines[1].split()[-1] if len(lines) > 1 else ""
+    return f"{lines[0]} / {build}" if lines else ""
+
+
 def run(argv: list[str]) -> str:
     return subprocess.run(argv, capture_output=True, text=True, check=True).stdout
 
@@ -198,7 +205,7 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         "workspace": str(ws), "derived_data": str(dd),
         "tmpdir": environ.get("TMPDIR", ""), "runner": environ.get("RUNNER_NAME", ""),
         "os_build": run(["sw_vers", "-buildVersion"]).strip() if platform.system() == "Darwin" else "",
-        "toolchain": {"xcode": " / ".join(run(["xcodebuild", "-version"]).split()[1::2][:2]),
+        "toolchain": {"xcode": xcode_version(run(["xcodebuild", "-version"])),
                       "developer_dir": run(["xcode-select", "-p"]).strip(),
                       "sdk_build": run(["xcrun", "--sdk", "macosx", "--show-sdk-build-version"]).strip()}
         if platform.system() == "Darwin" else {},
