@@ -53,10 +53,21 @@ impl Daemon {
     /// A daemon whose terminals without an argv run `shell` (`SHELL`), with a
     /// private home so no rc file of the host's account runs.
     fn start_with_shell(shell: &str) -> Self {
+        Self::start_as(shell, None, None)
+    }
+
+    /// As [`Daemon::start_with_shell`]; `account_home`: the daemon's HOME is
+    /// the account's own, as the app's daemon has it, so its shells start
+    /// through login(1) on macOS (`login_shell::wrap` skips a launch whose
+    /// HOME is not the account's). ZDOTDIR stays private, so no zsh startup
+    /// file of the account runs. `features`: the daemon's
+    /// `CMUX_ENABLE_FEATURES`.
+    fn start_as(shell: &str, account_home: Option<&Path>, features: Option<&str>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-ctrlc-{}-{stamp}", std::process::id()));
         fs::create_dir_all(dir.join("home")).unwrap();
         let socket = dir.join("mux.sock");
+        let home = account_home.map_or_else(|| dir.join("home"), Path::to_path_buf);
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
         command
             .args(["--headless", "--socket"])
@@ -68,8 +79,11 @@ impl Daemon {
             // only records; a debug build would panic on its connection threads.
             .env("CMUX_DAEMON_BLOCKING", "record")
             .env("SHELL", shell)
-            .env("HOME", dir.join("home"))
+            .env("HOME", &home)
             .env("ZDOTDIR", dir.join("home"))
+            .env_remove("CMUX_ENABLE_FEATURES")
+            .env_remove("CMUX_DISABLE_FEATURES")
+            .env_remove("CMUX_TUI_NO_LOGIN_SHELL")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(fs::File::create(dir.join("daemon.log")).unwrap());
@@ -87,6 +101,9 @@ impl Daemon {
                 }
                 Ok(())
             });
+        }
+        if let Some(features) = features {
+            command.env("CMUX_ENABLE_FEATURES", features);
         }
         let child = command.spawn().unwrap();
         let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
@@ -249,11 +266,81 @@ fn wait_for_screen(daemon: &Daemon, surface: u64, needle: &str, what: &str) {
 /// (128 + SIGINT).
 #[test]
 fn ctrl_c_interrupts_a_foreground_command_in_the_login_shell() {
-    let shell = ["/bin/zsh", "/usr/bin/zsh", "/bin/bash"]
+    let shell = login_shell();
+    let daemon = Daemon::start_with_shell(shell);
+    ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(&daemon, shell, false);
+}
+
+/// zsh where the host has it (macOS's default shell), else bash.
+fn login_shell() -> &'static str {
+    ["/bin/zsh", "/usr/bin/zsh", "/bin/bash"]
         .into_iter()
         .find(|shell| Path::new(shell).exists())
-        .expect("a zsh or bash");
-    let daemon = Daemon::start_with_shell(shell);
+        .expect("a zsh or bash")
+}
+
+/// The 53 switches of the chrome-parity-v1 dogfood launch (every switch but
+/// perfLabCanary and perfLabKillProbe), as `open -n --env
+/// CMUX_ENABLE_FEATURES=...` gave them; the daemon resolves the ones it
+/// declares and ignores the rest.
+#[cfg(target_os = "macos")]
+const DOGFOOD_V1_FEATURES: &str = "agentPageRendererSharing,automationBurstSnap,cefLayerHosting,\
+cefPrefetchBehindFence,cefPumpInputPolicy,cefTimerSlack,chromiumHostIdleExit,chromiumHostWidgets,\
+chromiumSpareAfterFirstTab,cmuxPageRendererSharing,coldScrollbackCompression,controlSocketEarlyBind,\
+daemonRequestQos,energySaver,frameRateClasses,frozenGrowthDiscard,intentPrewarmHover,\
+memoryAgentAndControlCaches,memoryAppCaches,memoryBrowserCaches,memoryDiscardAgentPagesOverBudget,\
+memoryDiscardConversations,memoryDiscardInternalPages,memoryDiscardPageTabs,\
+memoryDiscardParkedIdleTimeout,memoryDiscardParkedWorkspaces,memoryDiscardRemoteTabs,\
+memoryFileHomeCaches,memoryHiddenFrameLRU,memoryImageCaches,memorySaverBackgroundActivity,\
+memoryTerminalLastFrames,newTabParksHidden,occludedWindowDiscard,overlayTopLayer,pageLifecycle,\
+pageProcessGroups,pageRendererAtFirstShow,pagesSpareWindow,pointerFrameDrags,pointerFrameHover,\
+pointerFrameRemoteInput,recentlyAudibleProtection,renderStarvationGuard,rendererlessSpareWindow,\
+sentryHandlersFirst,sidebarRowsNearViewport,stripPanResampling,taskManagerMemorySaved,\
+terminalGPURelease,terminalPointerFrames,topPageDiscard,vsyncHub";
+
+/// The PTY chain the app's terminal has on macOS: the daemon's HOME is the
+/// account's, so the shell starts as `/usr/bin/login -flp USER /bin/bash
+/// ... exec -l zsh` (setuid login(1), which forks the shell), not as the
+/// direct PTY child. Ctrl-C still ends its foreground `sleep`, with the
+/// dogfood launch's switches off and on.
+#[cfg(target_os = "macos")]
+#[test]
+fn ctrl_c_interrupts_a_foreground_command_in_a_shell_started_through_login() {
+    let home = account_home();
+    let shell = login_shell();
+    for features in [None, Some(DOGFOOD_V1_FEATURES)] {
+        let daemon = Daemon::start_as(shell, Some(&home), features);
+        ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(&daemon, shell, true);
+    }
+}
+
+/// This account's home directory (passwd), whatever HOME the runner set.
+#[cfg(target_os = "macos")]
+fn account_home() -> PathBuf {
+    let mut buffer = vec![0 as libc::c_char; 4096];
+    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut result = std::ptr::null_mut();
+    // SAFETY: getpwuid_r writes into `entry` and `buffer` only.
+    let status = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            entry.as_mut_ptr(),
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    assert!(status == 0 && !result.is_null(), "no passwd entry for this account");
+    // SAFETY: getpwuid_r filled `entry`; its home is a NUL-terminated
+    // string in `buffer`.
+    let home = unsafe { std::ffi::CStr::from_ptr(entry.assume_init().pw_dir) };
+    PathBuf::from(home.to_str().expect("a UTF-8 home directory"))
+}
+
+/// Opens a terminal with no argv (the app's default terminal) and checks that
+/// Ctrl-C ends a foreground `sleep` in it (`$?` is 130 at the next prompt).
+/// `via_login`: the shell's parent must be login(1) (the app's chain on macOS).
+fn ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(daemon: &Daemon, shell: &str, via_login: bool) {
     request(
         &daemon.socket,
         json!({"cmd": "new-workspace", "name": "login", "cols": 80, "rows": 24}),
@@ -271,13 +358,22 @@ fn ctrl_c_interrupts_a_foreground_command_in_the_login_shell() {
     );
     let surface = created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"));
     request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "echo SHELL-UP\r"}));
-    wait_for_screen(&daemon, surface, "SHELL-UP", "the login shell");
+    wait_for_screen(daemon, surface, "SHELL-UP", "the login shell");
+    if via_login {
+        // The echoed command line is not the exact line `VIA-LOGIN`.
+        request(
+            &daemon.socket,
+            json!({"cmd": "send", "surface": surface,
+                "text": "case \"$(ps -o comm= -p $PPID)\" in *login) echo VIA-LOGIN;; *) echo NOT-VIA-LOGIN;; esac\r"}),
+        );
+        wait_for_screen(daemon, surface, "VIA-LOGIN", "the shell's parent is login(1)");
+    }
     request(
         &daemon.socket,
         json!({"cmd": "send", "surface": surface,
             "text": "echo SLEEP-START; sleep 600\r"}),
     );
-    wait_for_screen(&daemon, surface, "SLEEP-START", "the foreground sleep");
+    wait_for_screen(daemon, surface, "SLEEP-START", "the foreground sleep");
     // test harness: let the shell hand the terminal to `sleep`
     std::thread::sleep(Duration::from_millis(500));
     request(&daemon.socket, json!({"cmd": "send-key", "surface": surface, "keys": ["ctrl+c"]}));
@@ -287,5 +383,5 @@ fn ctrl_c_interrupts_a_foreground_command_in_the_login_shell() {
         &daemon.socket,
         json!({"cmd": "send", "surface": surface, "text": "echo AFTER-EXIT=$?\r"}),
     );
-    wait_for_screen(&daemon, surface, "AFTER-EXIT=130", &format!("Ctrl-C in {shell}"));
+    wait_for_screen(daemon, surface, "AFTER-EXIT=130", &format!("Ctrl-C in {shell}"));
 }
