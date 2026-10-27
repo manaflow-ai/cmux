@@ -77,6 +77,20 @@ import Testing
         #expect(launch.pane.launchImageView == nil, "a frame over a page that had drawn stayed past its limit")
     }
 
+    @Test func aPreviousPageCannotClearTheNextPagesFrame() throws {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame())
+        let previous = try #require(launch.pane.launchImageView)
+        launch.pane.showLaunchImage(Self.lastFrame())
+        let current = try #require(launch.pane.launchImageView)
+        launch.pane.clearLaunchImage(ifShowing: previous)
+        #expect(launch.pane.launchImageView === current,
+                "the previous tab's delayed reveal took back the next tab's frame")
+        launch.pane.clearLaunchImage(ifShowing: current)
+        #expect(launch.pane.launchImageView == nil)
+    }
+
     @Test func tabsThatArriveBeforeTheFirstFrameDrawInIt() {
         let launch = LaunchWindow()
         defer { launch.tearDown() }

@@ -42,6 +42,13 @@ extension PaneContentView {
         }
     }
 
+    /// A page's delayed reveal removes only the frame it stood behind. Another tab may have
+    /// installed its own frame in this pane while that page was still loading.
+    func clearLaunchImage(ifShowing image: NSView) {
+        guard launchImageView === image else { return }
+        clearLaunchImage()
+    }
+
     /// Removes the launch image (the page painted, or the pane shows another tab).
     func clearLaunchImage() {
         launchImageDeadline.cancel()
