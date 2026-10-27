@@ -652,12 +652,16 @@ final class BrowserHibernation {
 
     /// Whether hidden page `key` may still be discarded, checked again after each await of `prepare`:
     /// `.stale` when it is no longer this hidden page (shown, hidden again or closed); `.keep` when it
-    /// became a neighbor, was hovered, or an agent called it while the probe ran (the person's
-    /// Hibernate Tab, `user`, still applies to those).
+    /// became a neighbor, was hovered, an agent called it while the probe ran, or the setting no
+    /// longer discards on its own (the person's Hibernate Tab, `user`, still applies to those).
     private func discardCheck(_ key: String, tab: any BrowserTab, generation: UInt64, user: Bool) -> DiscardCheck {
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
               cache.lifecycle.phase(key) == .mountedHidden else { return .stale }
         if user { return .go }
+        // The setting changed while the probe ran: an automatic discard started under a timeout
+        // the person has since removed (or turned off) does not happen.
+        if !setting.isEnabled { return .keep(.disabled) }
+        if !setting.discardsAutomatically { return .keep(.keepsState) }
         if awakeNeighbors.contains(key) || hoverLeft(key, now: .now) != nil { return .keep(.neighbor) }
         if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go
