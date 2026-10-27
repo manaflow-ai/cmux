@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, terminalLaunchFrames: launchReads.frames, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
                                    launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
-                                   features: features)
+                                   watchdog: control.watchdog, features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,

@@ -521,6 +521,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// While the main thread hangs past 2 s, the watchdog thread keeps the hang's stack in a small file next to the run marker; a run that is killed while it hangs is sent as one fatal app hang crash report at the next launch.
+    public static let fatalHangReports = Feature(
+        index: 27,
+        name: "fatalHangReports",
+        owner: "PL-telemetry",
+        description: "While the main thread hangs past 2 s, the watchdog thread keeps the hang's stack in a small file next to the run marker; a run that is killed while it hangs is sent as one fatal app hang crash report at the next launch.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Settings > Experimental shows a Feature Flags card: every feature with its state and the input that decided it; DEV and NIGHTLY builds can set each one on or off for the next launch.
     public static let featureFlagsCard = Feature(
         index: 30,
@@ -2073,6 +2090,7 @@ nonisolated extension Feature {
         .directionalPrewarm,
         .drainCauseSplit,
         .energySaver,
+        .fatalHangReports,
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
@@ -2194,6 +2212,7 @@ nonisolated extension Feature {
         .directionalPrewarm,
         .drainCauseSplit,
         .energySaver,
+        .fatalHangReports,
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
