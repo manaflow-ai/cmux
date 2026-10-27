@@ -1534,8 +1534,13 @@ jobs:
           {
             echo "ghostty=$(git -C ghostty rev-parse HEAD)"
             shasum -a 256 scripts/build-ghostty-cli-helper.sh scripts/ghostty-zig-version.sh
-            for zig in /opt/homebrew/bin/zig "$(command -v zig || true)" /usr/local/bin/zig; do
-              if [[ -x "$zig" ]]; then echo "zig $("$zig" version) $(shasum -a 256 "$zig" | cut -d' ' -f1)"; fi
+            path_zig="$(command -v zig)" || path_zig=""
+            for zig in /opt/homebrew/bin/zig "$path_zig" /usr/local/bin/zig; do
+              if [[ -x "$zig" ]]; then
+                zig_version="$("$zig" version)"
+                zig_sha="$(shasum -a 256 "$zig" | cut -d' ' -f1)"
+                echo "zig $zig_version $zig_sha"
+              fi
             done | sort -u
             echo "sdk=$(xcrun --sdk macosx --show-sdk-version)"
             echo "macos=$(sw_vers -productVersion) $(uname -m)"

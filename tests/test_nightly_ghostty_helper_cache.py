@@ -51,6 +51,7 @@ def main() -> int:
         ("ghostty", "git -C ghostty rev-parse HEAD"),
         ("script", "scripts/build-ghostty-cli-helper.sh"),
         ("zig_version and zig_sha256", 'shasum -a 256 "$zig"'),
+        ("the PATH Zig the script may pick", "command -v zig"),
         ("sdk", "xcrun --sdk macosx --show-sdk-version"),
         ("macos", "sw_vers -productVersion"),
         ("host_arch", "uname -m"),
