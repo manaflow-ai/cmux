@@ -288,7 +288,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let transport = pane.model.transport, daemon = try #require(transport.trustDaemon)
         let url = pane.base.appendingPathComponent("queued-trust.json")
         transport.promptJournal = AgentPanePromptJournal(url: url)
-        transport.draining = true // An earlier page send still owns the drain.
+        try await holdIdleDrain(transport)
         let picking = Task { await transport.pick(pane.folder) }
         try await waitForQueuedTrust(transport)
         let saved = await Task.detached { AgentPanePromptJournal(url: url).pendingTrustFolders(daemon: daemon) }.value
@@ -317,7 +317,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let first = try await transport.open(a)
         if queued {
             #expect(await transport.send(connection: first, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-            transport.draining = true
+            try await holdIdleDrain(transport)
             let picking = Task { await transport.pick(pane.folder) }
             try await waitForQueuedTrust(transport)
             transport.close(connection: first)
@@ -353,6 +353,17 @@ struct AgentPaneSendPickedFolderPromptTests {
             frame: overflow ? String(repeating: " ", count: 1025) : "{}", reply: nil)
         await transport.sendHost(host, socket: socket, ids: ids)
         try await startAfterDeferredTrust(pane)
+    }
+
+    private func holdIdleDrain(_ transport: AgentPaneTransport) async throws {
+        // send(initialize) returns before its drain finishes person proof and journal replay.
+        // Let that task finish before the fixture takes ownership of the drain flag.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while transport.draining, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!transport.draining)
+        transport.draining = true
     }
 
     private func waitForQueuedTrust(_ transport: AgentPaneTransport) async throws {
