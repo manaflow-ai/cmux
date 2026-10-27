@@ -91,6 +91,7 @@ extension AgentTabStore {
                 return openBeside(hasSide ? anchor : source, split: !hasSide, origin: focus ? .user : .script, main: source,
                     open: { [weak self] pane, daemon in
                         guard let self else { throw CancellationError() }
+                        let record = lookup(source)?.record
                         return try open(in: pane, of: daemon, session: session, host: daemon.isLocal ? record?.host : nil)
                     }, created: { [weak self] key in
                         created(key)
@@ -158,7 +159,7 @@ extension AgentTabStore {
             let open: (DaemonPaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in
                 guard let self else { throw CancellationError() }
                 let record = lookup(source)?.record
-                return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal || host != record?.host ? host : nil, reopening: record)
+                return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal || host != record?.host ? host : nil)
             }
             return openBeside(anchor ?? source, split: anchor == nil, origin: focus ? .user : .script, main: source, open: open, created: created, finished: { _ in finished() })
         }
