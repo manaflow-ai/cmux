@@ -332,11 +332,12 @@ nonisolated enum AcpmuxPaneMethods {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any) -> Any {
+        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
             if var dictionary = value as? [String: Any] {
                 if let rawMeta = dictionary["_meta"] as? [String: Any] {
                     let keptUpload: [String: Any]? = {
-                        guard let type = dictionary["type"] as? String,
+                        guard acceptsUpload, dictionary["data"] == nil,
+                              let type = dictionary["type"] as? String,
                               type == "image" || type == "resource_link",
                               let acpmux = rawMeta["acpmux"] as? [String: Any],
                               let upload = acpmux["upload"] as? [String: Any],
@@ -365,10 +366,10 @@ nonisolated enum AcpmuxPaneMethods {
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map(strip) }
+            if let list = value as? [Any] { return list.map { strip($0) } }
             return value
         }
-        let blocks = prompt.map(strip)
+        let blocks = prompt.map { strip($0, acceptsUpload: true) }
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params
