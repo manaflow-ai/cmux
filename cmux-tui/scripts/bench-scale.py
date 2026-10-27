@@ -28,7 +28,8 @@ every step's numbers to DIR as cmux-perf-result/v1 (perf_result.py) in story dae
 daemon.scale.N.<create|echo|topology_read|topology_write> (ms, raw samples),
 daemon.scale.N.create_rate (per_s) and per role (daemon, hosts, shells)
 daemon.scale.N.ROLE.<memory_each (bytes: Linux PSS, macOS footprint)|threads
-(count)|cpu (percent)|wakeups (per_s)>.
+(count)|cpu (percent)|wakeups (per_s)>. A step that failed or stopped short of
+N terminals records nothing, and a failed step or a harness error exits 1.
 
 Usage:
   bench-scale.py --bin target/release/cmux-tui --counts 100,1000,5000,10000 \
@@ -73,9 +74,12 @@ def latency_summary(lat, digits=3):
 
 
 def lab_series(result):
-    """result-v1 series of a report's steps (module docstring)."""
+    """result-v1 series of a report's steps (module docstring). A step that failed (`error`: creation stopped, or the
+    daemon exited) or did not reach its count records nothing: its numbers are not those of `target` terminals."""
     series = []
     for step in result["steps"]:
+        if step.get("error") or step.get("terminals") != step["target"]:
+            continue
         prefix = f"{METRIC_PREFIX}.{step['target']}"
         for name, samples in sorted((step.get("samples_ms") or {}).items()):
             series.append(lab.Series(f"{prefix}.{name}", "ms", "lower", list(samples)))
@@ -878,6 +882,7 @@ def main():
     args.bin, out, measured = lab.prepare(p, args, "scale.json")
     args.out = out.report
     bench = Bench(args)
+    harness_error = False
     try:
         bench.run()
         if out.results and bench.daemon and bench.daemon.poll() is None:
@@ -886,6 +891,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         bench.result["stopped"] = {"reason": f"harness error: {e!r}", "daemon_log": bench.tail_log() if bench.daemon else ""}
         log("harness error", repr(e))
+        harness_error = True
     finally:
         try:
             bench.stop()
@@ -899,7 +905,14 @@ def main():
             if not args.keep_root:
                 shutil.rmtree(bench.root, ignore_errors=True)
     print(json.dumps({"stopped": bench.result.get("stopped"), "steps": len(bench.result["steps"])}))
+    return run_status(bench.result, harness_error)
+
+
+def run_status(result, harness_error):
+    """The exit status: 1 after a harness error or a failed step, 0 when every step ran (a guard stop is not a
+    failure: the steps before it are complete)."""
+    return 1 if harness_error or any(step.get("error") for step in result["steps"]) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

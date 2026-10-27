@@ -133,7 +133,10 @@ samples to DIR as cmux-perf-result/v1 (perf_result.py) in story daemon-latency
 (daemon_bench_lab.py names the build and host): daemon.latency.SCENARIO.ROW
 (ms), ROW being the report's row path (ops.ping is `ping`, the storm's echo
 `automation_storm.storm.echo`), each part in lower case with `_` for other
-characters. The automation rows keep no samples and record nothing.
+characters. The automation rows keep no samples and record nothing. A failed
+row records nothing: a failed op or CLI row drops its own row, and any other
+section with a failed row or client (a concurrent or automation client, the
+storm's window) records none of its rows.
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -1808,11 +1811,33 @@ def rows(res, prefix=""):
             yield from rows(value, prefix if (key in FLAT_SECTIONS and not prefix) else f"{prefix}{key}.")
 
 
+INDEPENDENT_SECTIONS = ("ops", "cli")  # each row is its own measurement: a failed row drops only itself
+
+
+def section_failed(value):
+    """True when a section or row failed: its own `error`, or a client of it that failed (`errors`) or did not cover
+    the window, which also leaves its sibling rows measured under less load than planned."""
+    if not isinstance(value, dict):
+        return False
+    if "error" in value or "errors" in value or value.get("clients_cover_window") is False:
+        return True
+    return any(section_failed(child) for child in value.values())
+
+
 def lab_series(result):
-    """result-v1 series of a report: every latency row that kept its raw samples, per scenario (module docstring)."""
+    """result-v1 series of a report: every latency row that kept its raw samples, per scenario (module docstring).
+    A failed row records nothing; outside INDEPENDENT_SECTIONS its whole section records nothing."""
     series = []
     for scenario, res in sorted((result.get("scenarios") or {}).items()):
-        for metric, row in rows(res):
+        if not isinstance(res, dict) or "error" in res:
+            continue
+        sections = {}
+        for key, value in res.items():
+            if key in INDEPENDENT_SECTIONS and isinstance(value, dict) and "error" not in value:
+                sections[key] = {name: row for name, row in value.items() if not section_failed(row)}
+            elif not section_failed(value):
+                sections[key] = value
+        for metric, row in rows(sections):
             if row.get("samples_ms"):
                 name = ".".join(lab.metric_part(part) for part in metric.split("."))
                 series.append(lab.Series(f"{METRIC_PREFIX}.{lab.metric_part(scenario)}.{name}", "ms", "lower",

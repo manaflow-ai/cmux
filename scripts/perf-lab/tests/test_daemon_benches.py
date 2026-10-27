@@ -199,7 +199,7 @@ class Series(Claims):
         self.write_and_read("daemon-terminal-create", list(series.values()))
 
     def test_scale(self):
-        step = {"target": 100, "create_rate_per_s": 50.0,
+        step = {"target": 100, "terminals": 100, "create_rate_per_s": 50.0,
                 "samples_ms": {"create": [1.0, 2.0], "echo": [0.5], "topology_read": [0.1], "topology_write": [0.2]},
                 "roles": {role: {"pss_per": 1e6, "threads": 3, "cpu_pct_window": 0.5, "wakeups_per_s": 2.0}
                           for role in ("daemon", "hosts", "shells")}}
@@ -208,9 +208,31 @@ class Series(Claims):
         self.assertClaimed("daemon-scale", series)
         self.write_and_read("daemon-scale", series)
 
+    def test_scale_failed_or_short_step_records_nothing(self):
+        def step(target, terminals, **extra):
+            return {"target": target, "terminals": terminals, "create_rate_per_s": 50.0,
+                    "samples_ms": {"create": [1.0], "echo": [0.5]},
+                    "roles": {"hosts": {"pss_per": 1e6, "threads": terminals}}, **extra}
+
+        steps = [step(100, 100), step(1000, 600, error="create failed: timeout"), step(5000, 4000)]
+        metrics = {s.metric for s in scale.lab_series({"steps": steps})}
+        self.assertIn("daemon.scale.100.hosts.threads", metrics)
+        self.assertEqual({m for m in metrics if not m.startswith("daemon.scale.100.")}, set())
+        dead = [step(100, 100, error="daemon exited 1: ...")]
+        self.assertEqual(scale.lab_series({"steps": dead}), [])
+
+    def test_scale_exit_status(self):
+        ok = {"steps": [{"target": 100, "terminals": 100}]}
+        self.assertEqual(scale.run_status(ok, harness_error=False), 0)
+        guard = {"steps": [], "stopped": {"at": 1000, "reason": "memory guard"}}
+        self.assertEqual(scale.run_status(guard, harness_error=False), 0)
+        self.assertEqual(scale.run_status(ok, harness_error=True), 1)
+        failed = {"steps": [{"target": 1000, "terminals": 600, "error": "x"}]}
+        self.assertEqual(scale.run_status(failed, harness_error=False), 1)
+
     def test_terminal_perf(self):
-        roles = {"daemon": {"footprint_each_bytes": 4e7, "threads": 30}, "hosts": {"footprint_each_bytes": 3e6,
-                                                                                   "threads": 9}}
+        roles = {"daemon": {"count": 1, "footprint_each_bytes": 4e7, "threads": 30},
+                 "hosts": {"count": 10, "footprint_each_bytes": 3e6, "threads": 9}}
         report = {"idle": [{"terminals": 10, "roles": roles}],
                   "scrollback": {"mb_per_10k_lines": {"daemon": 1.0, "hosts": 2.0}},
                   "throughput": {"mb": 64, "seconds": 2.0, "host_seen": True},
@@ -221,6 +243,17 @@ class Series(Claims):
         self.write_and_read("daemon-terminal-perf", list(series.values()))
         unseen = {**report, "throughput": {"mb": 64, "seconds": 30.6, "host_seen": False}}
         self.assertNotIn("daemon.terminal_perf.throughput", {s.metric for s in tperf.lab_series(unseen)})
+
+    def test_terminal_perf_short_idle_step_records_nothing(self):
+        # wait_hosts timed out: 6 of 10 hosts came up, so the hosts' thread total is that of 6.
+        short = {"daemon": {"count": 1, "footprint_each_bytes": 4e7, "threads": 30},
+                 "hosts": {"count": 6, "footprint_each_bytes": 3e6, "threads": 5}}
+        full = {**short, "hosts": {**short["hosts"], "count": 1}}
+        report = {"idle": [{"terminals": 1, "roles": full}, {"terminals": 10, "roles": short}],
+                  "scrollback": None, "throughput": None, "busy": None}
+        metrics = {s.metric for s in tperf.lab_series(report)}
+        self.assertIn("daemon.terminal_perf.idle.1.hosts.threads", metrics)
+        self.assertEqual({m for m in metrics if m.startswith("daemon.terminal_perf.idle.10.")}, set())
 
     def test_daemon_latency(self):
         res = {"ops": {"ping": latency.stats([0.1, 0.2]), "close-tabs": {"n": 0, "skipped": "not advertised"}},
@@ -233,6 +266,23 @@ class Series(Claims):
                                                              "daemon.latency.small.ping"])
         self.assertClaimed("daemon-latency", series)
         self.write_and_read("daemon-latency", series)
+
+    def test_daemon_latency_failed_rows_record_nothing(self):
+        res = {"ops": {"ping": latency.stats([0.1, 0.2]),
+                       # 3 samples, then a DaemonError: the op loop keeps them with `error`.
+                       "split": {**latency.stats([1.0, 2.0, 3.0]), "error": "timed out"}},
+               "cli": {"cli-ping": latency.stats([5.0]),
+                       "cli-terminal-write": {"n": 0, "error": "no working CLI form"}},
+               "concurrent": {"c10-ping": latency.stats([0.3]), "errors": ["ConnectionResetError()"]},
+               "bulk_interference": {"bulk-64k-ping-same": latency.stats([0.4]),
+                                     "bulk-64k-ping-other": {**latency.stats([0.5]), "error": "client died"}},
+               "automation_storm": {"storm": {"echo": latency.stats([1.0]),
+                                              "automation": {**latency.stats([2.0], keep_samples=False),
+                                                             "clients_cover_window": False}}},
+               "locks": {**latency.stats([9.0]), "error": "RuntimeError('section failed')"}}
+        series = latency.lab_series({"scenarios": {"small": res, "scale": {"error": "start failed"}}})
+        self.assertEqual(sorted(s.metric for s in series), ["daemon.latency.small.cli_ping",
+                                                             "daemon.latency.small.ping"])
 
 
 class RustBenches(Claims):

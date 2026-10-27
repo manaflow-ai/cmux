@@ -23,7 +23,8 @@ daemon-terminal-perf (daemon_bench_lab.py names the build and host):
 daemon.terminal_perf.idle.N.ROLE.<memory_each (bytes)|threads (count)> per
 --counts N and role (daemon, hosts), daemon.terminal_perf.scrollback.ROLE
 (bytes per 10,000 lines), daemon.terminal_perf.throughput (bytes_per_s) and
-daemon.terminal_perf.busy.ROLE.cpu (percent).
+daemon.terminal_perf.busy.ROLE.cpu (percent). An idle step whose hosts did
+not all come up fails the run (exit 1) and records nothing.
 
   bench-terminal-perf.py --bin target/release/cmux-tui --out perf.json
   bench-terminal-perf.py --bin ... --sha SHA --build-config release --out DIR
@@ -71,6 +72,8 @@ def lab_series(result):
     """result-v1 series of a report (module docstring); a phase that did not finish records nothing."""
     series = []
     for step in result["idle"]:
+        if ((step["roles"].get("hosts") or {}).get("count") or 0) < step["terminals"]:
+            continue
         for role in ROLES:
             totals = step["roles"].get(role) or {}
             prefix = f"{METRIC_PREFIX}.idle.{step['terminals']}.{role}"
@@ -95,6 +98,10 @@ def lab_series(result):
 
 def emit(kind, **fields):
     print("TERMINAL-PERF " + kind + " " + " ".join(f"{k}={v}" for k, v in fields.items()), flush=True)
+
+
+class PhaseError(Exception):
+    """A phase that did not reach its planned state: the run fails and the phase records nothing."""
 
 
 def wait_hosts(bench, want, timeout=120):
@@ -156,9 +163,13 @@ def main():
             have = len(bench.tree()["hosts"])
             if n > have:
                 create(bench, [args.shell] * (n - have))
-                wait_hosts(bench, n)
+                if not wait_hosts(bench, n):
+                    raise PhaseError(f"idle {n}: only {len(bench.tree()['hosts'])} host(s) came up")
             time.sleep(a.settle)
             roles = role_totals(bench)
+            hosts = (roles.get("hosts") or {}).get("count") or 0
+            if hosts < n:
+                raise PhaseError(f"idle {n}: {hosts} host(s) when measured")
             result["idle"].append({"terminals": n, "roles": roles})
             d, h = roles.get("daemon", {}), roles.get("hosts", {})
             emit("idle", terminals=n, daemon_mb=d.get("footprint_mb"), daemon_threads=d.get("threads"),
