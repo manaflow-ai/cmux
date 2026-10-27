@@ -397,9 +397,10 @@ Each check is a command with a number. `scripts/cmux-next/stability-final.sh` (1
    (rust-panic-baseline.json 69 crates today 6,519; rust-panic-extra-baseline.json rows for the 6 separate cmux-tui
    workspaces, Native/OptChat/*, Native/DiffSidecar and cmux-mobile-host). The `INVARIANT:` expect count is reported per
    crate. crash-safety-baseline rust rows for unwrap, expect, panic_macro and exit are 0.
-9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the count of `extern "C" fn` equals
-   the count of `ffi_boundary(` plus `ffi-nopanic:` (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source
-   sha contains tasks 152 and 156; `check-app-ffi-pin.sh` passes.
+9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the Q18 test
+   `every_export_is_guarded` passes, so every `extern "C" fn` body runs in `ffi_boundary(` or carries `ffi-nopanic:`
+   (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source sha contains tasks 152 and 156;
+   `check-app-ffi-pin.sh` passes.
 10. TOKIO BLOCKING AND PROCESSES: `cargo run --manifest-path cmux-tui/tools/async-blocking-scan/Cargo.toml -- --root
     cmux-tui/crates --json` reports 0 blocking-in-async, 0 dropped JoinHandles, 0 unsupervised long-lived spawns, 0
     non-signal-safe `pre_exec` bodies, 0 unreaped children and 0 unreasoned unbounded channels in production code; the lab
@@ -481,8 +482,13 @@ Each hit (or each file/module group shown) is one task; the generator splits gro
   rules); each signature is one fix task with its repro.
 - **Q17 field-signatures:** `scripts/cmux-next/stability-health.py --env nightly-next --top 50 --json`; each Sentry issue
   without a GitHub issue is one task.
-- **Q18 ffi-exports:** `git grep -n -A3 'extern "C" fn' -- cmux-tui/crates/{cmux-app-ffi,cmux-rd-ffi,
-  cmux-layout-reducer-ffi,cmux-palette-ranker}/src` without `ffi_boundary`/`ffi-nopanic:` (102 exports).
+- **Q18 ffi-exports:** the exports that `cmux_ffi_guard::testing::unguarded_exports` reports. It reads each
+  `extern "C" fn` body, not a fixed line window (rustfmt puts long parameter lists before the body), and the
+  `every_export_is_guarded` test of each crate fails on any hit. Run `cargo test every_export_is_guarded` with
+  `--manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml`, `.../cmux-rd-ffi/Cargo.toml` and
+  `.../cmux-layout-reducer-ffi/Cargo.toml` (separate workspaces), and `cargo test -p cmux-palette-ranker
+  every_export_is_guarded` in `cmux-tui`. Q18 = 0 when the four tests pass. Do not compare counts of `ffi_boundary(`
+  and `extern "C" fn`: a recovery call inside a guarded body is also an `ffi_boundary(` (102 exports before 152).
 - **Q19 objc-raises:** `crash_ratchet.py --report objc_raises` (160 JSONSerialization, 23 FileHandle, ~440 NSRange).
 - **Q20 rust-process:** `async-blocking-scan --kind pre_exec,child,unbounded` (54 pre_exec lines, 852 Command::new vs 42
   kill_on_drop, 468 unbounded/std channel lines, raw counts incl. tests).
@@ -1587,8 +1593,8 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
   pure arithmetic with no panic path gets `// ffi-nopanic: <why>`. app-ffi release profile: `debug = "line-tables-only"`,
   no strip of line tables, dSYM uploaded with the xcframework. The Swift side forwards stored panics (150). Lands through the
   pin lander (153).
-- Acceptance: Q18 = 0 (export count == ffi_boundary + ffi-nopanic); a unit test per crate makes a guarded fn panic and gets
-  the error value, not an abort.
+- Acceptance: Q18 = 0 (`every_export_is_guarded` passes in each of the four crates); a unit test per crate makes a guarded
+  fn panic and gets the error value, not an abort.
 - Test phase: cargo test in each FFI crate on Testbox; app compile-check with the new pin; motion and remote-view suites.
 
 #### p10-stability-153 FFI pin lander
