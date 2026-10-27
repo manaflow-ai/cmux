@@ -32,7 +32,8 @@ import Darwin
 /// `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`
 /// (content/public/browser/web_contents.h) keeps a hidden page rendering. While a vote holds a node,
 /// the node and its own-shown subtree render (``wantsFrames``): frame clients tick, view
-/// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
+/// observations apply, the node's task queues run and its deferred view work
+/// (``deferUntilVisible(key:_:)``) runs. A `stayHidden` vote leaves ``effective``,
 /// page visibility and the hidden timer alignment as they are; any other vote makes the node
 /// ``Visibility/visible``.
 @MainActor public final class VisibilityNode {
@@ -67,7 +68,7 @@ import Darwin
 
     /// Whether this node renders: it is ``Visibility/visible``, or a capture vote holds it
     /// (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    /// Frame clients, view observations and the node's task queues follow it.
+    /// Frame clients, view observations, the node's task queues and its deferred work follow it.
     public var wantsFrames: Bool { isVisible || isCaptured }
 
     /// How many times a propagation recomputed this node (tests prove a flip visits only what can change).
@@ -251,12 +252,15 @@ import Darwin
         return subscription
     }
 
-    /// Runs `work` now when this node is visible; otherwise once, when it next becomes visible.
-    /// A later call with the same `key` replaces pending work, so a hidden node runs each key once.
+    /// Runs `work` now when this node renders (``wantsFrames``: it is visible, or a capture vote
+    /// holds it); otherwise once, when it next renders. A later call with the same `key` replaces
+    /// pending work, so a hidden node runs each key once. The work is view work (the R-appear and
+    /// R-hide recipes), and a capture draws the views, so it runs for a capture as a view
+    /// observation applies for one.
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
-        if isVisible { work(); return }
+        if wantsFrames { work(); return }
         let key = AnyHashable(key)
         if let index = deferred.firstIndex(where: { $0.key == key }) {
             deferred[index].work = work
@@ -341,6 +345,8 @@ import Darwin
                 guard renderingGeneration == generation else { return }
                 subscription.onFlip(effective)
             }
+            guard renderingGeneration == generation else { return }
+            if rendering { runDeferred() }
         }
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
@@ -360,12 +366,12 @@ import Darwin
             guard notifyGeneration == generation else { return }
             subscription.onFlip(value)
         }
-        guard notifyGeneration == generation else { return }
-        if value == .visible { runDeferred() }
     }
 
+    /// Runs the deferred work in the order it was first deferred, while the node still renders (a
+    /// body that hides it again leaves the rest for the next time it renders).
     private func runDeferred() {
-        while isVisible, !deferred.isEmpty {
+        while wantsFrames, !deferred.isEmpty {
             deferred.removeFirst().work()
         }
     }

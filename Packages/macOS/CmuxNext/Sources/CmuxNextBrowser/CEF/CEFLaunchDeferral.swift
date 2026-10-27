@@ -57,7 +57,8 @@ public final class CEFLaunchDeferral {
     }
 
     /// Runs `start` for a `.restoreHidden` page (shown as a deferred page meanwhile) at the first of: `node`
-    /// shows, or startup completes (an afterStartup post). `start` may run twice and must start the page once.
+    /// renders (it shows, or a capture vote holds it, so a screenshot sees the page), or startup completes (an
+    /// afterStartup post). `start` may run twice and must start the page once.
     public func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void) {
         guard let startup, startup.completion == nil else { return start() }
         node.deferUntilVisible(key: Self.hiddenStartKey, start)

@@ -8,17 +8,18 @@ import CmuxNextCompat
 /// `ui/views/widget/widget.cc` `observers_`), not once per view. Like that list
 /// (`base/observer_list.h`), subscribers are called in the order they subscribed.
 ///
-/// A hidden ``EventDelivery/whenVisible`` subscriber is marked missed on its first post only; each
-/// node then holds one deferred call for this fan-out, which calls the node's missed subscribers
-/// in the order they were marked when it shows. A later post while hidden costs one flag check per
-/// such subscriber.
+/// An ``EventDelivery/whenVisible`` subscriber whose node does not render (it is not visible and no
+/// capture vote holds it, ``VisibilityNode/wantsFrames``) is marked missed on its first post only;
+/// each node then holds one deferred call for this fan-out, which calls the node's missed
+/// subscribers in the order they were marked when it renders again. A later post meanwhile costs
+/// one flag check per such subscriber.
 @MainActor final class NotificationFanOut {
     private struct Entry {
         let id: UInt64
         let delivery: EventDelivery
         weak var node: VisibilityNode?
         let handler: @MainActor (EventCall) -> Void
-        /// A post arrived while the node was not visible; its missed call is pending.
+        /// A post arrived while the node did not render; its missed call is pending.
         var missed = false
     }
 
@@ -160,7 +161,7 @@ import CmuxNextCompat
             if live.delivery == .always {
                 live.handler(.posted)
             } else if let node = live.node {
-                if node.isVisible {
+                if node.wantsFrames {
                     live.handler(.posted)
                 } else if !live.missed {
                     channel.setMissed(live.id, true)
@@ -217,8 +218,8 @@ import CmuxNextCompat
         }
     }
 
-    /// The node showed: calls its missed subscribers in the order they were marked. A handler that
-    /// hides the node again leaves the rest marked for the next show.
+    /// The node renders again: calls its missed subscribers in the order they were marked. A
+    /// handler that stops it rendering leaves the rest marked for the next time it renders.
     private func deliverMissed(on node: VisibilityNode) {
         let key = ObjectIdentifier(node)
         guard var record = pending[key], record.node === node else { return }
@@ -227,7 +228,7 @@ import CmuxNextCompat
         record.scheduled = false
         pending[key] = record
         var next = 0
-        while next < batch.count, node.isVisible {
+        while next < batch.count, node.wantsFrames {
             let subscriber = batch[next]
             next += 1
             guard let channel = channels[subscriber.name], let entry = channel.entry(subscriber.id), entry.missed else { continue }
