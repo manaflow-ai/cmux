@@ -87,6 +87,40 @@ struct SessionPriorityRankTests {
         #expect(rank.recordedOrder == [g1, g2, a, b])
     }
 
+    // MARK: - Order-preserving user moves (ruling R24)
+
+    /// A new workspace shows above an older one but ranks below it. Moving it to the top, where
+    /// it already is, affirms its visible place instead of recording nothing.
+    @Test func orderPreservingMoveAffirmsThePosition() {
+        var rank = SessionPriorityRank(recordedOrder: [a, b])
+        rank.recordUserMove(movedIds: [b], before: [b, a], after: [b, a])
+        #expect(rank.recordedOrder == [b, a])
+    }
+
+    /// The pinned workspace holds index 0, so `--index 0` leaves the order as it was.
+    @Test func orderPreservingMoveBelowAPinnedWorkspaceAffirmsThePosition() {
+        var rank = SessionPriorityRank(recordedOrder: [d, a, b])
+        rank.recordUserMove(movedIds: [b], before: [d, b, a], after: [d, b, a])
+        #expect(rank.recordedOrder == [d, b, a])
+    }
+
+    @Test func orderPreservingMoveOfACorrectlyRankedIdChangesNothing() {
+        var rank = SessionPriorityRank(recordedOrder: [a, b, c])
+        rank.recordUserMove(movedIds: [a], before: [a, b, c], after: [a, b, c])
+        #expect(rank.recordedOrder == [a, b, c])
+        rank.recordUserMove(movedIds: [b], before: [a, b, c], after: [a, b, c])
+        #expect(rank.recordedOrder == [a, b, c])
+        rank.recordUserMove(movedIds: [c], before: [a, b, c], after: [a, b, c])
+        #expect(rank.recordedOrder == [a, b, c])
+    }
+
+    /// Several affirmed ids keep their visible order, each run placed with the moving-up rule.
+    @Test func orderPreservingBlockMoveAffirmsTheBlock() {
+        var rank = SessionPriorityRank(recordedOrder: [a, b, c, d])
+        rank.recordUserMove(movedIds: [c, d], before: [c, d, a, b], after: [c, d, a, b])
+        #expect(rank.recordedOrder == [c, d, a, b])
+    }
+
     // MARK: - Explicit order (batch reorder)
 
     @Test func recordUserOrderPermutesWithinHeldSlots() {
