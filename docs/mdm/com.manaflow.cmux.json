@@ -1350,7 +1350,6 @@
       "type" : "boolean"
     },
     "browser.hibernation" : {
-      "default" : "moderate",
       "description" : "Frees memory; history and position are kept. Also accepts a number from 1 to 1440 in a raw profile.",
       "enum" : [
         "moderate",
