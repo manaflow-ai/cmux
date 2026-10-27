@@ -3140,8 +3140,9 @@ jobs:
       # Runs of this key that deferred to this one (tree-owner-wait) left a
       # cmux-tui-tree-deferred-<key> artifact and ended. Re-run one, a
       # feat-cmux-next push first, so it wins the claim and builds the key.
-      # Each marker is used once, so failing owners cannot re-run each other
-      # forever.
+      # Each marker is used once, a deferred run is re-run at most twice, and
+      # an owner that failed only on GitHub's rate limit or attestation hands
+      # nothing off (scripts/ci/cmux_tui_tree_handoff.py).
       - name: Hand the key to a run that deferred to this one
         if: github.event_name == 'push'
         continue-on-error: true
@@ -3149,18 +3150,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-tui-tree-deferred-$KEY&per_page=100" \
-            --jq '.artifacts[] | select(.expired | not) | [.id, .workflow_run.id, .workflow_run.head_branch] | @tsv' \
-            | awk -F '\t' -v self="$RUN_ID" '$2 != self { print ($3 == "feat-cmux-next" ? 1 : 0) "\t" $0 }' \
-            | sort -t "$(printf '\t')" -k1,1nr -k3,3nr | cut -f2-)"
-          [[ -n "$candidates" ]] || { echo "No run of tree $KEY deferred to this one."; exit 0; }
-          while IFS=$'\t' read -r artifact run branch; do
-            if gh run rerun "$run" --repo "$GITHUB_REPOSITORY"; then
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact" >/dev/null || true
-              echo "Re-ran run $run ($branch), which deferred to this one, to build tree $KEY."
-              exit 0
-            fi
-          done <<<"$candidates"
-          echo "::warning::no run that deferred tree $KEY to this one could be re-run"
+        run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY"

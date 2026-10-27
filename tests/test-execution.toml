@@ -1521,6 +1521,10 @@ path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_pin_duplicate_skip.py"
 lane = "linux-guard"
 
