@@ -26,7 +26,7 @@ TEST_RUNNER="$SANITIZE_DIR/test-runner.sh"
 
 SANITIZER_CRATES_LINUX=(cmux-tui-core acpmux cmux-holder cmux-pty ghostty-vt)
 SANITIZER_CRATES_MACOS=(cmux-pty cmux-holder)
-MIRI_CRATES=(cmux-pane-protocol cmux-remote-protocol cmux-rd-proto cmux-layout-reducer)
+MIRI_CRATES=(cmux-pane-protocol cmux-remote-protocol cmux-rd-proto cmux-layout-reducer cmux-trace)
 ALL_MODES=(address thread leak miri)
 
 usage() {
@@ -48,8 +48,8 @@ usage: cmux-tui/scripts/sanitize.sh [options] [-- extra nextest args]
 
 Default crates: address, thread and leak run cmux-tui-core, acpmux,
 cmux-holder, cmux-pty and ghostty-vt on Linux, and cmux-pty and cmux-holder
-on macOS; miri runs cmux-pane-protocol, cmux-remote-protocol, cmux-rd-proto
-and cmux-layout-reducer.
+on macOS; miri runs cmux-pane-protocol, cmux-remote-protocol, cmux-rd-proto,
+cmux-layout-reducer and cmux-trace (its heap ring's Send/Sync test).
 
 Exit status: 0 when every run passed with no finding (a Miri run whose only red
 tests are operations Miri cannot run counts as passed), 1 on a finding or a

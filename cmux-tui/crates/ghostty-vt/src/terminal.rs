@@ -51,6 +51,9 @@ pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
 mod clear_history;
 
+mod tracked_point;
+pub use tracked_point::TrackedScreenPoint;
+
 mod program_status;
 pub use program_status::{
     ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState,
@@ -304,14 +307,6 @@ pub struct Scrollbar {
     pub len: u64,
 }
 
-/// An owned terminal cell anchor that follows its row through scrollback
-/// growth, pruning, and reflow. Callers must serialize access with the
-/// originating [`Terminal`].
-pub struct TrackedScreenPoint {
-    raw: sys::GhosttyTrackedGridRef,
-    terminal_instance_id: u64,
-}
-
 /// One absolute coordinate in the active screen, including retained
 /// scrollback rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -326,19 +321,6 @@ pub struct SelectionPoint {
 pub struct SelectionRange {
     pub start: SelectionPoint,
     pub end: SelectionPoint,
-}
-
-// SAFETY: the C handle is owned by this value and Ghostty permits freeing it
-// after its terminal is gone. All other access requires the originating
-// Terminal, whose callers already serialize mutation.
-unsafe impl Send for TrackedScreenPoint {}
-
-impl Drop for TrackedScreenPoint {
-    fn drop(&mut self) {
-        // SAFETY: this value owns `raw` (non-null from grid_ref_track) and frees it
-        // only here; Ghostty allows freeing it after its terminal is gone.
-        unsafe { sys::ghostty_tracked_grid_ref_free(self.raw) };
-    }
 }
 
 impl Scrollbar {
@@ -378,6 +360,8 @@ pub struct Terminal {
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
     raw_settings: cold::RawSettings,
+    /// Anchors of dropped [`TrackedScreenPoint`]s, freed here under `&mut self`.
+    tracked_points: tracked_point::AnchorReleases,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -423,8 +407,12 @@ fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
     bytes
 }
 
-// SAFETY: the handle is not thread-safe, but it is movable and we only expose
-// mutation through &mut self, so guarding a Terminal with a Mutex is sound.
+// SAFETY: the synchronization is `&mut self`. The libghostty terminal has no
+// thread affinity but is not thread-safe: every call that touches it takes
+// `&self` or `&mut self`, `Terminal` is not `Sync`, so callers share it through
+// a `Mutex`; its hooks are `Send` closures, and the anchors of its tracked points
+// are freed through it (`tracked_point`). Test:
+// `ghostty-vt/tests/thread_moves.rs::a_terminal_moves_between_threads`.
 unsafe impl Send for Terminal {}
 
 impl Terminal {
@@ -515,6 +503,7 @@ impl Terminal {
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
             raw_settings: Default::default(),
+            tracked_points: Default::default(),
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1714,6 +1703,7 @@ impl Terminal {
     /// Track one cell in full-screen coordinates. The anchor continues to
     /// identify that cell as history grows or older rows are pruned.
     pub fn track_screen_point(&mut self, x: u16, y: u32) -> Result<TrackedScreenPoint> {
+        self.tracked_points.free_released();
         let point = sys::GhosttyPoint {
             tag: sys::GHOSTTY_POINT_TAG_SCREEN,
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
@@ -1725,13 +1715,13 @@ impl Terminal {
         if raw.is_null() {
             return Err(Error::NoValue);
         }
-        Ok(TrackedScreenPoint { raw, terminal_instance_id: self.instance_id })
+        Ok(self.tracked_points.point(raw, self.instance_id))
     }
 
     /// Resolve an anchor into the current full-screen coordinate space.
     /// `None` means its row was pruned or belongs to a replaced terminal.
     pub fn tracked_screen_point(&self, point: &TrackedScreenPoint) -> Option<(u16, u32)> {
-        if point.terminal_instance_id != self.instance_id || point.raw.is_null() {
+        if point.terminal_instance_id() != self.instance_id || point.raw().is_null() {
             return None;
         }
         let mut coordinate = sys::GhosttyPointCoordinate::default();
@@ -1739,7 +1729,7 @@ impl Terminal {
         // checked above) and `coordinate` a writable local.
         (unsafe {
             sys::ghostty_tracked_grid_ref_point(
-                point.raw,
+                point.raw(),
                 sys::GHOSTTY_POINT_TAG_SCREEN,
                 &mut coordinate,
             )
@@ -1754,7 +1744,7 @@ impl Terminal {
         x: u16,
         y: u32,
     ) -> Result<()> {
-        if tracked.terminal_instance_id != self.instance_id || tracked.raw.is_null() {
+        if tracked.terminal_instance_id() != self.instance_id || tracked.raw().is_null() {
             return Err(Error::InvalidValue);
         }
         let point = sys::GhosttyPoint {
@@ -1763,7 +1753,7 @@ impl Terminal {
         };
         // SAFETY: `tracked.raw` is a non-null anchor from this terminal (instance
         // id checked above) and `self.raw` its live handle.
-        check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
+        check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw(), self.raw, point) })
     }
 
     /// Move a screen selection point from a wide grapheme continuation cell

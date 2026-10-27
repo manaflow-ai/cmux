@@ -244,9 +244,11 @@ pub struct RenderState {
     next_frame_seq: u64,
 }
 
-// SAFETY: the three handles are owned only by this value, and reading after
-// `update` no longer touches the terminal; mutation goes through &mut self, so
-// moving the value to another thread is sound.
+// SAFETY: the synchronization is `&mut self` plus the caller's exclusive
+// terminal. The three handles have no thread affinity and are owned by this
+// value alone; `update` takes `&mut Terminal`, and reading after it no longer
+// touches the terminal. `RenderState` is not `Sync`. Test:
+// `ghostty-vt/tests/thread_moves.rs::a_render_state_moves_between_threads`.
 unsafe impl Send for RenderState {}
 
 impl RenderState {

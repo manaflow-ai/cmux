@@ -5,14 +5,13 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use x11rb::connection::Connection;
 use x11rb::protocol::shm::ConnectionExt as _;
 
+/// Neither `Send` nor `Sync` (it holds the raw mapping): the capture loop's
+/// thread makes, reads and drops it.
 pub struct ShmSeg {
     pub seg: u32,
     ptr: *mut u8,
     len: usize,
 }
-
-// SAFETY: the mapping is owned by this value and only accessed through &self/&mut self.
-unsafe impl Send for ShmSeg {}
 
 impl ShmSeg {
     pub fn new(conn: &impl Connection, len: usize) -> Res<Self> {

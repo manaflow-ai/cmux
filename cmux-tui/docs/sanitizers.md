@@ -21,7 +21,7 @@ Arguments after `--` go to nextest, for example `-- -E 'test(ring)'`.
 | Mode | Crates on Linux | Crates on macOS |
 | --- | --- | --- |
 | `address`, `thread`, `leak` | cmux-tui-core, acpmux, cmux-holder, cmux-pty, ghostty-vt | cmux-pty, cmux-holder |
-| `miri` | cmux-pane-protocol, cmux-remote-protocol, cmux-rd-proto, cmux-layout-reducer | the same |
+| `miri` | cmux-pane-protocol, cmux-remote-protocol, cmux-rd-proto, cmux-layout-reducer, cmux-trace | the same |
 
 Linux runs miss `cfg(target_os = "macos")` code, so cmux-pty and cmux-holder
 also run on macOS. `--crate` replaces the default list of every selected mode.
@@ -96,8 +96,20 @@ that hit it and up to five `tests`. File one task per unique `hash12`.
 | `no-tests` | the crate has no tests to run |
 
 The script exits 0 only when every run is `pass` or `unsupported`. With the
-default crates, cmux-pane-protocol and cmux-rd-proto end `unsupported`: their
-socket, file and proptest tests need operations Miri isolation blocks.
+default crates, cmux-pane-protocol, cmux-rd-proto and cmux-trace end
+`unsupported`: their socket, file, process and proptest tests need operations
+Miri isolation blocks. cmux-trace is in the lane for its heap ring, whose
+`unsafe impl Send`/`Sync` rests on atomics alone: Miri reports any non-atomic
+or mixed-width access from the multi-writer test as a data race.
+
+## `unsafe impl Send` and `Sync`
+
+Each `unsafe impl Send` or `unsafe impl Sync` in `cmux-tui/crates` carries a
+`// SAFETY:` comment that names the synchronization (the atomics, the one
+owning thread, a lock the callers hold) and ends with `Test:` and the test that
+moves or shares the value across threads. A pure-Rust site's test runs in this
+Miri lane. A type that no thread boundary needs stays neither `Send` nor
+`Sync`: drop the impl rather than argue for it.
 
 ## Known limits
 

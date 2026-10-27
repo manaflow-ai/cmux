@@ -26,6 +26,29 @@ fn openh264_from_source_encodes_an_idr_on_request() {
     assert!(enc.name().starts_with("openh264 2.6"));
 }
 
+/// `unsafe impl Send for OpenH264`: made and used on one thread, then used
+/// and dropped on another, as the media loop's worker does.
+#[cfg(feature = "openh264-source")]
+#[test]
+fn an_openh264_encoder_moves_between_threads() {
+    use cmux_encode::openh264::{OpenH264, OpenH264Api};
+    use cmux_encode::{EncCfg, H264Encoder};
+    let cfg =
+        EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
+    let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+    let mut au = Vec::new();
+    assert!(enc.encode(&I420::new(64, 64), true, 0, &mut au).expect("encode"));
+    let (enc, au) = std::thread::spawn(move || {
+        let mut au = Vec::new();
+        enc.encode(&I420::new(64, 64), true, 33, &mut au).expect("encode on the other thread");
+        (enc, au)
+    })
+    .join()
+    .expect("encoder thread");
+    assert!(au.starts_with(&[0, 0, 0, 1]), "Annex-B");
+    std::thread::spawn(move || drop(enc)).join().expect("drop thread");
+}
+
 #[cfg(feature = "openh264-runtime")]
 mod runtime {
     use cmux_encode::openh264::{CiscoBinary, LoadError, Platform, load_verified};
@@ -266,4 +289,29 @@ fn videotoolbox_encodes_an_idr_on_request() {
     assert!(idr, "a forced IDR");
     assert!(au.starts_with(&[0, 0, 0, 1]), "Annex-B");
     assert!(enc.name().starts_with("videotoolbox h264"), "{}", enc.name());
+}
+
+/// `unsafe impl Send for VideoToolbox`: made and used on one thread, then
+/// used and dropped on another (fleet Mac, as above).
+#[cfg(target_os = "macos")]
+#[test]
+fn a_videotoolbox_encoder_moves_between_threads() {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::videotoolbox::VideoToolbox;
+    let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
+    let mut au = Vec::new();
+    enc.encode(&I420::new(256, 128), true, 0, &mut au).expect("encode");
+    let (enc, delivered) = std::thread::spawn(move || {
+        let mut delivered = !au.is_empty();
+        // VideoToolbox may deliver a frame one call late.
+        for i in 1..4 {
+            enc.encode(&I420::new(256, 128), false, i * 33_000, &mut au).expect("encode");
+            delivered |= !au.is_empty();
+        }
+        (enc, delivered)
+    })
+    .join()
+    .expect("encoder thread");
+    assert!(delivered, "an access unit across the move");
+    std::thread::spawn(move || drop(enc)).join().expect("drop thread");
 }

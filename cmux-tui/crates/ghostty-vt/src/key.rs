@@ -217,8 +217,10 @@ pub struct KeyEncoder {
     event: sys::GhosttyKeyEvent,
 }
 
-// SAFETY: the encoder and event have no thread affinity (as MouseEncoder's);
-// this value owns both and every use takes &mut self.
+// SAFETY: the synchronization is `&mut self`. The encoder and event have no
+// thread affinity; this value owns both, every use takes `&mut self` (the
+// terminal sync reads `&Terminal`), and `KeyEncoder` is not `Sync`. Test:
+// `ghostty-vt/tests/thread_moves.rs::a_key_encoder_moves_between_threads`.
 unsafe impl Send for KeyEncoder {}
 
 impl KeyEncoder {

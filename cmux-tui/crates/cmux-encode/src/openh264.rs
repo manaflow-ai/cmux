@@ -182,7 +182,12 @@ pub struct OpenH264 {
     name: String,
 }
 
-// SAFETY: the encoder instance is used from one thread at a time (owned by the media loop).
+// SAFETY: the synchronization is `&mut self`. An OpenH264 encoder instance has
+// no thread affinity; this value owns it (and the output buffer `info`) alone,
+// every call through the vtable takes `&mut self`, and `OpenH264` is not `Sync`.
+// Send is the `H264Encoder: Send` bound the media loop needs. Test:
+// `cmux-encode/tests/encode.rs::an_openh264_encoder_moves_between_threads`
+// (feature `openh264-source`).
 unsafe impl Send for OpenH264 {}
 
 fn ok(rc: c_int, what: &str) -> Res<()> {

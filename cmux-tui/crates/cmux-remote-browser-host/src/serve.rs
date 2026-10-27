@@ -11,11 +11,11 @@
 //! inside the frame callback (VideoToolbox, no CPU copy); the pump keeps the
 //! latest lease for gated and recovery encodes.
 
+use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Mutex, TryLockError};
 use std::time::Instant;
 
 use cmux_encode::videotoolbox::{
@@ -63,17 +63,14 @@ pub struct Options {
 }
 
 /// One capture lease; dropping it gives the frame back to Viz (UI thread).
+/// Neither `Send` nor `Sync`: the host state that holds it is the UI thread's
+/// (`HOST`), so the compiler keeps it there.
 pub struct Lease {
     lease: i64,
     surface: *mut c_void,
     width: u32,
     height: u32,
 }
-
-// SAFETY: a lease is created, encoded and dropped on the CEF UI thread only
-// (the host state that holds it lives there; the Mutex only satisfies the
-// static's Sync bound).
-unsafe impl Send for Lease {}
 
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -142,26 +139,33 @@ struct Host {
     refresh_wanted: bool,
 }
 
-static HOST: Mutex<Option<Host>> = Mutex::new(None);
+thread_local! {
+    /// The host, owned by the CEF UI thread (the process main thread): `run`
+    /// sets it there and every shim callback that reaches it runs there, so
+    /// its leases and encoder never cross threads. Chrome binds such state to
+    /// its sequence the same way (`base/sequence_checker.h`).
+    static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
+}
 
 type Work = Box<dyn FnOnce(&mut Host)>;
 
 /// Runs `f` on the host now, or, when a shim call made from inside the host
-/// re-entered a callback (the lock is held on this thread), as a posted UI
-/// task right after.
+/// re-entered a callback (the host is borrowed on this thread), as a posted
+/// UI task right after.
 fn dispatch(f: impl FnOnce(&mut Host) + 'static) {
-    match HOST.try_lock() {
+    let reentered = HOST.with(|host| match host.try_borrow_mut() {
         Ok(mut guard) => {
             if let Some(h) = guard.as_mut() {
                 f(h);
             }
+            None
         }
-        Err(TryLockError::WouldBlock) => {
-            let work: Box<Work> = Box::new(Box::new(f));
-            // SAFETY: `on_work` takes the box back on the UI thread.
-            unsafe { rb_shim_post(on_work, Box::into_raw(work).cast::<c_void>()) }
-        }
-        Err(TryLockError::Poisoned(_)) => {}
+        Err(_) => Some(f),
+    });
+    if let Some(f) = reentered {
+        let work: Box<Work> = Box::new(Box::new(f));
+        // SAFETY: `on_work` takes the box back on the UI thread.
+        unsafe { rb_shim_post(on_work, Box::into_raw(work).cast::<c_void>()) }
     }
 }
 
@@ -450,9 +454,10 @@ unsafe extern "C" fn on_quit(_: *mut c_void) {
 }
 
 unsafe extern "C" fn on_ready(_: *mut c_void) {
-    let Some((addr, lifeline)) =
-        HOST.lock().ok().and_then(|g| g.as_ref().map(|h| (h.opts.listen, h.opts.lifeline)))
-    else {
+    let Some((addr, lifeline, secret)) = HOST.with(|host| {
+        let host = host.try_borrow().ok()?;
+        host.as_ref().map(|h| (h.opts.listen, h.opts.lifeline, h.opts.secret.clone()))
+    }) else {
         return;
     };
     if lifeline {
@@ -465,7 +470,7 @@ unsafe extern "C" fn on_ready(_: *mut c_void) {
         });
     }
     std::thread::spawn(move || {
-        if let Err(e) = listen(addr) {
+        if let Err(e) = listen(addr, secret) {
             eprintln!("serve: {e}");
         }
     });
@@ -809,7 +814,7 @@ fn frame_damage(f: &RbFrame, width: u32, height: u32) -> Rect {
     }
 }
 
-fn listen(addr: SocketAddr) -> std::io::Result<()> {
+fn listen(addr: SocketAddr, secret: Option<String>) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr)?;
     let bound = listener.local_addr()?;
     eprintln!("serve: listening on {bound} (service {SERVICE_REMOTE_BROWSER})");
@@ -820,7 +825,6 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
     drop(stdout);
     // The viewer is admitted (its hello carries the secret) before the
     // welcome: a refused viewer never opens the tab or sends input.
-    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
     crate::launch::accept_viewers(listener, secret, crate::launch::HELLO_DEADLINE, |viewer| {
         match session(viewer) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
@@ -897,8 +901,8 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
     let cache = std::env::var("CMUX_RB_CACHE_DIR").unwrap_or_else(|_| "/tmp/cmux-rb-host".into());
     let cache = CString::new(cache).unwrap_or_default();
     let url = opts.url.clone();
-    if let Ok(mut guard) = HOST.lock() {
-        *guard = Some(Host {
+    HOST.with(|host| {
+        *host.borrow_mut() = Some(Host {
             opts,
             tab: HostTab::new(1, 1, &url),
             viewer: None,
@@ -907,7 +911,7 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
             first_frame_seen: false,
             refresh_wanted: false,
         });
-    }
+    });
     let callbacks = RbCallbacks {
         context: std::ptr::null_mut(),
         on_ready: Some(on_ready),

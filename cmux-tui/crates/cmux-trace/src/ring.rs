@@ -58,10 +58,15 @@ pub(crate) struct Ring {
     _heap: Option<HeapBlock>,
 }
 
-// SAFETY: every access to the block goes through atomics (`a32`, `a64`); the block lives as long as
-// the ring (the heap block is owned, a mapping is never unmapped).
+// SAFETY: the synchronization is the block's atomics. Every shared access to the block is an atomic
+// of one fixed width per word (`a32`, `a64`, ordered by the seqlock protocol of trace.md); `bytes`
+// reads only a private copy no writer reaches; the block outlives every `&Ring` (the heap block is
+// owned and freed in its `Drop`, a mapping is never unmapped). So moving the ring and sharing
+// `&Ring` between threads are sound. Test:
+// `ring::tests::writers_on_many_threads_share_one_ring_and_it_drops_on_another`
+// (Miri lane: `scripts/sanitize.sh --sanitizer miri --crate cmux-trace`).
 unsafe impl Send for Ring {}
-// SAFETY: as for Send.
+// SAFETY: as for `Send`; `&Ring` exposes the block only through those atomics. Test: as above.
 unsafe impl Sync for Ring {}
 
 impl Ring {
@@ -490,5 +495,59 @@ mod tests {
         assert_ne!(ring.intern("daemon.url_open", 7), first, "the category is part of the name");
         assert_eq!(ring.intern("daemon.url_open.slow", 6), other);
         assert_eq!(ring.a32(off::NAME_CURSOR).load(Ordering::Relaxed), u32::from(other) + 2);
+    }
+
+    /// The `Send`/`Sync` argument of [`Ring`] under test: writers on several threads share one
+    /// `&Ring` (intern, register, claim, publish, complete, exit) and the ring then drops on
+    /// another thread. Under Miri (`scripts/sanitize.sh --sanitizer miri --crate cmux-trace`) a
+    /// non-atomic or mixed-width access to the block is a reported data race.
+    #[test]
+    fn writers_on_many_threads_share_one_ring_and_it_drops_on_another() {
+        const WRITERS: u32 = 4;
+        const ROUNDS: u64 = 2;
+        let ring = ring(16);
+        let claims = std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..WRITERS)
+                .map(|writer| {
+                    let ring = &ring;
+                    scope.spawn(move || {
+                        let identity = ThreadIdentity::new(u64::from(writer), 0, "w");
+                        let (index, generation) = ring.register_thread(&identity);
+                        let name = ring.intern("shared.name", 1);
+                        assert_ne!(name, 0, "the name table has room");
+                        let mut claims = Vec::new();
+                        for round in 0..ROUNDS {
+                            let (chunk, lap) = ring.claim(index, generation).expect("a free chunk");
+                            let record = Record {
+                                t_ns: round,
+                                name,
+                                phase: crate::Phase::Instant,
+                                flags: 0,
+                                arg0: u64::from(writer),
+                                arg1: round,
+                            };
+                            ring.publish(chunk, lap, 1, &record);
+                            ring.complete(chunk, lap);
+                            claims.push((writer, round, chunk, lap));
+                        }
+                        ring.exit_thread(index);
+                        claims
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|worker| worker.join().expect("writer thread"))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(claims.len() as u64, u64::from(WRITERS) * ROUNDS);
+        assert_eq!(ring.counter(off::RECORDS_DROPPED), 0);
+        for (writer, round, chunk, lap) in claims {
+            let slot = ring.layout.chunk(chunk as usize) + RECORD_BYTES;
+            assert_eq!(ring.a32(slot + off::R_SEQ).load(Ordering::Acquire), seq_published(lap));
+            assert_eq!(ring.a64(slot + off::R_ARG0).load(Ordering::Relaxed), u64::from(writer));
+            assert_eq!(ring.a64(slot + off::R_ARG1).load(Ordering::Relaxed), round);
+        }
+        std::thread::spawn(move || drop(ring)).join().expect("drop thread");
     }
 }

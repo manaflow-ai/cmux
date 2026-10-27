@@ -16,7 +16,8 @@ use std::ptr::NonNull;
 /// The alignment of every ring block (one page on every target cmux ships).
 pub(crate) const BLOCK_ALIGN: usize = 16384;
 
-/// A zeroed, page-aligned heap block, freed on drop.
+/// A zeroed, page-aligned heap block, freed on drop. Neither `Send` nor `Sync` itself: the
+/// [`crate::ring::Ring`] that owns it carries the one cross-thread argument for its memory.
 pub(crate) struct HeapBlock {
     ptr: NonNull<u8>,
     layout: Layout,
@@ -45,11 +46,6 @@ impl Drop for HeapBlock {
         unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
     }
 }
-
-// SAFETY: the block is plain memory; the ring that owns it accesses it only through atomics.
-unsafe impl Send for HeapBlock {}
-// SAFETY: as for Send.
-unsafe impl Sync for HeapBlock {}
 
 /// A file mapped read-write and shared, zeroed at map time. Never unmapped (see the module doc).
 #[derive(Clone, Copy)]

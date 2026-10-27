@@ -78,9 +78,10 @@ pub struct MouseEncoder {
     size: Option<((u32, u32), (u32, u32))>,
 }
 
-// SAFETY: the opaque Ghostty encoder and event have no thread affinity. MouseEncoder
-// owns both pointers and requires &mut self for every operation, so moving the
-// pair between threads is safe. Shared access remains guarded by the caller.
+// SAFETY: the synchronization is `&mut self`. The encoder and event have no
+// thread affinity; this value owns both, every operation takes `&mut self` (the
+// terminal sync reads `&Terminal`), and `MouseEncoder` is not `Sync`. Test:
+// `ghostty-vt/tests/thread_moves.rs::a_mouse_encoder_moves_between_threads`.
 unsafe impl Send for MouseEncoder {}
 
 /// Per-surface encoders synchronized when terminal mouse modes change.

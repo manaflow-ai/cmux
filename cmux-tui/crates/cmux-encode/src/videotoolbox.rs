@@ -200,7 +200,14 @@ pub struct VideoToolbox {
     name: String,
 }
 
-// SAFETY: the session and buffer are used from one thread at a time (the media loop).
+// SAFETY: the synchronization is `&mut self` plus the output `Mutex`. The
+// session and pixel buffer are CoreFoundation objects with no thread affinity;
+// this value owns them alone and every call on them takes `&mut self`.
+// VideoToolbox's output callback runs on its own thread and touches only the
+// heap-pinned `Mutex<Output>`, and `CompleteFrames` returns after it ran.
+// `VideoToolbox` is not `Sync`. Send is the `H264Encoder: Send` bound the media
+// loop needs. Test:
+// `cmux-encode/tests/encode.rs::a_videotoolbox_encoder_moves_between_threads` (macOS).
 unsafe impl Send for VideoToolbox {}
 
 fn number_i32(v: i32) -> CFNumberRef {

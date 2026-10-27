@@ -8,6 +8,7 @@
 
 use std::ffi::c_void;
 use std::io;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE, LocalFree};
@@ -52,28 +53,27 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// An open job handle, closed on drop.
+/// An open job handle, closed on drop. `Send` and `Sync` by construction:
+/// std's `OwnedHandle` owns the kernel handle, which every thread may use.
 #[derive(Debug)]
 pub struct NamedJob {
-    handle: HANDLE,
+    handle: OwnedHandle,
     name: String,
 }
 
-// SAFETY: a kernel handle is valid on every thread of the process, and
-// NamedJob owns it alone until drop.
-unsafe impl Send for NamedJob {}
-// SAFETY: `&NamedJob` only reaches IsProcessInJob and AssignProcessToJobObject,
-// which Windows documents as safe to call concurrently on one job handle.
-unsafe impl Sync for NamedJob {}
-
-impl Drop for NamedJob {
-    fn drop(&mut self) {
-        // SAFETY: the handle this value owns.
-        unsafe { CloseHandle(self.handle) };
-    }
-}
-
 impl NamedJob {
+    /// Owns `handle`, a non-null job handle the caller just opened.
+    fn own(handle: HANDLE, name: &str) -> Self {
+        // SAFETY: a fresh, non-null handle from CreateJobObjectW or
+        // OpenJobObjectW that nothing else owns or closes.
+        let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
+        Self { handle, name: name.to_owned() }
+    }
+
+    fn raw(&self) -> HANDLE {
+        self.handle.as_raw_handle()
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -111,7 +111,7 @@ impl NamedJob {
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
-        let job = Self { handle, name: name.to_owned() };
+        let job = Self::own(handle, name);
         if created_error.raw_os_error() == Some(ERROR_ALREADY_EXISTS as i32) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -130,8 +130,8 @@ impl NamedJob {
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
-        let job = Self { handle, name: name.to_owned() };
-        if !owned_by_current_user(job.handle, SE_KERNEL_OBJECT)? {
+        let job = Self::own(handle, name);
+        if !owned_by_current_user(job.raw(), SE_KERNEL_OBJECT)? {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!("job {name} has another owner"),
@@ -145,7 +145,7 @@ impl NamedJob {
     /// nothing it starts runs outside the job.
     pub fn assign(&self, process: HANDLE) -> io::Result<()> {
         // SAFETY: valid job and process handles.
-        if unsafe { AssignProcessToJobObject(self.handle, process) } == 0 {
+        if unsafe { AssignProcessToJobObject(self.raw(), process) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -155,7 +155,7 @@ impl NamedJob {
     pub fn contains(&self, process: HANDLE) -> bool {
         let mut result = 0;
         // SAFETY: valid handles and out pointer.
-        let ok = unsafe { IsProcessInJob(process, self.handle, &mut result) };
+        let ok = unsafe { IsProcessInJob(process, self.raw(), &mut result) };
         ok != 0 && result != 0
     }
 }

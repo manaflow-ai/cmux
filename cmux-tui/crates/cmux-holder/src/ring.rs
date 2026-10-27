@@ -76,6 +76,8 @@ const OFF_READING: usize = 40;
 /// The last `capacity` bytes a terminal printed. Offsets count from the
 /// terminal's first byte (or from the base an adoption continues from), so a
 /// reader names a position that stays valid while older bytes drop out.
+/// Neither `Send` nor `Sync` (it holds the raw mapping): the holder's single
+/// loop thread makes, writes and drops it.
 pub struct Ring {
     /// The mapping: header, then data.
     map: *mut u8,
@@ -97,11 +99,6 @@ pub struct Ring {
     /// one whole turn of the ring past the release, every page was taken.
     reusable_until: Option<u64>,
 }
-
-// SAFETY: the mapping is owned by this value and only reached through
-// `&self`/`&mut self`; another process writes it only after this one's link
-// ended (module docs), so moving the value between threads is sound.
-unsafe impl Send for Ring {}
 
 impl Ring {
     /// An empty ring whose next byte has offset `base`, in a shared segment

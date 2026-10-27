@@ -48,7 +48,11 @@ pub struct X264 {
     pub name: String,
 }
 
-// SAFETY: one encoder instance used by one thread at a time.
+// SAFETY: the synchronization is `&mut self`. An x264 encoder handle has no
+// thread affinity (x264 runs its own worker threads behind it); this value owns
+// it alone, every call takes `&mut self`, and `X264` is not `Sync`. Send is the
+// `H264Encoder: Send` bound the media loop needs. Test:
+// `x264::tests::an_x264_encoder_moves_between_threads` (feature `x264`).
 unsafe impl Send for X264 {}
 
 impl X264 {
@@ -161,5 +165,26 @@ impl Drop for X264 {
     fn drop(&mut self) {
         // SAFETY: closing our own encoder once.
         unsafe { rd_x264_close(self.raw) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_x264_encoder_moves_between_threads() {
+        let mut enc = X264::new(64, 64, 30, 500, 1, "ultrafast", "baseline").expect("x264");
+        let mut au = Vec::new();
+        assert!(enc.encode(&I420::new(64, 64), true, 0, &mut au).expect("encode"));
+        let (enc, au) = std::thread::spawn(move || {
+            let mut au = Vec::new();
+            enc.encode(&I420::new(64, 64), true, 1, &mut au).expect("encode on the other thread");
+            (enc, au)
+        })
+        .join()
+        .expect("encoder thread");
+        assert!(au.starts_with(&[0, 0, 0, 1]), "Annex-B");
+        std::thread::spawn(move || drop(enc)).join().expect("drop thread");
     }
 }

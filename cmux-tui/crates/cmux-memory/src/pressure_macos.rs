@@ -105,10 +105,14 @@ pub(crate) struct Watch {
     source: dispatch_object_t,
 }
 
-// SAFETY: a dispatch source is a thread-safe libdispatch object; `Watch` only
-// cancels and releases it, both callable from any thread.
+// SAFETY: the synchronization is libdispatch's own: a dispatch object is
+// thread-safe and its cancel and release may run on any thread. `Watch` owns one
+// reference and only its `Drop` touches the source; the handler's context is
+// owned by the source and freed by its finalizer. Test:
+// `pressure_macos::tests::a_watch_starts_on_one_thread_and_drops_on_another` (macOS).
 unsafe impl Send for Watch {}
-// SAFETY: as above; `Watch` has no `&self` method that touches the source.
+// SAFETY: `&Watch` reaches nothing: `Watch` has no `&self` method, so sharing it
+// is sound whatever the source is. Test: as for `Send`.
 unsafe impl Sync for Watch {}
 
 impl Watch {
@@ -171,6 +175,25 @@ mod tests {
             PressureLevel::Critical
         );
         assert_eq!(level_from_bits(0), PressureLevel::Normal);
+    }
+
+    /// The `Send`/`Sync` impls of [`Watch`]: started on one thread, shared by
+    /// reference with two others, dropped on a fourth.
+    #[test]
+    fn a_watch_starts_on_one_thread_and_drops_on_another() {
+        let registry = crate::MemoryRegistry::new();
+        let watch = std::thread::scope(|scope| {
+            scope.spawn(|| registry.watch_system_pressure()).join().expect("start thread")
+        })
+        .expect("the macOS memory-pressure source starts");
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                scope.spawn(|| {
+                    let _shared: &crate::PressureWatch = &watch;
+                });
+            }
+        });
+        std::thread::spawn(move || drop(watch)).join().expect("drop thread");
     }
 
     #[test]
