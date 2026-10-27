@@ -298,6 +298,7 @@ import math
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -478,6 +479,34 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
+# The one retry of a refused read waits at most this long (its Retry-After, capped).
+RETRY_AFTER_CAP_SECONDS = 60.0
+
+# What a refused GitHub read said: its status, the rate-limit headers and the start of its
+# body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
+# message is only "HTTP Error 403: Forbidden", which cannot tell those apart.
+REFUSAL_HEADERS = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Resource")
+
+
+def refusal(error: "urllib.error.HTTPError") -> str:
+    headers = error.headers or {}
+    shown = " ".join(f"{name}={headers.get(name)}" for name in REFUSAL_HEADERS if headers.get(name) is not None)
+    try:
+        body = " ".join(error.read(2000).decode("utf-8", "replace").split())[:300]
+    except Exception:  # noqa: BLE001 - the detail is best effort
+        body = ""
+    return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
+
+
+def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
+    """Seconds to wait before the one retry: a 403 or 429 that carries Retry-After, capped."""
+    if error.code not in (403, 429):
+        return None
+    try:
+        after = float((error.headers or {}).get("Retry-After") or "")
+    except ValueError:
+        return None
+    return max(0.0, min(after, cap))
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
 
@@ -2114,8 +2143,18 @@ class GitHub:
     def get_api(self, path: str) -> Any:
         """GET any API path (an org endpoint, for one)."""
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read())
+        for attempt in (1, 2):
+            try:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                wait = retry_wait(error, RETRY_AFTER_CAP_SECONDS) if attempt == 1 else None
+                print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
+                      + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
+                if wait is None:
+                    raise
+                time.sleep(wait)
+        raise AssertionError("unreachable")
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted, unexpired janitor snapshot, in two API requests."""

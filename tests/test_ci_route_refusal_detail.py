@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""A refused routing read says why, and retries once only when GitHub says when.
+
+On 2026-10-26 (22:47 and 22:54Z) the macOS placement logged only "HTTP Error 403:
+Forbidden" for its runner reads, which cannot tell a secondary rate limit from a
+missing permission. pr_runner_pool.GitHub.get_api and next_macos_cascade.Api._get now
+print the status, Retry-After, X-RateLimit-Remaining, X-RateLimit-Resource and the
+start of the body, and retry once after Retry-After (capped: 60 s for the pool, 20 s
+for the cascade, whose reads share a 45 s budget) on a 403 or 429 that carries one.
+Anything else is raised as before, after one attempt.
+"""
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import io
+import sys
+import unittest
+import urllib.error
+from email.message import Message
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts/ci" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+pool = load("pr_runner_pool")
+cascade = load("next_macos_cascade")
+
+
+def refused(code: int, body: str, **headers: str) -> urllib.error.HTTPError:
+    message = Message()
+    for key, value in headers.items():
+        message[key.replace("_", "-")] = value
+    return urllib.error.HTTPError("https://api.github.com/x", code, "Forbidden", message, io.BytesIO(body.encode()))
+
+
+class Ok:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, *args):
+        return b'{"runners": []}'
+
+
+def clients():
+    return (("pool", pool, lambda: pool.GitHub("t", "o/r").get_api("/orgs/o/actions/runners?per_page=100"), 60.0),
+            ("cascade", cascade, lambda: cascade.Api.__new__(cascade.Api)._get("/orgs/o/actions/runner-groups?x=1"), 20.0))
+
+
+class RefusalDetailTests(unittest.TestCase):
+    def setUp(self):
+        api = cascade.Api.__new__(cascade.Api)
+        api.route_token = "t"
+        self.cascade_api = api
+
+    def call(self, module, fn, answers):
+        sleeps: list[float] = []
+        err = io.StringIO()
+        if module is cascade:
+            fn = lambda: self.cascade_api._get("/orgs/o/actions/runner-groups?x=1")  # noqa: E731
+        with mock.patch.object(module.urllib.request, "urlopen", side_effect=answers) as opened, \
+                mock.patch.object(module.time, "sleep", side_effect=sleeps.append), contextlib.redirect_stderr(err):
+            try:
+                result = fn()
+            except urllib.error.HTTPError as error:
+                result = error
+        return result, opened.call_count, sleeps, err.getvalue()
+
+    def test_a_secondary_limit_with_retry_after_retries_once_and_says_why(self):
+        for name, module, fn, cap in clients():
+            with self.subTest(client=name):
+                body = '{"message": "You have exceeded a secondary rate limit."}'
+                result, calls, sleeps, err = self.call(module, fn, [
+                    refused(403, body, Retry_After="7", X_RateLimit_Remaining="4000", X_RateLimit_Resource="core"), Ok()])
+                self.assertEqual(result, {"runners": []})
+                self.assertEqual((calls, sleeps), (2, [7.0]))
+                self.assertIn("HTTP 403 Retry-After=7 X-RateLimit-Remaining=4000 X-RateLimit-Resource=core", err)
+                self.assertIn("secondary rate limit", err)
+                self.assertIn("retrying once in 7 s", err)
+                self.assertNotIn("?", err.split("GET ", 1)[1].split(":", 1)[0])
+
+    def test_the_wait_is_capped(self):
+        for name, module, fn, cap in clients():
+            with self.subTest(client=name):
+                _, _, sleeps, _ = self.call(module, fn, [refused(429, "", Retry_After="3600"), Ok()])
+                self.assertEqual(sleeps, [cap])
+
+    def test_a_refusal_without_retry_after_raises_after_one_attempt(self):
+        for name, module, fn, cap in clients():
+            with self.subTest(client=name):
+                body = '{"message": "Resource not accessible by integration"}'
+                result, calls, sleeps, err = self.call(module, fn, [refused(403, body, X_RateLimit_Remaining="0")])
+                self.assertIsInstance(result, urllib.error.HTTPError)
+                self.assertEqual(result.code, 403)
+                self.assertEqual((calls, sleeps), (1, []))
+                self.assertIn("Resource not accessible by integration", err)
+                self.assertIn("X-RateLimit-Remaining=0", err)
+
+    def test_a_second_refusal_is_raised_not_retried_again(self):
+        for name, module, fn, cap in clients():
+            with self.subTest(client=name):
+                result, calls, sleeps, _ = self.call(module, fn, [refused(403, "", Retry_After="1"),
+                                                                  refused(403, "", Retry_After="1")])
+                self.assertIsInstance(result, urllib.error.HTTPError)
+                self.assertEqual((calls, sleeps), (2, [1.0]))
+
+    def test_other_statuses_are_not_retried(self):
+        for name, module, fn, cap in clients():
+            with self.subTest(client=name):
+                result, calls, sleeps, _ = self.call(module, fn, [refused(404, "{}", Retry_After="1")])
+                self.assertEqual((result.code, calls, sleeps), (404, 1, []))
+
+
+if __name__ == "__main__":
+    unittest.main()
