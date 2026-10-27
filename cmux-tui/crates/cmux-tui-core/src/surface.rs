@@ -165,6 +165,7 @@ use ghostty_vt::{
 use crate::daemon_env::set_env;
 use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
 use crate::mux::ResourceWaitWake;
+use crate::panic_free::RecoverPoison;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_end::TerminalEnd;
@@ -478,7 +479,7 @@ pub(crate) struct TerminalJournalUpdateGuard<'a> {
 
 impl TerminalJournalUpdateGuard<'_> {
     pub(crate) fn activate(&mut self) -> bool {
-        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        let _gate = self.owner.journal_capture_gate.lock().recover_poison();
         if !self.owner.journal_capture_open.load(Ordering::Acquire) {
             return false;
         }
@@ -493,7 +494,7 @@ impl TerminalJournalUpdateGuard<'_> {
 
 impl Drop for TerminalJournalUpdateGuard<'_> {
     fn drop(&mut self) {
-        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        let _gate = self.owner.journal_capture_gate.lock().recover_poison();
         self.owner.journal_capture_reserved.store(false, Ordering::Release);
         if self.owner.journal_capture_active.swap(false, Ordering::AcqRel) {
             self.owner.journal_capture_epoch.fetch_add(1, Ordering::Release);
@@ -766,7 +767,7 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
-        let surface = Arc::new(Surface::Pty(PtySurface {
+        let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
@@ -884,7 +885,11 @@ impl Surface {
                 frame_producer_before_upgrade,
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
-        }));
+        };
+        // The terminal runtime, held apart from the surface so the
+        // registrations below need no `as_pty` lookup.
+        let terminal = pty.terminal.clone();
+        let surface = Arc::new(Surface::Pty(pty));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface)?;
@@ -921,19 +926,13 @@ impl Surface {
             let surface = surface.clone();
             move || hosted_reader.run(surface, reader)
         })?;
-        *surface
-            .as_pty()
-            .expect("hosted PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(TerminalReader::Thread(reader_thread));
+        *terminal.reader_thread.lock().recover_poison() =
+            Some(TerminalReader::Thread(reader_thread));
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
         if let Err(error) = kitty_registration {
-            if let Some(pty) = surface.as_pty()
-                && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
-            {
+            if let PtyRuntime::Hosted(host) = &mut *terminal.runtime.lock().recover_poison() {
                 if terminate_on_error {
                     let _ = host.terminate();
                 }
@@ -943,8 +942,7 @@ impl Surface {
         }
         let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
         if terminate_on_error
-            && let Some(pty) = surface.as_pty()
-            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &mut *terminal.runtime.lock().recover_poison()
         {
             if !defer_launch_activation && let Err(error) = host.activate_launched_host() {
                 let _ = host.terminate();
@@ -964,7 +962,7 @@ impl Surface {
                 move || {
                     crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()
-                        && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                        && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
                     {
                         host.disconnect();
                     }
