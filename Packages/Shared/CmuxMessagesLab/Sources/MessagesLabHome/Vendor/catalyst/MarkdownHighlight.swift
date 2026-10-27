@@ -89,7 +89,7 @@ enum MarkdownHighlight {
         let ns = a.string as NSString
         let n = ns.length
         // Very long blocks: colours for the first 64k units only (bounded layout time).
-        let limit = min(n, 65_536)
+        let limit = max(0, min(n, 65_536))
         var buf = [UInt16](repeating: 0, count: limit)
         // SAFETY: getCharacters writes `limit` units (the range's length, at most the string's) into the array, which
         // holds exactly `limit`, during the call only.

@@ -74,6 +74,12 @@ export interface PageClient {
    * before its first render.
    */
   readonly restore?: PageRestore | null;
+  /**
+   * The fragment the host showed this document with: its load URL's, or the pooled host's claim
+   * route (`CLAIM_OP`). The page's saved state (pageState.ts) puts its own route back only when the
+   * restored document comes with the same one. Absent for a mock.
+   */
+  readonly entryRoute?: string;
 }
 
 type Envelope =
@@ -94,6 +100,13 @@ export interface ReplyHandler {
 export const RECEIVE_NAME = "__cmuxPageReceive";
 /** The batch form: the host sends one frame's envelopes as one script (PageScriptPipeline). */
 export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
+/**
+ * The page push channel (Chromium, p13-webui-079): where the host's page script defines it, the
+ * client registers its receiver of envelope runs with it, and the host sends each run as data
+ * instead of a `__cmuxPageReceiveMany` script, as Chrome's WebUI pages get Mojo messages
+ * (ChromiumPageHostBridge.pushReceiverScript). The script globals stay for every other host.
+ */
+export const LISTEN_NAME = "__cmuxPageHostListen";
 
 /** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
 export { PARKED_NAME };
@@ -227,7 +240,7 @@ interface Held {
   reject: (error: unknown) => void;
 }
 
-/** The part of `window.location` a claim uses. */
+/** The part of `window.location` a claim and the entry route use. */
 interface ClaimLocation {
   hash: string;
   replace(url: string): void;
@@ -236,7 +249,8 @@ interface ClaimLocation {
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
  * own calls through `window.__cmuxPageReceive(envelope)`, or one frame's envelopes through
- * `window.__cmuxPageReceiveMany(envelopes)`. Every page that boots through it serves
+ * `window.__cmuxPageReceiveMany(envelopes)` or, on the page push channel, the receiver it registers
+ * with `__cmuxPageHostListen` (`LISTEN_NAME`). Every page that boots through it serves
  * the pooled host's claim (`CLAIM_OP`); no page code takes part.
  */
 export class BridgePageClient implements PageClient {
@@ -251,6 +265,7 @@ export class BridgePageClient implements PageClient {
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
   readonly restore: PageRestore | null;
+  private entry: string;
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -258,9 +273,16 @@ export class BridgePageClient implements PageClient {
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     target[RECEIVE_MANY_NAME] = (messages: unknown) => this.receiveMany(messages);
+    const listen = target[LISTEN_NAME];
+    if (typeof listen === "function") listen((messages: unknown) => this.receiveMany(messages));
     this.parked = target[PARKED_NAME] === true;
     this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
+    this.entry = this.location?.hash ?? "";
+  }
+
+  get entryRoute(): string {
+    return this.entry;
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -351,8 +373,10 @@ export class BridgePageClient implements PageClient {
   private claim(params: unknown): unknown {
     if (!this.parked) throw pageError("cmux.page.not_parked", "the document already ran");
     const route = (params as { route?: unknown } | null)?.route;
-    if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
-      this.location.replace(route);
+    if (typeof route === "string" && route.startsWith("#")) {
+      if (this.location && this.location.hash !== route) this.location.replace(route);
+      this.entry = route;
+    }
     this.parked = false;
     // A parked document is hidden to its timers (pageLifecycle.ts) until this claim.
     pageLifecycleFor(this.target).claimed();

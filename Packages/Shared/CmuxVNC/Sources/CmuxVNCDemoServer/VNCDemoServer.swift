@@ -1,4 +1,6 @@
 import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxVNC
 import CoreGraphics
@@ -90,11 +92,12 @@ public final class VNCDemoServer: @unchecked Sendable {
         }
     }
 
-    /// The text typed by viewers so far (tests).
+    /// The text typed by viewers so far (tests); empty when the read never ran (the continuation was dropped).
     public func typedText() async -> String {
-        await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.scene?.typed ?? "") }
+        let typed = try? await withOnceContinuation { (read: OnceContinuation<String, OnceContinuationError>) in
+            queue.async { read.resume(returning: self.scene?.typed ?? "") }
         }
+        return typed ?? ""
     }
 
     private func accept(_ connection: NWConnection) {

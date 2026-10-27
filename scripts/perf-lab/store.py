@@ -196,6 +196,19 @@ MIGRATIONS: tuple[Migration, ...] = (
             UNIQUE (story, host_class, host, batch_pos, status))""",
         "CREATE INDEX story_outcomes_by_story ON story_outcomes (story, host_class, batch_pos)",
     )),
+    # A group made from a field crash signature (stability.py, task 225), not from lab alerts: its kind, its key (one
+    # group per signature, ever) and the field evidence the sheriff judges `fixed` on. The newest release Sentry saw
+    # the signature in, and the newer cmux NEXT releases with sessions that did not crash with it (a JSON list).
+    (5, "field signatures", (
+        """CREATE TABLE field_signatures (
+            group_id INTEGER PRIMARY KEY REFERENCES alert_groups (id),
+            source TEXT NOT NULL CHECK (source IN ('sentry')),
+            signature TEXT NOT NULL,
+            last_release TEXT,
+            clean_releases_json TEXT NOT NULL DEFAULT '[]',
+            checked_at TEXT,
+            UNIQUE (source, signature))""",
+    )),
 )
 
 

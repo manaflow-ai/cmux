@@ -461,9 +461,10 @@ public final class MacScreenDevicesSettings {
         }
     }
 
-    /// "22m 27s", "1h 4m", "8s".
+    /// "22m 27s", "1h 4m", "8s"; empty for a value that is not whole seconds in `0...Int.max` (an entry
+    /// decodes only `0...AuditEntry.maximumDuration`, so that is a caller's mistake, shown as no duration).
     static func durationText(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
+        guard let total = Int(exactly: seconds.rounded()), total >= 0 else { return "" }
         let hours = total / 3600, minutes = (total % 3600) / 60, rest = total % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         if minutes > 0 { return "\(minutes)m \(rest)s" }
