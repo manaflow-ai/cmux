@@ -61,6 +61,8 @@ unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+# Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
+memchr.workspace = true
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
 schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the

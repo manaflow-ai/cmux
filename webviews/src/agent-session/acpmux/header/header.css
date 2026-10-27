@@ -46,24 +46,7 @@
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The Environment line (EnvironmentLine.tsx): Left's machine · folder · branch row below the tab
-   row, as quiet metadata. Right stays in the existing header slot. */
-.acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-environment-row{display:flex;align-items:center;flex:none;min-width:0;min-height:var(--ui-row-height);padding:0 8px;box-sizing:border-box;pointer-events:none}
-.acpmux-environment-row>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;width:auto;max-width:100%;min-height:var(--ui-row-height);pointer-events:auto}
-/* The glyph and the names center on one line: a block glyph, and a line box tall enough for descenders. */
-.acpmux-env-line>svg{flex:none;display:block}
-.acpmux-env-line>span{line-height:16px}
-.acpmux-env-line__machine,.acpmux-env-line__folder,.acpmux-env-line__branch{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-env-line__machine{flex:0 1000 auto}
-.acpmux-env-line__folder{flex:0 1 auto}
-.acpmux-env-line__branch{flex:0 10 auto}
-.acpmux-env-line__dot{flex:none}
-button.acpmux-env-line:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
-button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-/* In the pane's tab row it leads the tools: in the row's flow, never wider than a few tabs. */
-.acpmux-env-line.acpmux-env-line--compact{position:static;inset:auto;flex:0 1 auto;max-width:220px;height:24px;margin-right:4px;padding:0 4px}
-/* The tools after the Environment line (App.tsx): the Needs you inbox and the header tools on the same pitch. */
+/* The Needs you inbox and the header tools share one pitch. */
 .acpmux-header .acpmux-handoff-header-tools{flex:none;gap:2px}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
 .acpmux-header-customize{display:contents}
@@ -136,4 +119,4 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
 .acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
-.acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}
+.acpmux-header[data-tab-row]::after{content:none}

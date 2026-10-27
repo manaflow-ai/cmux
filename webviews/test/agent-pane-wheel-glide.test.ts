@@ -88,6 +88,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             await page.screenshot({ path: `${process.env.CMUX_WHEEL_TRACE_DIR}/${engine}.png` });
           }
           expect(result.prevented).toContain(true);
+          expect(result.values.slice(1).every((top, index) => top <= result.values[index]!)).toBe(true);
           expect(Math.abs(result.values.at(-1)! - result.values[0]!)).toBeCloseTo(100, 0);
           expect(moved.length).toBeGreaterThanOrEqual(3);
           expect(Math.max(...steps)).toBeLessThan(60);

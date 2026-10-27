@@ -17,8 +17,8 @@
 //! the error reply that tells Claude Code acpmux does not support the request;
 //! so does a form with an optional string field, whose typed "No answer" the
 //! card's one-string answer could not tell from the "No answer" option.
-//! A form Claude Code withdraws (`control_cancel_request`) is forgotten, so a
-//! late answer sends it nothing.
+//! A Claude control request withdrawn by `control_cancel_request` is cancelled
+//! in ACP and forgotten, so a late answer sends it nothing.
 
 use super::*;
 use serde_json::Map;
@@ -69,7 +69,7 @@ impl Translator {
         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
         let acp_id = Value::from(1_000_000 + n);
         {
-            // Request map first, as everywhere (`forget_elicitation`).
+            // Request map first, as everywhere (`cancel_control_request`).
             let mut out = self.control_out.lock().await;
             out.insert(rid.to_owned(), acp_id.clone());
             self.elicitations.lock().await.insert(rid.to_owned(), form);
@@ -115,19 +115,22 @@ impl Translator {
         }));
     }
 
-    /// Claude Code withdrew its elicitation `rid` (`control_cancel_request`:
-    /// the turn was interrupted, or the tool call that asked ended), so it
-    /// reads no answer to it any more. The form is forgotten: a late answer to
-    /// its card sends Claude Code nothing (`outbound.rs` finds no request).
-    /// The card itself stays until it is answered or the turn is stopped;
-    /// taking it back from the hub is a follow-up. Other requests are untouched.
-    /// Both maps are held, the request map first, as the answer's path holds
-    /// them (`outbound.rs`), so only one of the two takes the form.
-    pub(super) async fn forget_elicitation(&self, rid: &str) {
-        let mut out = self.control_out.lock().await;
-        if self.elicitations.lock().await.remove(rid).is_some() {
-            out.remove(rid);
-        }
+    /// Claude Code withdrew a control request `rid` (`control_cancel_request`:
+    /// the turn was interrupted, or the tool call that asked ended). Remove
+    /// every reply mapping and return the ACP id so the hub can withdraw the
+    /// matching request. The request map is taken first, as the answer path
+    /// does in `outbound.rs`, so a cancellation and answer cannot both win.
+    pub(super) async fn cancel_control_request(&self, rid: &str) -> Option<Id> {
+        let id = {
+            let mut out = self.control_out.lock().await;
+            out.remove(rid)
+        }?;
+        // An answer that already took the id owns the remaining payloads.
+        // Its direct writer may still be reading them after dropping `out`.
+        self.elicitations.lock().await.remove(rid);
+        self.suggestions.lock().await.remove(rid);
+        self.inputs.lock().await.remove(rid);
+        Some(id)
     }
 }
 
