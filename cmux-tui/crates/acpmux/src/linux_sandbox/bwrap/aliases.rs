@@ -393,6 +393,19 @@ mod tests {
     }
 
     #[test]
+    fn reachable_overlay_non_layer_options_are_accepted() {
+        let info =
+            overlay_info("lowerdir=/var/lib/x,redirect_dir=on,index=on,metacopy=on,xino=auto");
+        let reasons = guarded_aliases_with(
+            &[(Path::new("/home/u/.ssh"), 1, false)],
+            &info,
+            |p| Ok(p.to_path_buf()),
+            |_| Ok(true),
+        );
+        assert!(reasons.is_empty(), "{reasons:?}");
+    }
+
+    #[test]
     fn regression_overlay_layer_symlink_is_resolved() {
         let reasons = guarded_aliases_with(
             &[(Path::new("/home/u/.ssh"), 1, false)],
