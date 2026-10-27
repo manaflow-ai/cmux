@@ -281,25 +281,35 @@ pub(super) async fn start_daemon(
 async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
     let socket = crate::config::socket_path();
     let lock = home.join("daemon.lock");
-    while !socket.exists() && tokio::time::Instant::now() < deadline {
-        // A 1-byte read at offset 0 tests daemon.lock without taking it, so
-        // this wait never makes another start's daemon lose the lock. While
-        // another handle holds the lock (LockFileEx over the whole range, as
-        // File::try_lock takes it) the read fails with ERROR_LOCK_VIOLATION
-        // (33); a free lock reads, or reports ERROR_HANDLE_EOF (38) on an
-        // empty file, which std returns as Ok(0). Proven on NTFS (Windows
-        // Server 2022) for an empty and a 1-byte lock file (cx-ncc.54). A
-        // free lock means the winner has already exited.
-        let held = crate::config::private_state_file(&lock).is_ok_and(|file| {
-            let mut byte = [0u8; 1];
-            let read = file.seek_read(&mut byte, 0);
-            read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
-        });
-        if !held {
+    while tokio::time::Instant::now() < deadline {
+        // The probe opens and reads files: off the runtime's workers.
+        let (socket, lock) = (socket.clone(), lock.clone());
+        let binding = cmux_blocking::spawn_blocking(move || winner_is_binding(&socket, &lock));
+        if !binding.await.unwrap_or(false) {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+}
+
+/// Whether a daemon still holds `lock` and has not made `socket` yet.
+fn winner_is_binding(socket: &Path, lock: &Path) -> bool {
+    if socket.exists() {
+        return false;
+    }
+    // A 1-byte read at offset 0 tests daemon.lock without taking it, so
+    // this wait never makes another start's daemon lose the lock. While
+    // another handle holds the lock (LockFileEx over the whole range, as
+    // File::try_lock takes it) the read fails with ERROR_LOCK_VIOLATION
+    // (33); a free lock reads, or reports ERROR_HANDLE_EOF (38) on an
+    // empty file, which std returns as Ok(0). Proven on NTFS (Windows
+    // Server 2022) for an empty and a 1-byte lock file (cx-ncc.54). A
+    // free lock means the winner has already exited.
+    crate::config::private_state_file(lock).is_ok_and(|file| {
+        let mut byte = [0u8; 1];
+        let read = file.seek_read(&mut byte, 0);
+        read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
+    })
 }
 
 /// Standard handles and further inherited handles of a detached child.

@@ -392,6 +392,7 @@ public final class TerminalSession {
     /// that takes the old one's place (cmux-tui-contract.md 3.2).
     private func swapSurface() {
         let old = surfaceView
+        applyWaitingActions() // the old surface's held pwd and progress: the fresh one starts from the model
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
