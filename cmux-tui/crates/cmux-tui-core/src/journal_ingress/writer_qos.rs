@@ -29,9 +29,16 @@
 //! `SetCurrentThreadTypeOverride` in base/threading/platform_thread_apple.mm,
 //! as libdispatch does for a `dispatch_sync` waiter). An attempt that starts
 //! while a thread blocks raises itself; the override ends with the attempt,
-//! so between attempts and while nothing blocks no override is in force. On
-//! Linux the override is a nice change: without root or an `RLIMIT_NICE`
-//! that allows it, it is refused and counted, and nothing changes.
+//! so between attempts and while nothing blocks no override is in force.
+//!
+//! Donation is macOS only ([`DONATES`]). A macOS override adds to the
+//! thread's own class and ends by its token, so the writer's own class
+//! changes inside an attempt (its [`WorkQos`], a lock holder's raise) never
+//! touch it. Off macOS the override would be a nice value written to the
+//! writer's tid from the waiter, racing the writer's own nice writes, each of
+//! which restores a value it saved; so there, as for the producer boosts of
+//! `cmux_threads::sync`, the guards are inert: no override starts or is
+//! refused, and the attempt's class is the request-wait count's alone.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,6 +56,11 @@ pub(super) const WRITER_QOS: ThreadQos = ThreadQos::UserInitiated;
 
 /// The class of an attempt no request waits on.
 pub(super) const IDLE_WRITER_QOS: ThreadQos = ThreadQos::Utility;
+
+/// True where a thread blocked on the writer donates its class to the
+/// writer's attempt: macOS, whose overrides never meet the writer's own
+/// class changes (see the module doc).
+pub(super) const DONATES: bool = cfg!(target_vendor = "apple");
 
 /// Receipt waits in progress: requests that queued an event with a
 /// completion and have not taken its result yet, an indeterminate receipt
@@ -88,16 +100,16 @@ impl RequestWaits {
     /// it starts raised, and drop it once the receipt is in. It takes a leaf
     /// lock for a moment, so a caller may hold its own locks; a thread with
     /// no registered class donates nothing.
-    pub(super) fn donate(&self) -> WaitBoost<'_> {
-        self.0.writer.wait()
+    pub(super) fn donate(&self) -> Option<WaitBoost<'_>> {
+        DONATES.then(|| self.0.writer.wait())
     }
 
     /// Held by the writer thread for one commit attempt and the delivery of
     /// its receipts: the attempt runs at the class of the highest thread
     /// blocked on it when that is above its own. Take it after the attempt's
     /// class ([`enter_attempt`]), so it drops first.
-    pub(super) fn writer_attempt(&self) -> OwnerHold<&OwnerBoost> {
-        OwnerBoost::hold(&self.0.writer)
+    pub(super) fn writer_attempt(&self) -> Option<OwnerHold<&OwnerBoost>> {
+        DONATES.then(|| OwnerBoost::hold(&self.0.writer))
     }
 
     /// The overrides waiters started on the writer, and the ones refused.
@@ -122,8 +134,8 @@ pub(super) struct RequestWait(Arc<Waits>);
 
 impl RequestWait {
     /// [`RequestWaits::donate`] for the wait this guard counts.
-    pub(super) fn donate(&self) -> WaitBoost<'_> {
-        self.0.writer.wait()
+    pub(super) fn donate(&self) -> Option<WaitBoost<'_>> {
+        DONATES.then(|| self.0.writer.wait())
     }
 }
 

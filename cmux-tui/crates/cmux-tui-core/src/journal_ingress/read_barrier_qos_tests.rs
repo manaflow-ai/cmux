@@ -3,17 +3,17 @@
 //! it lasts and at its own class again after; with nothing blocked no
 //! override starts.
 //!
-//! On Linux an override lowers the writer's nice value, which only root or an
-//! `RLIMIT_NICE` that allows it may do; elsewhere it is refused and counted,
-//! and the writer stays where it was.
+//! Donation is macOS only (`writer_qos::DONATES`): elsewhere no override
+//! starts or is refused and the writer's nice value never changes, also in a
+//! process that may lower it (root, `RLIMIT_NICE`).
 
 use std::sync::Arc;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, sync_channel};
 use std::time::{Duration, Instant};
 
 use cmux_threads::{BoostCounts, LiveQos, ThreadQos, current_effective};
 
-use super::super::JournalIngressSender;
+use super::super::{JOURNAL_TERMINAL_QUEUE_CAPACITY, JournalIngressSender};
 use super::RequestWaits;
 use crate::resource::TerminalPublicId;
 use crate::{Mux, SurfaceOptions};
@@ -22,24 +22,9 @@ use crate::{Mux, SurfaceOptions};
 const SPIN: Duration = Duration::from_millis(20);
 
 /// What `current_effective` reads for a thread at `qos`.
+#[cfg(target_vendor = "apple")]
 fn runs_at(qos: ThreadQos) -> LiveQos {
-    #[cfg(target_vendor = "apple")]
-    return LiveQos::Class(qos);
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    return LiveQos::Nice(qos.linux_nice());
-    #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
-    return {
-        let _ = qos;
-        LiveQos::Unknown
-    };
-}
-
-/// True when this process can raise a thread at `from` to `to`.
-fn can_raise(from: ThreadQos, to: ThreadQos) -> bool {
-    cfg!(target_vendor = "apple")
-        || (cfg!(any(target_os = "linux", target_os = "android"))
-            && cmux_threads::reversible(from)
-            && cmux_threads::reversible(to))
+    LiveQos::Class(qos)
 }
 
 /// The writer's live QoS around one attempt.
@@ -98,15 +83,20 @@ fn writer_with_waiter(waiter_qos: ThreadQos, waiter_first: bool) -> (WriterReads
     (reads, waits.donations())
 }
 
+/// macOS: the writer ran at `waiter_qos` while the waiter blocked, by one
+/// override. Elsewhere: nothing started or refused, no change.
 fn assert_raised(waiter_qos: ThreadQos, reads: &WriterReads, boosts: BoostCounts) {
     #[cfg(target_vendor = "apple")]
-    assert_eq!(reads.before, runs_at(ThreadQos::Utility), "{reads:?}");
-    if can_raise(ThreadQos::Utility, waiter_qos) {
+    {
+        assert_eq!(reads.before, runs_at(ThreadQos::Utility), "{reads:?}");
         assert_eq!(reads.during, runs_at(waiter_qos), "{reads:?}");
         assert_eq!(boosts, BoostCounts { started: 1, refused: 0 });
-    } else {
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let _ = waiter_qos;
         assert_eq!(reads.during, reads.before, "{reads:?}");
-        assert_eq!(boosts, BoostCounts { started: 0, refused: 1 });
+        assert_eq!(boosts, BoostCounts::default());
     }
     assert_eq!(reads.after, reads.before, "{reads:?}");
 }
@@ -208,6 +198,66 @@ fn read_barrier_qos_a_queued_barrier_raises_the_attempt_that_takes_it() {
     assert_raised(ThreadQos::UserInteractive, &reads, waits.donations());
 }
 
+/// The writer's own commit attempt (`run`) owns the donation: a
+/// user-initiated barrier that blocks while a background attempt runs
+/// lowered raises that attempt by one override, and the attempts after it
+/// (raised by the barrier's counted wait, then idle) start none. Off macOS
+/// nothing starts or is refused.
+#[test]
+fn read_barrier_qos_a_barrier_blocked_on_the_running_writer_raises_its_attempt() {
+    let (mux, root) = journaled_mux("read-barrier-qos-run");
+    let terminal_id = terminal(1374);
+    let output = |round: u64| {
+        mux.try_journal_terminal_output(
+            terminal_id.clone(),
+            Arc::from("read-barrier-qos"),
+            round,
+            vec![b'x'],
+        )
+    };
+    // A background attempt (nobody waits: lowered) pauses inside its commit.
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+    assert_eq!(output(0), Ok(None));
+    entered_receiver.recv_timeout(Duration::from_secs(10)).expect("the attempt started");
+    // A full lane makes the barrier's enqueue report that it blocked, which
+    // is after its donation began.
+    let mut queued = 0_u64;
+    while output(1 + queued).expect("queued").is_none() {
+        queued += 1;
+        assert!(queued as usize <= JOURNAL_TERMINAL_QUEUE_CAPACITY, "the lane never filled");
+    }
+    let (blocked, blocked_receiver) = sync_channel(1);
+    mux.install_journal_enqueue_full_notifier_for_test(blocked);
+    let waiter_mux = mux.clone();
+    let waiter =
+        cmux_threads::spawn("read-barrier-qos-barrier", ThreadQos::UserInitiated, move || {
+            waiter_mux.flush_terminal_journal().map_err(|error| format!("{error:#}"))
+        })
+        .expect("spawn waiter");
+    blocked_receiver.recv_timeout(Duration::from_secs(10)).expect("the barrier blocked");
+    let while_blocked = mux.journal_writer_donations_for_test();
+    release.send(()).expect("release the attempt");
+    waiter.join().expect("waiter").expect("barrier");
+    let at_receipt = mux.journal_writer_donations_for_test();
+    // Background batches after the receipt: nobody blocks, nothing starts.
+    for round in 0..16 {
+        let _ = output(2 + queued + round);
+    }
+    mux.shutdown();
+    let after = mux.journal_writer_donations_for_test();
+    let expected = if cfg!(target_vendor = "apple") {
+        BoostCounts { started: 1, refused: 0 }
+    } else {
+        BoostCounts::default()
+    };
+    assert_eq!(while_blocked, expected, "the blocked barrier did not raise the running attempt");
+    assert_eq!(at_receipt, expected, "an attempt after the blocked one started an override");
+    assert_eq!(after, expected, "an override started after the receipt");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// p50, p99 and max of `samples`, in microseconds.
 fn percentiles(mut samples: Vec<Duration>) -> (u128, u128, u128) {
     samples.sort_unstable();
@@ -218,10 +268,10 @@ fn percentiles(mut samples: Vec<Duration>) -> (u128, u128, u128) {
     (at(0.50), at(0.99), samples.last().map_or(0, Duration::as_micros))
 }
 
-/// `rounds` barriers from a UserInitiated thread while utility output keeps
-/// the writer busy: registered, the thread donates; unregistered (same
-/// kernel class, no registry row) it donates nothing.
-fn barrier_waits(mux: &Arc<Mux>, rounds: usize, donating: bool) -> Vec<Duration> {
+/// `rounds` barriers from a `class` thread while utility output keeps the
+/// writer busy: registered, the thread donates; unregistered (same kernel
+/// class, no registry row) it donates nothing.
+fn barrier_waits(mux: &Arc<Mux>, class: ThreadQos, rounds: usize, donating: bool) -> Vec<Duration> {
     let waiter = mux.clone();
     let run = move || {
         let terminal_id = terminal(1373);
@@ -239,13 +289,13 @@ fn barrier_waits(mux: &Arc<Mux>, rounds: usize, donating: bool) -> Vec<Duration>
             .collect::<Vec<_>>()
     };
     if donating {
-        cmux_threads::spawn("read-barrier-qos-bench", ThreadQos::UserInitiated, run)
+        cmux_threads::spawn("read-barrier-qos-bench", class, run)
             .expect("spawn")
             .join()
             .expect("bench waiter")
     } else {
         std::thread::spawn(move || {
-            cmux_threads::set_current(ThreadQos::UserInitiated);
+            cmux_threads::set_current(class);
             run()
         })
         .join()
@@ -254,8 +304,10 @@ fn barrier_waits(mux: &Arc<Mux>, rounds: usize, donating: bool) -> Vec<Duration>
 }
 
 /// Bench (acceptance numbers, run on macOS): barrier wait p50/p99/max under
-/// utility hogs on every core (at least 8), without and with donation.
-/// `cargo test -p cmux-tui-core --release read_barrier_qos_bench -- --ignored --nocapture`
+/// utility hogs on every core (at least 8), without and with donation, from
+/// a user-initiated and a user-interactive thread, with the overrides each
+/// row started. `scripts/measure/read-barrier-qos.sh` runs it on the fleet:
+/// `cargo test -p cmux-tui-core --release --lib read_barrier_qos -- --include-ignored --nocapture`
 #[test]
 #[ignore = "bench: prints barrier wait percentiles under utility hogs"]
 fn read_barrier_qos_bench_barrier_p99_under_utility_hogs() {
@@ -299,19 +351,29 @@ fn read_barrier_qos_bench_barrier_p99_under_utility_hogs() {
         .expect("spawn producer"),
     );
     let rounds = 500;
-    let without = percentiles(barrier_waits(&mux, rounds, false));
-    let with = percentiles(barrier_waits(&mux, rounds, true));
+    let mut rows = Vec::new();
+    for class in [ThreadQos::UserInitiated, ThreadQos::UserInteractive] {
+        for donating in [false, true] {
+            let before = mux.journal_writer_donations_for_test();
+            let (p50, p99, max) = percentiles(barrier_waits(&mux, class, rounds, donating));
+            let after = mux.journal_writer_donations_for_test();
+            rows.push(format!(
+                "read_barrier_qos: {class:?} {} p50 {p50} us p99 {p99} us max {max} us; \
+                 overrides started {} refused {}",
+                if donating { "donation" } else { "no donation" },
+                after.started - before.started,
+                after.refused - before.refused,
+            ));
+        }
+    }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     for thread in threads {
         thread.join().expect("hog");
     }
-    let donations = mux.journal_writer_donations_for_test();
     mux.shutdown();
-    println!(
-        "read_barrier_qos: {hogs} utility hogs, {rounds} barriers; \
-         no donation p50 {} us p99 {} us max {} us; \
-         donation p50 {} us p99 {} us max {} us; overrides {donations:?}",
-        without.0, without.1, without.2, with.0, with.1, with.2
-    );
+    println!("read_barrier_qos: {hogs} utility hogs, {rounds} barriers per row");
+    for row in rows {
+        println!("{row}");
+    }
     let _ = std::fs::remove_dir_all(root);
 }

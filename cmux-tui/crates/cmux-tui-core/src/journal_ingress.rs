@@ -882,7 +882,7 @@ impl JournalIngressSender {
     }
 
     #[cfg(test)]
-    fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
+    pub(crate) fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
         *self.state.enqueue_full_notifier.lock().recover_poison() = Some(notifier);
     }
 
@@ -1022,6 +1022,8 @@ impl JournalIngressSender {
             if !std::mem::replace(&mut waited, true) {
                 crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
             }
+            #[cfg(test)]
+            self.state.notify_enqueue_full_for_test();
             if let Err(error) = self.state.wait_for_queue_space_until(space_epoch, deadline) {
                 return Err((error, Box::new(pending)));
             }
@@ -1140,7 +1142,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 };
                 let _class = writer_qos::enter_attempt(&mux, &receivers.state.request_waits);
                 // Threads blocked on this attempt raise it to their class
-                // until the attempt ends (after its receipts).
+                // until the attempt ends, after its receipts (macOS only,
+                // `writer_qos::DONATES`).
                 let _donated = receivers.state.request_waits.writer_attempt();
                 // The whole iteration runs as the journal writer: any registry
                 // lock taken here is counted and asserted (a request thread

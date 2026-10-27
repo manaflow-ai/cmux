@@ -91,6 +91,12 @@ impl Mux {
         self.journal_ingress.spawn_writer(name, task)
     }
 
+    /// The next enqueue that finds its lane full reports it on `notifier`.
+    #[cfg(test)]
+    pub(crate) fn install_journal_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
+        self.journal_ingress.install_enqueue_full_notifier_for_test(notifier);
+    }
+
     #[cfg(test)]
     pub(crate) fn install_journal_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);

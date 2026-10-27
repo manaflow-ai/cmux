@@ -84,7 +84,7 @@ impl PendingRegistryReceipt {
         let received = {
             // The blocked request donates its class to the writer attempt
             // that answers (`writer_qos`).
-            let _donated = self.wait.as_ref().map(RequestWait::donate);
+            let _donated = self.wait.as_ref().and_then(RequestWait::donate);
             // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
             self.receiver.recv_timeout(timeout)
         };
