@@ -1,6 +1,6 @@
+import CmuxMobileTunnel
 import Foundation
 import NIOCore
-import NIOTransportServices
 
 /// A listener on the phone's loopback that tunnels each accepted connection
 /// through SSH to `targetHost:targetPort` as seen from the server (`ssh -L`).
@@ -26,37 +26,33 @@ public final class SSHLocalPortForward: Sendable {
         over connection: SSHConnection,
         targetHost: String = "127.0.0.1",
         targetPort: Int,
-        localPort: Int = 0
+        localPort: Int = 0,
+        sockets: TunnelSocketTransport = TunnelSocketTransport()
     ) async throws -> SSHLocalPortForward {
-        let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
-            .childChannelInitializer { inbound in
-                // SSH child channels run on their parent connection's loop.
-                let (local, remote) = SSHGlueHandler.matchedPair(
-                    localLoop: inbound.eventLoop,
-                    remoteLoop: connection.eventLoop
-                )
-                return inbound.pipeline.addHandler(local).flatMap {
-                    let promise = inbound.eventLoop.makePromise(of: Void.self)
-                    promise.completeWithTask {
-                        do {
-                            _ = try await connection.openDirectTCPIP(host: targetHost, port: targetPort) { child in
-                                child.pipeline.addHandlers([SSHChannelDataUnwrapper(), remote])
-                            }
-                            // Accepted sockets start paused so no bytes arrive before the
-                            // tunnel exists; resume now that both ends are glued.
-                            try await inbound.setOption(ChannelOptions.autoRead, value: true)
-                            inbound.read()
-                        } catch {
-                            try? await inbound.close()
+        let listener = try await sockets.listenOnLoopback(port: localPort) { inbound in
+            // SSH child channels run on their parent connection's loop.
+            let (local, remote) = SSHGlueHandler.matchedPair(
+                localLoop: inbound.eventLoop,
+                remoteLoop: connection.eventLoop
+            )
+            return inbound.pipeline.addHandler(local).flatMap {
+                let promise = inbound.eventLoop.makePromise(of: Void.self)
+                promise.completeWithTask {
+                    do {
+                        _ = try await connection.openDirectTCPIP(host: targetHost, port: targetPort) { child in
+                            child.pipeline.addHandlers([SSHChannelDataUnwrapper(), remote])
                         }
+                        // Accepted sockets start paused so no bytes arrive before the
+                        // tunnel exists; resume now that both ends are glued.
+                        try await inbound.setOption(ChannelOptions.autoRead, value: true)
+                        inbound.read()
+                    } catch {
+                        try? await inbound.close()
                     }
-                    return promise.futureResult
                 }
+                return promise.futureResult
             }
-            .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-            .childChannelOption(ChannelOptions.autoRead, value: false)
-            .bind(host: "127.0.0.1", port: localPort)
-            .get()
+        }
         guard let port = listener.localAddress?.port else {
             try? await listener.close()
             throw SSHConnectionError.channelOpenFailed("forward listener has no port")

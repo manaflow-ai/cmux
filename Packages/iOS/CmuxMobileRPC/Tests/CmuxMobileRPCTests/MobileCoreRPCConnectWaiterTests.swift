@@ -40,6 +40,7 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
+        await waitUntilConnectWaiters(session, count: 2)
         await transport.releaseConnect()
 
         do {
@@ -205,9 +206,7 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
-        for _ in 0..<100 {
-            await Task.yield()
-        }
+        await waitUntilConnectWaiters(session, count: 2)
 
         firstTask.cancel()
         #expect(!(await transport.closed()))
@@ -258,6 +257,10 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
+        await cancellation.set(cancelledTask)
+        // The survivor starts once the first connect is underway, so it joins
+        // that connect rather than racing it into a second one.
+        #expect(await transport.waitUntilConnectStarted())
         let survivingTask = Task {
             try await session.send(
                 payload: surviving,
@@ -265,9 +268,7 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
-        await cancellation.set(cancelledTask)
-        #expect(await transport.waitUntilConnectStarted())
-
+        await waitUntilConnectWaiters(session, count: 2)
         await transport.releaseConnect()
 
         do {
@@ -360,6 +361,17 @@ import Testing
 
         await transport.waitUntilCloseStarted()
         await transport.releaseClose()
+    }
+
+    /// Waits until `count` sends share the session's in-flight connect. A
+    /// second send started after `waitUntilConnectStarted` has not necessarily
+    /// joined yet; releasing the connect before it does lets it find the
+    /// installed transport instead, so it never reaches the connected-candidate
+    /// hook and a two-arrival barrier waits forever.
+    private func waitUntilConnectWaiters(_ session: MobileCoreRPCSession, count: Int) async {
+        while await (session.connectionTask?.waiters.count ?? 0) < count {
+            await Task.yield()
+        }
     }
 
     private func waitUntilClosed(_ transport: ReleasableConnectTransport) async -> Bool {

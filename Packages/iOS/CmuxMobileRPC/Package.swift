@@ -20,7 +20,6 @@ let package = Package(
         .package(path: "../../Shared/CmuxSafeConcurrency"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../CmuxMobileShellModel"),
-        .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
         .target(
@@ -30,7 +29,6 @@ let package = Package(
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxTerminalSizing",
                 "CmuxMobileShellModel",
-                "CmuxMobileSupport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

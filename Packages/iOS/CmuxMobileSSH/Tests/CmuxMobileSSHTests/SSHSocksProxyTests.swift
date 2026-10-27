@@ -1,8 +1,14 @@
 @testable import CmuxMobileSSH
 import CmuxMobileTunnel
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 import Testing
 
 /// How SSH channel-open failures become SOCKS replies. The SOCKS protocol
@@ -28,6 +34,8 @@ import Testing
 struct SSHSocksProxyLabTests {
     let lab = ProcessInfo.processInfo.environment["CMUX_SSH_LAB"] ?? ""
 
+    // The browser's proxy setting (ProxyConfiguration) is Network.framework's.
+    #if canImport(Network)
     @Test(.timeLimit(.minutes(1))) func pageAndAPIOnTwoPortsLoadThroughProxyByServerName() async throws {
         let page = try LabWebServer(files: ["index.html": "page-ok"])
         let api = try LabWebServer(files: ["data.json": #"{"api":"ok"}"#])
@@ -58,6 +66,7 @@ struct SSHSocksProxyLabTests {
         await proxy.stop()
         await connection.close()
     }
+    #endif
 
     @Test(.timeLimit(.minutes(1))) func rawConnectRepliesSuccessThenErrors() async throws {
         let server = try LabWebServer(files: ["x.txt": "raw-ok"])
@@ -101,6 +110,7 @@ struct SSHSocksProxyLabTests {
         )
     }
 
+    #if canImport(Network)
     /// The same proxy setting the native browser's data store uses.
     private func proxiedSession(port: Int) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -115,6 +125,7 @@ struct SSHSocksProxyLabTests {
         #expect((response as? HTTPURLResponse)?.statusCode == 200)
         return String(decoding: data, as: UTF8.self)
     }
+    #endif
 }
 
 final class ConnectLog: @unchecked Sendable {
@@ -132,7 +143,7 @@ enum RawSocks {
     }
 
     static func exchange(proxyPort: Int, request: [UInt8], then payload: String?) throws -> (reply: [UInt8], rest: String) {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, streamSocketType, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         defer { close(fd) }
         var timeout = timeval(tv_sec: 10, tv_usec: 0)
@@ -142,7 +153,7 @@ enum RawSocks {
         address.sin_port = in_port_t(UInt16(proxyPort).bigEndian)
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
         let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { systemConnect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard connected == 0 else { throw POSIXError(.ECONNREFUSED) }
         try send(fd, [5, 1, 0])

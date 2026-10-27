@@ -1,6 +1,5 @@
 import Foundation
 import NIOCore
-import NIOTransportServices
 
 /// A SOCKS5 proxy on the phone's loopback whose connections are opened by a
 /// `SocksConnectBackend` at its exit point (an SSH server, a paired Mac).
@@ -28,21 +27,17 @@ public final class SocksProxyServer: Sendable {
         backend: any SocksConnectBackend,
         port: Int = 0,
         maximumConnections: Int = 256,
+        sockets: TunnelSocketTransport = TunnelSocketTransport(),
         onConnect: (@Sendable (String, Int) -> Void)? = nil
     ) async throws -> SocksProxyServer {
         let relays = TunnelTaskSet(limit: maximumConnections)
-        let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
-            .childChannelInitializer { inbound in
-                inbound.eventLoop.makeCompletedFuture {
-                    try inbound.pipeline.syncOperations.addHandler(
-                        SocksHandshakeHandler(backend: backend, relays: relays, onConnect: onConnect)
-                    )
-                }
+        let listener = try await sockets.listenOnLoopback(port: port) { inbound in
+            inbound.eventLoop.makeCompletedFuture {
+                try inbound.pipeline.syncOperations.addHandler(
+                    SocksHandshakeHandler(backend: backend, relays: relays, onConnect: onConnect)
+                )
             }
-            .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-            .childChannelOption(ChannelOptions.autoRead, value: false)
-            .bind(host: "127.0.0.1", port: port)
-            .get()
+        }
         guard let bound = listener.localAddress?.port else {
             try? await listener.close()
             throw TunnelOpenError.generalFailure

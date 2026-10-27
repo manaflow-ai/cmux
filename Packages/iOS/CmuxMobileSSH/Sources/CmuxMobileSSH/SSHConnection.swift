@@ -1,7 +1,7 @@
+import CmuxMobileTunnel
 import Foundation
 import NIOCore
 import NIOSSH
-import NIOTransportServices
 
 /// Result of a non-interactive command.
 public struct SSHExecResult: Sendable, Equatable {
@@ -17,10 +17,11 @@ public struct SSHExecResult: Sendable, Equatable {
 /// One authenticated SSH connection. Many channels (shells, exec, forwards,
 /// SFTP) multiplex over it.
 ///
-/// Transport is Network.framework through NIOTransportServices, so iOS path
-/// changes surface as connection closure rather than silent stalls. A
-/// connection can also ride inside another connection's direct-tcpip channel,
-/// which is how jump hosts (ProxyJump) work.
+/// Transport is the phone's `TunnelSocketTransport`: Network.framework through
+/// NIOTransportServices on Apple platforms, so iOS path changes surface as
+/// connection closure rather than silent stalls. A connection can also ride
+/// inside another connection's direct-tcpip channel, which is how jump hosts
+/// (ProxyJump) work.
 public actor SSHConnection {
     public nonisolated let endpoint: SSHEndpoint
     /// The server identity key accepted during the handshake.
@@ -49,12 +50,14 @@ public actor SSHConnection {
     /// - Parameters:
     ///   - via: an already-open connection to tunnel through (jump host).
     ///   - connectTimeout: TCP + handshake budget.
+    ///   - sockets: the TCP transport for a direct (not jump-hosted) connection.
     public static func connect(
         to endpoint: SSHEndpoint,
         credentials: [SSHCredential],
         hostKeyVerifier: any SSHHostKeyVerifier,
         via jump: SSHConnection? = nil,
-        connectTimeout: TimeAmount = .seconds(15)
+        connectTimeout: TimeAmount = .seconds(15),
+        sockets: TunnelSocketTransport = TunnelSocketTransport()
     ) async throws -> SSHConnection {
         let authDelegate = SSHCredentialAuthDelegate(username: endpoint.username, credentials: credentials)
 
@@ -63,7 +66,7 @@ public actor SSHConnection {
         // a line that reaches an empty pipeline is dropped, stalling the
         // handshake until the timeout. So it is installed by the transport's
         // channel initializer, never after the connect returns.
-        let eventLoop: any EventLoop = jump?.eventLoop ?? NIOTSEventLoopGroup.singleton.next()
+        let eventLoop: any EventLoop = jump?.eventLoop ?? sockets.nextEventLoop()
         let handshake = eventLoop.makePromise(of: Void.self)
         // Network phases spend this budget; host key verification, which can
         // wait on a trust prompt, pauses it (see SSHHostKeyAuthDelegate).
@@ -91,12 +94,14 @@ public actor SSHConnection {
                     child.pipeline.addHandler(SSHChannelDataUnwrapper()).flatMap { installSSH(child) }
                 }
             } else {
-                channel = try await NIOTSConnectionBootstrap(group: eventLoop)
-                    .connectTimeout(connectTimeout)
-                    .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
-                    .channelInitializer(installSSH)
-                    .connect(host: endpoint.host, port: endpoint.port)
-                    .get()
+                channel = try await sockets.connect(
+                    host: endpoint.host,
+                    port: endpoint.port,
+                    timeout: connectTimeout,
+                    eventLoop: eventLoop,
+                    relay: false,
+                    channelInitializer: installSSH
+                )
             }
             sshHandler = try await channel.pipeline.handler(type: NIOSSHHandler.self).get()
         } catch {

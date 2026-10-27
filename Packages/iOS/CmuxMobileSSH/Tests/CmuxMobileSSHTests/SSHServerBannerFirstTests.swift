@@ -1,5 +1,9 @@
 @testable import CmuxMobileSSH
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 
@@ -60,7 +64,7 @@ private final class BannerFirstServer: @unchecked Sendable {
     private let sawKeyExchange = DispatchSemaphore(value: 0)
 
     init() throws {
-        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        let listener = socket(AF_INET, streamSocketType, 0)
         self.listener = listener
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)

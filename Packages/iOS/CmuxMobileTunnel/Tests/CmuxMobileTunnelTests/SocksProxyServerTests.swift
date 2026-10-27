@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 @testable import CmuxMobileTunnel
@@ -61,7 +65,7 @@ import Testing
         let echoed = try await Task.detached {
             RawClient.send(fd, payload)
             // Half-close: the exit sees end of input, answers, and finishes.
-            shutdown(fd, SHUT_WR)
+            RawClient.shutdownWrite(fd)
             return RawClient.receiveAll(fd)
         }.value
         #expect(echoed == payload + Array("<eof>".utf8))
@@ -79,7 +83,7 @@ import Testing
             // Greeting, request, and payload in one write (optimistic client).
             RawClient.send(fd, [5, 1, 0] + RawClient.socksConnect(host: "localhost", port: 80) + Array("early".utf8))
             _ = RawClient.receive(fd, count: 2 + 10)
-            shutdown(fd, SHUT_WR)
+            RawClient.shutdownWrite(fd)
             return RawClient.receiveAll(fd)
         }.value
         #expect(echoed == Array("early<eof>".utf8))

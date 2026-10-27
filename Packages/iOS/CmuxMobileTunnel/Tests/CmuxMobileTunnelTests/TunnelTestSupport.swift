@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 @testable import CmuxMobileTunnel
 
@@ -90,8 +94,20 @@ final class ScriptedBackend: SocksConnectBackend, @unchecked Sendable {
 
 /// Blocking TCP client for exercising the phone-side listeners byte for byte.
 enum RawClient {
+    #if canImport(Darwin)
+    private static let streamSocketType = SOCK_STREAM
+    private static let systemConnect = Darwin.connect
+    private static let systemRead = Darwin.read
+    private static let systemWrite = Darwin.write
+    #else
+    private static let streamSocketType = Int32(SOCK_STREAM.rawValue)
+    private static let systemConnect = Glibc.connect
+    private static let systemRead = Glibc.read
+    private static let systemWrite = Glibc.write
+    #endif
+
     static func connect(port: Int) throws -> Int32 {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, streamSocketType, 0)
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         var address = sockaddr_in()
@@ -100,7 +116,7 @@ enum RawClient {
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
         let result = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                systemConnect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard result == 0 else {
@@ -110,15 +126,20 @@ enum RawClient {
         return fd
     }
 
+    /// Half-closes the socket: the peer reads end of input.
+    static func shutdownWrite(_ fd: Int32) {
+        _ = shutdown(fd, Int32(SHUT_WR))
+    }
+
     static func send(_ fd: Int32, _ bytes: [UInt8]) {
-        _ = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+        _ = bytes.withUnsafeBytes { systemWrite(fd, $0.baseAddress, $0.count) }
     }
 
     static func receive(_ fd: Int32, count: Int) -> [UInt8] {
         var result: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 4096)
         while result.count < count {
-            let read = Darwin.read(fd, &buffer, min(buffer.count, count - result.count))
+            let read = systemRead(fd, &buffer, min(buffer.count, count - result.count))
             if read <= 0 { break }
             result += buffer[0..<read]
         }
@@ -129,7 +150,7 @@ enum RawClient {
         var result: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
-            let read = Darwin.read(fd, &buffer, buffer.count)
+            let read = systemRead(fd, &buffer, buffer.count)
             if read <= 0 { break }
             result += buffer[0..<read]
         }

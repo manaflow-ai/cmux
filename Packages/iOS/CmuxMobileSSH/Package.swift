@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 let package = Package(
@@ -55,6 +56,18 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// CommonCrypto is Apple-only: a build for Linux decrypts passphrase-protected keys with the AES of
+// swift-crypto's _CryptoExtras, another product of the swift-crypto package already pinned here
+// (SSHPrivateKeyDecryption.swift). Only the Linux package jobs set CMUX_SWIFTPM_TARGET_LINUX; a build for
+// an Apple platform keeps CommonCrypto.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.targets.first { $0.name == "CmuxMobileSSH" }?.dependencies.append(
+        .product(name: "_CryptoExtras", package: "swift-crypto")
+    )
+}
+#endif
 
 // BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
 // p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to

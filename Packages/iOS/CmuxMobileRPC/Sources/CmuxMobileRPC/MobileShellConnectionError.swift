@@ -1,5 +1,4 @@
 public import CMUXMobileCore
-internal import CmuxMobileSupport
 public import Foundation
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
@@ -41,18 +40,18 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
         case .connectionClosed:
             return "Mobile sync connection closed"
         case .requestTimedOut, .transportWriteTimedOut:
-            return L10n.string(
-                "mobile.connection.requestTimedOut",
+            return String(
+                localized: "mobile.connection.requestTimedOut",
                 defaultValue: "Mobile sync request timed out"
             )
         case .routeCleanupBlocked:
-            return L10n.string(
-                "mobile.connection.routeCleanupBlocked",
+            return String(
+                localized: "mobile.connection.routeCleanupBlocked",
                 defaultValue: "Connection cleanup is stuck. Restart cmux on this device before reconnecting."
             )
         case .connectAttemptGated:
-            return L10n.string(
-                "mobile.connection.connectAttemptGated",
+            return String(
+                localized: "mobile.connection.connectAttemptGated",
                 defaultValue: "Mobile sync connection is retrying"
             )
         case .insecureManualRoute:

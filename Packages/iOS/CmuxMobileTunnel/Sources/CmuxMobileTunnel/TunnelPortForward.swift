@@ -1,6 +1,5 @@
 import Foundation
 import NIOCore
-import NIOTransportServices
 
 /// A listener on the phone's loopback that carries each accepted connection
 /// to `targetHost:targetPort` at a backend's exit (`ssh -L` shape).
@@ -31,30 +30,26 @@ public final class TunnelPortForward: Sendable {
         targetHost: String,
         targetPort: Int,
         localPort: Int = 0,
-        maximumConnections: Int = 128
+        maximumConnections: Int = 128,
+        sockets: TunnelSocketTransport = TunnelSocketTransport()
     ) async throws -> TunnelPortForward {
         let relays = TunnelTaskSet(limit: maximumConnections)
-        let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
-            .childChannelInitializer { inbound in
-                inbound.eventLoop.makeCompletedFuture {
-                    let stream = try NIOChannelByteStream.installSync(on: inbound)
-                    Task {
-                        let started = await relays.start {
-                            do {
-                                let exit = try await backend.open(host: targetHost, port: targetPort)
-                                await TunnelRelay(stream, exit).run()
-                            } catch {
-                                await stream.close()
-                            }
+        let listener = try await sockets.listenOnLoopback(port: localPort) { inbound in
+            inbound.eventLoop.makeCompletedFuture {
+                let stream = try NIOChannelByteStream.installSync(on: inbound)
+                Task {
+                    let started = await relays.start {
+                        do {
+                            let exit = try await backend.open(host: targetHost, port: targetPort)
+                            await TunnelRelay(stream, exit).run()
+                        } catch {
+                            await stream.close()
                         }
-                        if !started { await stream.close() }
                     }
+                    if !started { await stream.close() }
                 }
             }
-            .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-            .childChannelOption(ChannelOptions.autoRead, value: false)
-            .bind(host: "127.0.0.1", port: localPort)
-            .get()
+        }
         guard let port = listener.localAddress?.port else {
             try? await listener.close()
             throw TunnelOpenError.generalFailure

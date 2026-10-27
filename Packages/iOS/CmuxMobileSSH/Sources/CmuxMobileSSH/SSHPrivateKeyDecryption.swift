@@ -1,6 +1,9 @@
 import Foundation
 #if canImport(CommonCrypto)
 import CommonCrypto
+#elseif canImport(_CryptoExtras)
+import _CryptoExtras
+import Crypto
 #endif
 
 /// Decrypts the private section of a passphrase-protected OpenSSH key.
@@ -105,6 +108,20 @@ struct SSHPrivateKeyDecryption {
         }
         guard status == kCCSuccess, moved == input.count else { throw SSHPrivateKeyParseError.malformed }
         return output
+        #elseif canImport(_CryptoExtras)
+        // Without CommonCrypto (Linux), BoringSSL's AES through swift-crypto: the
+        // same unpadded CBC, and CTR over the full 128-bit big-endian counter.
+        let symmetricKey = SymmetricKey(data: key)
+        let output: Data
+        do {
+            output = ctr
+                ? try AES._CTR.decrypt(input, using: symmetricKey, nonce: AES._CTR.Nonce(nonceBytes: iv))
+                : try AES._CBC.decrypt(input, using: symmetricKey, iv: AES._CBC.IV(ivBytes: iv), noPadding: true)
+        } catch {
+            throw SSHPrivateKeyParseError.malformed
+        }
+        guard output.count == input.count else { throw SSHPrivateKeyParseError.malformed }
+        return Array(output)
         #else
         throw SSHPrivateKeyParseError.unsupportedCipher(cipherName)
         #endif

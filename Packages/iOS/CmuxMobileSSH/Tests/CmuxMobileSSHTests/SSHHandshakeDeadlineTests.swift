@@ -1,5 +1,9 @@
 @testable import CmuxMobileSSH
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import NIOCore
 import NIOEmbedded
@@ -94,7 +98,7 @@ private final class SilentListener {
     let port: Int
 
     init() throws {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, streamSocketType, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
@@ -112,5 +116,5 @@ private final class SilentListener {
         port = Int(UInt16(bigEndian: address.sin_port))
     }
 
-    func close() { Darwin.close(fd) }
+    func close() { systemClose(fd) }
 }

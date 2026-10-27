@@ -1,4 +1,5 @@
-#if os(macOS)
+// The system `ssh-keygen` makes the keys, through Process: macOS and Linux.
+#if os(macOS) || os(Linux)
 @testable import CmuxMobileSSH
 import Foundation
 import Testing

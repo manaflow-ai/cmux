@@ -1,6 +1,8 @@
 internal import CMUXMobileCore
 internal import Foundation
+#if canImport(os)
 internal import os
+#endif
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation

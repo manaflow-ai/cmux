@@ -54,6 +54,7 @@ struct SSHStoreTests {
         #expect(SSHHostKeyVerdict(presented: b, pinned: a) == .changed(pinned: a, presented: b))
     }
 
+    #if canImport(Security) && canImport(LocalAuthentication)
     @Test func keyStoreImportsAndLoadsFromKeychain() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-keys-\(UUID().uuidString)")
         let path = dir.appendingPathComponent("k").path
@@ -68,4 +69,5 @@ struct SSHStoreTests {
         try await store.delete(id: record.id)
         #expect(await store.all().isEmpty)
     }
+    #endif
 }

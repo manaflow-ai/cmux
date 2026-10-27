@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 /// The phone's browser tunnel plumbing, independent of what carries the
@@ -51,6 +52,17 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// Network.framework is Apple-only: a build for Linux opens its sockets through NIOPosix, another product
+// of the swift-nio package already pinned here (TunnelSocketTransport+POSIX.swift). Only the Linux package
+// jobs set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple platform keeps NIOTransportServices alone.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.targets.first { $0.name == "CmuxMobileTunnel" }?.dependencies.append(
+        .product(name: "NIOPosix", package: "swift-nio")
+    )
+}
+#endif
 
 // BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
 // p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
