@@ -27,7 +27,7 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
-  /// Captures the page/client/selection owning this attempt, before any asynchronous work.
+  /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(): () => boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;

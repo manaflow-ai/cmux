@@ -7525,6 +7525,7 @@ function AcpmuxPane() {
               peer ? String(peer) : undefined,
               noProject === true,
               peer && model ? String(model) : undefined,
+              newTabRetainsDraft.current,
             );
             await persistSession(started);
             return started;
@@ -9879,12 +9880,10 @@ function AcpmuxPane() {
                   requestFolder,
                   startsHere: () => !directClient.current?.startsOnSend,
                   startScope: () => {
-                    const client = directClient.current;
                     const selected = sessionSelectionToken.current;
                     return () =>
                       showsNewTabRef.current &&
                       newTabVisit.current === newTabGeneration &&
-                      directClient.current === client &&
                       sessionSelectionToken.current === selected;
                   },
                   leave: () => {

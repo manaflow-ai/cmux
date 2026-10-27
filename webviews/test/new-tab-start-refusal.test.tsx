@@ -86,21 +86,32 @@ async function until(check: () => boolean, what: string, within = 10_000) {
   expect(check(), what).toBe(true);
 }
 
-for (const [remoteStart, trust] of [
-  [true, false],
-  [false, false],
-  [true, true],
+for (const [remoteStart, trust, reconnectStart] of [
+  [true, false, false],
+  [false, false, false],
+  [true, true, false],
+  [false, true, false],
+  [false, false, true],
 ])
-  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${trust ? " with Trust" : ""}`, async () => {
+  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${trust ? " with Trust" : reconnectStart ? " across reconnect" : ""}`, async () => {
     const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
     type Answer = (method: string, params: Record<string, any>) => Promise<any>;
     const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
     const answer = proto.answer;
     restoreAnswer = () => (proto.answer = answer);
     const starts: Record<string, any>[] = [];
+    const prompts: Record<string, any>[] = [];
+    let trusted = false;
     proto.answer = async function (method, params) {
+      if (method === "acp.trust.set") trusted = true;
+      if (method === "session/prompt") {
+        prompts.push(params);
+        return { stopReason: "end_turn" };
+      }
       if (method === "session/new") {
         starts.push(params);
+        if (reconnectStart && starts.length === 1) return new Promise(() => {});
+        if (reconnectStart || (trust && trusted)) return answer.call(this, method, params);
         throw Object.assign(
           new Error("devbox refused session/new: agent unavailable"),
           trust
@@ -144,6 +155,19 @@ for (const [remoteStart, trust] of [
     await act(async () => root!.render(<AcpmuxApp />));
     await until(() => host.querySelector(".nt-field") !== null, "the New Tab field");
     await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
+    if (trust && !remoteStart) {
+      // Force the direct no-project route; a named local harness has its own Trust queue.
+      const actions = (dom.window as any).cmuxAcpmuxActions;
+      const start = actions["chat.new"];
+      actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "", noProject: true });
+    }
+    if (reconnectStart) {
+      // Name the harness at the in-page start boundary: this case exercises the switch's
+      // reconnect contract, independently of the native model-catalog fixture.
+      const actions = (dom.window as any).cmuxAcpmuxActions;
+      const start = actions["chat.new"];
+      actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "claude" });
+    }
     const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
     const pickRemote = async () => {
       await act(async () => machine()!.click());
@@ -170,6 +194,20 @@ for (const [remoteStart, trust] of [
       field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 1, "session/new refused");
+    if (reconnectStart) {
+      expect(starts[0]._meta.acpmux.harness).toBe("claude");
+      await act(async () => {
+        const socket = MockAcpmuxSocket.live!;
+        socket.close();
+        socket.onclose?.();
+      });
+      await until(() => prompts.length === 1, "the switch resumes its queued prompt");
+      await until(() => !host.querySelector(".nt-field"), "the resumed start leaves New Tab");
+      await tick();
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0].prompt[0].text).toBe("inspect the failed build");
+      return;
+    }
     await until(
       () =>
         trust
@@ -186,6 +224,14 @@ for (const [remoteStart, trust] of [
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
+      await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
+      await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
+      await until(() => !host.querySelector(".nt-field"), "the trusted start leaves New Tab");
+      await tick();
+      expect(starts).toHaveLength(2);
+      expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0].prompt[0].text).toBe("inspect the failed build");
       return;
     }
     await act(async () =>
@@ -194,4 +240,4 @@ for (const [remoteStart, trust] of [
     await until(() => starts.length === 2, "retry on the same machine");
     expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
     expect(field.value).toBe("inspect the failed build");
-  });
+  }, 15_000);

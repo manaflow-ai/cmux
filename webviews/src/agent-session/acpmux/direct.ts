@@ -1818,6 +1818,7 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    this.cancelTrustStart?.();
     // Typing and presence stop with the chat at once, not when the next attach lands: a keystroke
     // meanwhile never reaches the chat before.
     this.presence.detached();
@@ -4719,6 +4720,8 @@ export class AcpmuxDirectClient {
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
+  /// A New Tab start suspended for Trust settles when its selection or client goes away.
+  private cancelTrustStart?: () => void;
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -5899,23 +5902,55 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer.
   create(
     harness?: string,
     cwd?: string,
     peer?: string,
     noProject = false,
     model?: string,
+    waitForTrust = false,
   ): Promise<string | undefined> {
+    this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
     const started = (async () => {
-      const sessionId = await this.startSession(
-        harness,
-        cwd,
-        peer,
-        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
-        noProject,
-        model,
-      );
+      // The New Tab request still owns its draft, attachments and machine. Trust resumes this
+      // same promise, so its sender runs once and never targets an unmounted chat composer.
+      const sessionId = waitForTrust
+        ? await new Promise<string | undefined>((resolve, reject) => {
+            let settled = false;
+            let running = false;
+            const finish = (id?: string, error?: unknown) => {
+              if (settled) return;
+              settled = true;
+              if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+              if (error) reject(error);
+              else resolve(id);
+            };
+            const cancel = () => finish();
+            this.cancelTrustStart = cancel;
+            const run = () => {
+              if (this.closed || generation !== this.selectionGeneration) return cancel();
+              if (settled || running) return;
+              running = true;
+              void this.startSession(harness, cwd, peer, run, noProject, model).then(
+                (id) => finish(id),
+                (error: unknown) => {
+                  running = false;
+                  if (!isTrustRefusal(error)) finish(undefined, error);
+                },
+              );
+            };
+            run();
+          })
+        : await this.startSession(
+            harness,
+            cwd,
+            peer,
+            () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+            noProject,
+            model,
+          );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) return undefined;
       return sessionId ? this.select(sessionId) : undefined;
@@ -6722,6 +6757,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.closed = true;
+    this.cancelTrustStart?.();
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
