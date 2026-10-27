@@ -58,9 +58,10 @@ cleanup() {
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
-    rm -rf "$sims"
+    rm -rf "$sims" || true
   fi
-  if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir"; fi
+  # Attempted even when the simulator set's removal failed.
+  if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
 }
 trap cleanup EXIT
 
