@@ -1776,16 +1776,19 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let mut list = hub.permission_groups(&s, &params)?;
             // Only the person allows a group (`hub/person.rs`): a reader that
-            // is not one is told so, and draws no Allow it cannot give.
+            // is not one is told so, and draws no Allow it cannot give. An enrolled Mac's
+            // signed one-time allow still counts here (`macAllowOnce`), which a peer
+            // forwarding for its own person may draw (`peer_forward.rs`).
             if !conn.is_person() {
                 list["allowRefused"] = json!(crate::hub::person::REASON);
+                list["macAllowOnce"] = json!(true);
             }
             Ok(list)
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.respond_permission_group(&s, params, control).await
+            hub.respond_permission_group(&s, params, control, conn.is_person()).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;

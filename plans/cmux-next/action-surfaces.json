@@ -25769,11 +25769,11 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "offered",
       "cli_name" : "cloud apply-machine-config",
-      "context_menu" : "undeclared",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "cloudMachine"
       ],
       "default_aliases" : [
 
@@ -25782,7 +25782,7 @@
       "default_shortcut" : null,
       "id" : "cloudApplyMachineConfig",
       "main_menu" : null,
-      "mcp" : "undeclared",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.cloud",
@@ -25794,6 +25794,34 @@
       "palette_suggested" : null,
       "title" : "Apply Machine Config",
       "title_key" : "action.cloudApplyMachineConfig",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud deliver-secrets",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudDeliverSecrets",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Deliver Secrets to Machine",
+      "title_key" : "action.cloudDeliverSecrets",
       "title_table" : "ActionCatalog"
     },
     {
@@ -39049,14 +39077,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudApplyMachineConfig",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+                  "cloudWorkspace"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudDeliverSecrets",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+                  "cloudWorkspace"
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 16
+              "order" : 18
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.tools",
               "kind" : "action",
-              "order" : 17,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
