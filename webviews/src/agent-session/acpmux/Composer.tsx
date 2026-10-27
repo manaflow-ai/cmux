@@ -661,12 +661,10 @@ export function Composer({
         const session = persistedSession.current;
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
-        if (
-          session &&
-          hydratedSession.current === session &&
-          !restoringSession.current &&
-          typed !== lastQueuedDraftText(session)
-        ) {
+        // Before the durable read answers, only what the person typed goes (the read keeps a typed
+        // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
+        const ready = hydratedSession.current === session || typedAt.current > Number.NEGATIVE_INFINITY;
+        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
