@@ -39,6 +39,10 @@ struct ControlSnapshotLazyPublishTests {
     /// On the app's budget, a burst of CLI writes with no reader builds no snapshot and charges one automation task
     /// per write, none for a publish: a work-queue frame only marks the snapshot stale, inside its own drain (the
     /// separate `control.publish` task each frame paid while every frame published is gone).
+    ///
+    /// Both tests give the publisher a private notification center: in the full parallel run the windows other suites
+    /// open, key and close post on the default one, and each publish counted as a build here (4 and 11 extra builds,
+    /// jobs 122238887723 and 122242789085).
     @Test func budgetedWorkQueueFramesWithNoReaderBuildNothingAndChargeNoPublishTask() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -46,7 +50,7 @@ struct ControlSnapshotLazyPublishTests {
         let frames = BudgetedSoonFrames(budget: budget)
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)), frameSource: frames)
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames())
+        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames(), notifications: NotificationCenter())
         publisher.start()
         defer { publisher.stop() }
         for _ in 0..<8 { await Task.yield() }
@@ -67,7 +71,7 @@ struct ControlSnapshotLazyPublishTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)), frameSource: SoonFrames())
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames())
+        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames(), notifications: NotificationCenter())
         publisher.start()
         defer { publisher.stop() }
         for _ in 0..<8 { await Task.yield() }

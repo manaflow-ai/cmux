@@ -23,6 +23,7 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
@@ -45,6 +46,26 @@ export function UserBubble({
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   const resend = row.resend ?? row.text ?? text;
+  // Only a recorded companion relation or an exact retained original path proves that a
+  // file belongs to an image. An unrelated file after an image must remain visible on replay.
+  const originals = new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" &&
+    part.companionOf === undefined &&
+    !part.mimeType?.startsWith("video/") &&
+    !originals.has(attachmentPath(part.uri) ?? "")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+  const files = recorded?.length
+    ? recorded
+    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+        file.kind === "link" && !file.mimeType.startsWith("video/")
+          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+          : [],
+      );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -70,6 +91,13 @@ export function UserBubble({
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {Boolean(files?.length) && (
+        <div className="cv-user__files">
+          {files!.map((file, index) => (
+            <FileAttachment key={index} file={file} />
+          ))}
+        </div>
+      )}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
       {text.trim() && (

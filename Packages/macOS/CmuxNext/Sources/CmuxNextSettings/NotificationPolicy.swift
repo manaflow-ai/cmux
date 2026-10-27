@@ -54,6 +54,11 @@ public nonisolated struct NotificationPolicy: Sendable {
         public var typedAgo: Double?
         /// The poster allows a banner (false for `notify --desktop false`).
         public var bannerAllowed = true
+        /// What the notification is about, for its sound; nil reads it from the source alone
+        /// (an agent's is a finished turn, a terminal's a bell, the CLI's a message).
+        public var soundEvent: NotificationSoundEvent?
+        /// The agent kind, workspace and groups whose sound levels apply.
+        public var soundScope = NotificationSoundScope()
 
         public init(source: NotificationSource) {
             self.source = source
@@ -71,6 +76,12 @@ public nonisolated struct NotificationPolicy: Sendable {
         public var desktop = false
         /// The sound to play, nil for none.
         public var sound: String?
+        /// 0 to 1: how loud `sound` plays when cmux plays it itself (not a banner's default sound).
+        public var soundVolume: Double = 1
+        /// What the notification is about (its sound's event), for the burst cooldown.
+        public var soundEvent: NotificationSoundEvent = .message
+        /// The level that chose `sound` (``NotificationSoundChoice/level``), for the debug log.
+        public var soundLevel: String?
         /// Acknowledge after this many seconds unless cleared earlier.
         public var timeout: Double?
         /// Bounce the Dock icon: it alerts while cmux is inactive (`notifications.dockBounce`).
@@ -103,9 +114,13 @@ public nonisolated struct NotificationPolicy: Sendable {
             }
         }
         decision.desktop = decision.alerts && arrival.bannerAllowed
-        let sound = prefs.sound(for: arrival.source)
-        if !arrival.workspaceMuted && !quiet && !arrival.paneIsViewed && sound != "none" {
-            decision.sound = sound
+        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
+        decision.soundEvent = event
+        if !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
+           let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) {
+            decision.sound = choice.name
+            decision.soundVolume = choice.volume
+            decision.soundLevel = choice.level
         }
         if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
         // A poster asking for no banner (`notify --desktop false`) gets no bounce either.
