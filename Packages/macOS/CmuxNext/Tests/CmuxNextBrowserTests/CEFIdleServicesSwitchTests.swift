@@ -38,6 +38,7 @@ import Testing
         }
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The Chromium Host takes the same switch set, so a host-run Chromium has the same services off.
     @Test func theChromiumHostGetsTheSameSwitches() {
         let root = URL(filePath: "/nonexistent/cmux-idle-services")
@@ -49,4 +50,5 @@ import Testing
         let disabled = Self.disabledFeatures(host.compactMap { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : nil })
         #expect(disabled.isSuperset(of: ["EnableHangWatcher", "EnableHangWatcherOnGpuProcess", "OptimizationHints"]))
     }
+    #endif
 }
