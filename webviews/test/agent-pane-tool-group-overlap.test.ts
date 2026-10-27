@@ -114,8 +114,9 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
       await row.locator(".cv-tool-output-card").waitFor();
       await row.locator("button.cv-tool").focus();
       await row.hover();
-      if (process.env.CMUX_COPY_CAPTURE)
-        await page.screenshot({ path: process.env.CMUX_COPY_CAPTURE, type: "jpeg", quality: 75 });
+      const capture = process.env.CMUX_COPY_CAPTURE ?? path.resolve(import.meta.dir, "../artifacts/copy-controls.jpg");
+      mkdirSync(path.dirname(capture), { recursive: true });
+      await page.screenshot({ path: capture, type: "jpeg", quality: 75 });
       expect(await row.locator(".acpmux-row__copy").count()).toBe(0);
       expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
       const overlap = await row.evaluate((node) => {

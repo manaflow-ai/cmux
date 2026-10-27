@@ -2205,15 +2205,12 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long name ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   height: 26px;
-  padding-right: 28px;
   color: var(--cv-text-dim);
   white-space: nowrap;
   user-select: none;
