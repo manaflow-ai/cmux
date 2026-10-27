@@ -362,7 +362,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 8px;
+  gap: 4px 8px;
   margin-top: 5px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
