@@ -253,6 +253,7 @@ struct WindowTerminalResizeTests {
     /// pane's terminal of p1 | (p2 / p3) fits its new frame, its PTY holds that grid, and it draws it.
     @Test func aWindowResizeResizesEveryPaneTerminalToItsFrame() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = Rig(screens: [Self.screen("s", Self.nested)], active: "s")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2", "p3"]
@@ -273,6 +274,7 @@ struct WindowTerminalResizeTests {
     /// frame and draws that grid, not one from the middle of the drag.
     @Test func aLiveResizeEndsWithEveryTerminalOnItsFinalFrame() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         Motion.liveResizeOverride = true
         defer { Motion.liveResizeOverride = nil }
         let rig = Rig(screens: [Self.screen("s", Self.nested)], active: "s")
@@ -300,6 +302,7 @@ struct WindowTerminalResizeTests {
     /// passes through); when it ends each terminal's PTY resizes once, to its final frame, and draws it.
     @Test func fullScreenEnterAndExitResizeEachTerminalOnceAtTheEnd() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = Rig(screens: [Self.screen("s", Self.nested)], active: "s")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2", "p3"]
@@ -337,6 +340,7 @@ struct WindowTerminalResizeTests {
     /// resize their PTYs; shown, each resizes once, to the window's current size, and draws it.
     @Test func aHiddenScreenResizesItsTerminalsOnceWhenItShows() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let pair: SplitNode = .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))
         let rig = Rig(screens: [Self.screen("s1", .leaf("p1")), Self.screen("s2", pair)], active: "s1")
         defer { rig.close() }
