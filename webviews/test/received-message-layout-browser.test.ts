@@ -91,7 +91,15 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
         expect(layout.captionWidth).toBeGreaterThan(20);
         expect(layout.actionWidth).toBeGreaterThan(30);
         expect(layout.actionVisibility).toBe("1");
-        // These are the queued row's own actions; the shared RowFrame copy is removed by #26096.
+        const geometry = await queued.locator(".cv-received__queued-actions").evaluate((actions) =>
+          [...actions.querySelectorAll<HTMLButtonElement>("button.cv-iconbtn")].map((button) => {
+            const box = button.getBoundingClientRect();
+            const icon = button.querySelector("svg, [data-symbol]")!.getBoundingClientRect();
+            return [box.width, box.height, icon.width, icon.height];
+          }),
+        );
+        expect(geometry).toEqual([[24, 24, 16, 16], [24, 24, 16, 16]].map((sizes) => sizes.map((n) => width === 360 ? n * 1.25 : n)));
+        expect(await queued.locator('button[aria-label="Copy"]').count()).toBe(1);
         expect(await queued.locator('.cv-received__queued-actions button[aria-label="Copy"]').count()).toBe(1);
         await received.locator(".cv-received__toggle").click();
         await received.locator(".cv-received__body").waitFor();
