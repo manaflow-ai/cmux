@@ -266,7 +266,7 @@ class Workflow(unittest.TestCase):
         source = job["runs-on"].removeprefix("${{").removesuffix("}}")
         pick = "pick-nightly-build-runner"
         for attempt, owned, dedicated, blacksmith in itertools.product(
-                (1, 2), ("", SIDE, DEDICATED), ("", DEDICATED), ("", SMALL)):
+                (1, 2), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
             if (owned == DEDICATED) != (dedicated == DEDICATED):
                 continue
             context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
@@ -282,7 +282,8 @@ class Workflow(unittest.TestCase):
                 if attempt == 1 and owned == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
-                    self.assertTrue(str(label).startswith("blacksmith-"), label)
+                    # The picker's moving label, else the default; never a dropped pick.
+                    self.assertEqual(label, blacksmith or SMALL)
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
