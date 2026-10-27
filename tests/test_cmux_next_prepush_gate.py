@@ -782,6 +782,21 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    @NEEDS_SWIFTFORMAT
+    def test_ci_modes_do_not_run_the_swiftformat_layer(self):
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
+        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # or --commits (pushes); none of them may refuse a SwiftFormat finding.
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("adds two blank lines in a row")
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                result = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                        capture_output=True)
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn("(consecutiveBlankLines)", output)
+
     def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
         marker = self.root / "branch-checker-ran"
         self.write(
