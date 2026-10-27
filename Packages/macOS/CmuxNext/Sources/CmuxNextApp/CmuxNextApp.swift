@@ -36,6 +36,9 @@ public struct CmuxNextApp {
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
         #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
+        // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
+        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
@@ -72,6 +75,7 @@ public struct CmuxNextApp {
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         #if DEBUG || CMUX_BENCH_HOOKS
+        environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
         #endif
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
@@ -196,6 +200,7 @@ public struct CmuxNextApp {
         }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
+        mainJobs?.freeze(after: order.startup)
         globalJobs?.freeze(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)

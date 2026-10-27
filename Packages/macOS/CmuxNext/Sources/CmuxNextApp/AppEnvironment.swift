@@ -73,6 +73,9 @@ struct AppEnvironment: Sendable {
     /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
     var launchSnapshot: LaunchSnapshotPrefetch?
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
+    /// Only the real app process arms it.
+    var mainJobCensus: MainJobCensus?
     /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
     /// reads it. Only the real app process arms it.
     var globalJobCensus: GlobalJobCensus?
