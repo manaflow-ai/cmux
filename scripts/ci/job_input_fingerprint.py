@@ -101,7 +101,7 @@ SWIFT_TEST = (
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
 GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
-# check-stamp --base HEAD^1 reads the base's settings sources and exports.
+# generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
     "schemas/settings", "schemas/settings-export", "docs/mdm", "scripts/ci/defaults_guard.py",
@@ -144,6 +144,14 @@ def product_may_exclude_below(path: str) -> bool:
                for pattern in PRODUCT_EXCLUDES)
 
 
+# nightly.yml's `decide` outputs that build-nightly-app passes to (or around) xcodebuild. Every one is
+# keyed, '' included; tests/test_nightly_release_product_reuse.py checks the build steps read no other.
+NIGHTLY_PRODUCT_FLAGS = (
+    "track", "channel", "bundle_id", "app_name", "url_scheme", "entitlements", "icon_name", "variants",
+    "compile_archs", "import_variant", "swift_import_flags", "empty_browser_sources", "password_readers_out",
+)
+
+
 @dataclass(frozen=True)
 class Job:
     required: tuple[str, ...]          # toolchain values, never empty
@@ -152,12 +160,14 @@ class Job:
     web: bool = False                  # also the web bundles' inputs
     base_inputs: tuple[str, ...] = ()  # read at --base-rev
     product: bool = False              # the whole tree minus PRODUCT_EXCLUDES
+    workflow: str = WORKFLOW           # the workflow file keyed whole (the one that builds it)
 
 
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
-    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app"),
+    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
+                                                         "layout_reducer"),
                       SWIFT_TEST, web=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE),
@@ -170,6 +180,16 @@ JOBS = {
     # own key is a function of TUI_TREE_INPUTS, which the closure keeps). The build
     # settings are the compile step's env (this workflow) and check-cmux-scheme-compile.sh's flags.
     "dev-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree"), product=True),
+    # The unsigned cmux NEXT Nightly app before stamping (scripts/ci/nightly_release_product_reuse.py):
+    # the same closure, but keyed by nightly.yml (its build steps and their flags), never cmux-next.yml
+    # alone, and by `decide`'s outputs that reach the build (NIGHTLY_PRODUCT_FLAGS): the identity, the
+    # icon, the arches and the browser-import variant. The job name is part of the key, so a nightly
+    # key never equals a DEV key.
+    # The runner's macOS too (`sw_vers` version and build): the SDK alone does not name the host
+    # tools and system libraries a build runs.
+    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
+                                   NIGHTLY_PRODUCT_FLAGS, product=True,
+                                   workflow=".github/workflows/nightly.yml"),
 }
 GRAPH = route.GRAPH
 
@@ -317,7 +337,7 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
         raise Unresolved(f"no toolchain value for {', '.join(missing)}")
     try:
         commit = git(root, "rev-parse", "--verify", f"{rev}^{{commit}}")
-        workflow = git(root, "rev-parse", "--verify", f"{rev}:{WORKFLOW}")
+        workflow = git(root, "rev-parse", "--verify", f"{rev}:{spec.workflow}")
         value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
@@ -378,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {meta} {path}", file=sys.stderr)
         for path, meta in value.get("base_inputs", {}).items():
             print(f"  base {meta} {path}", file=sys.stderr)
-    print(f"workflow {value['workflow']} {WORKFLOW}", file=sys.stderr)
+    print(f"workflow {value['workflow']} {JOBS[args.job].workflow}", file=sys.stderr)
     for name, text in sorted({**value["toolchain"], **value["flags"]}.items()):
         print(f"{name} {text}", file=sys.stderr)
     print(f"key=job-pass-{args.job}-{digest[:40]}")

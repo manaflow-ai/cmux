@@ -158,7 +158,15 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     expect(pane.draws()).toBe(1);
     expect(painted.rects).toBeGreaterThan(0);
     expect(minimap.querySelector(".acpmux-chat-minimap__placeholder")).toBeNull();
-    const control = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__track")!;
+    const control = minimap.querySelector<HTMLElement>("[role=scrollbar]")!;
+    expect(control.getAttribute("aria-label")).toBe("Chat minimap");
+    expect(control.tabIndex).toBe(0);
+    // A scrollbar names what it scrolls (the transcript) and its value; the canvas is decoration.
+    const transcript = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    expect(transcript.id).not.toBe("");
+    expect(control.getAttribute("aria-controls")).toBe(transcript.id);
+    expect(control.getAttribute("aria-valuenow")).toBe("0");
+    expect(minimap.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
     const scroller = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const box = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__view")!;
 
@@ -322,6 +330,42 @@ test("a reply that starts streaming freezes the box where the view is: the first
   }
 });
 
+test("the scrollbar's value is the share scrolled of the real range, focused or not, and keys move it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const value = () => control.getAttribute("aria-valuenow");
+    // The scroller's own range (content less the view), whatever padding or dock is in the content.
+    const page = content(pane.scroller(), 1000);
+    await scrollTo(pane.scroller(), 1000 - VIEWPORT);
+    expect(value()).toBe("100");
+    await scrollTo(pane.scroller(), 0);
+    expect(value()).toBe("0");
+    await scrollTo(pane.scroller(), 200);
+    expect(value()).toBe("50");
+    // Keys on the focused control scroll the transcript; the value follows.
+    await act(async () => control.focus());
+    const key = (name: string) =>
+      act(async () => {
+        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+        pane.scroller().dispatchEvent(new dom.window.Event("scroll"));
+        runFrames();
+      });
+    await key("End");
+    expect(value()).toBe("100");
+    await key("Home");
+    expect(value()).toBe("0");
+    await key("ArrowDown");
+    expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
 test("another chat starts its own minimap: no canvas, placeholder or scale carried over", async () => {
   setChatDisplay({ "agentPane.display.vscodeMinimap": true });
   const pane = await mount();
@@ -413,6 +457,38 @@ test("with the setting off the minimap reads no row", async () => {
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    setChatDisplay({});
+  }
+});
+
+test("while a reply streams above the reader, the value follows the growing range with no draw", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const page = content(pane.scroller(), 2000);
+    await scrollTo(pane.scroller(), 700);
+    expect(control.getAttribute("aria-valuenow")).toBe("50");
+    let reply = "Streaming";
+    await pane.render(reply, true);
+    await act(async () => flushFrames());
+    const draws = pane.draws();
+    const box = pane.box().style.transform;
+    // The reply grows below the reader; the transcript does not scroll (the reader is above the end).
+    for (let token = 0; token < 5; token += 1) {
+      reply += `\n\nParagraph ${token}.`;
+      page.height += 600;
+      await pane.render(reply, true);
+      await act(async () => runFrames());
+    }
+    // 700 of a 4400 - 600 range.
+    expect(control.getAttribute("aria-valuenow")).toBe(String(Math.round((100 * 700) / (page.height - VIEWPORT))));
+    expect(pane.draws()).toBe(draws);
+    expect(pane.box().style.transform).toBe(box);
+  } finally {
+    await pane.done();
     setChatDisplay({});
   }
 });
