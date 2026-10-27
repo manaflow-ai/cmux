@@ -109,7 +109,7 @@ public nonisolated struct ChromiumMinidumpReport: Sendable, Equatable {
             let symbol = index < symbols.count ? symbols[index] : nil
             return SystemCrashReport.Frame(imageIndex: image, imageOffset: address - dump.modules[image].base, symbol: symbol)
         }
-        return SystemCrashReport(processName: dump.modules.first?.name ?? processType, processPath: "",
+        return SystemCrashReport(processName: dump.modules.first?.name ?? processType, processPath: "", pid: pid,
                                  incident: dump.reportID, exceptionType: exceptionName ?? "EXC_CRASH",
                                  signal: signalName, termination: nil, frames: frames, exceptionFrames: [], images: images)
     }
@@ -131,10 +131,11 @@ public nonisolated struct ChromiumMinidumpReport: Sendable, Equatable {
 
 extension SystemCrashReport {
     /// A report built from another source than an `.ips` file (a Crashpad dump, ``ChromiumMinidumpReport``).
-    init(processName: String, processPath: String, incident: String?, exceptionType: String, signal: String?,
+    init(processName: String, processPath: String, pid: Int32?, incident: String?, exceptionType: String, signal: String?,
          termination: String?, frames: [Frame], exceptionFrames: [Frame], images: [Image]) {
         self.processName = processName
         self.processPath = processPath
+        self.pid = pid
         self.incident = incident
         self.exceptionType = exceptionType
         self.signal = signal

@@ -106,6 +106,8 @@ public nonisolated struct SystemCrashEvent: Sendable {
         var tags = extras.crashKeys
         tags["process"] = report.processName
         tags["crash_source"] = source.rawValue
+        // The same tag as a Chromium helper's exit event (``HelperExitEvent``): one search finds both.
+        if let pid = report.pid { tags["pid"] = String(pid) }
         if let origin = extras.origin { tags["process_origin"] = origin.rawValue }
         if let role = extras.processRole { tags["process_role"] = role }
         if let fromThisBuild = extras.fromThisBuild { tags["process_build"] = fromThisBuild ? "this" : "other" }
