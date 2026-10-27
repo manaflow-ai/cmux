@@ -246,6 +246,7 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
             let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
                 record_path,
                 record,
+                None,
             );
         }
     }

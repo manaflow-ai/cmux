@@ -10,7 +10,7 @@ impl Surface {
 
     /// How this incarnation ended, with its provenance.
     pub(crate) fn terminal_end(&self) -> Option<TerminalEnd> {
-        self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+        self.as_pty().and_then(|pty| pty.exit.lock().recover_poison().clone())
     }
 
     /// Record a process end on a test runtime, as a host's Exit frame does.
@@ -38,7 +38,7 @@ impl Surface {
         if pty.host_identity.is_none() || pty.host_exit_record_path.is_none() {
             return false;
         }
-        !matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Local { .. })
+        !matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::Local { .. })
     }
 
     /// Ask a hosted terminal to exit through its existing owner connection,
@@ -53,7 +53,7 @@ impl Surface {
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
         let observed = pty.stream_progress.revision();
         let already_exited = {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             match &*runtime {
                 PtyRuntime::Hosted(host) => {
                     host.request_termination().map_err(|error| {
@@ -81,7 +81,7 @@ impl Surface {
             .ok_or_else(|| anyhow::anyhow!("terminal host termination lost its PTY runtime"))?;
         let HostTermination { identity, path, mut observed, already_exited } = termination;
         loop {
-            if let Some(end) = pty.exit.lock().unwrap().clone() {
+            if let Some(end) = pty.exit.lock().recover_poison().clone() {
                 return Ok((
                     path,
                     crate::terminal_host_runtime::TerminalHostExitRecord::new(
@@ -108,7 +108,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let path = pty.host_exit_record_path.clone()?;
         let identity = pty.host_identity.as_ref()?;
-        let exit = pty.exit.lock().unwrap().as_ref()?.exit().clone();
+        let exit = pty.exit.lock().recover_poison().as_ref()?.exit().clone();
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 }
@@ -118,7 +118,7 @@ pub(super) fn mark_hosted_runtime_exited(
     pty: &PtySurface,
     identity: &crate::terminal_host_runtime::TerminalHostIdentity,
 ) {
-    let mut runtime = pty.runtime.lock().unwrap();
+    let mut runtime = pty.runtime.lock().recover_poison();
     let matches = match &*runtime {
         PtyRuntime::Hosted(host) => host.identity() == *identity,
         PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
@@ -136,12 +136,13 @@ pub(super) fn mark_hosted_runtime_exited(
 
 pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     let Some(pty) = surface.as_pty() else { return };
-    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
+    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().recover_poison().is_none()
+    {
         return;
     }
     // A holder terminal the daemon left for its shutdown did not end.
     #[cfg(unix)]
-    if let PtyRuntime::Local { holder: Some(holder), .. } = &*pty.runtime.lock().unwrap()
+    if let PtyRuntime::Local { holder: Some(holder), .. } = &*pty.runtime.lock().recover_poison()
         && holder.is_detached()
     {
         return;
@@ -160,7 +161,7 @@ pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
 pub(super) fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
     let Some(pty) = surface.as_pty() else { return };
     let master = {
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().recover_poison();
         let PtyRuntime::Local { master, .. } = &mut *runtime else { return };
         master.take()
     };
