@@ -18,6 +18,13 @@ extension TerminalEventQueue {
         var armed = false
         /// The reader waits on `readerWake`; whoever clears this signals it exactly once.
         var readerParked = false
+        /// The view's lane is above its capacity: the reader waits until the lane wakes it (``releaseLane(closing:)``).
+        var laneHeld = false
+        /// Output held behind a marker is above the router's hold limit: the reader waits until the marker is
+        /// acknowledged (``releaseMarkerHold()``).
+        var markerHeld = false
+        /// The link detached: neither the lane nor a marker holds the reader again.
+        var laneClosed = false
         var resync = ResyncPhase.idle
         /// Counts the requests that entered ``ResyncPhase/awaitingReady``: an answer to, or a retry of,
         /// an older one changes nothing.
@@ -46,9 +53,11 @@ extension TerminalEventQueue {
             for event in kept { append(event) }
         }
 
-        /// Whether the reader must wait now (armed, not finished, above `highWater`); marks it parked if so.
+        /// Whether the reader must wait now (not finished, and the lane or a marker holds it or the queue is armed
+        /// and above `highWater`); marks it parked if so. A ``Backpressure/dropAndResync(_:)`` queue passes
+        /// `Int.max`: its own bound drops and resyncs instead.
         mutating func parkReader(above highWater: Int) -> Bool {
-            readerParked = armed && !finished && outputBytes > highWater
+            readerParked = !finished && (laneHeld || markerHeld || (armed && outputBytes > highWater))
             return readerParked
         }
 

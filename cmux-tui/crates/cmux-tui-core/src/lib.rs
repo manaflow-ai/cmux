@@ -52,6 +52,9 @@ pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
+/// The test binary's one process hang watch (server/request_hang_watch.rs).
+#[cfg(test)]
+mod hang_watch_test_support;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

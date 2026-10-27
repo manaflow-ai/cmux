@@ -28,6 +28,13 @@ import Foundation
 /// handshake itself and must not wedge it. The resync bound counts live output
 /// only, never a READY's history (up to 32 MiB: the answer to a resync, a resize
 /// or the attach). Consecutive plain output chunks are merged on the way out.
+///
+/// Live output that goes straight to the view's lane (``TerminalEchoRouter``)
+/// parks the same reader on the lane's capacity instead (``waitForLane(_:)``), and
+/// output the router holds behind a marker parks it on the router's hold limit
+/// (``holdForMarker()``), under either policy. Every event, output included,
+/// enters through ``pushWithoutWaiting(_:)``, so the overflow bound of
+/// ``Backpressure/dropAndResync(_:)`` applies there.
 final class TerminalEventQueue: Sendable {
     let highWater: Int
     let lowWater: Int
@@ -40,6 +47,9 @@ final class TerminalEventQueue: Sendable {
     /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
     private let recorder: DaemonWireStats.Recorder?
     private let backpressure: Backpressure
+    /// Queued output bytes above which the reader parks: `highWater` for ``Backpressure/parkReader``,
+    /// never for ``Backpressure/dropAndResync(_:)``.
+    private let parkAbove: Int
     /// Sends a throttled request again (``Backpressure/dropAndResync(_:)`` only).
     private let retryTimer: DemandTimer?
     private let state = Mutex(State())
@@ -65,8 +75,10 @@ final class TerminalEventQueue: Sendable {
         self.backpressure = backpressure
         if case .dropAndResync = backpressure {
             retryTimer = DemandTimer(owner: "TerminalEventQueue.resync", clock: clock)
+            parkAbove = .max
         } else {
             retryTimer = nil
+            parkAbove = highWater
         }
         self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
@@ -78,30 +90,80 @@ final class TerminalEventQueue: Sendable {
     }
 
     /// Reader thread. With ``Backpressure/parkReader`` it may block while the consumer is behind;
-    /// with ``Backpressure/dropAndResync(_:)`` it never waits.
+    /// with ``Backpressure/dropAndResync(_:)`` it waits only on the lane or a marker.
     func push(_ event: TerminalChannelEvent) {
-        switch backpressure {
-        case .parkReader: pushParkingReader(event)
-        case .dropAndResync: pushDroppingOnOverflow(event)
+        pushWithoutWaiting(event)
+        waitWhileFull()
+    }
+
+    /// Reader thread: waits while the consumer is behind (``Backpressure/parkReader``, armed and above
+    /// `highWater`) or a marker holds the reader. Returns at once otherwise.
+    func waitWhileFull() {
+        guard state.withLock({ $0.parkReader(above: parkAbove) }) else { return }
+        onReaderBlocked?()
+        parkReader()
+    }
+
+    /// Reader thread: hands one live chunk to the view's lane (`enqueue`, given the lane's wake) and, when the
+    /// lane says it is above its capacity, waits until the lane wakes it, the stream ends or the link detaches
+    /// (``releaseLane()``). `enqueue` returns whether the reader must wait; the lane calls the wake exactly once
+    /// when it returned true.
+    func waitForLane(_ enqueue: (_ wake: @escaping @Sendable () -> Void) -> Bool) {
+        let holds = state.withLock { state -> Bool in
+            state.laneHeld = !state.laneClosed
+            return state.laneHeld
+        }
+        guard enqueue({ [self] in releaseLane() }), holds else {
+            state.withLock { $0.laneHeld = false }
+            return
+        }
+        guard state.withLock({ $0.parkReader(above: parkAbove) }) else { return }
+        onReaderBlocked?()
+        parkReader()
+    }
+
+    /// Any thread: the lane drained below its capacity or closed, or (`closing`) the link detached and neither
+    /// the lane nor a marker holds the reader again; a reader waiting for the lane goes on.
+    func releaseLane(closing: Bool = false) {
+        let release = state.withLock { state -> Bool in
+            state.laneHeld = false
+            if closing {
+                state.laneClosed = true
+                state.markerHeld = false
+            }
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
+    }
+
+    /// Under the router's lock: the output held behind a marker is above the router's hold limit, so the
+    /// reader's next ``waitWhileFull()`` waits until ``releaseMarkerHold()``, which the router calls under the
+    /// same lock: an acknowledgement is never missed, and an older one never releases a newer hold.
+    func holdForMarker() {
+        state.withLock { state in
+            let closed = state.laneClosed
+            state.markerHeld = !closed
         }
     }
 
-    private func pushParkingReader(_ event: TerminalChannelEvent) {
-        let (waiter, blocked) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
-            guard !state.finished else { return (nil, false) }
-            if let waiter = state.waiter.take() { return (waiter, false) }
-            state.append(event)
-            return (nil, state.parkReader(above: highWater))
+    /// Under the router's lock: the marker the held output waited behind was acknowledged (the output went to
+    /// the lane), or the output went onto the stream; a reader waiting on it goes on.
+    func releaseMarkerHold() {
+        let release = state.withLock { state -> Bool in
+            state.markerHeld = false
+            return state.releaseReader()
         }
-        waiter?.resume(returning: event)
-        guard blocked else { return }
-        onReaderBlocked?()
-        var parked = blocked
+        if release { readerWake.signal() }
+    }
+
+    /// Waits on `readerWake` until nothing holds the reader; ``State/parkReader(above:)`` marked it parked.
+    private func parkReader() {
+        var parked = true
         while parked {
             // The designed backpressure that makes the daemon drop a slow view: a checked wait, only on the attach
             // connection's dedicated reader thread (LineTransport), never the main thread or a pool thread.
             readerWake.blockingWait()
-            parked = state.withLock { $0.parkReader(above: highWater) }
+            parked = state.withLock { $0.parkReader(above: parkAbove) }
         }
     }
 
@@ -170,11 +232,19 @@ final class TerminalEventQueue: Sendable {
         if retry { sendResync(epoch: epoch) }
     }
 
-    /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
-    /// hold its own lock across it (a size state is pushed under the lock that orders generations).
-    /// While a resync waits for its READY, an event that READY supersedes (the echo of dropped output)
-    /// is dropped.
+    /// Any thread. Queues an event without the backpressure wait, so a caller may hold its own lock
+    /// across it (a size state is pushed under the lock that orders generations, and the echo router
+    /// queues output under its own). While a resync waits for its READY, an event that READY supersedes
+    /// (the echo of dropped output) is dropped; with ``Backpressure/dropAndResync(_:)`` output over the
+    /// bound drops and resyncs here (the request goes out without waiting).
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
+        switch backpressure {
+        case .parkReader: queueOrHand(event)
+        case .dropAndResync: pushDroppingOnOverflow(event)
+        }
+    }
+
+    private func queueOrHand(_ event: TerminalChannelEvent) {
         let waiter = state.withLock { state -> OnceContinuation<TerminalChannelEvent?, OnceContinuationError>? in
             guard !state.finished, !state.dropWhileResyncing(event) else { return nil }
             if let waiter = state.waiter.take() { return waiter }

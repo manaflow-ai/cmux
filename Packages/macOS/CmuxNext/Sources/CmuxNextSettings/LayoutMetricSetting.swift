@@ -38,7 +38,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
 
     /// The range of every metric the schema lists, the interface size included, by name.
     public static var ranges: [String: ClosedRange<Double>] {
-        var ranges = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0.range) })
+        var ranges = Dictionary(all.map { ($0.name, $0.range) }, uniquingKeysWith: { first, _ in first })
         ranges[InterfaceSizeSetting().metricName] = InterfaceSizeSetting().range
         return ranges
     }
