@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Screen geometry for the drag ghost and tear-off windows (screen space,
 /// bottom-left origin).

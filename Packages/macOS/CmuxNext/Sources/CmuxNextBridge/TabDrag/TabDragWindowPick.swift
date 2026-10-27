@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Which app window a drag point is over (pure, so the rule is tested
 /// without windows). Only cmux content windows take drops. Every other

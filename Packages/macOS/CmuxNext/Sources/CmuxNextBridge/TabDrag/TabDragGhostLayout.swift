@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Where the drag ghost draws for one motion frame, in screen space
 /// (bottom-left origin): the tab image, the glass card that unfolds around

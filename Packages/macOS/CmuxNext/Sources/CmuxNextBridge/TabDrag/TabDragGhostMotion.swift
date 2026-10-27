@@ -1,5 +1,5 @@
 public import CmuxNextDesignTokens
-public import CoreGraphics
+public import Foundation
 
 /// Motion model of the drag ghost. The ghost tracks the pointer with zero
 /// lag, and every discontinuous change (card -> inline tab, a new strip

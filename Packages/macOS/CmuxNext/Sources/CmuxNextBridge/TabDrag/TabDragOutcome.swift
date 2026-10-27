@@ -1,5 +1,4 @@
 public import CmuxNextDesignTokens
-public import CoreGraphics
 public import Foundation
 
 /// How a tab drag ends. The App maps each case to exactly one daemon

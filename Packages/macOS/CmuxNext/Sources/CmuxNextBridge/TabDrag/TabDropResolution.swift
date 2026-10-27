@@ -1,5 +1,5 @@
 public import CmuxNextDesignTokens
-public import CoreGraphics
+public import Foundation
 
 /// What the drag shows at the pointer now.
 public nonisolated enum TabDropPreview: Hashable, Sendable {

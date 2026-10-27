@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The drag ghost at rest on the render server (`motion.renderServer`): the screen origin of its root
 /// view and its layers in the root's coordinates (y up), the scale already applied about the grabbed
