@@ -64,6 +64,18 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
+                        // before it is applied (the log has it already), as a busy inbound loop
+                        // does, so the daemon's integration tests can reach an agent first.
+                        // Bounded; release builds have no seam.
+                        #[cfg(debug_assertions)]
+                        if let Some(ms) = std::env::var("ACPMUX_TEST_UPDATE_DELAY_MS")
+                            .ok()
+                            .and_then(|v| v.parse::<u64>().ok())
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(ms.min(2_000)))
+                                .await;
+                        }
                         // A /context breakdown or usage limits from an agent that was replaced
                         // (a failover's dying primary answering late) are not the chat's now. The
                         // child lock is held while it is applied: a failover takes it to retire
@@ -77,6 +89,25 @@ impl Hub {
                             {
                                 self.on_update(&session, params.as_ref(), false);
                             }
+                            continue;
+                        }
+                        // A mode or option report of an agent MDM's off ended, or of one older, is
+                        // not the next agent's: only a newer agent's is applied
+                        // (`FloorState::retired_through`). Checked and applied under the agent
+                        // slot's lock, which that end takes, so no end comes between the two
+                        // (reviews 3, 5 and 6 of #26052).
+                        let kind =
+                            params.as_ref().and_then(|p| p["update"]["sessionUpdate"].as_str());
+                        let slot =
+                            if matches!(kind, Some("current_mode_update" | "config_option_update"))
+                            {
+                                Some(session.child.lock().await)
+                            } else {
+                                None
+                            };
+                        if slot.is_some()
+                            && agent <= session.floor.retired_through.load(Ordering::SeqCst)
+                        {
                             continue;
                         }
                         let replayed = session
@@ -322,9 +353,16 @@ impl Hub {
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
+        // Applied: the tap's count of it goes, under the lock the write publishes its mode under
+        // (`FloorState::unapplied_full_access`, review 5 of #26052).
+        let settles =
+            params.is_some_and(|p| super::full_access_bound::own_full_access_report(session, p));
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
-            self.write_mode_state(session, [w]);
+            self.write_mode_state_settling(session, [w], settles);
+        } else if settles {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            settle_full_access_report(session);
         }
         if mark_cleared {
             self.save_meta(session);
@@ -568,8 +606,10 @@ impl Hub {
             None
         };
         let outside = target.as_ref().is_some_and(|t| !t.as_ref().is_some_and(|t| t.inside));
+        // Only deny-all matters here, which MDM's off never makes: the policy as stored, with no read
+        // of the off (review 121). A read that asks reads it once there (`handle_permission_for`).
         let config_policy = self.config.read().await.permission_policy;
-        let policy = self.policy_for(session, config_policy);
+        let policy = Self::stored_policy_for(session, config_policy);
         let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
         let rule =
             session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
@@ -631,11 +671,10 @@ impl Hub {
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
-        let policy = Self::stored_policy_for(session, config_policy);
-        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
-            return PermissionPolicy::Ask;
-        }
-        policy
+        capped_policy(
+            Self::stored_policy_for(session, config_policy),
+            self.full_access_managed_off(),
+        )
     }
 
     /// `policy_for` as stored, before MDM's off caps it: for the person rule, which must not
@@ -676,6 +715,13 @@ impl Hub {
         agent_host_incarnation: Option<&str>,
         ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
+        // MDM's off as this ask begins: its one read, before anything it waits on (review 123),
+        // which every decision below takes, so an off that comes and goes while it is judged still
+        // holds for it (reviews 73, 75 and 77 of #23322). Read without a lock, so also under the
+        // permission lock.
+        let off = self.off_latch();
+        #[cfg(test)]
+        super::full_access_bound::operation_entry(self);
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
@@ -689,7 +735,8 @@ impl Hub {
         // program could be one the agent wrote.
         let reads_policy = {
             let cfg = self.config.read().await;
-            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
+            capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
+                == PermissionPolicy::ApproveReads
         };
         // Judged in the environment the harness runs it with: the daemon's, the allow-listed
         // login values, then the env its agent was started with (`ensure_child`). An agent this
@@ -722,7 +769,7 @@ impl Hub {
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && off.allows_full_access();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -751,7 +798,8 @@ impl Hub {
                 self.remote_floor_cancel(session, reason);
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
-            let policy = self.policy_for(session, cfg.permission_policy);
+            let policy =
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off());
             let options =
                 request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
             let pick = |kinds: &[&str]| -> Option<String> {
@@ -817,12 +865,12 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
-            // Full access answers what the harness still asks, unless a rule decided it. MDM's
-            // off is read again here (memory only): a push since the read above answers nothing.
-            let full_access =
-                (full_access_on && !self.full_access_managed_off() && rule.is_none() && !denied)
-                    .then(|| full_access_allow(session, &request))
-                    .flatten();
+            // Full access answers what the harness still asks, unless a rule decided it. The ask's
+            // off is looked at again here (memory only): a push since the read above answers
+            // nothing.
+            let full_access = (full_access_on && !off.off() && rule.is_none() && !denied)
+                .then(|| full_access_allow(session, &request))
+                .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
@@ -1285,6 +1333,15 @@ impl Hub {
     }
 }
 
+/// `policy`, capped while MDM forces full access off (`managed_off`): approve-all, the policy form
+/// of full access, runs as `ask` (`Hub::approve_all_allowed`).
+fn capped_policy(policy: PermissionPolicy, managed_off: bool) -> PermissionPolicy {
+    if managed_off && super::full_access_bound::policy_is_full_access(policy) {
+        return PermissionPolicy::Ask;
+    }
+    policy
+}
+
 /// The Full access mode chat `m` runs in now: its current mode, when the shared rule
 /// (`spec/full-access-modes.json`, `start_mode::is_full_access`) names it full access and cmux set
 /// it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode the
@@ -1427,4 +1484,14 @@ pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> Sessio
         (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
         (false, prev) => prev,
     }
+}
+
+/// Takes back one count of a full-access report the inbound loop applied
+/// (`FloorState::unapplied_full_access`); the caller holds the session's meta lock.
+pub(super) fn settle_full_access_report(session: &Session) {
+    let _ =
+        session
+            .floor
+            .unapplied_full_access
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
