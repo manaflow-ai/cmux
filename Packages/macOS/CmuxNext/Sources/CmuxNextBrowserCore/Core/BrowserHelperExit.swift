@@ -11,7 +11,8 @@ public nonisolated struct BrowserHelperExit: Hashable, Sendable {
     /// Chromium's utility sub type (`network.mojom.NetworkService`), if any.
     public var subType: String?
     /// The helper's pid, which the macOS crash report (`.ips`) and the minidump of the same process carry;
-    /// nil when the reporter of the end does not name it (a page renderer's end from Chromium's status).
+    /// nil when no exit of the process was seen (a renderer that never launched, or one in host mode, where
+    /// the renderers are the Chromium host's children).
     public var pid: Int32?
     public var reason: BrowserProcessExit.Reason
     /// The raw `waitpid` status or Chromium's exit code, when known.

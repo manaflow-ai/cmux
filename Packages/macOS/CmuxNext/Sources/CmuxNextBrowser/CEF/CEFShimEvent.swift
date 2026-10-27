@@ -46,8 +46,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsClosed(browser: Int32, devTools: Int32)
     /// The tab's renderer ended unexpectedly: `status` is
     /// `cef_termination_status_t`, `code` the exit code or signal, `end` whether this browser
-    /// is the first that renderer hosted to report it (``CEFRendererEnd``).
-    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd)
+    /// is the first that renderer hosted to report it (``CEFRendererEnd``), `client` the renderer's
+    /// `--renderer-client-id` (0 when the shim cannot name it), which joins the end with the
+    /// child monitor's exit of the same process.
+    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd, client: Int32 = 0)
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
@@ -163,7 +165,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 20: self = .devToolsWillOpen(browser: browser)
         case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
         case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
-        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1, end: CEFRendererEnd(rawValue: request) ?? .unknown)
+        case 23:
+            self = .renderTerminated(browser: browser, status: Int(a), code: Int(Int32(truncatingIfNeeded: b)), text: s1,
+                                     end: CEFRendererEnd(rawValue: request) ?? .unknown, client: max(Int32(truncatingIfNeeded: b >> 32), 0))
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
@@ -221,7 +225,7 @@ extension CEFShimEvent {
              .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .renderTerminated(let b, _, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),

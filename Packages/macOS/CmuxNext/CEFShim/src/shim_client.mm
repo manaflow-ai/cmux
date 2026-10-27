@@ -252,15 +252,20 @@ class ForgetRendererEnd : public CefTask {
   IMPLEMENT_REFCOUNTING(ForgetRendererEnd);
 };
 
-// RENDER_TERMINATED's request for `browser`: whether it is the first browser of its main frame
-// renderer's end (renderer_end.h). CEF keeps the current main frame, and its identifier, after the
-// renderer ends; the task after Chromium's fan-out forgets the end.
-int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
+// RENDER_TERMINATED's request for `browser` and its main frame renderer's client id: whether it is
+// the first browser of that renderer's end (renderer_end.h). CEF keeps the current main frame, and its
+// identifier, after the renderer ends; the task after Chromium's fan-out forgets the end.
+struct RendererEndReport {
+  int request;
+  int client;
+};
+
+RendererEndReport ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
   CefRefPtr<CefFrame> main = browser->GetMainFrame();
   const int client = main ? RendererClientIdOf(main->GetIdentifier().ToString()) : 0;
   const int report = renderer_ends().Report(client);
   if (report == kRendererEndFirst) CefPostTask(TID_UI, new ForgetRendererEnd(client));
-  return report;
+  return {report, client};
 }
 
 class Client : public CefClient,
@@ -461,7 +466,9 @@ class Client : public CefClient,
     // A crash cancels dialogs without OnResetDialogState: the question goes too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     CancelFileDialogs(id);
-    Emit(CMUX_SHIM_RENDER_TERMINATED, id, ReportRendererEnd(browser), status, error_code, error_string.ToString());
+    const RendererEndReport end = ReportRendererEnd(browser);
+    Emit(CMUX_SHIM_RENDER_TERMINATED, id, end.request, status, RendererEndCode(error_code, end.client),
+         error_string.ToString());
   }
 
   // Returning true keeps Chromium's hung-page dialog away: the host shows

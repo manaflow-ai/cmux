@@ -21,6 +21,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var isExtension: Bool
         /// Raw `waitpid` status.
         var status: Int32
+        /// A renderer's `--renderer-client-id`, which RENDER_TERMINATED names too; nil for other helpers.
+        var rendererClientID: Int32?
     }
 
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
@@ -83,7 +85,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 let identity = children.removeValue(forKey: pid) ?? nil
                 guard let identity else { continue }
                 onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
-                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data)))
+                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data),
+                            rendererClientID: identity.rendererClientID))
             }
         }
         if needsRescan { rescan() }
@@ -115,6 +118,8 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     var processType: String
     var subType: String?
     var isExtension: Bool
+    /// `--renderer-client-id`: a renderer's render process host id, the one RENDER_TERMINATED names.
+    var rendererClientID: Int32?
 
     static func read(pid: Int32) -> CEFHelperIdentity? {
         parse(arguments(pid: pid))
@@ -124,6 +129,7 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
         var type: String?
         var subType: String?
         var isExtension = false
+        var rendererClientID: Int32?
         for argument in arguments {
             if argument.hasPrefix("--type=") {
                 type = String(argument.dropFirst("--type=".count))
@@ -131,10 +137,12 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
                 subType = String(argument.dropFirst("--utility-sub-type=".count))
             } else if argument == "--extension-process" {
                 isExtension = true
+            } else if argument.hasPrefix("--renderer-client-id=") {
+                rendererClientID = Int32(argument.dropFirst("--renderer-client-id=".count))
             }
         }
         guard let type, !type.isEmpty else { return nil }
-        return CEFHelperIdentity(processType: type, subType: subType, isExtension: isExtension)
+        return CEFHelperIdentity(processType: type, subType: subType, isExtension: isExtension, rendererClientID: rendererClientID)
     }
 
     /// argv of `pid` from KERN_PROCARGS2: argc, exec path, padding, argv.
