@@ -1,14 +1,15 @@
 internal import CmuxSafeConcurrency
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 internal import Darwin
 #endif
 
 /// A value that only one thread at a time can read or change, with the API of
 /// `Synchronization.Mutex` (macOS 15) so that cmux-next runs on macOS 14
 /// (plans/cmux-next/macos-floor.md). It is CmuxSafeConcurrency's portable `Mutex`
-/// (`os_unfair_lock`, the lock the system type uses on Darwin) with the
-/// main-thread blocking detector watching its waits. Import this module instead
-/// of `Synchronization`; call sites do not change.
+/// (`os_unfair_lock`, the lock the system type uses on Darwin; on Linux a pthread
+/// mutex, as Chromium's base/synchronization/lock_impl_posix.cc) with the
+/// main-thread blocking detector watching its waits on both. Import this module
+/// instead of `Synchronization`; call sites do not change.
 public struct Mutex<Value: ~Copyable>: ~Copyable {
     private let base: CmuxSafeConcurrency.Mutex<Value>
 
