@@ -2,9 +2,11 @@
 """chromium_host_windows.py and chromium-host-bench.py --native-ui --list-failing (p01-process-068), with no app: the
 host's BLOCKED_WIDGET and UNEXPECTED_WINDOW lines (host_blocked_widgets.h's format) are parsed out of app log lines,
 counted per row by Views class and owner, and a row fails on any unexpected window or a blocked widget whose last line
-is not a dismissal (refused, close-failed), owned by a cmux UI or not. Through the bench: the page rows share one probe
-tab, each row gets only the lines written while it ran, a late line still fails the whole run, a probe that never
-loads fails each of its rows by name, and --list-failing names each failing row.
+is not a dismissal (refused, close-failed), owned by a cmux UI or not, or that was held (a permission prompt), and on
+any host window the window server shows. Through the bench: the page rows (the 069 context_menu and download rows with
+them, given a right click) share one probe tab, each row gets only the lines written while it ran and the host's
+visible windows at its end, a window no line names still fails its row, a late line still fails the whole run, a probe
+that never loads fails each of its rows by name, and --list-failing names each failing row.
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_windows.py"""
 import contextlib, importlib.util, io, os, sys, tempfile, unittest
 
@@ -27,6 +29,10 @@ OWNED_REFUSED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=14 kind=0 class=Permi
 CLOSE_FAILED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=16 kind=0 class=FindBarView rect=0,0,1,1 visible=1 "
                 "owner=find action=close-failed")
 WINDOW = PREFIX + "UNEXPECTED_WINDOW class=NSPanel title=1a2b3c4d action=ordered-out"
+HELD = (PREFIX + "BLOCKED_WIDGET browser=7 widget=17 kind=0 class=PermissionPromptBubbleOneOriginView "
+        "rect=0,0,1,1 visible=1 owner=permission-prompt action=held")
+HELD_GONE = HELD.replace("action=held", "action=gone")
+ON_SCREEN = {"layer": 0, "alpha": 1.0, "bounds": [10, 10, 300, 200]}
 
 
 def load_bench():
@@ -64,6 +70,23 @@ class ParseTests(unittest.TestCase):
         self.assertFalse(owned["ok"], "a refused widget fails though a cmux UI owns its kind: no widget is routed")
         self.assertEqual([w["widget"] for w in owned["unhandled_widgets"]], ["14"])
         self.assertFalse(windows.count([CLOSE_FAILED])["ok"], "a close the fork did not know fails")
+        held = windows.count([HELD])
+        self.assertFalse(held["ok"], "a held permission prompt fails: no one saw the request")
+        self.assertEqual(held["blocked_by_owner"], {"permission-prompt": 1})
+        self.assertFalse(windows.count([HELD, HELD_GONE])["ok"], "held, then ended by Chromium: still unhandled")
+        self.assertTrue(windows.count([HELD_GONE])["ok"], "a row that sees only the end of an earlier row's prompt")
+
+    def test_on_screen_windows(self):
+        self.assertEqual(windows.visible([ON_SCREEN, {"alpha": 0.0}, {"alpha": None}]), [ON_SCREEN])
+        self.assertIsNone(windows.visible(None))
+        shown = windows.count([], [ON_SCREEN])
+        self.assertFalse(shown["ok"], "a host window on screen fails with no host line naming it")
+        self.assertEqual(shown["on_screen_windows"], [ON_SCREEN])
+        self.assertIn("1 host windows on screen", windows.summary(shown))
+        unread = windows.count([], None)
+        self.assertFalse(unread["ok"], "an unreadable window list proves nothing")
+        self.assertIn("could not be read", windows.summary(unread))
+        self.assertTrue(windows.count([], [])["ok"])
 
     def test_refused_then_dismissed(self):
         later = REFUSED.replace("action=refused", "action=dismissed")
@@ -115,18 +138,26 @@ class BenchTests(unittest.TestCase):
         self.lines = {}  # row -> lines its run writes
         self.ran = []
         self.calls = []  # (module, rows) per run call: one probe per module
+        self.page_kwargs = {}
+        self.on_screen = {}  # row -> the host's visible windows at its end
+        self.current = [None]
+        self.bench.host_on_screen = lambda: list(self.on_screen.get(self.current[0], []))
 
         def fake(module, order):
-            def run(*_a, rows_to_run, on_row, **_k):
+            def run(*_a, rows_to_run, on_row, **kwargs):
                 self.calls.append((module, list(rows_to_run)))
+                if module == "page":
+                    self.page_kwargs = kwargs
                 rows = {}
                 for name in order:
                     if name not in rows_to_run:
                         continue
                     self.ran.append(name)
+                    self.current[0] = name
                     with open(self.log, "a") as log:
                         log.writelines(line + "\n" for line in self.lines.get(name, []))
                     rows[name] = on_row(name, {"ok": True})
+                self.current[0] = None
                 return rows, True
             return run
 
@@ -160,6 +191,26 @@ class BenchTests(unittest.TestCase):
         self.assertEqual(self.bench.RESULT["host_windows"]["unexpected_windows"], 1)
         self.assertEqual([line.split(":")[0] for line in printed],
                          ["FAILING native_ui.file_picker", "FAILING native_ui.host_windows"])
+
+    def test_context_menu_and_download_rows(self):
+        self.lines = {"context_menu": [POPUP], "download": [DISMISSED]}
+        rows, ok, printed = self.run_bench("select,context_menu,download,date")
+        self.assertEqual(self.ran, ["select", "context_menu", "download", "date"])
+        self.assertEqual(self.calls, [("page", ["select", "context_menu", "download", "date"])])
+        self.assertTrue(callable(self.page_kwargs.get("right_click")), "the page rows get the bench's right click")
+        self.assertTrue(ok, rows)
+        self.assertEqual(rows["context_menu"]["host_windows"]["blocked_by_class"], {"-": 1})
+        self.assertEqual(printed, ["FAILING none"])
+
+    def test_a_window_no_line_names_fails_its_row(self):
+        self.on_screen = {"date": [ON_SCREEN]}
+        rows, ok, printed = self.run_bench("select,date")
+        self.assertFalse(ok)
+        self.assertTrue(rows["select"]["ok"])
+        self.assertFalse(rows["date"]["ok"])
+        self.assertEqual(rows["date"]["host_windows"]["on_screen_windows"], [ON_SCREEN])
+        self.assertIn("1 host windows on screen", rows["date"]["host_windows_failed"])
+        self.assertEqual([line.split(":")[0] for line in printed], ["FAILING native_ui.date"])
 
     def test_clean_run(self):
         self.lines = {"date": [DISMISSED, POPUP]}

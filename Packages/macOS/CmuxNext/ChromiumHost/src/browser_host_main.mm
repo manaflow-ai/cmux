@@ -30,7 +30,8 @@
 //
 // No window of the host is ever on screen (task p01-process-068): from
 // initialize on, every Chromium widget of a detached page is blocked by the
-// fork and dismissed here (host_blocked_widgets.h), and a host window that
+// fork and dismissed here, a permission prompt held unanswered
+// (host_blocked_widgets.h), and a host window that
 // still shows (a window-modal sheet, an AppKit panel) is ordered out and
 // logged (ObserveHostWindows).
 //
@@ -450,20 +451,23 @@ void TakeOffScreen(NSWindow* window) {
   }
 }
 
-// A window coming on screen changes its occlusion state (AppKit has no
-// public "did become visible" notification), and a sheet or panel that
-// takes the keyboard becomes key (ObserveActivation).
+// AppKit posts nothing when a window is ordered in: occlusion changes only
+// for a window nothing covers, and the host, never the active app, orders
+// its windows in behind cmux's, where they stay occluded and never become
+// key. So every time the main run loop is about to wait, in every mode
+// (Chromium's tasks, menu tracking, a modal session), the host checks its
+// windows: an ordered-in window is off screen again before the run loop
+// sleeps, at most one pass after it came. A sheet or panel that takes the
+// keyboard is also caught as it becomes key (ObserveActivation).
 void ObserveHostWindows() {
-  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidChangeOcclusionStateNotification
-                                                  object:nil
-                                                   queue:NSOperationQueue.mainQueue
-                                              usingBlock:^(NSNotification* note) {
-                                                if (![note.object isKindOfClass:NSWindow.class]) return;
-                                                NSWindow* window = note.object;
-                                                if (window.occlusionState & NSWindowOcclusionStateVisible) {
-                                                  TakeOffScreen(window);
-                                                }
-                                              }];
+  CFRunLoopObserverRef idle = CFRunLoopObserverCreateWithHandler(
+      kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+        @autoreleasepool {
+          for (NSWindow* window in NSApp.windows) TakeOffScreen(window);
+        }
+      });
+  CFRunLoopAddObserver(CFRunLoopGetMain(), idle, kCFRunLoopCommonModes);
+  CFRelease(idle);
 }
 
 void ObserveActivation() {

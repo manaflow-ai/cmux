@@ -4,6 +4,7 @@
 # AppKit) with -Werror and runs its test (ChromiumHost/tests/
 # host_blocked_widgets_test.cpp): one dismissal and one BLOCKED_WIDGET line per
 # shown widget, a widget that hid first logged as gone, a refused close kept,
+# a permission prompt held and never closed,
 # owners by class, and the window backstop's line. Runs on Linux and macOS.
 # Not a CI test (lead, 2026-10-23): whoever changes the header runs it.
 set -euo pipefail

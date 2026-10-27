@@ -11,10 +11,16 @@ and one per host window its backstop found on screen and took off it:
 
   cmux-chromium-host: UNEXPECTED_WINDOW class=NSPanel title=1a2b3c4d action=ordered-out
 
-A row passes this check with 0 unexpected windows and every blocked widget's last line in it a logged dismissal
-(action dismissed) or a hide before the dismissal ran (gone). No widget is routed to a cmux UI: owner= only names the
-UI that missed the request, so an owned widget passes only as any other does. A widget still shown after its close
-(refused, close-failed) keeps its page waiting on a dialog no one sees: that fails the row.
+A widget reaches the host only when no cmux UI took its request first (owner= names the cmux UI of its kind). The host
+dismisses it as Chrome's Escape does, except a permission prompt: Escape on it is a recorded dismissal that counts
+toward the origin's embargo (PermissionDecisionAutoBlocker), so the host holds it (action held) until Chromium ends it.
+
+The bench adds what the window server shows at the row's end: the host's on-screen windows with alpha above 0
+(on_screen_windows of the host pid), so a window the host's backstop missed still fails its row.
+
+A row passes this check with 0 unexpected windows, no host window on screen, and every blocked widget's last line in
+it a logged dismissal (action dismissed) or a hide before the dismissal ran (gone). A widget that still shows (refused,
+close-failed, held) keeps its page waiting on a request no one sees: that fails the row.
 """
 import os
 import re
@@ -38,10 +44,13 @@ def handled(widget):
     return widget.get("action") in ("dismissed", "gone")
 
 
-def count(lines):
+def count(lines, on_screen=()):
     """The window block of one row from its log lines: blocked widgets by class, the unhandled ones, unexpected windows.
-    A widget with two lines (refused, then dismissed when it hid at last) counts once, by its last line."""
-    latest, unexpected = {}, []
+    A widget with two lines (refused, then dismissed when it hid at last) counts once, by its last line; one that was
+    held stays unhandled after Chromium ended it (no one saw the request). `on_screen`: the host's visible windows the
+    bench read at the row's end (visible()), None when they could not be read, which fails too: nothing shows the
+    screen clear."""
+    latest, held, unexpected = {}, set(), []
     for line in lines:
         record = parse(line)
         if record is None:
@@ -50,6 +59,8 @@ def count(lines):
             key = (record.get("browser"), record.get("widget"))
             latest.pop(key, None)  # re-inserted: the widgets stay in the order of their last line
             latest[key] = record
+            if record.get("action") == "held":
+                held.add(key)
         else:
             unexpected.append(record)
     blocked = list(latest.values())
@@ -57,7 +68,8 @@ def count(lines):
     for widget in blocked:
         name = widget.get("class", "-")
         by_class[name] = by_class.get(name, 0) + 1
-    unhandled = [widget for widget in blocked if not handled(widget)]
+    unhandled = [widget for key, widget in latest.items() if key in held or not handled(widget)]
+    shown = None if on_screen is None else list(on_screen)
     return {
         "blocked_widgets": len(blocked),
         "blocked_by_class": by_class,
@@ -65,8 +77,22 @@ def count(lines):
         "unhandled_widgets": unhandled,
         "unexpected_windows": len(unexpected),
         "unexpected": unexpected,
-        "ok": not unexpected and not unhandled,
+        "on_screen_windows": shown,
+        "ok": not unexpected and not unhandled and shown == [],
     }
+
+
+def visible(windows):
+    """The windows of the bench's on_screen_windows(pid) a person can see (alpha above 0); None stays None."""
+    return None if windows is None else [window for window in windows if (window.get("alpha") or 0) > 0]
+
+
+def summary(block):
+    """Why `block` fails, in one line."""
+    shown = block["on_screen_windows"]
+    screen = "the host's windows could not be read" if shown is None else f"{len(shown)} host windows on screen"
+    return (f"{block['unexpected_windows']} unexpected host windows, {screen}, "
+            f"{len(block['unhandled_widgets'])} blocked widgets with no dismissal")
 
 
 def _tally(records, field):
@@ -103,15 +129,15 @@ class LogCursor:
         return data[:end].decode("utf-8", errors="replace").splitlines()
 
 
-def checked(row, lines):
-    """`row` with its "host_windows" block from `lines`; a row that passed fails when the block does."""
-    block = count(lines)
+def checked(row, lines, on_screen=()):
+    """`row` with its "host_windows" block from `lines` and `on_screen` (count's); a row that passed fails when the
+    block does."""
+    block = count(lines, on_screen)
     row = dict(row)
     row["host_windows"] = block
     if row.get("ok") and not block["ok"]:
         row["ok"] = False
-        row["host_windows_failed"] = (f"{block['unexpected_windows']} unexpected host windows, "
-                                      f"{len(block['unhandled_widgets'])} blocked widgets with no dismissal")
+        row["host_windows_failed"] = summary(block)
     return row
 
 

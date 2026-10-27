@@ -8,7 +8,10 @@
 // and no hide comes) stays, is logged as refused, and its later moves neither
 // dismiss nor log it again, while its eventual hide logs it as dismissed; a
 // close the fork does not know (0) is logged as close-failed; the fork's
-// synchronous hide inside the close is not logged twice. The window backstop's line hashes the title and never prints it.
+// synchronous hide inside the close is not logged twice; a permission prompt
+// is never closed (its Escape is a recorded dismissal), only logged as held
+// and, when Chromium ends it, as gone. The window backstop's line hashes the
+// title and never prints it.
 // Whether the fork blocks every widget is the fork's helper-blocked-widgets
 // case (task 176); the counts per row are chromium-host-bench.py --native-ui.
 // Run by scripts/cmux-next/tests/chromium-host-blocked-widgets.test.sh.
@@ -115,12 +118,36 @@ void TestDismissedOnce() {
 
 void TestGoneBeforeDismissal() {
   Harness h;
-  h.Show(3, 5, 0, 1, "PermissionPromptBubbleOneOriginView", 0, 0, 320, 160);
-  h.Show(3, 5, 0, 0, "PermissionPromptBubbleOneOriginView", 0, 0, 320, 160);
+  h.Show(3, 5, 0, 1, "ChooserBubbleUiViewDelegate", 0, 0, 320, 160);
+  h.Show(3, 5, 0, 0, "ChooserBubbleUiViewDelegate", 0, 0, 320, 160);
   h.RunTasks();
   Check(h.fork.closed.empty(), "a widget that hid first is not closed");
-  Check(h.lines.size() == 1 && Contains(h.lines[0], " owner=permission-prompt action=gone"),
+  Check(h.lines.size() == 1 && Contains(h.lines[0], " owner=chooser action=gone"),
         "logged once as gone: " + (h.lines.empty() ? std::string() : h.lines[0]));
+}
+
+void TestPermissionPromptHeld() {
+  Harness h;
+  for (const char* view_class : {"PermissionPromptBubbleOneOriginView", "PermissionPromptBubbleTwoOriginView",
+                                 "EmbeddedPermissionPromptAskView"}) {
+    Check(!DismissesWithEscape(view_class), std::string("no Escape for ") + view_class);
+  }
+  Check(DismissesWithEscape("JavaScriptTabModalDialogViewViews") && DismissesWithEscape("FindBarView") &&
+            DismissesWithEscape(""),
+        "every other kind is dismissed with Escape");
+  h.Show(3, 5, 0, 1, "PermissionPromptBubbleOneOriginView", 0, 0, 320, 160);
+  Check(h.tasks.empty(), "a permission prompt posts no dismissal");
+  Check(h.lines.size() == 1 && Contains(h.lines[0], " widget=5 ") &&
+            Contains(h.lines[0], " owner=permission-prompt action=held"),
+        "it is logged as held when it shows: " + (h.lines.empty() ? std::string() : h.lines[0]));
+  h.Show(3, 5, 0, 1, "PermissionPromptBubbleOneOriginView", 4, 0, 320, 160);  // moved
+  h.RunTasks();
+  Check(h.fork.closed.empty(), "it is never closed through the Escape path, moved or not");
+  Check(h.lines.size() == 1 && h.widgets.shown() == 1, "a move logs nothing and it stays held");
+  h.Show(3, 5, 0, 0, "PermissionPromptBubbleOneOriginView", 4, 0, 320, 160);  // Chromium ended it
+  Check(h.lines.size() == 2 && Contains(h.lines[1], " widget=5 ") && Contains(h.lines[1], " action=gone"),
+        "Chromium's end of it logs it as gone: " + (h.lines.size() < 2 ? std::string() : h.lines[1]));
+  Check(h.fork.closed.empty() && h.widgets.shown() == 0, "still never closed, and it is gone");
 }
 
 void TestRefused() {
@@ -175,7 +202,7 @@ void TestPagePopupAndOwners() {
     Check(Contains(h.lines[0], " kind=3 class=- ") && Contains(h.lines[0], " owner=none "),
           "a page popup has no class: " + h.lines[0]);
     Check(Contains(h.lines[1], " owner=find action=dismissed"),
-          "the find bar is find's, and dismissed like any other (no widget is routed): " + h.lines[1]);
+          "the find bar is find's, and dismissed: Chromium's own find does not open cmux's: " + h.lines[1]);
     Check(Contains(h.lines[2], " owner=chooser "), "the screen share picker is a chooser's: " + h.lines[2]);
     Check(Contains(h.lines[3], " owner=js-dialog "), "HTTP auth is 063's: " + h.lines[3]);
     Check(Contains(h.lines[4], " class=Bad_class_name_with_signs "), "a class name is one token: " + h.lines[4]);
@@ -206,6 +233,7 @@ void TestUnexpectedWindowLine() {
 int main() {
   TestDismissedOnce();
   TestGoneBeforeDismissal();
+  TestPermissionPromptHeld();
   TestRefused();
   TestCloseFailed();
   TestPagePopupAndOwners();

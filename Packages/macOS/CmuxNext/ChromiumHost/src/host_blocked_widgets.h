@@ -4,15 +4,29 @@
 //
 // While the host's handler is set, every Views widget of a detached page (or
 // of no page) gets a headless window from the fork and is reported here
-// instead of ordering in. The host dismisses each one as Chrome's Escape does
-// (cmux_blocked_widget_close, DialogClientView::AcceleratorPressed in
-// ui/views/window/dialog_client_view.cc) and logs it as BLOCKED_WIDGET lines.
-// No widget is routed to a cmux UI: 062's permission prompts, 063's
-// JavaScript dialogs and HTTP auth, 228's choosers and cmux's find each take
-// their request through their own shim event, before Chromium makes a widget.
-// A widget of one of those kinds here is a request its cmux UI did not take,
-// so it is dismissed like any other, and the line's owner= names that UI for
-// whoever reads the log. A page never waits on a dialog no one can see.
+// instead of ordering in. 062's permission prompts, 063's JavaScript dialogs
+// and HTTP auth, 228's choosers and cmux's find each take their request
+// through their own shim event, before Chromium makes a widget; a widget of
+// one of those kinds here is a request its cmux UI did not take, and the
+// fork gives no way to hand a made widget to a cmux UI. So the host dismisses
+// each one as Chrome's Escape does (cmux_blocked_widget_close,
+// DialogClientView::AcceleratorPressed in ui/views/window/dialog_client_view.cc),
+// a cancel of which Chromium keeps no decision, and logs it as
+// BLOCKED_WIDGET lines. A page never waits on a dialog no one can see. The
+// find bar is dismissed too, as the shim's blocked window commands are
+// (CEFRuntime+Windows.swift): cmux's bindings decide what a key in a page
+// does, so a find Chromium started by itself does not open cmux's, and
+// closing it ends a find session with nothing kept.
+//
+// A permission prompt is the exception: Escape on it is the person's
+// dismissal (PermissionPromptBubbleBaseView's close callback,
+// PermissionRequestManager::Dismiss), which PermissionDecisionAutoBlocker
+// counts toward the origin's embargo
+// (components/permissions/permission_decision_auto_blocker.cc). The host
+// holds it unanswered, as Chrome leaves a prompt the person has not looked
+// at, logs it as held, and Chromium ends it with the page's navigation or
+// close. A held prompt fails its bench row: 062 did not take the request.
+// The line's owner= names the cmux UI of the widget's kind.
 //
 // The window observer in browser_host_main.mm is the backstop for what the
 // fork cannot block (a window-modal sheet, an AppKit panel such as
@@ -128,8 +142,15 @@ enum class BlockedAction {
   kDismissed,    // the close cancelled it and the fork reported it hidden
   kRefused,      // the close returned 1 and it still shows: it does not cancel on Escape
   kCloseFailed,  // the close returned 0: the fork does not know the widget it reported
-  kGone,         // it hid or closed before the dismissal ran
+  kGone,         // it hid or closed before the dismissal ran (or, held, before anyone answered it)
+  kHeld,         // a permission prompt, never closed: its Escape would record a dismissal
 };
+
+// Whether the host may dismiss the widget with Escape: false when Chromium
+// records that Escape as the person's decision (a permission prompt).
+inline bool DismissesWithEscape(std::string_view view_class) {
+  return OwnerOf(view_class) != WidgetOwner::kPermissionPrompt;
+}
 
 inline const char* ActionName(BlockedAction action) {
   switch (action) {
@@ -139,6 +160,8 @@ inline const char* ActionName(BlockedAction action) {
       return "refused";
     case BlockedAction::kCloseFailed:
       return "close-failed";
+    case BlockedAction::kHeld:
+      return "held";
     case BlockedAction::kGone:
       break;
   }
@@ -195,8 +218,9 @@ inline std::string UnexpectedWindowLine(std::string_view window_class, std::stri
 // Chrome's Escape arrives as an event of its own). It is logged as dismissed
 // only when the fork reports it hidden; one that still shows after the close
 // is logged as refused and kept, so its later move reports neither dismiss
-// nor log it again, and its hide, if it comes, logs it as dismissed. UI
-// thread only.
+// nor log it again, and its hide, if it comes, logs it as dismissed. A
+// permission prompt is never closed: it is logged as held when it shows and
+// as gone when Chromium ends it. UI thread only.
 class BlockedWidgets {
  public:
   using Close = std::function<int(int widget_id)>;
@@ -235,6 +259,9 @@ class BlockedWidgets {
         case State::kRefused:  // went at last after a refused close
           log_(BlockedWidgetLine(entry.widget, BlockedAction::kDismissed));
           break;
+        case State::kHeld:  // Chromium ended the prompt (the page navigated or closed)
+          log_(BlockedWidgetLine(entry.widget, BlockedAction::kGone));
+          break;
         case State::kClosing:      // the close's own hide: Dismiss logs it
         case State::kCloseFailed:  // logged when its close failed
           break;
@@ -243,11 +270,17 @@ class BlockedWidgets {
     }
     // A move or resize of a widget already reported reports it again.
     if (found != widgets_.end()) return;
+    if (!DismissesWithEscape(widget.view_class)) {
+      log_(BlockedWidgetLine(widget, BlockedAction::kHeld));
+      widgets_.emplace(id, Entry{std::move(widget), State::kHeld});
+      return;
+    }
     widgets_.emplace(id, Entry{std::move(widget), State::kPending});
     post_([this, id] { Dismiss(id); });
   }
 
-  // Widgets still shown: their dismissal has not run yet, or did not take them.
+  // Widgets still shown: their dismissal has not run yet, did not take
+  // them, or they are held.
   size_t shown() const { return widgets_.size(); }
 
  private:
@@ -256,6 +289,7 @@ class BlockedWidgets {
     kClosing,      // inside its close
     kRefused,      // its close returned 1 and it still shows
     kCloseFailed,  // its close returned 0
+    kHeld,         // a permission prompt, left to Chromium
   };
   struct Entry {
     BlockedWidget widget;

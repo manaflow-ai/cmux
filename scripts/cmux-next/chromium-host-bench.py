@@ -127,8 +127,9 @@ Per mode:
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
 --native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
-<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the
-hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
 popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
 chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
@@ -798,7 +799,8 @@ def native_ui_rows(rpc, url, app_pid):
     """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows; each row gets
     chromium_host_windows' block of the app log lines written while it ran (a log cursor taken right after it), and
     RESULT["host_windows"] is the block of the whole run (lines a row's last dismissal wrote after it ended are counted
-    there). Returns (rows, ok)."""
+    there). Each block also holds the host's visible windows the window server lists at its end (host_on_screen): a
+    host window its backstop never saw fails the row all the same. Returns (rows, ok)."""
     every_line = []
     cursor = chromium_host_windows.LogCursor(APP_LOG.get("path"))
     evaluate = lambda script: page_eval(rpc, script, None)  # noqa: E731
@@ -806,21 +808,29 @@ def native_ui_rows(rpc, url, app_pid):
     def on_row(_name, row):
         lines = cursor.take()
         every_line.extend(lines)
-        return chromium_host_windows.checked(row, lines)
+        return chromium_host_windows.checked(row, lines, host_on_screen())
 
     rows = {}
     page_rows = [row for row in opts.native_ui if row in chromium_host_native_ui.ROWS]
     if page_rows:
         rows.update(chromium_host_native_ui.run(rpc, wait, evaluate, url, rows_to_run=page_rows, front=front_pid,
-                                                app_pid=app_pid, on_row=on_row)[0])
+                                                app_pid=app_pid, right_click=page_right_click(rpc),
+                                                on_row=on_row)[0])
     dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
     if dialog_rows:
         rows.update(chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
                                                         on_screen_windows, rows_to_run=dialog_rows, on_row=on_row)[0])
     every_line += cursor.take()
-    RESULT["host_windows"] = chromium_host_windows.count(every_line)
+    RESULT["host_windows"] = chromium_host_windows.count(every_line, host_on_screen())
     ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values())
     return rows, ok
+
+
+def host_on_screen():
+    """The running Chromium Host's on-screen windows with alpha above 0 (none when no host runs), or None when the
+    window list cannot be read."""
+    pid = chromium_host_pid()
+    return [] if pid is None else chromium_host_windows.visible(on_screen_windows(pid))
 
 
 def print_failing(result):
@@ -828,8 +838,7 @@ def print_failing(result):
     failing = chromium_host_windows.failing(result["modes"].get("native_ui") or {})
     whole = result.get("host_windows") or {}
     if whole and not whole.get("ok"):
-        failing.append(("host_windows", f"{whole.get('unexpected_windows')} unexpected host windows, "
-                                        f"{len(whole.get('unhandled_widgets') or [])} unhandled blocked widgets"))
+        failing.append(("host_windows", chromium_host_windows.summary(whole)))
     if result.get("error"):
         failing.append(("launch", result["error"]))
     for name, reason in failing:
@@ -1183,6 +1192,20 @@ def focused_pane_border(rpc):
     layers = rpc("debug.pane_chrome") or {}
     return next((p.get("border") for w in layers.get("windows") or [] for p in w.get("panes") or []
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
+
+
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
 
 
 def run_host_probe(rpc, url, record=True):
