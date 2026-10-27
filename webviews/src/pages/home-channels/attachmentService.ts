@@ -7,6 +7,7 @@
 // show under any page policy (the app's page scheme allows `img-src data:` only). A video plays
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
+import { sha256 as incrementalSha256 } from "@noble/hashes/sha2.js";
 import type { PageClient } from "../shared/pageClient";
 import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
 
@@ -112,7 +113,7 @@ export function resolvedType(file: File, bytes: Uint8Array): string {
   const listed = attachmentType(file);
   if (listed) return listed;
   const prefix = bytes.subarray(0, SNIFF_BYTES);
-  return looksLikeText(prefix, prefix.length === bytes.length) ? "text/plain" : GENERIC_FILE_TYPE;
+  return looksLikeText(prefix, prefix.length === file.size) ? "text/plain" : GENERIC_FILE_TYPE;
 }
 
 export type Refusal = "size";
@@ -134,116 +135,28 @@ export function formatBytes(bytes: number): string {
   return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
-/** Incremental SHA-256 so an attachment's hash never requires a whole-file allocation. */
-class StreamingSha256 {
-  private readonly state = new Uint32Array([
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-  ]);
-  private readonly pending = new Uint8Array(64);
-  private readonly words = new Uint32Array(64);
-  private pendingLength = 0;
-  private bytes = 0;
-
-  update(input: Uint8Array): void {
-    this.bytes += input.length;
-    let offset = 0;
-    if (this.pendingLength) {
-      const count = Math.min(64 - this.pendingLength, input.length);
-      this.pending.set(input.subarray(0, count), this.pendingLength);
-      this.pendingLength += count;
-      offset = count;
-      if (this.pendingLength === 64) {
-        this.block(this.pending);
-        this.pendingLength = 0;
-      }
-    }
-    while (offset + 64 <= input.length) {
-      this.block(input.subarray(offset, offset + 64));
-      offset += 64;
-    }
-    if (offset < input.length) {
-      this.pending.set(input.subarray(offset), 0);
-      this.pendingLength = input.length - offset;
-    }
-  }
-
-  digest(): string {
-    const tail = new Uint8Array(128);
-    tail.set(this.pending.subarray(0, this.pendingLength));
-    tail[this.pendingLength] = 0x80;
-    const bitLength = this.bytes * 8;
-    const blockLength = this.pendingLength + 1 <= 56 ? 64 : 128;
-    const view = new DataView(tail.buffer);
-    view.setUint32(blockLength - 8, Math.floor(bitLength / 0x1_0000_0000));
-    view.setUint32(blockLength - 4, bitLength >>> 0);
-    this.block(tail.subarray(0, 64));
-    if (blockLength === 128) this.block(tail.subarray(64, 128));
-    return [...this.state].map((word) => word.toString(16).padStart(8, "0")).join("");
-  }
-
-  private block(block: Uint8Array): void {
-    const words = this.words;
-    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-    for (let i = 0; i < 16; i++) words[i] = view.getUint32(i * 4);
-    for (let i = 16; i < 64; i++) {
-      const x = words[i - 15]!, y = words[i - 2]!;
-      const s0 = (x >>> 7 | x << 25) ^ (x >>> 18 | x << 14) ^ (x >>> 3);
-      const s1 = (y >>> 17 | y << 15) ^ (y >>> 19 | y << 13) ^ (y >>> 10);
-      words[i] = (words[i - 16]! + s0 + words[i - 7]! + s1) >>> 0;
-    }
-    let [a, b, c, d, e, f, g, h] = this.state;
-    for (let i = 0; i < 64; i++) {
-      const s1 = (e! >>> 6 | e! << 26) ^ (e! >>> 11 | e! << 21) ^ (e! >>> 25 | e! << 7);
-      const choose = (e! & f!) ^ (~e! & g!);
-      const t1 = (h! + s1 + choose + K[i]! + words[i]!) >>> 0;
-      const s0 = (a! >>> 2 | a! << 30) ^ (a! >>> 13 | a! << 19) ^ (a! >>> 22 | a! << 10);
-      const majority = (a! & b!) ^ (a! & c!) ^ (b! & c!);
-      const t2 = (s0 + majority) >>> 0;
-      const nextA = (t1 + t2) >>> 0;
-      const nextE = (d! + t1) >>> 0;
-      h = g;
-      g = f;
-      f = e;
-      e = nextE;
-      d = c;
-      c = b;
-      b = a;
-      a = nextA;
-    }
-    this.state[0] = (this.state[0]! + a!) >>> 0;
-    this.state[1] = (this.state[1]! + b!) >>> 0;
-    this.state[2] = (this.state[2]! + c!) >>> 0;
-    this.state[3] = (this.state[3]! + d!) >>> 0;
-    this.state[4] = (this.state[4]! + e!) >>> 0;
-    this.state[5] = (this.state[5]! + f!) >>> 0;
-    this.state[6] = (this.state[6]! + g!) >>> 0;
-    this.state[7] = (this.state[7]! + h!) >>> 0;
-  }
-}
-
-const K = Uint32Array.from([
-  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-]);
-
 async function sha256(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** Hash bounded slices, yielding at each Blob read so cancellation can interrupt large originals. */
 export async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
-  const hash = new StreamingSha256();
-  for (let offset = 0; offset < file.size; offset += READ_BYTES) {
-    if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
-    hash.update(new Uint8Array(await file.slice(offset, offset + READ_BYTES).arrayBuffer()));
+  const hash = incrementalSha256.create();
+  const hashChunkBytes = 64 * 1024;
+  try {
+    for (let offset = 0; offset < file.size; offset += hashChunkBytes) {
+      signal?.throwIfAborted();
+      const chunk = new Uint8Array(await file.slice(offset, offset + hashChunkBytes).arrayBuffer());
+      signal?.throwIfAborted();
+      if (chunk.length !== Math.min(hashChunkBytes, file.size - offset)) throw new Error("short file read");
+      hash.update(chunk);
+    }
+    signal?.throwIfAborted();
+    return Array.from(hash.digest(), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  } finally {
+    hash.destroy();
   }
-  return hash.digest();
 }
 
 function base64(bytes: Uint8Array): string {
@@ -346,7 +259,12 @@ export interface UploadProgress {
   total: number;
 }
 
-type UploadReply = { upload?: string | null; needs?: string[]; stored?: unknown; received?: number };
+type UploadReply = {
+  upload?: string | null;
+  needs?: string[];
+  stored?: unknown;
+  received?: number;
+};
 
 /** The page's attachment work against one host: upload, read, link. One per page client. */
 export class AttachmentService {
@@ -372,6 +290,7 @@ export class AttachmentService {
     onProgress: (progress: UploadProgress) => void,
     signal?: AbortSignal,
   ): Promise<HomeAttachment> {
+    signal?.throwIfAborted();
     if (refusal(file)) throw new Error("refused");
     const prefix = new Uint8Array(await file.slice(0, Math.min(SNIFF_BYTES, file.size)).arrayBuffer());
     const mimeType = resolvedType(file, prefix);
@@ -390,13 +309,22 @@ export class AttachmentService {
     if (facts.durationMs !== undefined) part.durationMs = facts.durationMs;
     let derivedImage: HomeDerivedImage | undefined;
     if (derived) {
-      derivedImage = { hash: await sha256(derived.bytes), mimeType: derived.mimeType, byteCount: derived.bytes.length };
+      derivedImage = {
+        hash: await sha256(derived.bytes),
+        mimeType: derived.mimeType,
+        byteCount: derived.bytes.length,
+      };
       if (kind === "video") part.poster = derivedImage;
       else part.preview = derivedImage;
     }
     const declared = derivedImage
-      ? { sha256: derivedImage.hash, byte_count: derivedImage.byteCount, mime_type: derivedImage.mimeType }
+      ? {
+          sha256: derivedImage.hash,
+          byte_count: derivedImage.byteCount,
+          mime_type: derivedImage.mimeType,
+        }
       : undefined;
+    signal?.throwIfAborted();
     const begun = await this.client.call<UploadReply>(HomeOps.attachmentUpload, {
       op: "begin",
       conversation,
@@ -424,15 +352,28 @@ export class AttachmentService {
         const size = piece === "original" ? file.size : data!.length;
         for (let offset = 0; offset < size; offset += CHUNK_BYTES) {
           if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
-          const chunk = piece === "original"
-            ? new Uint8Array(await file.slice(offset, offset + CHUNK_BYTES).arrayBuffer())
-            : data!.subarray(offset, offset + CHUNK_BYTES);
-          await this.client.call(HomeOps.attachmentUpload, { op: "chunk", upload, piece, offset, data: base64(chunk) });
+          const chunk =
+            piece === "original"
+              ? new Uint8Array(await file.slice(offset, offset + CHUNK_BYTES).arrayBuffer())
+              : data!.subarray(offset, offset + CHUNK_BYTES);
+          signal?.throwIfAborted();
+          if (chunk.length !== Math.min(CHUNK_BYTES, size - offset)) throw new Error("short file read");
+          await this.client.call(HomeOps.attachmentUpload, {
+            op: "chunk",
+            upload,
+            piece,
+            offset,
+            data: base64(chunk),
+          });
           sent += chunk.length;
           onProgress({ sent, total });
         }
       }
-      const committed = await this.client.call<UploadReply>(HomeOps.attachmentUpload, { op: "commit", upload });
+      signal?.throwIfAborted();
+      const committed = await this.client.call<UploadReply>(HomeOps.attachmentUpload, {
+        op: "commit",
+        upload,
+      });
       onProgress({ sent: total, total });
       return kept(part, committed.stored);
     } catch (error) {
@@ -496,10 +437,12 @@ export class AttachmentService {
     let data = "";
     let mimeType = "application/octet-stream";
     for (;;) {
-      const read = await this.client.call<{ mimeType: string; data: string; eof: boolean; byteCount: number }>(
-        HomeOps.attachmentRead,
-        { conversation, hash, variant, offset, length: READ_BYTES },
-      );
+      const read = await this.client.call<{
+        mimeType: string;
+        data: string;
+        eof: boolean;
+        byteCount: number;
+      }>(HomeOps.attachmentRead, { conversation, hash, variant, offset, length: READ_BYTES });
       mimeType = read.mimeType || mimeType;
       // Whole base64 quanta only join: every read but the last is a multiple of 3 bytes.
       const padding = read.data.endsWith("==") ? 2 : read.data.endsWith("=") ? 1 : 0;
@@ -520,7 +463,13 @@ function kept(part: HomeAttachment, stored: unknown): HomeAttachment {
   if (!stored || typeof stored !== "object") return part;
   const record = stored as { poster?: Record<string, unknown>; preview?: Record<string, unknown> };
   const image = (raw?: Record<string, unknown>): HomeDerivedImage | undefined =>
-    raw ? { hash: String(raw.hash), mimeType: String(raw.mime_type), byteCount: Number(raw.byte_count) } : undefined;
+    raw
+      ? {
+          hash: String(raw.hash),
+          mimeType: String(raw.mime_type),
+          byteCount: Number(raw.byte_count),
+        }
+      : undefined;
   const { poster: _poster, preview: _preview, ...rest } = part;
   const result: HomeAttachment = { ...rest };
   const poster = image(record.poster);

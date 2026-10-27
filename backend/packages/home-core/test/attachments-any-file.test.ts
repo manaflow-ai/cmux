@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { cleanAttachmentPart, validateAttachmentMeta } from "../src/conversation/index.ts"
+import { attachmentQuota, cleanAttachmentPart, validateAttachmentMeta } from "../src/conversation/index.ts"
 
 /**
  * Any file attaches (Lawrence 2026-10-20, "“index.html” can't be attached ... need to fix this"):
@@ -32,4 +32,13 @@ describe("attachments: any file", () => {
     expect(validateAttachmentMeta(meta("x.svg", "image/svg+xml")).ok).toBe(false)
     expect(validateAttachmentMeta(meta("index.html", "text/html")).ok).toBe(false)
   })
+
+  it("admits large originals while preserving the intent rate limit", () => {
+    const now = 100_000_000
+    const usage = { intents: [], bytes: [{ at: now, bytes: 20_000_000_000 }], stored: 20_000_000_000 }
+    expect(attachmentQuota(usage, 20_000_000_000, now)).toEqual({ ok: true })
+    expect(validateAttachmentMeta({ ...meta("large.bin", "application/octet-stream"), byte_count: 20_000_000_000 }).ok).toBe(true)
+    expect(attachmentQuota({ ...usage, intents: Array(300).fill(now) }, 1, now)).toMatchObject({ ok: false, window: "day_intents" })
+  })
+
 })

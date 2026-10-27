@@ -53,6 +53,7 @@
     "@base-ui/react": "1.8.0",
     "@chenglou/pretext": "0.0.9",
     "@milkdown/kit": "7.22.2",
+    "@noble/hashes": "2.0.1",
     "@pierre/diffs": "1.2.7",
     "@pierre/trees": "1.0.0-beta.4",
     "@shikijs/monaco": "3.23.0",

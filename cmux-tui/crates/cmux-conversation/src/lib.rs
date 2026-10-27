@@ -35,7 +35,7 @@ pub use home::{
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
 pub use link_preview::{
-    LINK_URL_BYTES_LIMIT, MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, valid_link_preview_part,
+    MAX_LINK_URL_BYTES, MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, valid_link_preview_part,
     valid_link_url,
 };
 pub use question::{

@@ -12,7 +12,7 @@ use crate::attachments::{DERIVED_PREVIEW_IMAGE_BYTES_LIMIT, is_derived_image_typ
 use crate::types::Part;
 
 /// Longest URL, in UTF-8 bytes.
-pub const LINK_URL_BYTES_LIMIT: usize = 2048;
+pub const MAX_LINK_URL_BYTES: usize = 2048;
 /// Longest title, in characters (Unicode scalars).
 pub const MAX_LINK_TITLE_CHARS: usize = 300;
 /// Longest site name, in characters (a DNS name's length).
@@ -24,7 +24,7 @@ pub const MAX_LINK_SITE_CHARS: usize = 253;
 /// plain rule, not a full URL parser, so the cloud owner applies exactly
 /// the same one.
 pub fn valid_link_url(url: &str) -> bool {
-    if url.is_empty() || url.len() > LINK_URL_BYTES_LIMIT {
+    if url.is_empty() || url.len() > MAX_LINK_URL_BYTES {
         return false;
     }
     if url

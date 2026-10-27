@@ -225,6 +225,6 @@ enum CloudUploadStrings {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module)
     }
     static var refused: String {
-        String(localized: "cloud.upload.refused", defaultValue: "This file could not be sent to the Cloud machine.", table: "Cloud", bundle: .module)
+        failed
     }
 }

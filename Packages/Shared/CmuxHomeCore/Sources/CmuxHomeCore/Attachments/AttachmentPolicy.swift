@@ -12,12 +12,12 @@ public struct HomeAttachmentPolicy {
     /// At most this many parts per message (attachments plus text).
     public static let maxParts = 16
     /// A video's poster: at most this size, one of `posterTypes`.
-    public static let posterBytesLimit = 2_000_000
+    public static let posterMaxBytes = 2_000_000
     public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]
     /// An image's preview: at most this size (decimal, like the owner), one
     /// of `posterTypes`; the client makes a JPEG at most `previewMaxPixel`
     /// on its long edge.
-    public static let previewBytesLimit = 512_000
+    public static let previewMaxBytes = 512_000
     public static let previewMaxPixel = 1024
 
     /// The type of a file with no type of its own on the list: any bytes

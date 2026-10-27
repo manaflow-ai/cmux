@@ -82,6 +82,6 @@ struct CloudHintCommandsTests {
 
     /// A transport refusal remains actionable without advertising an arbitrary policy cap.
     @Test func anUploadRefusalDoesNotNameAnArbitraryLimit() {
-        #expect(CloudUploadStrings.refused == "This file could not be sent to the Cloud machine.")
+        #expect(CloudUploadStrings.refused == CloudUploadStrings.failed)
     }
 }
