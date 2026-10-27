@@ -10,12 +10,21 @@ public struct ControlRequest: Sendable {
     /// In-process provider attribution; wire decoding never accepts this field.
     /// An app's user gesture does not turn its principal into the native frontend.
     public var callerApp: String?
+    /// The caller's flow id (the top-level `flow` the `cmux` CLI mints for each request, task 115): an integer from
+    /// 1 to 2^53 - 1, so a JSON number holds it exactly. Nil when the line has none or has one of another shape; an
+    /// app older than the field never reads it, so a CLI sends it to every app.
+    public var flow: UInt64?
+    /// The socket request's trace and latency scope (``ControlRequestScope``); nil for in-process callers. Wire
+    /// decoding never sets it.
+    public var scope: ControlRequestScope?
 
-    public init(id: JSONValue? = nil, method: String, params: [String: JSONValue] = [:], callerApp: String? = nil) {
+    public init(id: JSONValue? = nil, method: String, params: [String: JSONValue] = [:], callerApp: String? = nil,
+                flow: UInt64? = nil) {
         self.id = id
         self.method = method
         self.params = params
         self.callerApp = callerApp
+        self.flow = flow
     }
 }
 
@@ -78,7 +87,17 @@ enum ControlWire {
         guard !method.isEmpty else {
             return .failure(ControlError(code: "invalid_request", message: ControlStrings.text("control.error.missingMethod", "Missing method")))
         }
-        return .success(ControlRequest(id: members["id"], method: method, params: members["params"]?.objectValue ?? [:]))
+        return .success(ControlRequest(id: members["id"], method: method, params: members["params"]?.objectValue ?? [:],
+                                       flow: flow(members["flow"])))
+    }
+
+    /// The largest flow id: 2^53 - 1, the largest integer every JSON number holds exactly.
+    static let maxFlow: UInt64 = (1 << 53) - 1
+
+    /// `value` as a flow id: a whole number from 1 to ``maxFlow``, else nil (ignored, never refused).
+    static func flow(_ value: JSONValue?) -> UInt64? {
+        guard case .number(let number) = value, number >= 1, number <= Double(maxFlow) else { return nil }
+        return UInt64(exactly: number)
     }
 
     static func encode(id: JSONValue?, result: Result<JSONValue, ControlError>) -> String {

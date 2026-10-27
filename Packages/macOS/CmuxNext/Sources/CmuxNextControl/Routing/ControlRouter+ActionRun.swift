@@ -124,7 +124,10 @@ extension ControlRouter {
     }
 
     private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
-        let request = try await prepared(action, given, call: call)
+        var placed = try await prepared(action, given, call: call)
+        // After the idempotency fingerprint (`given`): a retry's new flow never conflicts with its key.
+        placed.flow = call.request.flow ?? 0
+        let request = placed
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
@@ -133,7 +136,7 @@ extension ControlRouter {
         // A later step of a composite call (`file.open`'s next path) follows steps that may have applied.
         let firstStep = !progress.hasStarted
         let run = try await workQueue.run(connection: call.connection, method: call.method, owner: call.owner, deadline: call.deadline,
-                                          countingFrom: call.engineStartMark) {
+                                          countingFrom: call.engineStartMark, scope: call.request.scope) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin(), scope.noting("handler") else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }

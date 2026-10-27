@@ -104,7 +104,10 @@ extension ControlRouter {
         requests.reserveCapacity(given.count)
         for (index, op) in given.enumerated() {
             do {
-                requests.append(try await prepared(op.action, op.request, call: call))
+                var request = try await prepared(op.action, op.request, call: call)
+                // After the idempotency fingerprint: a retry's new flow never conflicts with its key.
+                request.flow = call.request.flow ?? 0
+                requests.append(request)
             } catch let error as ControlError {
                 throw error.atBatchOp(index)
             }
@@ -121,7 +124,7 @@ extension ControlRouter {
             for start in stride(from: 0, to: requests.count, by: size) {
                 let transaction = Array(requests.dropFirst(start).prefix(size))
                 let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
-                                                  countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
+                                                  countingFrom: call.engineStartMark, scope: call.request.scope) { () throws -> [ControlActionRun] in
                     // The request may have answered `not_run` already: then never run.
                     guard progress.begin(), scope.noting("handler") else { throw expired }
                     // The queue runs this from a run-loop block, where no task is current (cx-bpcj).

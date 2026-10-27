@@ -16,8 +16,9 @@ struct ControlAuthorizer: Sendable {
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
 
     /// The response line for one request line, and whether to keep the
-    /// connection open.
-    mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
+    /// connection open. `scope` is the line's ``ControlRequestScope`` (task 115).
+    mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess,
+                          scope: ControlRequestScope? = nil) async -> (String?, Bool) {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !line.isEmpty else { return (nil, true) }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
@@ -29,7 +30,7 @@ struct ControlAuthorizer: Sendable {
         } else if isJSON, case .success(let request) = ControlRouter.decode(line), request.method == "auth.login" {
             return (ControlRouter.encode(id: request.id, result: .success(["authenticated": true])), true)
         }
-        return (await router.response(forLine: line, connection: connection), true)
+        return (await router.response(forLine: line, connection: connection, scope: scope), true)
     }
 
     /// The `events.stream` request in `rawLine`, when this connection is admitted.

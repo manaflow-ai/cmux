@@ -9,8 +9,15 @@
 //! `origin` (`cli` or `script`) put over any `origin` in the JSON: a call
 //! never claims to be the person, so person-only operations stay refused.
 //! The app's own error passes through with its code (exit 1).
+//!
+//! Every app request this CLI sends carries a top-level `flow` from
+//! [`next_flow`] (p09-observability task 115): the app's trace starts that
+//! flow when it parses the request and ends it at the action's commit, so a
+//! CLI call shows apart from the person's input. An app older than the field
+//! never reads it; it is outside `params`, which methods check strictly.
 
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde_json::{Map, Value, json};
 
@@ -62,5 +69,40 @@ pub(super) fn run(
         Ok(Ok(result)) => super::super::wire::print_local_success(&result, output),
         Ok(Err(error)) => super::super::wire::print_local_error(&error, output, 1),
         Err(error) => super::failure("app.transport", &error, output, 3),
+    }
+}
+
+/// The pid bits a flow keeps: 21, so that a flow (pid above bit 32, the
+/// request's sequence below) stays under 2^53 and a JSON number, which the
+/// app reads as a double, holds it exactly.
+const FLOW_PID_MASK: u64 = (1 << 21) - 1;
+
+/// The flow id of this process's next app request: the pid's low 21 bits
+/// above bit 32 and a sequence from 1 below, as the app mints a key's flow
+/// (its pid in the high bits), so each CLI call is its own flow. Never 0.
+pub(super) fn next_flow() -> u64 {
+    static NEXT: AtomicU32 = AtomicU32::new(1);
+    flow_id(std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn flow_id(pid: u32, sequence: u32) -> u64 {
+    ((u64::from(pid) & FLOW_PID_MASK) << 32) | u64::from(sequence.max(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FLOW_PID_MASK, flow_id, next_flow};
+
+    #[test]
+    fn cli_flow_ids_fit_a_json_number_and_keep_the_pid() {
+        let largest = flow_id(u32::MAX, u32::MAX);
+        assert!(largest < 1 << 53, "{largest} must survive a double");
+        assert_eq!(flow_id(4_242, 7) >> 32, 4_242);
+        assert_eq!(flow_id(4_242, 7) & 0xFFFF_FFFF, 7);
+        assert_ne!(flow_id(0, 0), 0, "a flow is never 0 (no flow)");
+        let own = u64::from(std::process::id()) & FLOW_PID_MASK;
+        let (first, second) = (next_flow(), next_flow());
+        assert_ne!(first, second);
+        assert_eq!(first >> 32, own);
     }
 }

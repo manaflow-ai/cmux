@@ -874,6 +874,30 @@ fn app_call_sends_the_method_to_a_debug_build() {
     assert_eq!(app.join().unwrap()[0][1]["params"], json!({ "origin": "script" }));
 }
 
+/// Three calls are three flows (p09-observability task 115): each request
+/// line carries its own nonzero top-level `flow`, outside the `params` an old
+/// app checks, so an app older than the field answers it as before.
+#[test]
+fn cli_flow_three_calls_send_three_flows_beside_their_params() {
+    let pong = json!({ "id": 1, "ok": true, "result": { "pong": true } });
+    let (socket, app) = fake_app(vec![pong.clone(), pong.clone(), pong]);
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    for _ in 0..3 {
+        let answer = exchange(&mut stream, "system.ping", json!({ "x": 1 }), READ_TIMEOUT).unwrap();
+        assert_eq!(answer, Ok(json!({ "pong": true })));
+    }
+    drop(stream);
+    let requests = app.join().unwrap().remove(0);
+    let flows: Vec<u64> =
+        requests.iter().map(|request| request["flow"].as_u64().unwrap()).collect();
+    assert_eq!(flows.len(), 3);
+    assert!(flows.iter().all(|flow| *flow != 0 && *flow < 1 << 53), "{flows:?}");
+    assert!(flows.windows(2).all(|pair| pair[0] != pair[1]), "{flows:?}");
+    for request in &requests {
+        assert_eq!(request["params"], json!({ "x": 1 }), "the flow never goes into params");
+    }
+}
+
 /// RED: a release, nightly or rc app is refused before any method is sent.
 #[test]
 fn app_call_refuses_an_app_that_is_not_a_debug_build() {

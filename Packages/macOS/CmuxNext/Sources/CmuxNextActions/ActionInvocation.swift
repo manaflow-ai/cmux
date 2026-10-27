@@ -99,6 +99,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `action.*` signposts report its age when no input event is being dispatched at the run, and
     /// its ``ActionRunScope`` keeps it for the switches the run makes. Nil for every other run.
     public var inputTimestamp: Double?
+    /// The flow id the control-socket caller sent with the request (the `cmux` CLI mints one per request), or 0:
+    /// the run's `action.commit` ends that flow, so a trace links the CLI call to its commit (p09-observability
+    /// task 115). Only the control socket sets it.
+    public var flow: UInt64 = 0
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

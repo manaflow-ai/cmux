@@ -26,6 +26,9 @@ public import CmuxNextTrace
 /// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
 /// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
 /// Chrome watches each task of its IO thread (base/threading/hang_watcher.h, `ThreadType::kIOThread`).
+///
+/// Latency: each request line is one ``ControlRequestScope`` from its read to its reply (task 115), so CLI, MCP
+/// and agent requests show apart from the person's input in the trace and in `automation.request.<class>`.
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
         public var path: String
@@ -99,6 +102,8 @@ public final class ControlSocketServer: Sendable {
     private let acceptQueue = DispatchQueue(label: "com.cmuxterm.next.control.accept", qos: .utility)
     /// The hang watch the accept lane and each connection's lane register on; nil watches nothing.
     private let hangs: (any HangWatchScoping)?
+    /// The runtime each request's ``ControlRequestScope`` writes to and records its histograms in.
+    private let trace: TraceRuntime
     /// The accept queue's lane: each accept pass is one scope.
     private let acceptWatched: HangWatchedLane?
     /// One accept pass's budget (a jank past it, a hang dump 2 s later): every call in it is non-blocking.
@@ -128,20 +133,24 @@ public final class ControlSocketServer: Sendable {
     /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
     private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
 
-    /// - Parameter hangs: Watches each accept pass and each connection's jobs; nil (the default) watches nothing.
-    ///   The app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads.
-    public convenience init(configuration: Configuration, router: ControlRouter, hangs: (any HangWatchScoping)? = nil) {
+    /// - Parameters:
+    ///   - hangs: Watches each accept pass and each connection's jobs; nil (the default) watches nothing.
+    ///     The app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads.
+    ///   - trace: Where each request's `control.request` records and `automation.*` samples go (the process's).
+    public convenience init(configuration: Configuration, router: ControlRouter, hangs: (any HangWatchScoping)? = nil,
+                            trace: TraceRuntime = .shared) {
         // SAFETY: with a nil address and length, accept(2) writes nothing back.
-        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) }, hangs: hangs)
+        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) }, hangs: hangs, trace: trace)
     }
 
     init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
-         bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil) {
+         bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
         self.bindCall = bind
         self.hangs = hangs
+        self.trace = trace
         acceptWatched = hangs.map { HangWatchedLane("control.accept", deadline: Self.acceptHangDeadline, on: $0) }
     }
 
@@ -379,6 +388,7 @@ public final class ControlSocketServer: Sendable {
             })
             state.withLock { $0.connections[id] = connection }
             let router = self.router
+            let trace = self.trace
             connection.start { lines in
                 var authorizer = authorizer
                 for await line in lines {
@@ -387,8 +397,14 @@ public final class ControlSocketServer: Sendable {
                         await router.streamEvents(request, emit: { connection.send($0) }, hangup: { await connection.hangup() })
                         break
                     }
-                    let (response, keepOpen) = await authorizer.respond(to: line, router: router, connection: id)
-                    if let response { connection.send(response) }
+                    // Released at the end of the iteration: one that never replied ends as abandoned (its guard).
+                    let scope = ControlRequestScope(connection: id, runtime: trace)
+                    let (response, keepOpen) = await authorizer.respond(to: line, router: router, connection: id, scope: scope)
+                    if let response {
+                        // Ended as the line goes to the connection's outbox, before the client can read it.
+                        scope.replied()
+                        connection.send(response)
+                    }
                     connection.lineConsumed()
                     if !keepOpen { break }
                 }

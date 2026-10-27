@@ -31,6 +31,9 @@ public struct ControlActionRequest: Sendable, Hashable {
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.
     public var newColumnBeside = false
+    /// The caller's flow id (``ControlRequest/flow``), 0 for none: the run's `action.commit` ends the flow (task
+    /// 115). Set after the idempotency fingerprint is taken, so a retry with a new flow still replays.
+    public var flow: UInt64 = 0
 
     public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:], origin: String = "cli",
                 focus: Bool = false) {

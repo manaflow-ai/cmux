@@ -4,7 +4,10 @@ public import CmuxNextTrace
 
 /// The App's ``ActionRunTiming``: `action.perform` around the synchronous run and `action.commit`
 /// from its start to the next Core Animation commit (``CommitBoundary``), plus `action.gate`
-/// around a confirmation or argument gate, in Debug and Release. The message fields go to the log
+/// around a confirmation or argument gate, in Debug and Release. A run a control-socket caller sent with a flow
+/// (``ActionRunInput/flow``) ends that flow with a flow-in at its `action.commit` begin (p09-observability task
+/// 115), as Chrome's IPC handlers end the sender's flow in the slice that handles it (`TRACE_EVENT_WITH_FLOW`
+/// with `TRACE_EVENT_FLAG_FLOW_IN`, mojo/public/cpp/bindings/lib/message.cc). The message fields go to the log
 /// system unformatted (``ActionSignpostMessage``). With a ``ActionBudgetMonitor``, each run's
 /// perform-to-commit time also goes into the monitor's ring, read at the same commit boundary, and a
 /// committed run's estimated present goes to `action.presented_estimate`
@@ -75,6 +78,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: read.ageMilliseconds)
         let entrypoint = read.entrypoint.tracePosition
         let commit = signposts ? signposter.begin(.actionCommit, message, actionIndex: index, entrypoint: entrypoint) : nil
+        if signposts, read.flow != 0 { Signposter.flowIn(.actionCommit, flow: read.flow, arg0: UInt64(index)) }
         let perform = signposts ? signposter.begin(.actionPerform, message, actionIndex: index, entrypoint: entrypoint) : nil
         wakes.begin()
         let before = wakes.wakes

@@ -1055,6 +1055,7 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
+/// The line carries this call's own `flow` ([`call::next_flow`]).
 fn exchange(
     stream: &mut UnixStream,
     method: &str,
@@ -1062,7 +1063,7 @@ fn exchange(
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
-    let line = json!({ "id": 1, "method": method, "params": params });
+    let line = json!({ "id": 1, "method": method, "params": params, "flow": call::next_flow() });
     send_line(stream, &line)?;
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(

@@ -224,8 +224,10 @@ public final class ControlRouter: Sendable {
 
     // MARK: - Lines
 
-    /// Decodes one line and returns the response line (without newline).
-    public func response(forLine line: String, connection: ControlConnectionID = .inProcess) async -> String {
+    /// Decodes one line and returns the response line (without newline). `scope` (the socket's, task 115) gets the
+    /// decoded request, its parsed mark and the reply's outcome; the request carries it to the work queue.
+    public func response(forLine line: String, connection: ControlConnectionID = .inProcess,
+                         scope: ControlRequestScope? = nil) async -> String {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{") else {
             // v1 plain-text commands: only the liveness probe is kept.
@@ -248,12 +250,16 @@ public final class ControlRouter: Sendable {
                 return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
             }
         }
-        let request: ControlRequest
+        var request: ControlRequest
         switch ControlWire.decode(trimmed) {
         case .success(let decoded): request = decoded
         case .failure(let error): return ControlWire.encode(id: nil, error: error)
         }
-        return ControlWire.encode(id: request.id, result: await handle(request, connection: connection))
+        request.scope = scope
+        scope?.parsed(request, connection: connection)
+        let result = await handle(request, connection: connection)
+        if case .success = result { scope?.noteResult(ok: true) } else { scope?.noteResult(ok: false) }
+        return ControlWire.encode(id: request.id, result: result)
     }
 
     static func decode(_ line: String) -> Result<ControlRequest, ControlError> { ControlWire.decode(line) }
@@ -340,7 +346,7 @@ public final class ControlRouter: Sendable {
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
             let reply = try await queue.run(connection: call.connection, method: call.method, owner: method.owner, workClass: method.workClass,
-                                            deadline: call.deadline, countingFrom: call.engineStartMark) {
+                                            deadline: call.deadline, countingFrom: call.engineStartMark, scope: call.request.scope) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }
                 return try body(call)

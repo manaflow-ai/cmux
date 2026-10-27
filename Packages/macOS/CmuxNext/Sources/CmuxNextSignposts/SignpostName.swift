@@ -351,8 +351,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the end of its run or its failure. Ring: AB/AE keyed by an async id (`TraceRuntime.nextAsyncScope`, in
     /// arg1 of both). AB arg0 the method's main task board owner index in bits 0-31 (0 without a board) and the
     /// main work class code (`MainWorkClass.rawValue + 1`) in bits 32-39. AE arg0 the outcome (0 ran, 1 expired
-    /// while queued, 2 refused as busy: it never queued). Reserved (task 115): the accept-to-reply part and the
-    /// parsed, queued and dispatched instants.
+    /// while queued, 2 refused as busy: it never queued). Task 115 (`ControlRequestScope`): every record sets bit
+    /// 63 of `arg0`. A socket request's accept-to-reply AB/AE (async id in arg1; AB arg0 the connection id, AE arg0
+    /// the method id in bits 0-31, the source in 32-39, the method class + 1 in 40-47 and the outcome in 48-55),
+    /// its parsed, queued and dispatched instants (the same arg0 bits 0-47, the mark in 56-62) and, when the caller
+    /// sent one, a flow-out of its flow at the parse that `action.commit` ends with a flow-in.
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)

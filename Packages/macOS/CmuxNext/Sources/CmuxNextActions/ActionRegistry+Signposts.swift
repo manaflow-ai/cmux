@@ -45,12 +45,13 @@ extension ActionRegistry {
     }
 
     /// The run's input: the person's event's age and the entrypoint, from one read of the event
-    /// being dispatched.
+    /// being dispatched, and the caller's flow.
     private func input(of invocation: ActionInvocation) -> ActionRunInput {
         let event = invocation.origin == .user ? dispatchingInputEvent() : nil
         let age = Self.inputAgeMilliseconds(origin: invocation.origin, event: event,
                                             carried: invocation.inputTimestamp, now: ProcessInfo.processInfo.systemUptime)
-        return ActionRunInput(ageMilliseconds: age, entrypoint: Self.entrypoint(origin: invocation.origin, event: event))
+        return ActionRunInput(ageMilliseconds: age, entrypoint: Self.entrypoint(origin: invocation.origin, event: event),
+                              flow: invocation.flow)
     }
 
     /// Where a run came from: a person's run by the type of the event being dispatched (a key or

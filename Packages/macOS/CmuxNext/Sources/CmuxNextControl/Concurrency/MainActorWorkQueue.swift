@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextMetrics
 public import CmuxNextTrace
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
@@ -39,7 +40,12 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 ///   (`MainThreadEngineStart`).
 /// - Traced: each request is a `control.request` async slice from its enqueue to its run's end or its failure
 ///   (``ControlRequestTrace``), and a posted task: a `task.post` flow at its `file` and `line` and a `task.run`
-///   slice on the main thread (``TaskTrace``), while those categories record.
+///   slice on the main thread (``TaskTrace``), while those categories record. A socket request's
+///   ``ControlRequestScope`` gets its queued and dispatched marks and its main-thread wait (task 115).
+/// - Measured: an automation request that ran while a person's input became pending, so that the next request
+///   yielded to it, records its run time in `automation.blocked_person`: the longest the person's input can have
+///   waited behind it (Chrome's `Scheduler.TaskQueueingDelay` measures input queued behind a task the same way,
+///   from the task's run, third_party/blink/renderer/platform/scheduler/main_thread/main_thread_metrics_helper.cc).
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -125,6 +131,7 @@ public final class MainActorWorkQueue: Sendable {
     public let limits: Limits
     private let frameSource: any ControlFrameSource
     private let taskTrace: TaskTrace
+    private let metrics: Metrics
     private let state = Mutex(State())
 
     /// A queue; `trace` is the runtime its `control.request` and task records go to (default the process's).
@@ -133,6 +140,7 @@ public final class MainActorWorkQueue: Sendable {
         self.limits = limits
         self.frameSource = frameSource
         taskTrace = TaskTrace(runtime: trace)
+        metrics = Metrics(runtime: trace)
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
@@ -164,7 +172,8 @@ public final class MainActorWorkQueue: Sendable {
     ///
     /// With the app's budget the request is a posted task: its enqueue time is read here, on the
     /// calling thread, and `file` and `line` are its `posted_from`, so the board's ledger records
-    /// its wait (queue and run loop time) under its method.
+    /// its wait (queue and run loop time) under its method. `scope` (a socket request's, task 115) gets the
+    /// queued mark when the queue takes the request and the dispatched mark with its wait when it starts.
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
@@ -172,6 +181,7 @@ public final class MainActorWorkQueue: Sendable {
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
+        scope: ControlRequestScope? = nil,
         file: StaticString = #fileID,
         line: UInt = #line,
         _ work: @escaping @MainActor @Sendable () throws -> T
@@ -201,6 +211,7 @@ public final class MainActorWorkQueue: Sendable {
                 posted: posted,
                 body: { ticket in
                     defer { request?.end(.ran) }
+                    scope?.dispatched(after: ContinuousClock.now - now)
                     let resume = {
                         do {
                             continuation.resume(returning: try work())
@@ -215,7 +226,7 @@ public final class MainActorWorkQueue: Sendable {
                     continuation.resume(throwing: error)
                 }
             )
-            if let rejection = enqueue(item, post: post) {
+            if let rejection = enqueue(item, post: post, scope: scope) {
                 item.expire(rejection)
                 return
             }
@@ -233,8 +244,8 @@ public final class MainActorWorkQueue: Sendable {
 
     /// Queues `item`, or refuses it as `busy`. `post` is written only for an accepted item, before it is
     /// visible to a drain, so each `task.post` has its `task.run` (Chrome's `TaskAnnotator::WillQueueTask` runs
-    /// for a task the queue took).
-    private func enqueue(_ item: MainActorWorkItem, post: TaskTrace.PendingPost) -> ControlError? {
+    /// for a task the queue took); `scope`'s queued mark likewise, so it always comes before its dispatched mark.
+    private func enqueue(_ item: MainActorWorkItem, post: TaskTrace.PendingPost, scope: ControlRequestScope?) -> ControlError? {
         let board = item.workClass == .input ? frameSource.mainTaskBoard : nil
         let (rejection, drain) = state.withLock { state -> (ControlError?, Drain?) in
             let pending = state.stats.pending
@@ -248,6 +259,7 @@ public final class MainActorWorkQueue: Sendable {
                 return (.busy(pending: mine, limit: limits.maxPendingPerConnection), nil)
             }
             item.notePosted(post.write())
+            scope?.mark(.queued)
             if mine == 0 { state.ready.append(item.connection) }
             state.queues[item.connection, default: ItemQueue()].items.append(item)
             state.stats.pending += 1
@@ -405,6 +417,13 @@ public final class MainActorWorkQueue: Sendable {
         }
     }
 
+    /// How many times automation work yielded to a person's pending input on `budget`.
+    @MainActor
+    private static func automationYields(_ budget: MainFrameBudget) -> Int {
+        guard let slot = MainFrameBudget.Stats.classes.firstIndex(of: .automation) else { return 0 }
+        return budget.stats.yieldedToInput[checked: slot] ?? 0
+    }
+
     @MainActor
     private func drainFrame() {
         defer { scheduleInputPromoted() }
@@ -413,6 +432,9 @@ public final class MainActorWorkQueue: Sendable {
         var ran = 0
         var maxWait: Duration = .zero
         let budget = frameSource.mainFrameBudget
+        let yieldsBefore = budget.map { Self.automationYields($0) }
+        // The run time of the last request, when it was automation: the person's input waited behind it at most that.
+        var lastAutomationRun: Duration?
         // The drain runs inside the frame batcher's task; each request is a task of its own.
         budget?.markRunningTaskAsBatch()
         // With the app's budget: one request at a time while its class may run (automation
@@ -430,10 +452,15 @@ public final class MainActorWorkQueue: Sendable {
             if didRun {
                 ran += 1
                 maxWait = max(maxWait, began - item.enqueuedAt)
+                lastAutomationRun = item.workClass == .automation ? clock.now - began : nil
             }
             if budget == nil, clock.now - start >= limits.frameBudget { break }
         }
         let elapsed = clock.now - start
+        // The drain stopped because a person's input is pending (the budget counted a yield): it waited behind the last request.
+        if let budget, let yieldsBefore, let lastAutomationRun, Self.automationYields(budget) > yieldsBefore {
+            metrics.record(.automationBlockedPerson, duration: lastAutomationRun)
+        }
         let (more, hook) = state.withLock { state -> (Bool, (@MainActor @Sendable () -> Void)?) in
             state.stats.frames += 1
             state.stats.executed += ran
