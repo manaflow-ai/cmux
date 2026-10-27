@@ -60,4 +60,17 @@ import Testing
         #expect(again !== first, "the retry asked for the page again")
         #expect(again.tab is DeferredBrowserTab, "still no WebKit page")
     }
+
+    /// An address typed into a "Chromium unavailable" tab is kept: the tab waits again on that address.
+    @Test func aTypedAddressIsKeptWhileChromiumStillCannotStart() throws {
+        let cache = cache(.startFailed("CefInitialize failed"))
+        let tab = restoredChromiumTab(64)
+        defer { cache.release(tab.id) }
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        let first = try #require(cache.browser(for: tab))
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        first.tab.load(typed)
+        let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
+        #expect(again.state.url == typed)
+    }
 }

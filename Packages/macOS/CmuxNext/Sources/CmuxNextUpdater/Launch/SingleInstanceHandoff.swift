@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 public import Foundation
 import os
 
@@ -109,18 +110,23 @@ import os
         return min(replyWait, seconds)
     }
 
+    /// Sends `event`; true when it leaves the queue (answered, or delivered but not answered in time).
     private func send(_ event: SingleInstanceHandoffEvents.Event, to owner: pid_t, timeout: TimeInterval) -> Bool {
         do {
             _ = try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.waitForReply], timeout: timeout)
             return true
         } catch {
-            Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) not answered: \(String(describing: error), privacy: .public)")
-            return false
+            let code = (error as NSError).code
+            let delivered = SingleInstanceHandoffEvents.wasDelivered(errorCode: code)
+            Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) failed (\(code, privacy: .public)); \(delivered ? "delivered, not sent again" : "not delivered, retried", privacy: .public)")
+            return delivered
         }
     }
 
     private func finish(owner: pid_t?) {
-        if let owner, let running = NSRunningApplication(processIdentifier: owner) {
+        // Only a copy of this bundle: never another app that reused the pid.
+        if let owner, let running = NSRunningApplication(processIdentifier: owner),
+           running.bundleIdentifier == Bundle.main.bundleIdentifier {
             NSApp.yieldActivation(to: running)
             running.activate()
         }
@@ -206,6 +212,13 @@ nonisolated enum SingleInstanceHandoffEvents {
         case openDocuments([URL])
         case getURL(URL)
         case reopen
+    }
+
+    /// Whether a failed send still reached the owner: a reply timeout (`errAETimeout`) means the event was queued
+    /// and may yet run, so sending it again could open a second tab. Anything else (no such process, an invalid
+    /// connection, a refused event) did not deliver it.
+    static func wasDelivered(errorCode: Int) -> Bool {
+        errorCode == Int(errAETimeout)
     }
 
     static func events(for urls: [URL]) -> [Event] {

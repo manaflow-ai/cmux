@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -122,6 +123,14 @@ import Testing
         #expect(sent == 3, "1 s, 1 s, then the last 0.5 s")
         #expect(SingleInstanceHandoff.hardDeadline - SingleInstanceHandoff.deadline >= 1, "the recovery keeps its time")
         #expect(SingleInstanceHandoff.replyBudget(now: giveUpAt - .milliseconds(10), giveUpAt: giveUpAt) == nil)
+    }
+
+    /// A reply timeout means the owner has the event queued: it is never sent again (that would open a second
+    /// tab) and never reopened. An undelivered event is retried.
+    @Test func onlyAnUndeliveredEventIsSentAgain() {
+        #expect(SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(errAETimeout)))
+        #expect(!SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(procNotFound)))
+        #expect(!SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(connectionInvalid)))
     }
 
     @Test func theGetURLEventTargetsTheOwnersPid() throws {
