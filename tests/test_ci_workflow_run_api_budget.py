@@ -181,6 +181,22 @@ class FailureAttributionCalls(unittest.TestCase):
         self.assertEqual(gh.writes, [])
 
 
+    def test_a_red_run_on_a_moved_head_reads_no_jobs_and_no_pull_twice(self) -> None:
+        open_moved = (7, {"number": 7, "state": "open", "head": {"sha": "b" * 40}, "merged_at": None})
+        self.assertTrue(cf.moved_past(RUN, open_moved))
+        self.assertTrue(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": None})))
+        self.assertTrue(cf.moved_past(RUN, (None, {})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "open", "head": {"sha": HEAD}})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": "x"})))
+        gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker(HEAD, "failed")}],
+                            head="b" * 40)
+        rep = cf.bare_report({**RUN, "conclusion": "failure"})
+        self.assertEqual(rep["jobs"], [])
+        result = cf.act(gh, cf.Writer(gh, dry_run=False), RUN, rep, open_moved)  # type: ignore[arg-type]
+        self.assertTrue(result["line"].startswith("marked pending"))
+        self.assertNotIn("pull 7", gh.reads)  # main() already read it
+        self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
+
     NEXT_RUN = {**RUN, "id": 42, "conclusion": "success", "pull_requests": [
         {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
 

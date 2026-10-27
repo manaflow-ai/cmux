@@ -2787,6 +2787,64 @@ class BranchCopyListingTests(unittest.TestCase):
             with self.subTest(run=run["pull_requests"], head=run["head_repository"]):
                 self.assertFalse(janitor.needs_jobs(run, self.LINUX_ONLY, NOW))
 
+    def test_a_feat_cmux_next_run_of_a_workflow_linux_only_there_is_not_listed(self):
+        gallery = ".github/workflows/gallery-health.yml"
+        next_linux_only = frozenset({gallery})
+        into_next = {**next_pr_run(), "path": gallery}
+        push = make_run(event="push", path=gallery, branch=NEXT_BRANCH)
+        for run in (into_next, push):
+            with self.subTest(event=run["event"]):
+                self.assertTrue(janitor.needs_jobs(run, frozenset(), NOW))
+                self.assertFalse(janitor.needs_jobs(run, frozenset(), NOW, next_linux_only))
+        # Into main, or with no known target (a landed pull request's run), it is still listed.
+        into_main = {**into_next, "pull_requests": [{"number": 7, "base": {"ref": "main"}}]}
+        landed = {**next_pr_run(prs=False), "path": gallery}
+        for run in (into_main, landed):
+            self.assertTrue(janitor.needs_jobs(run, frozenset(), NOW, next_linux_only))
+        # cmux-next.yml itself takes Macs on feat-cmux-next, so it never reads as Linux-only there.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "cmux-next.yml").write_text("jobs:\n  a:\n    runs-on: macos-15\n")
+            (directory / "gallery-health.yml").write_text("jobs:\n  a:\n    runs-on: ubuntu-24.04\n")
+            self.assertEqual(janitor.linux_only_workflow_paths(directory), next_linux_only)
+
+    def test_the_sweep_reads_feat_cmux_next_workflows_and_counts_requests_by_kind(self):
+        gallery = {**next_pr_run(branch="lane/gallery", sha="g1"), "path": ".github/workflows/gallery-health.yml"}
+        fleet = next_pr_run(branch="lane/fleet", sha="f1")
+        fake = FakeGitHub({run["id"]: dict(run) for run in (gallery, fleet)},
+                          {gallery["id"]: [linux_job(age=5)], fleet["id"]: [fast_tier_leg()]})
+        with tempfile.TemporaryDirectory() as temp:
+            nxt = Path(temp) / "next"
+            nxt.mkdir()
+            (nxt / "gallery-health.yml").write_text("jobs:\n  a:\n    runs-on: ubuntu-24.04\n")
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none"), "--next-workflows-dir", str(nxt)]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            text = summary.read_text()
+        listed = {int(path.split("/")[-2]) for method, path in fake.log if path.split("?")[0].endswith("/jobs")}
+        self.assertEqual(listed, {fleet["id"]})
+        self.assertIn("REST by kind: ", text)
+
+    def test_request_kinds_drop_ids_and_queries(self):
+        self.assertEqual(janitor.request_kind("GET", "/repos/o/r/actions/runs/12/jobs?page=1", "o/r"),
+                         "GET /actions/runs/{id}/jobs")
+        self.assertEqual(janitor.rest_line({"GET /a": 1, "GET /b": 3}), "REST by kind: GET /b 3, GET /a 1")
+
+    def test_the_workflow_hands_the_janitor_feat_cmux_next_workflow_files(self):
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci-queue-janitor.yml").read_text())["jobs"]["sweep"]["steps"]
+        checkout = next(step for step in steps if step.get("name") == "Check out feat-cmux-next's workflow files")
+        sweep = next(step for step in steps if step.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(checkout["with"]["ref"], NEXT_BRANCH)
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        self.assertTrue(checkout["continue-on-error"])
+        self.assertEqual(sweep["env"]["NEXT_WORKFLOWS_DIR"], f"{checkout['with']['path']}/.github/workflows")
+        self.assertLess(steps.index(checkout), steps.index(sweep))
+
     def sweep(self, runs, jobs, prs=None):
         fake = FakeGitHub({run["id"]: dict(run) for run in runs}, jobs)
         fake.prs = dict(prs or {})

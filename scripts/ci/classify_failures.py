@@ -1118,8 +1118,10 @@ def write_summary(body: str) -> None:
             handle.write(body.replace(MARKER + "\n", ""))
 
 
-def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
-    """Summary, comment and re-run for the run's pull request, when the run is still its latest word."""
+def act(gh: GitHub, writer: Writer, run: Mapping, report: dict,
+        pulled: tuple[int | None, dict] | None = None) -> dict:
+    """Summary, comment and re-run for the run's pull request, when the run is still its latest word.
+    `pulled` is run_pull()'s answer when main() already read it (moved_past())."""
     existing: list[dict] | None = None
     if reports_only_where_commented(report):
         # Most runs are green. Without this bot's comment on the pull request there is nothing to
@@ -1132,9 +1134,9 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
                 if report.get("conclusion") == "success":
                     write_summary(render_comment(report, ""))
                 return {"pr": pr, "rerun": False, "line": "skipped: nothing reported on this pull request"}
-        pr, pull = run_pull(gh, run, pr)
+        pr, pull = pulled if pulled is not None else run_pull(gh, run, pr)
     else:
-        pr, pull = run_pull(gh, run)
+        pr, pull = pulled if pulled is not None else run_pull(gh, run)
     merged = bool(pull.get("merged_at"))
     if not pr or (pull.get("state") != "open" and not merged):
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
@@ -1199,6 +1201,23 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     if current is not None or not quiet:
         upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
+
+
+def moved_past(run: Mapping, pulled: tuple[int | None, dict]) -> bool:
+    """Whether act() can only skip this run or mark the comment pending: no open (or merged) pull
+    request, or one whose head moved past the run. Then main() reads no jobs, logs or annotations
+    for it (a red run on an older head cost 5 to 7 calls on 2026-10-27, most of them wasted)."""
+    pr, pull = pulled
+    if not pr or (pull.get("state") != "open" and not pull.get("merged_at")):
+        return True
+    return str((pull.get("head") or {}).get("sha") or "") != str(run.get("head_sha") or "")
+
+
+def bare_report(run: Mapping) -> dict:
+    """The report of a run whose jobs were not read (moved_past()): act() only skips or marks pending."""
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": run.get("conclusion"), "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
@@ -1272,12 +1291,18 @@ def main(argv: list[str]) -> int:
         return 0
     # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
     # feat-cmux-next they never do, by design, so there the comments are read first instead.
-    report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
+    # A red or cancelled run reads its pull request first (act() reads it anyway): when the head has
+    # moved on or the pull request closed, its jobs and logs change nothing (moved_past()).
+    pulled = run_pull(gh, run) if args.command == "act" and run.get("conclusion") != "success" else None
+    if pulled is not None and moved_past(run, pulled):
+        report = bare_report(run)
+    else:
+        report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
     if args.command == "classify":
         print(json.dumps(report, indent=2))
         return 0
     writer = Writer(gh, args.dry_run)
-    result = act(gh, writer, run, report)
+    result = act(gh, writer, run, report, pulled)
     for entry in writer.log:
         print(entry)
     print(json.dumps({**result, "jobs": [(j["name"], j["verdict"], j["signature"]) for j in report["jobs"]]}))

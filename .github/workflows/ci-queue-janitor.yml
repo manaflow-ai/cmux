@@ -168,6 +168,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # feat-cmux-next's workflow files, read as text only: a run into that branch follows its
+      # copy, and one of a workflow there that cannot schedule a macOS job needs no job listing
+      # (queue_janitor.needs_jobs()). A git fetch, no REST call. Best effort: without it every
+      # such run is listed, as before.
+      - name: Check out feat-cmux-next's workflow files
+        if: steps.fresh.outputs.skip != 'true' && github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: next-workflows
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/workflows
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
@@ -193,6 +209,7 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          NEXT_WORKFLOWS_DIR: next-workflows/.github/workflows
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
