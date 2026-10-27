@@ -64,7 +64,8 @@ public struct IrxTunnelClient: Sendable {
         _ read: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let deadline = Task {
-            try await Task.sleep(for: timeout)
+            // wakeup-allow: deadline of the open reply, cancelled when the read returns
+            try await Task.sleep(for: timeout, tolerance: IrxWakeLeeway(delay: timeout).tolerance)
             await lane.abort()
         }
         defer { deadline.cancel() }

@@ -38,7 +38,8 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
     /// - Parameter sleep: Defaults to `Task.sleep(for:)`. Not a closure-literal
     ///   default: see IrxPeerEngine.init (cx-bsue).
     public init(sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
-        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
+        // wakeup-allow: deadline of one TCP connect, cancelled when the connection settles
+        self.sleep = sleep ?? { try await Task.sleep(for: $0, tolerance: IrxWakeLeeway(delay: $0).tolerance) }
     }
 
     public func resolve(host: String) async -> [IrxTunnelIPAddress] {
@@ -145,6 +146,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
         // The deadline: whichever of state change, deadline, or cancellation
         // settles the outcome first wins; the others are no-ops.
         let deadline = Task {
+            // wakeup-allow: deadline of the connect, cancelled when its state settles first
             try? await sleep(timeout)
             outcome.finish(.failure(IrxTunnelOpenError(status: .timedOut)))
         }
@@ -195,6 +197,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
     }
 
     func receive(maximumByteCount: Int) async throws -> Data? {
+        // wakeup-allow: bounded each pass awaits one receive callback; data, EOF or an error ends it
         while true {
             let chunk = try await receiveOnce(maximumByteCount: maximumByteCount)
             if chunk?.isEmpty != true { return chunk }

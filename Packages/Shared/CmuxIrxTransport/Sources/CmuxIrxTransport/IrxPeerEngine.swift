@@ -126,7 +126,8 @@ public actor IrxPeerEngine {
         self.applicationActive = applicationActive
         self.dialOnce = dialOnce
         self.clockNow = clockNow
-        self.retrySleep = retrySleep ?? { try await Task.sleep(for: $0) }
+        // wakeup-allow: backoff the redial cooldown after a failed dial (capped, doubled per failure)
+        self.retrySleep = retrySleep ?? { try await Task.sleep(for: $0, tolerance: IrxWakeLeeway(delay: $0).tolerance) }
         backoff = config.initialBackoff
     }
 
