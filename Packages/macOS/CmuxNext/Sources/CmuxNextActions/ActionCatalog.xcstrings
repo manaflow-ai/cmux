@@ -94905,6 +94905,33 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Застосувати конфігурацію машини"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Áp dụng cấu hình máy"}}
       }
+    },
+    "action.cloudDeliverSecrets": {
+      "comment": "Cloud machine action: send the values of the machine's declared secrets from this Mac's Keychain.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Deliver Secrets to Machine"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シークレットをマシンに配信"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisse an die Maschine übermitteln"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Transmettre les secrets à la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Entregar secretos a la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تسليم الأسرار إلى الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에 비밀 전달"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机密送达机器"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機密送達機器"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isporuči tajne mašini"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheder til maskinen"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consegna i segreti alla macchina"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជូនអាថ៌កំបាំងទៅម៉ាស៊ីន"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheter til maskinen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dostarcz sekrety do maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Entregar segredos à máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Доставить секреты на машину"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งความลับไปยังเครื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sırları makineye teslim et"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Доставити секрети на машину"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi bí mật tới máy"}}
+      }
     }
   },
   "version": "1.0"
