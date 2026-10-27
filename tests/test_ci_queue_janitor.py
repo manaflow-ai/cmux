@@ -1271,7 +1271,8 @@ class SupersededDeliveryTests(unittest.TestCase):
         other_branch = nightly_run("ccb74c4d", 20, branch="main")
         other_workflow = {**nightly_run("ccb74c4d", 20), "workflow_id": 1, "path": ".github/workflows/ci.yml"}
         older = nightly_run("0ldhead0", 90)
-        for others in ([], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
+        no_status = {**nightly_run("ccb74c4d", 20), "status": None}
+        for others in ([no_status], [], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
                        [older]):
             with self.subTest(others=others):
                 ok, why = self.judge(old, gate_jobs(60), [old, *others])
@@ -1293,7 +1294,8 @@ class SupersededDeliveryTests(unittest.TestCase):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
         skipped = gate_jobs(20, build={"status": "completed", "conclusion": "skipped", "runner_name": None})
         deciding = gate_jobs(20)[:1]
-        for newer_jobs in (skipped, deciding, None):
+        unknown = gate_jobs(20, build={"status": None})
+        for newer_jobs in (skipped, deciding, unknown, None):
             with self.subTest(newer_jobs=newer_jobs):
                 ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs)
                 self.assertFalse(ok)

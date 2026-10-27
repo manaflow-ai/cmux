@@ -140,7 +140,7 @@ def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -
     and not finished other than in success; newest first."""
     branch, sha, repo = run.get("head_branch"), run.get("head_sha"), _head_repo(run)
     created = _time(run.get("created_at"))
-    if not branch or not sha or not repo or created is None:
+    if not branch or not sha or not repo or not run.get("event") or created is None:
         return []
     found: dict[Any, tuple[_dt.datetime, Mapping[str, Any]]] = {}
     for other in runs:
@@ -152,8 +152,11 @@ def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -
             continue
         if not is_delivery_run(other.get("path"), other.get("name"), other.get("display_title")):
             continue
-        if other.get("status") == "completed" and other.get("conclusion") != "success":
+        status = other.get("status")
+        if status == "completed" and other.get("conclusion") != "success":
             continue
+        if status != "completed" and status not in WAITING_JOB_STATUSES and status != "in_progress":
+            continue  # unknown or missing: unread
         when = _time(other.get("created_at"))
         if when is not None and when > created:
             found[other.get("id")] = (when, other)
@@ -180,8 +183,10 @@ def builds_the_same(waiting: Sequence[str], other_jobs: Sequence[Mapping[str, An
         legs = listed.get(name)
         if not legs:
             return f"it lists no job {name!r} (yet)"
-        if any(leg.get("status") == "completed" and leg.get("conclusion") != "success" for leg in legs):
-            return f"its job {name!r} was skipped or did not succeed"
+        for leg in legs:
+            live = leg.get("status") in WAITING_JOB_STATUSES or leg.get("status") == "in_progress"
+            if not live and not (leg.get("status") == "completed" and leg.get("conclusion") == "success"):
+                return f"its job {name!r} was skipped, did not succeed, or is {leg.get('status') or 'unknown'}"
     return None
 
 
