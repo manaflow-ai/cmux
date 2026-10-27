@@ -157,7 +157,9 @@ pub(super) fn terminal_views_kick_target(
 /// Ends `client`'s views of one terminal on behalf of another participant:
 /// each attach stream of `placements` ends with `detached
 /// {reason:"disconnected-by", by}` as its last item and its retained report
-/// goes; the connection and its views of other terminals stay.
+/// goes; the connection and its views of other terminals stay. The
+/// participant leaves the sizing engine with all its views in one update
+/// first, so the grid resizes once, to the remaining participants.
 pub(super) fn kick_terminal_views(
     mux: &Arc<Mux>,
     client: u64,
@@ -166,6 +168,9 @@ pub(super) fn kick_terminal_views(
 ) -> bool {
     let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
     let mut kicked = false;
+    if let Some(&placement) = placements.first() {
+        mux.detach_terminal_own_view(placement, client);
+    }
     for &placement in placements {
         if let Some((writer, streams)) = mux.control_clients.surface_view_streams(client, placement)
         {
@@ -182,6 +187,7 @@ pub(super) fn kick_terminal_views(
             kicked = true;
         }
     }
+    mux.forget_terminal_own_view_detaches(client, placements);
     // Disconnected on purpose: no departed-view hold.
     mux.release_terminal_grid_holds(placements);
     kicked

@@ -26,8 +26,11 @@ impl Mux {
             let id = sizing.view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
             let mut member = sizing.own_view_member(runtime, surface, client);
-            let moved = member.placement != surface;
-            member.focus_view(surface);
+            let geometry_before = member.placement;
+            // As an attach: a view with no report yet takes the geometry on
+            // its first report, so the participant keeps its viewport.
+            member.join_view(surface, |view| sizing.has_report(view, client));
+            let moved = member.placement != geometry_before;
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             entry.members.insert(id.clone(), member);
             let changed = if entry.engine.contains(&id) {
@@ -86,16 +89,28 @@ impl Mux {
                 Some(view) => sub_view_participant_id(client, view),
                 None => sizing.view_participant_id(runtime, surface, client),
             };
+            if view.is_none() && sizing.detached_views.contains(&(client, surface)) {
+                // A detached view's input is not its participant's activity.
+                return None;
+            }
             let viewport = sizing.view_report(surface, client);
-            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
-            let member = entry.members.get_mut(&id).filter(|member| member.client == client)?;
-            let mut changed = false;
+            let mut member = sizing
+                .terminal_sizing
+                .get(&runtime)?
+                .members
+                .get(&id)
+                .filter(|member| member.client == client)?
+                .clone();
+            let geometry_before = member.placement;
             if view.is_none() && member.views.contains(&surface) && member.placement != surface {
                 // Input on another view of the same participant makes it the
-                // geometry view.
-                member.focus_view(surface);
-                changed |= Self::report_view_viewport(entry, &id, viewport);
+                // geometry view, once it has a report (as an attach).
+                member.join_view(surface, |view| sizing.has_report(view, client));
             }
+            let moved = member.placement != geometry_before;
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            entry.members.insert(id.clone(), member);
+            let mut changed = moved && Self::report_view_viewport(entry, &id, viewport);
             changed |= entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
             Some(changed)
@@ -329,9 +344,32 @@ impl Mux {
         }))
     }
 
-    /// Restore a view detached by [`Self::detach_terminal_own_view`], with
-    /// its latest report. `counts` sets its counts override (a viewer
-    /// reattaches with `Some(false)`). Returns the view's participant id.
+    /// Forgets the detach marks [`Self::detach_terminal_own_view`] set on
+    /// `client`'s views at `placements` (one terminal) once their streams
+    /// ended, so a later attach of that connection joins again.
+    pub(crate) fn forget_terminal_own_view_detaches(&self, client: u64, placements: &[SurfaceId]) {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let Some(runtime) = placements
+            .first()
+            .and_then(|placement| self.surface(*placement))
+            .and_then(|surface| surface.terminal_runtime_id())
+        else {
+            return;
+        };
+        self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            for &view in placements {
+                if sizing.detached_views.remove(&(client, view)) {
+                    mux.sync_terminal_view_locked(sizing, runtime, view, client);
+                }
+            }
+        });
+    }
+
+    /// Restore one view detached by [`Self::detach_terminal_own_view`], with
+    /// its latest report. Each detached view of a participant got its own
+    /// notice and returns with its own reattach; the others stay detached.
+    /// `counts` sets the participant's counts override (a viewer reattaches
+    /// with `Some(false)`). Returns the view's participant id.
     pub(crate) fn reattach_terminal_own_view(
         &self,
         placement: SurfaceId,
@@ -349,19 +387,6 @@ impl Mux {
                 sizing.detached_views.remove(&(client, placement)),
                 "view of surface {placement} is not detached"
             );
-            // The participant's other views left with it; they return with it.
-            let others = match sizing.participant_scheme {
-                ParticipantScheme::PerPlacement => Vec::new(),
-                ParticipantScheme::PerApp => mux
-                    .runtime_placements(runtime)
-                    .into_iter()
-                    .filter(|other| sizing.detached_views.remove(&(client, *other)))
-                    .collect(),
-            };
-            for view in others {
-                mux.sync_terminal_view_locked(sizing, runtime, view, client);
-            }
-            // The view that asked joins last.
             mux.sync_terminal_view_locked(sizing, runtime, placement, client);
             if let Some(entry) = sizing.terminal_sizing.get_mut(&runtime)
                 && entry.engine.contains(&id)

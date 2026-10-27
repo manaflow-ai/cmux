@@ -77,13 +77,8 @@ impl App {
         handle_command(mux, self.client, json_command(request), &self.writer)
     }
 
-    /// Attaches one view of `surface` and reports its viewport.
-    fn view(
-        &self,
-        mux: &Arc<Mux>,
-        surface: SurfaceId,
-        size: (u16, u16),
-    ) -> (OutboundStream, String) {
+    /// Attaches one view of `surface` that has not reported a viewport yet.
+    fn attach(&self, mux: &Arc<Mux>, surface: SurfaceId) -> (OutboundStream, String) {
         let stream = self.writer.start_stream(&attach_overflow_json(surface)).unwrap();
         let lease = mux
             .control_clients
@@ -91,6 +86,11 @@ impl App {
             .unwrap()
             .expect("a lease client's attach mints a lease");
         commit_client_attach(mux, self.client, surface, stream.id, None, None).unwrap();
+        (stream, lease)
+    }
+
+    /// Reports the viewport of the view `lease` of `surface`.
+    fn report(&self, mux: &Arc<Mux>, surface: SurfaceId, lease: &str, size: (u16, u16)) {
         let resized = self
             .run(
                 mux,
@@ -104,6 +104,17 @@ impl App {
             )
             .unwrap();
         assert_ne!(resized["outcome"], "superseded");
+    }
+
+    /// Attaches one view of `surface` and reports its viewport.
+    fn view(
+        &self,
+        mux: &Arc<Mux>,
+        surface: SurfaceId,
+        size: (u16, u16),
+    ) -> (OutboundStream, String) {
+        let (stream, lease) = self.attach(mux, surface);
+        self.report(mux, surface, &lease, size);
         (stream, lease)
     }
 
@@ -238,7 +249,11 @@ fn client_sizing_kicking_one_terminal_view_detaches_only_it() {
     let (projected_stream, _) = app.view(&mux, projected.id, (90, 28));
     let (other_stream, _) = app.view(&mux, other.id, (120, 40));
     let (peer_stream, _) = peer.view(&mux, shared.id, (110, 35));
+    // The app's source view is its geometry view and sets the grid.
+    mux.claim_terminal_geometry(shared.id, app.client);
+    assert_eq!(shared.size(), (100, 30));
     app.popped();
+    let events = mux.subscribe();
 
     let answer = peer
         .run(
@@ -266,6 +281,48 @@ fn client_sizing_kicking_one_terminal_view_detaches_only_it() {
     assert_eq!(participant_ids(&mux, shared.id), [peer.participant()]);
     assert_eq!(participant_ids(&mux, other.id), [app.participant()]);
     assert_eq!(shared.size(), (110, 35), "the remaining participant sets the grid");
+    let resizes = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            MuxEvent::SurfaceResized { surface, cols, rows, .. } if surface == shared.id => {
+                Some((cols, rows))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(resizes, [(110, 35)], "one resize, to the remaining participant, and no other");
+}
+
+#[test]
+fn client_sizing_claim_or_input_on_an_unreported_view_keeps_the_participant_viewport() {
+    let mux = sizing_mux(ParticipantScheme::PerApp);
+    let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.pin_latest_size_policy_for_test(source.id);
+    let projected = projected_view(&mux, &source);
+    let app = App::connect(&mux, "Studio");
+    let peer = App::connect(&mux, "Laptop");
+    peer.view(&mux, source.id, (110, 35));
+    app.view(&mux, source.id, (100, 30));
+    let (_, projected_lease) = app.attach(&mux, projected.id);
+    assert_eq!(source.size(), (100, 30), "an unreported view keeps the participant's viewport");
+
+    mux.claim_terminal_geometry(source.id, peer.client);
+    assert_eq!(source.size(), (110, 35));
+    mux.claim_terminal_geometry(projected.id, app.client);
+    let state = mux.terminal_size_state(source.id).unwrap();
+    assert_eq!(state.owners, [app.participant()]);
+    assert_eq!(source.size(), (100, 30), "a claim on an unreported view keeps the viewport");
+
+    mux.note_terminal_input(source.id, peer.client);
+    assert_eq!(source.size(), (110, 35));
+    mux.note_terminal_input(projected.id, app.client);
+    let state = mux.terminal_size_state(source.id).unwrap();
+    assert_eq!(state.owners, [app.participant()]);
+    assert_eq!(source.size(), (100, 30), "input on an unreported view keeps the viewport");
+
+    // Its first report makes it the geometry view.
+    app.report(&mux, projected.id, &projected_lease, (90, 28));
+    assert_eq!(source.size(), (90, 28));
+    assert!(mux.client_size_participates(projected.id, app.client));
 }
 
 #[test]
@@ -296,7 +353,7 @@ fn client_sizing_whole_client_detach_ends_every_stream() {
 }
 
 #[test]
-fn client_sizing_view_detach_removes_every_view_of_the_participant_and_reattach_restores_them() {
+fn client_sizing_view_detach_removes_every_view_and_each_view_reattaches_itself() {
     let mux = sizing_mux(ParticipantScheme::PerApp);
     let source = mux.new_workspace(None, Some((80, 24))).unwrap();
     mux.pin_latest_size_policy_for_test(source.id);
@@ -338,4 +395,22 @@ fn client_sizing_view_detach_removes_every_view_of_the_participant_and_reattach_
     expected.sort();
     assert_eq!(participant_ids(&mux, source.id), expected);
     assert!(mux.client_size_participates(projected.id, app.client));
+    assert_eq!(source.size(), (90, 28));
+    // The other view got its own notice and stays detached until it reattaches.
+    mux.claim_terminal_geometry(source.id, peer.client);
+    assert_eq!(source.size(), (110, 35));
+    assert_eq!(mux.claim_terminal_geometry(source.id, app.client), Some(false));
+    mux.note_terminal_input(source.id, app.client);
+    assert_eq!(source.size(), (110, 35), "a detached view's claim or input is not activity");
+
+    let reattached = app.run(&mux, json!({"cmd": "reattach-view", "surface": source.id})).unwrap();
+
+    assert_eq!(reattached["participant"], app.participant());
+    assert_eq!(participant_ids(&mux, source.id), expected);
+    assert_eq!(source.size(), (100, 30), "the view that reattached last is the geometry view");
+    assert!(mux.client_size_participates(source.id, app.client));
+    assert!(
+        app.run(&mux, json!({"cmd": "reattach-view", "surface": source.id})).is_err(),
+        "a reattached view is not detached"
+    );
 }
