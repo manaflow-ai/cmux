@@ -347,3 +347,12 @@ test("Outputs fail closed when the session has no project folder", () => {
   ];
   expect(sessionSummary(rows).outputs).toEqual([]);
 });
+
+test("ambiguous shorthand Sources use neutral labels and redirect-safe URLs", () => {
+  for (const row of [activity([shell("echo acme/app#7")], 1), assistant("See acme/app#7 and #8", 1)]) {
+    const sources = sessionSummary([row], "acme/app").sources;
+    expect(sources[0]).toEqual({ url: "https://github.com/acme/app/issues/7", label: "acme/app#7", kind: "url" });
+  }
+  const explicit = sessionSummary([assistant("See https://github.com/acme/app/pull/9", 1)], "acme/app").sources;
+  expect(explicit[0]).toMatchObject({ url: "https://github.com/acme/app/pull/9", kind: "pullRequest" });
+});
