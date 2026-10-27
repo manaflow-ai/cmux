@@ -111,6 +111,9 @@ fi
 echo "compile-dev-release: $mode build root${reason:+ ($reason)}: $build_root, DerivedData $derived_data"
 # The per-landing harness (measure_next_build.py) reads this line for the commit gap.
 [[ ! "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || echo "compilation cache source sha: $previous_sha"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'build_mode=%s\nbuild_root=%s\nderived_data=%s\n' "$mode" "$build_root" "$derived_data" >> "$GITHUB_OUTPUT" || true
+fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   echo "DEV Release compile: $mode build root${reason:+ ($reason)}" >> "$GITHUB_STEP_SUMMARY" || true
 fi
@@ -120,3 +123,16 @@ app="$(find "$derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cm
 test -d "$app"
 "$build_root/scripts/cmux-next/check-app-personalities.sh" "$app"
 ditto -c -k --keepParent "$app" "$archive"
+
+# The Linux build's REF capture (cmux-next.yml, after this step) reads this build. The host tree
+# and DerivedData are another build's as soon as this script's lock goes, so with the capture on
+# they are cloned first, while the lock is held: one clonefile(2) each, about a second. A failed
+# clone only means no capture.
+if [[ "$mode" == host && "${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1 && -n "${RUNNER_TEMP:-}" ]]; then
+  snapshot="$RUNNER_TEMP/hybrid-ref-snapshot"
+  rm -rf -- "$snapshot" && mkdir -p "$snapshot" \
+    && python3 -I "$build_root/scripts/ci/apfs_clone.py" "$build_root" "$snapshot/src" \
+    && python3 -I "$build_root/scripts/ci/apfs_clone.py" "$derived_data" "$snapshot/dd" \
+    && { [[ -z "${GITHUB_OUTPUT:-}" ]] || printf 'snapshot=%s\n' "$snapshot" >> "$GITHUB_OUTPUT"; } \
+    || { echo "::warning::compile-dev-release: no snapshot for the REF capture" >&2; rm -rf -- "$snapshot" || true; }
+fi
