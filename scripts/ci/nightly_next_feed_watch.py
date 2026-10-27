@@ -334,6 +334,21 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
     return True
 
 
+def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
+    """The (workflow, branch) runs that may still deliver feat-cmux-next.
+
+    A train delivers only in mode on (repository variable NIGHTLY_NEXT_TRAIN,
+    the train's own switch). Otherwise it is a dry run that plans and runs car
+    guards, sometimes for an hour, and publishes nothing, so it must never
+    hold back the starvation dispatch.
+    """
+    flows = [("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]
+    # GitHub compares strings case-insensitively; so does this.
+    if train.strip().lower() == "on":
+        flows.insert(1, ("nightly-next-train.yml", "feat-cmux-next"))
+    return flows
+
+
 def published_commit_for_release(gh: GitHub, tag: str) -> str:
     try:
         body = gh.call("GET", f"/releases/tags/{tag}").get("body") or ""
@@ -605,6 +620,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--legacy-feed-url", default=LEGACY_FEED_URL)
     parser.add_argument("--legacy-identity", default="on",
                         help="repository variable NIGHTLY_NEXT_LEGACY_IDENTITY; off stops the legacy jobs, so their feed is not watched")
+    parser.add_argument("--train", default="",
+                        help="repository variable NIGHTLY_NEXT_TRAIN; only on makes a running train a delivery run")
     parser.add_argument("--run-url", default="this check")
     parser.add_argument("--dry-run", action="store_true", help="read and decide, never write issues")
     args = parser.parse_args(argv)
@@ -640,8 +657,7 @@ def main(argv: list[str]) -> int:
         gh, now, feed=newest, published_sha=published(),
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
-        active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
-                          ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
+        active_workflows=next_delivery_workflows(args.train)))
     heal("classic", lambda: starvation_dispatch(
         gh, now, feed=classic_newest, published_sha=published("nightly"),
         branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},

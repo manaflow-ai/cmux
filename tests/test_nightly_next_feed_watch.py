@@ -908,5 +908,52 @@ class ContinuationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+class TrainModeTests(unittest.TestCase):
+    """Train run 40428446287 spent an hour on a dry run (145 cars of car
+    guards) that publishes nothing, and every landing dispatched another. A
+    train is started, and counts as delivering, only when NIGHTLY_NEXT_TRAIN
+    is on, the switch the train itself reads."""
+
+    WORKFLOWS = SCRIPT.parents[2] / ".github/workflows"
+
+    def test_only_a_train_that_is_on_holds_back_the_starvation_dispatch(self):
+        train = ("nightly-next-train.yml", "feat-cmux-next")
+        for mode in ("on", "ON", "On"):
+            self.assertIn(train, watch.next_delivery_workflows(mode), mode)
+        for mode in ("", "dry-run", "off", "plan"):
+            flows = watch.next_delivery_workflows(mode)
+            self.assertNotIn(train, flows, mode)
+            self.assertIn(("nightly.yml", "nightly-next"), flows)
+            self.assertIn(("nightly-next-tick.yml", "main"), flows)
+
+    def test_the_watch_passes_the_train_switch(self):
+        workflow = (self.WORKFLOWS / "nightly-next-feed-watch.yml").read_text(encoding="utf-8")
+        self.assertIn("TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'on' || 'off' }}", workflow)
+        self.assertIn('--train "$TRAIN"', workflow)
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
+                unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: (k.get("branch") == "feat-cmux-next" and seen.append(k["active_workflows"])) or "dispatched"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            watch.main(["--repo", "o/r", "--dry-run"])
+            watch.main(["--repo", "o/r", "--dry-run", "--train", "on"])
+        self.assertEqual(seen, [watch.next_delivery_workflows(""), watch.next_delivery_workflows("on")])
+
+    def test_the_tick_starts_the_train_only_when_it_is_on(self):
+        tick = (self.WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
+        step = tick[tick.index("- name: Start the nightly-next train"):]
+        step = step[:step.index("\n      - name:")]
+        self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN == 'on'", step)
+        self.assertIn("MODE: drive", step)
+        self.assertIn("gh workflow run nightly-next-train.yml", step)
+        self.assertNotIn("plan", step.split("run:", 1)[1])
+        # Train off: the plain promotion still goes ahead.
+        self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN != 'on'", tick)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
