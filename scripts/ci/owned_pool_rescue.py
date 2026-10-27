@@ -726,16 +726,16 @@ def feed_timeouts(api: "GitHub", target: "Target", jobs: Sequence[Mapping[str, A
         return []
     try:
         text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
+        if not text:
+            log(f"{target.path} is not at {target.head_sha[:12]}; no cancelled job is put down to a timeout")
+            return []
+        return timed_out(text, jobs, target.attempt_started_at)
     except Aborted:
         raise
-    except Exception as error:  # noqa: BLE001 - an unreadable file only counts no timeout
-        log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error}); "
-            "no cancelled job is put down to a timeout")
+    except Exception as error:  # noqa: BLE001 - an unreadable file, or no PyYAML, only counts no timeout
+        log(f"could not read {target.path}'s timeouts at {target.head_sha[:12]} ({type(error).__name__}: "
+            f"{error}); no cancelled job is put down to a timeout")
         return []
-    if not text:
-        log(f"{target.path} is not at {target.head_sha[:12]}; no cancelled job is put down to a timeout")
-        return []
-    return timed_out(text, jobs, target.attempt_started_at)
 
 
 def refused(job: Mapping[str, Any]) -> bool:
@@ -1388,7 +1388,9 @@ class Target:
 
     @property
     def watch_limit(self) -> int:
-        if self.late_owned_jobs:
+        # Every nightly is watched until its run finishes, within this limit: its app build's 90-minute timeout
+        # can only be seen once it fires (feed_timeouts()).
+        if self.nightly:
             return NIGHTLY_WATCH_LIMIT_SECONDS
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
@@ -1628,12 +1630,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-                if target.side and not target.late_owned_jobs and owned \
+                if target.side and not target.nightly and owned \
                         and all(accepted(job, seen_at) for job in owned):
                     # A side lane's jobs are all created by now, and none can be refused any more.
                     # Not nightly-next's: prepare-nightly-variant takes the side label only once
                     # build-nightly-app has finished, and its runner can refuse it then
-                    # (run 40144317744), so that watch lasts until the run finishes.
+                    # (run 40144317744), so that watch lasts until the run finishes. Main's neither: an
+                    # accepted app build can still time out, which feed_timeouts() re-runs.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
             if target.nightly:
