@@ -132,9 +132,37 @@ struct AcpmuxUploadFrameTests {
         }
     }
 
+    @Test @MainActor func uploadsRequireNativeOriginAndPaneSessionScope() async throws {
+        let wire = UploadWire(binary: false)
+        let transport = AgentPaneTransport()
+        let socket = AcpmuxPaneSocket(
+            request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
+            wire: wire, limits: transport.limits, options: transport.permissionOptions,
+            sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
+        try await socket.start(timeout: 1)
+        transport.socket = socket
+        transport.current = 1
+        transport.uploadOriginAllowed = true
+        await #expect(throws: AgentPaneUploadError.rpc("upload session outside pane scope")) {
+            try await transport.uploadControl(connection: 1, method: "_acpmux/file_put_begin", params: ["sessionId": "foreign"])
+        }
+        await #expect(throws: AgentPaneUploadError.rpc("upload session outside pane scope")) {
+            try await transport.uploadChunk(connection: 1, sessionId: "foreign", uploadId: "u", offset: 0, bytes: Data([1]))
+        }
+        #expect(wire.sentCount.withLock { $0 } == 0)
+        transport.sessions.add("owned")
+        transport.uploadOriginAllowed = false
+        await #expect(throws: AgentPaneUploadError.rpc("uploads require a native app connection")) {
+            try await transport.uploadControl(connection: 1, method: "_acpmux/file_put_cancel", params: ["sessionId": "owned"])
+        }
+        #expect(wire.sentCount.withLock { $0 } == 0)
+        socket.close(code: 1000, reason: "", error: nil)
+    }
+
     final class UploadWire: AcpmuxPaneWire, Sendable {
         let supportsUploadFrames = true
         let sentBinary = Mutex(false)
+        let sentCount = Mutex(0)
         private let binary: Bool
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)
         init(binary: Bool) { self.binary = binary }
@@ -143,6 +171,7 @@ struct AcpmuxUploadFrameTests {
             incoming.withLock { $0 = onFrame }
         }
         func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
+            sentCount.withLock { $0 += 1 }
             let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             let id = object?["id"] as? Int ?? 0
             let features = binary ? #"["promptUploads","uploadFrames"]"# : #"["promptUploads"]"#
