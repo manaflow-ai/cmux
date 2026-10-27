@@ -213,6 +213,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
 .cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
 .cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
+.cv-codeblock__header:has(.acpmux-pr-dock)>span:not(.cv-codeblock__actions){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
 .cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
 .cv-block-tail>div:first-child{flex:1;min-width:0}
