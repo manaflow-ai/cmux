@@ -8,17 +8,18 @@ import CmuxNextWakeups
 /// the frame interval, for the animation bench (scripts/cmux-next/anim-perf-terminal.py).
 /// A frame of a 120 Hz display has 8.33 ms; main-thread CPU over that in one
 /// frame is a dropped ProMotion frame whatever the runner's own display does.
-/// Runs only between `start` and `stop`, at most `maximumRun`.
+/// Runs only between `start` and `stop`, at most `maximumRun`, read on its own
+/// frames: the first frame past it ends the run, with no timer.
 @MainActor
 final class DebugMainCPUProbe {
-    static let maximumRun: Duration = .seconds(600)
+    static let maximumRun: CFTimeInterval = 600
     static let capacity = 100_000
     static let frame120Ms = 1_000.0 / 120.0
     private lazy var client = FrameClient(owner: "debug.main_cpu", isAnimation: false, on: .app) { [weak self] tick in
-        self?.tick(tick)
-        return true
+        self?.frame(tick) ?? false
     }
-    private let expiry = DemandTimer(owner: "debug.main_cpu.expiry")
+    /// When the run started (CACurrentMediaTime base, the frames' clock).
+    private var runStart: CFTimeInterval = 0
     private var lastTimestamp: CFTimeInterval = 0
     private var lastCPU: UInt64?
     private var intervals: [Double] = []
@@ -31,8 +32,8 @@ final class DebugMainCPUProbe {
             work.removeAll(keepingCapacity: true)
             lastTimestamp = 0
             lastCPU = currentThreadCPUNanos()
+            runStart = CACurrentMediaTime()
             client.activate()
-            expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
         case "stop":
             // The work since the last frame counts too: a gesture that ends in a long main-thread slice.
             if let now = currentThreadCPUNanos(), let previous = lastCPU { work.append(Double(now &- previous) / 1_000_000) }
@@ -47,10 +48,16 @@ final class DebugMainCPUProbe {
 
     private func stop() {
         client.deactivate()
-        expiry.cancel()
     }
 
-    private func tick(_ tick: FrameTick) {
+    /// One frame of the run; false once the run passed ``maximumRun`` (the client goes idle).
+    func frame(_ tick: FrameTick) -> Bool {
+        guard tick.timestamp - runStart < Self.maximumRun else { return false }
+        record(tick)
+        return true
+    }
+
+    private func record(_ tick: FrameTick) {
         let cpu = currentThreadCPUNanos()
         if lastTimestamp > 0, intervals.count < Self.capacity {
             intervals.append((tick.timestamp - lastTimestamp) * 1_000)
@@ -85,11 +92,16 @@ private func percentile(_ sorted: [Double], _ p: Double) -> Double {
 /// The calling thread's CPU time (user + system), ns; nil when `thread_info` fails.
 /// `debug.main_cpu` runs on the main thread, so this is the main thread's time.
 private func currentThreadCPUNanos() -> UInt64? {
-    let thread = pthread_mach_thread_np(pthread_self())  // no port reference to release, unlike mach_thread_self()
+    // SAFETY: pthread_self() is the calling thread, live for this call. `count` is thread_basic_info's size in
+    // integer_t words, the capacity the rebound view covers; thread_info writes at most `count` words into
+    // `info`, a local live for the call.
+    let thread = unsafe pthread_mach_thread_np(pthread_self())  // no port reference to release, unlike mach_thread_self()
     var info = thread_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
-    let result = withUnsafeMutablePointer(to: &info) {
-        $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+    let result = unsafe withUnsafeMutablePointer(to: &info) {
+        unsafe $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) {
+            unsafe thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+        }
     }
     guard result == KERN_SUCCESS else { return nil }
     let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000

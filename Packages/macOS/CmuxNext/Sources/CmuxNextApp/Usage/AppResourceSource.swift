@@ -123,6 +123,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per sample; no walk, no observation
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
@@ -204,10 +205,11 @@ final class AppResourceSource: ResourceSampleSource {
         (page as? any BrowserProcessReporting)?.contentProcesses ?? .none
     }
 
-    /// The WebContent process of agent chat `tab`'s page; nil while it hibernates or before it loads.
+    /// The WebContent process of agent chat `tab`'s page; nil while it hibernates, before it loads, or
+    /// while Chromium shows it.
     static func agentChatProcess(_ tab: TabModel, in services: AppServices) -> Int32? {
         let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
-        return view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+        return view.flatMap { AppMemoryModel.webContentProcess(of: $0.page) }
     }
 
     // MARK: Off the main actor

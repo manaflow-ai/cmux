@@ -34,8 +34,14 @@ public final class CEFAgentRelay {
     /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
     private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
     var designModeListens = false { didSet { updateWatch() } }
+    /// The first paint bridge reads the tab's DevTools events (before fork API 29), page tabs' too.
+    private var firstPaintListens = false
     /// The media and verification bridges run on the tab's DevTools session (before fork API 29).
     private var bridgesAttached = false
+    /// The tab holds a cmux page (``CEFEngine/makePagesTab(_:)``): the browser-tab bridges (media,
+    /// verification) never attach, and their channels' posts are dropped. Its first paint still counts.
+    /// Set before the browser exists.
+    var servesCmuxPage = false
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -50,8 +56,11 @@ public final class CEFAgentRelay {
         updateWatch()
     }
 
+    /// Someone reads the tab's DevTools events.
+    private var listens: Bool { sink != nil || mediaListens || designModeListens || firstPaintListens }
+
     private func updateWatch() {
-        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, listens ? 1 : 0) }
     }
 
     /// Sends one raw DevTools message in this turn, in order with the tab's other ops; its "id"
@@ -69,7 +78,7 @@ public final class CEFAgentRelay {
     public func send(_ message: String) -> CEFDevToolsRawSend {
         guard let tab, !tab.isClosed, let browser = tab.browserID, tab.runtime.shim != nil else { return .noBrowser }
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message), CEFDevToolsRawMessage.isRawID(id) else { return .refused }
-        let sent = tab.runtime.sendAsync { shim in message.withCString { shim.devToolsSend(browser, $0) } }
+        let sent = tab.runtime.sendAsync { shim in shim.devToolsSend(browser, message) }
         tab.runtime.whenSettled(sent, label: "devtools send") { [weak self] settled in
             guard let text = Self.unansweredText(settled),
                   let reply = CEFDevToolsRawMessage.errorReply(id: id, sessionID: CEFDevToolsRawMessage.sessionID(in: message), text: text)
@@ -151,6 +160,9 @@ public final class CEFAgentRelay {
     /// A page posted on one of cmux's channels (fork API 29): the same reports the DevTools
     /// bindings carry before it, to the same bridges.
     func pageMessage(_ message: CEFPageMessage) {
+        // A cmux page runs no browser-tab script (`CEFDocumentScripts.cmuxPageGuard`): a post on
+        // one of their channels is not cmux's.
+        guard !servesCmuxPage || message.channel.servesCmuxPages else { return }
         switch message.channel {
         case .media: media?.report(message.payload)
         case .protectedMedia: media?.refused(message.payload)
@@ -162,14 +174,18 @@ public final class CEFAgentRelay {
     func browserAttached() {
         resumeWaiters(true)
         // From fork API 29 the runtime installs the document scripts for every browser in the
-        // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
+        // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them. A page tab
+        // gets only the first paint bridge.
         if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {
-            bridgesAttached = true
-            media?.attach(browser)
-            verification?.attach(browser)
+            if !servesCmuxPage {
+                bridgesAttached = true
+                media?.attach(browser)
+                verification?.attach(browser)
+            }
             firstPaint?.attach(browser)
+            firstPaintListens = true
         }
-        if sink != nil || mediaListens || designModeListens { updateWatch() }
+        if listens { updateWatch() }
     }
 
     /// The tab handled a shim event (`CEFTab.handle`): a document that committed or finished gets

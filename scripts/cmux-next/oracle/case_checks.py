@@ -105,11 +105,14 @@ def step_ref_id(value: str) -> str:
 
 
 def crash_kinds(step: dict[str, Any], rules: Rules) -> list[str]:
-    """The child kinds a step ends on purpose: a kill's process, and the debug URLs in its args."""
+    """The child kinds a step ends on purpose: a kill's process, the process a call `ends`, and the debug URLs in
+    its args."""
     kinds: list[str] = []
     target = step.get("target")
     if step.get("op") == "kill" and isinstance(target, dict) and isinstance(target.get("process"), str):
         kinds.append(target["process"])
+    if isinstance(step.get("ends"), str):
+        kinds.append(step["ends"])
     for _, text in strings(step.get("args"), ""):
         for kind, pattern in rules.crash_urls.items():
             if pattern.search(text) and kind not in kinds:

@@ -49,6 +49,38 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "pane-focus-direction-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "split-in-place",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,19 +91,32 @@
       "args": {
         "method": "pane.focus_direction",
         "params": {
-          "direction": "oracle-not-in-enum"
+          "direction": "left"
         },
         "idempotencyKey": "pane-focus-direction-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "pane has no neighbor in that direction"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "direction breaks its catalog type (value is outside the allowed enum); the daemon's catalog check refuses it"
+      "note": "the first pane of the split has no neighbor on its left: operation.failed, focus stays"
+    },
+    {
+      "id": "focus-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/active_pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

@@ -1768,6 +1768,7 @@ fn run_main() {
     // daemon signal handler.
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
+        set_default_task_role();
         if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
@@ -1775,6 +1776,7 @@ fn run_main() {
         return;
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
+        set_default_task_role();
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
@@ -2223,6 +2225,15 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Chromium's `SetCurrentTaskDefaultRole` for the daemon, the holder and the
+/// terminal hosts: the person's input passes through each. A refusal is
+/// logged, never fatal.
+fn set_default_task_role() {
+    if let Err(error) = cmux_threads::process_role::set_default_role() {
+        crate::client_log::stderr_log!("startup", "{BIN}: {error}");
+    }
+}
+
 /// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
@@ -2231,11 +2242,12 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
+    set_default_task_role();
     daemon_build::install();
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2313,6 +2325,7 @@ fn run_server(
     };
 
     localization::terminal_respawn::install();
+    let features = feature_flags::install_daemon_features();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();
@@ -2451,10 +2464,20 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    // The features each app's client hello is reconciled with, before the
+    // first client: this owner outlives the app that started it.
+    cmux_tui_core::server::install_daemon_features(
+        &mux,
+        cmux_features::Live::new(features.clone()),
+    );
     // After restore and adoption: a terminal that joins the catalog later
     // wakes the worker itself.
-    if let Err(error) = mux.start_cold_scrollback(&feature_flags::daemon_features()) {
+    if let Err(error) = mux.start_cold_scrollback(&features) {
         eprintln!("cmux-tui: cold scrollback worker did not start: {error}");
+    }
+    // Energy Saver follows AC and battery after the app quits too.
+    if let Err(error) = mux.start_power_source(&features) {
+        eprintln!("cmux-tui: power source reading did not start: {error}");
     }
     #[cfg(debug_assertions)]
     owner_start::hang_for_test(args.headless);

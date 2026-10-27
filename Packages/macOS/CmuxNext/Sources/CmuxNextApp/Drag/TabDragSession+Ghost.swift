@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 import CmuxNextSignposts
 import CmuxNextTabs
 import QuartzCore
@@ -16,15 +17,17 @@ extension TabDragSession {
     func present(_ drag: Drag, order: [TabDragWindowPick.Candidate]) {
         let source = drag.source
         let tabSize = source.screenFrame.size
+        // Drawn at the resampled pointer; the target (`drag.winner`) was hit-tested at the real one.
+        let pointer = drag.shownPoint ?? drag.point
         let presentation: Presentation
         let rect: CGRect
         var scale: CGFloat = 1
         if let slot = drag.winner?.proposal.ghostFrame {
             presentation = .inline(slot)
-            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
+            rect = TabDragGeometry.inlineRect(pointer: pointer, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
         } else {
             presentation = .card
-            rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
+            rect = TabDragGeometry.floatingRect(pointer: pointer, grabOffset: source.grabOffset, tabSize: tabSize)
             if drag.winner != nil || drag.workspaceHighlight != nil { scale = DragTunables.ghostTargetScale.value }
         }
         let jump = presentation != drag.presentation
@@ -85,12 +88,12 @@ extension TabDragSession {
         let onServer = current.ghost.rendersOnServer
         var moving = onServer ? false : current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
-            update(current.point)
+            update(current.point, shown: current.shownPoint)
             moving = true
         }
         // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
         if current === drag, let deadline = dwellDeadline(current) {
-            if CACurrentMediaTime() >= deadline { update(current.point) }
+            if CACurrentMediaTime() >= deadline { update(current.point, shown: current.shownPoint) }
             moving = true
         }
         if !onServer { current.ghost.render(current.motion) }
@@ -206,10 +209,13 @@ extension TabDragSession {
         drag.ghost.close()
     }
 
-    /// Stops the drag's input: its tap intercept and the app-resign observer.
+    /// Stops the drag's input: its tap intercept, its pending moves and the app-resign observer.
     func endInput(_ drag: Drag) {
         drag.input?.cancel()
         drag.input = nil
+        drag.moves?.cancel()
+        drag.moves = nil
+        resignObserver?.cancel()
         resignObserver = nil
     }
 

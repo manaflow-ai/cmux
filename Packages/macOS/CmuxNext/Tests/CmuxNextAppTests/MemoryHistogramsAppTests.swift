@@ -25,7 +25,7 @@ import Testing
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
-        let agentPages = AgentPageHibernation(tabs: { nil })
+        let agentPages = AgentPageHibernation(tabs: { nil }, deadlines: services.mainDeadlines)
         let clock = HourClock()
         let histograms = Self.histograms(clock)
         histograms.follow(hibernation, agentPages: agentPages)

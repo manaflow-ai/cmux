@@ -3,6 +3,7 @@ public import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextSettings
 public import CmuxNextSidebar
+public import CmuxNextWakeups
 
 /// What the sidebar's Now Playing card (cx-ouoxo) shows and controls: the
 /// playing cmux browser tab today (`BrowserTabsNowPlaying`); system Now
@@ -55,8 +56,8 @@ extension SidebarModel {
     /// that key and opens its row in Settings through `registry` (`NewTabNowPlaying.page`).
     public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
                                  settings: @escaping @MainActor () -> SettingsController?,
-                                 registry: ActionRegistry?) -> Task<Void, Never> {
-        NewTabNowPlaying.page = NewTabNowPlaying.liveActions(settings: settings, registry: registry)
+                                 registry: ActionRegistry?, queries: WorkspaceQueries?) -> Task<Void, Never> {
+        NewTabNowPlaying.page = NewTabNowPlaying.liveActions(settings: settings, registry: registry, queries: queries)
         return followNowPlaying(source, dismissal: dismissal,
                                 enabled: { settings()?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault },
                                 onNewTab: { settings()?.snapshot.nowPlaying.newTab ?? NowPlayingSettings.newTabDefault })

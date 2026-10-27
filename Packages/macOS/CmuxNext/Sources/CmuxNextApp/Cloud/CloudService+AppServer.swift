@@ -5,6 +5,9 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
 /// `cloud.machine.list` / `cloud.machine.create` on `cmux/cloud`, which
@@ -33,6 +36,8 @@ extension CloudService {
         // The team the relay's create bills: the install token's team claim,
         // captured now, when the person starts or confirms this create.
         let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
+        // R-timer: the backoff is a MainDeadline wake on the main thread's one queue, in the visible class.
+        let pauses = MainPause(owner: "CloudMachineCreateFlow.pause", workClass: .visible, scheduler: deadlines)
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
@@ -42,11 +47,8 @@ extension CloudService {
             approve: { request, params in
                 try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
             },
-            pause: { attempt in
-                let step = CloudMachineCreateFlow.backoff(attempt)
-                // wakeup-allow: backoff a bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
-                try await ContinuousClock().sleep(for: step, tolerance: Backoff.tolerance(for: step))
-            }
+            // A bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz).
+            pause: { attempt in try await pauses.delay(CloudMachineCreateFlow.backoff(attempt)) }
         )
         let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
@@ -106,10 +108,11 @@ extension CloudPresenter {
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
-        return await withCheckedContinuation { continuation in
+        // A dialog that goes unanswered is a no.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
-        }
+        }) ?? false
     }
 }
 

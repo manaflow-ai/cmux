@@ -66,7 +66,8 @@ pub(crate) use windows::listener::HostListener;
 pub(crate) use windows::seams::*;
 #[cfg(windows)]
 pub(crate) use windows::standby::{
-    HostProcessStartFailed, SpawnedHostProcess, StandbyTerminalHost, host_bootstrap_streams,
+    HostProcessStartFailed, HostReaper, SpawnedHostProcess, StandbyTerminalHost,
+    host_bootstrap_streams,
 };
 #[cfg(windows)]
 pub(crate) use windows_stubs::*;

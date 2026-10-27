@@ -38,6 +38,14 @@ extension TaskLocal {
             return run.finish()
         }
     }
+
+    /// Binds this task local to `value` for async `body`, in the task that awaits it. An async caller
+    /// always runs in a task, so the binding is the task's own, never the thread's fallback storage.
+    /// For work that left its run's task tree (a detached task inherits no task local) and binds the
+    /// run's value again.
+    public nonisolated func withValueAwaiting<R>(_ value: Value, operation body: () async -> R) async -> R {
+        await withValue(value) { await body() }
+    }
 }
 
 /// `Task.startOnMainActor(priority:_:)` of the Swift 5.9 runtime (macOS 14 and newer): a task that

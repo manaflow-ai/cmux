@@ -54,6 +54,8 @@ Use it three ways:
   3. Build STRESS in a running tagged app: --socket /tmp/cmux-debug-<tag>.sock
 
 pane-perf-terminal.py --stress measures pane motion in it (layout name `stress`).
+scripts/perf-lab/corpus/session_io.py exports a session's layout (no user text) and rebuilds it with this
+builder's calls (`split_chain`, `equalize`, `fill_pane`, `select_tab`, `make_busy`).
 `--shape heavy` (`Stress.build_heavy()`) builds the process census's heavy session instead: 150 workspaces
 with 172 terminals, 10 of them with 2 Chromium pages (process-model-census.py --session heavy).
 Prints one line `STRESS-SESSION {json}`: workspaces, the measured workspace id, its panes, tabs by
@@ -257,8 +259,9 @@ class Stress:
         return (pane or {}).get("tabs") or []
 
     def add_tab(self, workspace_id, pane_id, kind):
-        """One tab of `kind` (terminal, chromium, webkit, chat) in `pane_id`, aimed at it by id (never at
-        whatever has focus); waits for it."""
+        """One tab of `kind` in `pane_id`, aimed at it by id (never at whatever has focus); waits for it.
+        Kinds: terminal, chromium, webkit, browser (the app's default engine), page (the New Tab page) and
+        chat."""
         before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
         count = len(before)
         target = f"pane:{pane_id}"
@@ -274,6 +277,10 @@ class Stress:
             self.action("openBrowser.chromium", {"url": self.pages.url()}, target=tab_target)
         elif kind == "webkit":
             self.action("openBrowser.webkit", {"url": self.pages.url()}, target=tab_target)
+        elif kind == "browser":
+            self.action("openBrowser", {"url": self.pages.url()}, target=tab_target)
+        elif kind == "page":
+            self.action("newTab.page", target=target)
         else:
             # The reply comes when the action has run. Only the app's typed refusal (an error with a code:
             # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
@@ -285,13 +292,44 @@ class Stress:
                 fallback = True
                 self.action("newTab.page", target=target)
         appeared = wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
-        if not appeared and kind in ("terminal", "chromium", "webkit"):
+        if not appeared and kind in ("terminal", "chromium", "webkit", "browser", "page"):
             # No silent go-on: a run that measures a pane without the tab it asked for measures the wrong
             # pane (the Command-pan bench over Chromium measured a terminal, 2026-10-24). A chat may still
             # open late; the pane's mix check names it.
             raise RuntimeError(f"{kind} tab did not appear in {pane_id} in 20 s (refusals: {self.refusals[-3:]})")
         new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None, fallback))
+
+    def fill_pane(self, workspace_id, pane_id, kinds):
+        """Focuses `pane_id` and opens a tab of each of `kinds` in it, in order (`add_tab`): each opens beside
+        the selected one, so they follow the pane's first terminal and the last one made is selected."""
+        self.focus_pane(pane_id)
+        for kind in kinds:
+            self.add_tab(workspace_id, pane_id, kind)
+
+    @staticmethod
+    def selected_tab(pane):
+        """The id of `pane`'s selected tab (`selected_tab`, or a tab's own `selected` flag), or None."""
+        tabs = (pane or {}).get("tabs") or []
+        chosen = (pane or {}).get("selected_tab")
+        if chosen and any(t.get("id") == chosen for t in tabs):
+            return chosen
+        return next((t.get("id") for t in tabs if t.get("selected")), None)
+
+    def pane(self, workspace_id, pane_id):
+        return next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
+
+    def select_tab(self, workspace_id, pane_id, tab_id):
+        """Shows tab `tab_id` in its pane (`tab.focus`); raises StressShapeError when the pane does not select it."""
+        self.action("tab.focus", target=f"tab:{tab_id}")
+        if not wait(lambda: self.selected_tab(self.pane(workspace_id, pane_id)) == tab_id, 10, step=0.05):
+            raise StressShapeError(f"tab {tab_id} never became the selected tab of pane {pane_id}")
+
+    def close_tab(self, workspace_id, pane_id, tab_id):
+        """Closes tab `tab_id` (`closeTab`); raises StressShapeError when it stays."""
+        self.action("closeTab", target=f"tab:{tab_id}")
+        if not wait(lambda: all(t.get("id") != tab_id for t in self.tabs(workspace_id, pane_id)), 10, step=0.05):
+            raise StressShapeError(f"tab {tab_id} did not close in pane {pane_id}")
 
     def send(self, tab_id, text):
         self.action("terminal.sendText", {"text": text}, target=f"tab:{tab_id}", focus=False)
@@ -332,9 +370,7 @@ class Stress:
         first = self.panes(self.workspace(workspace))[0]["id"]
         self.split(workspace, first, "splitRight")
         panes = [p["id"] for p in self.panes(self.workspace(workspace))]
-        self.focus_pane(first)
-        for kind in kinds:
-            self.add_tab(workspace, first, kind)
+        self.fill_pane(workspace, first, kinds)
         return workspace, panes
 
     def build_heavy(self, workspaces=HEAVY_WORKSPACES, terminals=HEAVY_TERMINALS, chromium=CHROMIUM_WORKSPACES):
@@ -376,6 +412,21 @@ class Stress:
     def close(self):
         """Stops the local pages' server (the end of a run, or a test)."""
         self.pages.close()
+
+    def split_chain(self, workspace, pane, verb, count):
+        """`count` splits of `verb`, each of the pane the last one made (`split`), so the new panes follow `pane`
+        in order in one row (splitRight) or column (splitDown). Returns [pane, new panes...]; stops at a refused split."""
+        made = [pane]
+        while len(made) <= count:
+            new = self.split(workspace, made[-1], verb)
+            if not new:
+                break
+            made.append(new)
+        return made
+
+    def equalize(self, pane):
+        """equalizeSplits in `pane`'s workspace, which must be shown (a hidden workspace's is refused)."""
+        self.action("equalizeSplits", target=f"pane:{pane}", settle=0.8)
 
     def split(self, workspace, pane, verb):
         """`verb` (splitRight, splitDown) on `pane` by id, not by focus; returns the new pane's id, or
@@ -422,16 +473,11 @@ class Stress:
         d = self.split(workspace, b, "splitRight") if b else None
         columns = [pane for pane in (first, c, b, d) if pane]
         for index, top in enumerate(columns):
-            rows = [top]
-            while len(rows) < ROWS:
-                new = self.split(workspace, rows[-1], "splitDown")
-                if not new:
-                    break
-                rows.append(new)
+            rows = self.split_chain(workspace, top, "splitDown", ROWS - 1)
             if index in NESTED_COLUMNS and len(rows) > 1:
                 # The middle row splits once more, top and bottom: a split nested in the column's chain.
                 self.split(workspace, rows[1], "splitDown")
-        self.action("equalizeSplits", target=f"pane:{first}", settle=0.8)
+        self.equalize(first)
         return first
 
     def size_window(self):
@@ -474,9 +520,7 @@ class Stress:
         if self.selected == "chromium":
             order = ["terminal", "chromium", "webkit", "chat", "chromium"]
         for index, pane in enumerate(panes):
-            self.focus_pane(pane)
-            for kind in order:
-                self.add_tab(workspace, pane, kind)
+            self.fill_pane(workspace, pane, order)
             self.log(f"stress: pane {index + 1}/{len(panes)} has {len(self.tabs(workspace, pane))} tabs")
         self.busy = []
         if self.busy_where == "measured":
@@ -664,13 +708,14 @@ def terminal_counts(topology, screens=None):
 
 
 def topology_kinds(asked, fallback):
-    """The `snapshot.get` tab kinds a tab asked as `asked` may have: a terminal, a browser tab for Chromium
-    and WebKit, an agent chat (`conversation`), or the New Tab page (`page`) for a counted chat fallback."""
+    """The `snapshot.get` tab kinds a tab asked as `asked` may have: a terminal, a browser tab for Chromium,
+    WebKit and the default engine, an agent chat (`conversation`), or the New Tab page (`page`), asked or as a
+    counted chat fallback."""
     if asked == "terminal":
         return {"terminal"}
-    if asked in ("chromium", "webkit"):
+    if asked in ("chromium", "webkit", "browser"):
         return {"browser"}
-    return {"page"} if fallback else {"conversation"}
+    return {"page"} if fallback or asked == "page" else {"conversation"}
 
 
 def cef_problems(cef, web_dev_config=None):

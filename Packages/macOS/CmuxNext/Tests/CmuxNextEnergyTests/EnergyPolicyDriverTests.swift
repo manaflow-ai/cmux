@@ -19,6 +19,23 @@ struct EnergyPolicyDriverTests {
         #expect(source.policy == EnergyPolicy(onBattery: true))
     }
 
+    /// `energySaver` is a `both` feature (p12-perf-process-150): with a local daemon its session value waits for
+    /// the daemon's answer, so nothing publishes with the app's launch value first, and the value never flips.
+    @Test func anUnknownFeaturePublishesNothingUntilTheSessionValueAndNeverFlips() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: nil)
+        driver.update(setting: .always)
+        driver.update(inputs: Self.lowBattery)
+        #expect(source.policy == .normal, "published before the session's energySaver value was known")
+        #expect(!driver.isEnabled)
+        driver.resolveFeature(isEnabled: false)  // the daemon kept energySaver off
+        #expect(source.policy == EnergyPolicy(onBattery: true))
+        #expect(!source.policy.isSaver)
+        driver.resolveFeature(isEnabled: true)
+        driver.update(inputs: Self.lowBattery)
+        #expect(!driver.isEnabled && !source.policy.isSaver, "the feature flipped in the session")
+    }
+
     @Test func inputsDriveTheSaverInAuto() {
         let source = EnergyPolicySource()
         let driver = EnergyPolicyDriver(source: source, isEnabled: true)
@@ -130,9 +147,9 @@ struct EnergyPolicyDriverTests {
         driver.update(inputs: Self.lowBattery)
         driver.turnOffForNow()
         #expect(driver.isOffForSession)
-        #expect(source.policy == EnergyPolicy(onBattery: true))
+        #expect(source.policy == EnergyPolicy(onBattery: true, offForNow: true))
         driver.update(inputs: EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 8))
-        #expect(source.policy == EnergyPolicy(onBattery: true), "still on battery: the hold stays")
+        #expect(source.policy == EnergyPolicy(onBattery: true, offForNow: true), "still on battery: the hold stays")
         driver.turnOnNow()
         #expect(!driver.isOffForSession)
         #expect(source.policy == EnergyPolicy(saverReason: .battery, onBattery: true))

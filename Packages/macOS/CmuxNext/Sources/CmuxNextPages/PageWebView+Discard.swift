@@ -86,7 +86,7 @@ extension PageWebView {
         // A frozen page's engine page goes with its document; the WebKit view gets back the
         // throttling it had before the freeze, which its restored document runs with.
         if case .webKit(let restoring)? = frozenEngine, let restoring {
-            webView.configuration.preferences.setHiddenPageThrottling(restoring)
+            webKitPieces?.view.configuration.preferences.setHiddenPageThrottling(restoring)
         }
         frozenEngine = nil
         popupHost?.dismiss()
@@ -95,7 +95,7 @@ extension PageWebView {
         endChromium()
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
-        scriptTarget.bridge = bridge
+        scriptTarget.bridge = webKitPieces?.bridge // nil for a Chromium page that never fell back
         // No document until the restore: scripts sent meanwhile are dropped (theme and scale come
         // with the new document's start).
         scriptTarget.hasDocument = false
@@ -129,8 +129,9 @@ extension PageWebView {
 
     /// Ends the WebKit document: the view loads an empty document with no navigation delegate, so the
     /// old page's unload and the empty document's commit, finish or crash never reach the host. A
-    /// view that never loaded (Chromium showed the page) has nothing to end and starts no process.
+    /// Chromium page has no WebKit view, and a view that never loaded has nothing to end and starts no process.
     private func endWebKitDocument() {
+        guard let webView = webKitPieces?.view else { return }
         webView.isHidden = true
         webView.navigationDelegate = nil
         guard webView.url != nil else { return }
@@ -167,12 +168,17 @@ extension PageWebView {
             discardShell.awaitsPaint = true
             whenPainted { [weak self] in self?.finishRestore() }
         }
-        // Before either engine starts: a Chromium page that fails reopens in this WebKit view.
-        webView.navigationDelegate = self
+        // Before either engine starts: a Chromium page that fell back before reopens in its WebKit
+        // view; one with none builds it at a fallback (``fallBackToWebKit(_:detail:)``).
+        webKitPieces?.view.navigationDelegate = self
+        // Its browser ended before the discard: the supervisor's answer picks the engine, as it does
+        // for a page that was not discarded.
+        if let chromiumRecovery { return chromiumRecovery.pageShown() }
         if engineDecision.engine == .cef, let chromiumHost {
             startChromium(hosting: chromiumHost)
             return
         }
+        let webView = webKit.view
         webView.isHidden = false
         traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
@@ -212,7 +218,7 @@ extension PageWebView {
     /// - Parameter state: The JSON text the page saved when it hid (``PageHideState/savedState``);
     ///   nil when it saved none.
     private func installRestoreScript(state: String?) {
-        let controller = webView.configuration.userContentController
+        let controller = userContent
         if let old = discardShell.restoreScript { Self.remove(old, from: controller) }
         let script = WKUserScript(source: Self.restoreScript(state: state, token: UUID().uuidString),
                                   injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
@@ -259,7 +265,7 @@ extension PageWebView {
         discardShell.cover?.removeFromSuperlayer()
         discardShell.cover = nil
         if let script = discardShell.restoreScript {
-            Self.remove(script, from: webView.configuration.userContentController)
+            Self.remove(script, from: userContent)
             discardShell.restoreScript = nil
         }
     }

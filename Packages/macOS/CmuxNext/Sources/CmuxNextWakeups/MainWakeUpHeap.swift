@@ -108,16 +108,12 @@ struct MainWakeUpHeap<Payload> {
     private mutating func remove(at index: Int) -> Entry {
         let removed = entries[index]
         positions[removed.id] = nil
-        let last = entries.count - 1
-        if index != last {
-            entries[index] = entries[last]
-            positions[entries[index].id] = index
-        }
-        entries.removeLast()
-        if index < entries.count {
-            siftDown(index)
-            siftUp(index)
-        }
+        // The last entry fills the hole, unless the hole was the last slot.
+        guard let last = entries.popLast(), index < entries.count else { return removed }
+        entries[index] = last
+        positions[last.id] = index
+        siftDown(index)
+        siftUp(index)
         return removed
     }
 

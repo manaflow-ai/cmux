@@ -22,8 +22,10 @@ final class DividerHandleView: NSView {
         /// The pointer passed `point` at `time` before a later move of the same delivery: it feeds
         /// the release velocity only.
         case sampled(NSPoint, time: CFTimeInterval)
-        /// The divider goes to `point`, where the pointer was at `time`.
-        case moved(NSPoint, time: CFTimeInterval)
+        /// The pointer was at `point` at `time`: the real sample, which the velocity, snaps and the
+        /// release read. The divider is drawn at `shown`, the pointer resampled at the frame's time
+        /// (`input.resampleDrags`); nil draws it at `point`.
+        case moved(NSPoint, time: CFTimeInterval, shown: NSPoint? = nil)
         /// The pointer went up at `point` at `time`.
         case ended(NSPoint, time: CFTimeInterval)
         case doubleClick
@@ -52,6 +54,11 @@ final class DividerHandleView: NSView {
     var pointerFrames: () -> FrameInputCoalescers? = { nil }
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
+    /// A new drag's resampler for where the divider is drawn (``LayoutRootView/dragResampler``); nil
+    /// draws it at the real pointer. Read once per drag, on mouse-down, with frame-aligned input only.
+    var dragResampler: () -> DragResampler? = { nil }
+    /// This drag's resampler, from mouse-down to mouse-up.
+    private var resampler: DragResampler?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -321,9 +328,10 @@ final class DividerHandleView: NSView {
         }
         isDragging = true
         endFrameDrag()
-        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.consumer(owner: "DividerHandleView") { [weak self] input in
-            self?.deliver(input)
+        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.frameTimedConsumer(owner: "DividerHandleView") { [weak self] input, frame in
+            self?.deliver(input, at: frame)
         }
+        resampler = frameDrag == nil ? nil : dragResampler()
         onDrag?(.began(event.locationInWindow))
     }
 
@@ -346,8 +354,9 @@ final class DividerHandleView: NSView {
     }
 
     /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity, then
-    /// the divider moves to the latest. No allocation: the points are the delivery's own.
-    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
+    /// the divider moves to the latest, drawn at the pointer resampled at `frame` while a resampler
+    /// runs. No allocation: the points are the delivery's own.
+    private func deliver(_ input: PointerCoalescedInput, at frame: PointerFrameTime) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
         guard isDragging else { return }
         let samples = input.samples
         if samples.count > 1 {
@@ -356,13 +365,16 @@ final class DividerHandleView: NSView {
             }
         }
         let latest = input.latest
-        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp))
+        let shown = resampler?.points(for: input, at: frame).visualPoint
+        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp,
+                       shown: shown.map { NSPoint(x: $0.x, y: $0.y) }))
     }
 
     /// Drops this drag's consumer and anything it still has pending.
     private func endFrameDrag() {
         frameDrag?.cancel()
         frameDrag = nil
+        resampler = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {

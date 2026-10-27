@@ -36,8 +36,8 @@ public final class HangEpisodeRecorder: Sendable {
     /// `app:`, `commit:` and executable lines, read once from the bundle at launch.
     private let identity: [String]
     private let isEnabled: @Sendable () -> Bool
-    /// Return addresses to frame descriptions (``StackSymbolicator``); tests inject one.
-    private let symbolicate: @Sendable ([UInt]) -> [String]
+    /// Makes one episode's return-addresses-to-frame-descriptions (``StackSymbolicator``); tests inject one.
+    private let symbolicator: @Sendable () -> @Sendable ([UInt]) -> [String]
     private let queue = DispatchQueue(label: "cmux-next.hang-episodes", qos: .utility)
     private let symbolQueue = DispatchQueue(label: "cmux-next.hang-episodes.symbols", qos: .utility)
     private let state = Mutex(State())
@@ -74,22 +74,34 @@ public final class HangEpisodeRecorder: Sendable {
     public convenience init(directory: URL, bundle: Bundle = .main, maxFiles: Int = 20, maxBytes: Int = 64 * 1_024,
                             isEnabled: @escaping @Sendable () -> Bool = { true }) {
         self.init(directory: directory, bundle: bundle, maxFiles: maxFiles, maxBytes: maxBytes, isEnabled: isEnabled,
-                  symbolicate: { StackSymbolicator().frames(for: $0).map(\.description) })
+                  symbolicator: {
+                      // The app's symbol map, read once per episode's job on the symbol queue.
+                      let symbolicator = StackSymbolicator(map: AppSymbolMap.loadMain())
+                      return { symbolicator.frames(for: $0).map(\.description) }
+                  })
     }
 
-    init(directory: URL, bundle: Bundle = .main, maxFiles: Int = 20, maxBytes: Int = 64 * 1_024,
-         isEnabled: @escaping @Sendable () -> Bool = { true }, symbolicate: @escaping @Sendable ([UInt]) -> [String]) {
+    convenience init(directory: URL, bundle: Bundle = .main, maxFiles: Int = 20, maxBytes: Int = 64 * 1_024,
+                     isEnabled: @escaping @Sendable () -> Bool = { true }, symbolicate: @escaping @Sendable ([UInt]) -> [String]) {
+        self.init(directory: directory, bundle: bundle, maxFiles: maxFiles, maxBytes: maxBytes, isEnabled: isEnabled,
+                  symbolicator: { symbolicate })
+    }
+
+    /// - Parameter symbolicator: Makes the symbolication of one episode's stacks, on the symbol queue (so the
+    ///   app's symbol map is read there, once per episode, never in a static initializer).
+    init(directory: URL, bundle: Bundle, maxFiles: Int, maxBytes: Int, isEnabled: @escaping @Sendable () -> Bool,
+         symbolicator: @escaping @Sendable () -> @Sendable ([UInt]) -> [String]) {
         self.directory = directory
         self.maxFiles = max(1, maxFiles)
         self.maxBytes = max(1_024, maxBytes)
         self.isEnabled = isEnabled
-        self.symbolicate = symbolicate
+        self.symbolicator = symbolicator
         let info = bundle.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
-        let header = _dyld_get_image_header(0)
-        let uuid = header.flatMap(AppSymbolMap.uuid(of:))?.uuidString ?? "?"
-        let base = header.map { "0x" + String(UInt(bitPattern: $0), radix: 16) } ?? "?"
+        let executable = AppSymbolMap.executableImage()
+        let uuid = executable?.uuid?.uuidString ?? "?"
+        let base = executable.map { "0x" + String($0.loadAddress, radix: 16) } ?? "?"
         identity = [
             "app: \(bundle.bundleIdentifier ?? "?") \(version) (\(build))",
             "commit: \(info["CMUXCommit"] as? String ?? "unknown")",
@@ -161,7 +173,9 @@ public final class HangEpisodeRecorder: Sendable {
     /// Whether `url` is one of this folder's hang files and a regular file (not a symlink).
     public func isHangFile(_ url: URL) -> Bool {
         var info = stat()
-        return url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
             && lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
     }
 
@@ -227,6 +241,7 @@ public final class HangEpisodeRecorder: Sendable {
         }
         guard let next else { return }
         symbolQueue.async { [self] in
+            let symbolicate = symbolicator()
             let mainFrames = symbolicate(next.main)
             let stacks = Self.render(main: mainFrames, others: next.others.map { (name: $0.name, frames: symbolicate($0.addresses)) }, phase: next.phase)
             queue.async { [self] in
@@ -328,13 +343,16 @@ public final class HangEpisodeRecorder: Sendable {
 
     /// Reads a regular file of at most `limit` bytes without following a symlink (`O_NOFOLLOW`).
     static func readRegularFile(_ url: URL, limit: Int) -> String? {
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= off_t(limit) else { return nil }
+        // SAFETY: fstat writes one struct stat into `info`, a local live for the call.
+        guard unsafe fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= off_t(limit) else { return nil }
         var bytes = [UInt8](repeating: 0, count: Int(clamping: info.st_size))
-        let count = bytes.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+        // SAFETY: read writes at most $0.count bytes, the array's size, into its storage, lent for the call.
+        let count = unsafe bytes.withUnsafeMutableBytes { unsafe read(fd, $0.baseAddress, $0.count) }
         guard count >= 0 else { return nil }
         return String(decoding: bytes.prefix(count), as: UTF8.self)
     }

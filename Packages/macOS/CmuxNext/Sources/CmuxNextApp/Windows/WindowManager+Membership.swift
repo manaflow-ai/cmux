@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -34,14 +36,21 @@ extension WindowManager {
     }
 
     /// Makes controllers match the registry, all in this main-actor turn so
-    /// no frame shows a window without its workspace: opens missing windows,
-    /// repairs each window's selection, closes windows the registry removed
-    /// or closed (at once), and when the key window closed, makes the window
-    /// that received its workspaces key (else the next one in z-order).
+    /// no frame shows a window without its workspace: opens missing windows
+    /// (not a restored one waiting for its launch build, `launchWindows`,
+    /// unless workspaces were just moved in to show there), repairs each
+    /// window's selection, closes windows the registry removed or closed (at
+    /// once), and when the key window closed, makes the window that received
+    /// its workspaces key (else the next one in z-order).
     /// Windows whose membership did not change keep their state untouched.
     func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = []) {
         let value = registry.value
-        for window in value.openWindows where controller(for: window.id) == nil {
+        if let launchWindows {
+            launchWindows.keep(Set(value.openWindows.map(\.id)))
+            for id in preferred.keys { _ = launchWindows.take(id) }
+            waitingRepairs = waitingRepairs.filter { launchWindows.isWaiting($0.key) }
+        }
+        for window in value.openWindows where controller(for: window.id) == nil && launchWindows?.isWaiting(window.id) != true {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred)
@@ -61,41 +70,53 @@ extension WindowManager {
     /// Makes each window's selection a workspace it lists in its current
     /// profile. When that profile has none left there (closed, moved to
     /// another profile or window), the window shows the most recent other
-    /// profile it holds workspaces in.
+    /// profile it holds workspaces in. A restored window still waiting for its
+    /// launch build keeps its membership before the change (``waitingRepairs``)
+    /// and is repaired at its build, with its sidebar's drawn rows.
     func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:]) {
+        for window in registry.value.windows {
+            if launchWindows?.isWaiting(window.id) == true {
+                if waitingRepairs[window.id] == nil { waitingRepairs[window.id] = previous[window.id] ?? window.workspaceIDs }
+                continue
+            }
+            repairSelection(of: window, previous: previous[window.id] ?? window.workspaceIDs, preferred: preferred[window.id] ?? [])
+        }
+    }
+
+    /// Repairs one window's selection (``repairSelections(previous:preferred:)``): `previous` is its
+    /// membership before the change, `preferred` the workspaces just moved in to show there.
+    func repairSelection(of window: WindowRegistry.Window, previous: [String], preferred: [String] = []) {
         let machines = services.machines
         let home = machines.local.store
-        for window in registry.value.windows {
-            let state = state(for: window.id)
-            let room = state.profileID
-            // Its room was deleted (here or by another client); cached rooms can lag.
-            if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
-                state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
-            }
-            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
-            // A window waiting for the workspace it just created in a new
-            // or empty room keeps that room.
-            let waiting = pendingClaims.values.contains(window.id)
-            if visible.isEmpty, !waiting,
-               let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
-                state.enterProfile(fallback)
-                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
-            }
-            // A room change shows the workspace last shown in that room.
-            var wanted = preferred[window.id] ?? []
-            if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
-            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
-            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
+        let state = state(for: window.id)
+        let room = state.profileID
+        // Its room was deleted (here or by another client); cached rooms can lag.
+        if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
+            state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
         }
+        var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
+        // A window waiting for the workspace it just created in a new
+        // or empty room keeps that room.
+        let waiting = pendingClaims.values.contains(window.id)
+        if visible.isEmpty, !waiting,
+           let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
+            state.enterProfile(fallback)
+            visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
+        }
+        // A room change shows the workspace last shown in that room.
+        var wanted = preferred
+        if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
+        let prior = WindowProfiles.visible(previous, profile: state.profileID, machines: machines)
+        // "The next row" is the sidebar's next drawn row, not the next member to have joined.
+        let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
+            (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
+        if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
     }
 
     /// Makes the first open receiver key, else our frontmost window.
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
-        let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
+        let next = receivers.lazy.compactMap { self.controllerBuildingIfWaiting(for: $0) }.first
             ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
@@ -129,9 +150,9 @@ extension WindowManager {
         let value = registry.value
         // The window that shows it (the open one listing it, for a request from elsewhere) is the one timed.
         let elsewhere = origin == .anywhere ? value.owner(of: workspaceID).flatMap { owner in
-            owner != state.id && value.window(owner)?.isOpen == true ? controller(for: owner) : nil
+            owner != state.id && value.window(owner)?.isOpen == true ? controllerBuildingIfWaiting(for: owner) : nil
         } : nil
-        if let timed = elsewhere ?? controller(for: state.id) { DebugWorkspaceSwitch.began(timed) }
+        if let timed = elsewhere ?? controllerBuildingIfWaiting(for: state.id) { DebugWorkspaceSwitch.began(timed) }
         if let target = elsewhere {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
@@ -139,7 +160,7 @@ extension WindowManager {
             return
         }
         claim(workspaceID: workspaceID, in: state)
-        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+        controllerBuildingIfWaiting(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the
@@ -151,7 +172,7 @@ extension WindowManager {
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
-        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
+        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controllerBuildingIfWaiting(for: owner) {
             if shows { select(workspaceID, in: target.state) }
             return target
         }
@@ -270,7 +291,7 @@ extension WindowManager {
             reopened = registry.reopen()
             return WindowRegistry.Changes()
         }
-        guard let reopened, let controller = controller(for: reopened) else { return false }
+        guard let reopened, let controller = controllerBuildingIfWaiting(for: reopened) else { return false }
         bringToFront(controller)
         return true
     }
@@ -278,7 +299,7 @@ extension WindowManager {
     /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
     func releaseClosedWindow(id: String) {
         transition { $0.releaseClosed(id) }
-        if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
+        if registry.value.window(id)?.isOpen == true, let controller = controllerBuildingIfWaiting(for: id) { bringToFront(controller) }
     }
 
     /// Reopens closed window `id` (Reopen Closed of its `window` group).
@@ -290,7 +311,7 @@ extension WindowManager {
             reopened = registry.reopen(id: id)
             return WindowRegistry.Changes()
         }
-        guard reopened, let controller = controller(for: id) else { return false }
+        guard reopened, let controller = controllerBuildingIfWaiting(for: id) else { return false }
         bringToFront(controller)
         return true
     }
@@ -319,14 +340,13 @@ extension WindowManager {
         let machines = services.machines
         let cloud = services.cloud
         membershipObservation?.cancel()
-        membershipObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)]
-            }) {
-                self?.reconcileMembership()
-            }
+        // Windows open and close on it, hidden or not: a service observation, `visible` (it shows).
+        membershipObservation = ServiceObservation(.visible, owner: "WindowManager.membership", on: services.mainWork) { () -> [String] in
+            [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
+                + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
+                + [Self.profileTags(of: machines.local)]
+        } apply: { [weak self] _ in
+            self?.reconcileMembership()
         }
     }
 

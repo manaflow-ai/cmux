@@ -26877,7 +26877,7 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "settings feature-flags",
+      "cli_name" : "settings open-feature-flags",
       "context_menu" : "noObject",
       "context_menus" : [
 

@@ -209,7 +209,7 @@ pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
     /// The capabilities whose transport this build serves.
-    const BOUND: [IpcCapability; 0] = [];
+    const BOUND: [IpcCapability; 1] = [IpcCapability::AttachStreams];
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0
@@ -361,6 +361,8 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(agent_cli_intents::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
+    capabilities.push(energy_op::CAPABILITY);
+    capabilities.push(energy_op::RULE_CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]
@@ -494,6 +496,7 @@ pub(super) fn advertised_capabilities(
         MACHINE_LISTENING_TCP_CAPABILITY,
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        SERVER_THREADS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
@@ -628,6 +631,7 @@ pub(super) fn advertised_capabilities(
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
         crate::event_cause::CAPABILITY,
+        crate::event_cause::REQUEST_PRIORITY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

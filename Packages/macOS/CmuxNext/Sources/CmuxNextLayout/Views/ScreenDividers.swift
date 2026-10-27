@@ -36,7 +36,7 @@ struct ScreenDividers {
     }
 
     /// Places every handle at the rect its spring presents with the strip camera at `strip`, on the pixel
-    /// grid (``place(_:_:at:alpha:uncovered:force:)``). Returns whether a handle changed. O(handles); a
+    /// grid (``place(_:_:at:alpha:strip:uncovered:force:)``). Returns whether a handle changed. O(handles); a
     /// handle whose frame, alpha and clips are as they were is not touched.
     @discardableResult
     func place(strip: CGFloat, scale: CGFloat, uncovered: CGRect, force: Bool) -> Bool { // perf-hot: 4ms motion-frame
@@ -44,29 +44,34 @@ struct ScreenDividers {
         for (kind, frame) in screen.dividerFrames {
             guard let view = screen.dividerViews[kind] else { continue }
             let placed = screen.shownRect(frame.rect, of: kind, strip: strip, scale: scale)
-            if place(view, kind, at: placed, alpha: frame.alpha.value, uncovered: uncovered, force: force) { changed = true }
+            if place(view, kind, at: placed, alpha: frame.alpha.value, strip: strip, uncovered: uncovered, force: force) { changed = true }
         }
         return changed
     }
 
-    /// Places `view` at `placed` with `alpha`, in the screen's coordinates; its hidden state and cursor
-    /// clip follow from the frame, the screen's `uncovered` rect (``ScreenContentView/uncoveredRect``)
-    /// and its scroll area's window. Every pass that places a handle comes here: each presentation, a
-    /// render-server spring's start (its rest frame) and its landing. Returns whether anything changed;
-    /// `force` re-places a handle that looks unchanged (a style or structural change).
+    /// Places `view` at `placed` with `alpha`, in the screen's coordinates, laid out with the strip camera
+    /// at `strip`; its hidden state and cursor clip follow from the frame, the screen's `uncovered` rect
+    /// (``ScreenContentView/uncoveredRect``) and its scroll area's laid-out window. Every pass that places
+    /// a handle comes here: each presentation, a render-server spring's start (its rest frame) and its
+    /// landing. Returns whether anything changed; `force` re-places a handle that looks unchanged (a style
+    /// or structural change).
     @discardableResult
     func place(_ view: DividerHandleView, _ kind: DividerHandleView.Kind, at placed: CGRect, alpha: CGFloat,
-               uncovered: CGRect, force: Bool) -> Bool {
+               strip: CGFloat, uncovered: CGRect, force: Bool) -> Bool {
         let scrolls = screen.scrolls(kind)
-        let shownArea = screen.areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
-        guard force || view.frame != placed || view.alphaValue != alpha || view.placedClips != clips else { return false }
+        let shownArea = screen.areaWindow(of: kind, strip: strip), clips: [CGRect?] = [uncovered, shownArea]
+        // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
+        // In its area's container the container's clip and frame stop it there instead, wherever a pan
+        // on the container (which lays nothing out) moves it.
+        let docked = scrolls && !screen.geometry.dock.isEmpty
+        let inAreaContainer = (view.superview as? ScrollerPanContainerView).map { $0.scroller.isArea && $0.clipsSubviews } ?? false
+        let hidden = (docked && placed.intersection(uncovered).width < 0.5)
+            || (!inAreaContainer && shownArea.map { !$0.contains(CGPoint(x: placed.midX, y: placed.midY)) } == true)
+        guard force || view.frame != placed || view.alphaValue != alpha || view.placedClips != clips
+            || view.isHidden != hidden else { return false }
         if view.frame != placed { view.frame = placed }
         if view.alphaValue != alpha { view.alphaValue = alpha }
         view.placedClips = clips
-        // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
-        let docked = scrolls && !screen.geometry.dock.isEmpty
-        let hidden = (docked && view.frame.intersection(uncovered).width < 0.5)
-            || shownArea.map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
         if view.isHidden != hidden { view.isHidden = hidden }
         // Shown, its cursor and click catcher still stop at a dock and at its area's window.
         var pointerClip: CGRect? = docked ? uncovered : nil
@@ -95,16 +100,18 @@ struct ScreenDividers {
         screen.dividerViews.values.compactMap { view in
             guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
-            let line = view.lineFrameInSuperview.offsetBy(dx: screen.panTranslation(of: view), dy: 0).intersection(screen.bounds)
+            let moved = screen.panTranslation(of: view)
+            let line = view.lineFrameInSuperview.offsetBy(dx: moved.dx, dy: moved.dy).intersection(screen.bounds)
             let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
-    /// `rect` (`view`'s coordinates) in the screen's, where it shows: a strip pan on the motion
-    /// container moves it by the container's translation, which `convert` does not see.
+    /// `rect` (`view`'s coordinates) in the screen's, where it shows: a pan on the strip's motion
+    /// container, or a row's or area's, moves it by the translation, which `convert` does not see.
     private func shown(_ rect: CGRect, of view: DividerHandleView) -> CGRect {
-        screen.convert(rect, from: view).offsetBy(dx: screen.panTranslation(of: view), dy: 0)
+        let moved = screen.panTranslation(of: view)
+        return screen.convert(rect, from: view).offsetBy(dx: moved.dx, dy: moved.dy)
     }
 
     /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
@@ -178,18 +185,25 @@ struct DividerDragState {
         return thirds + [equalShare].compactMap { $0 }.filter { !thirds.contains($0) }
     }
 
-    /// A split divider's ratio with the pointer at `point` (content space),
-    /// snapped; entering a snap mid-drag plays the alignment haptic.
-    mutating func splitRatio(at point: CGPoint, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
-        let ratio = SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
-                                        axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
-                                        snaps: snaps, snapDistance: Self.snapDistance)
+    /// A split divider's ratio with the pointer at `realPoint` (content space),
+    /// snapped; entering a snap mid-drag plays the alignment haptic. The snap is
+    /// decided at the real point; off a snap the divider is drawn under
+    /// `shownPoint` (the pointer resampled at the frame's time) when there is one.
+    mutating func splitRatio(at realPoint: CGPoint, shownAt shownPoint: CGPoint? = nil, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
+        let ratio = pointerRatio(realPoint, style: style, snaps: snaps)
         let landed = snaps.contains(ratio) ? ratio : nil
         if let landed, landed != snapped, phase != .ended {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }
         snapped = landed
-        return ratio
+        guard landed == nil, let shownPoint else { return ratio }
+        return pointerRatio(shownPoint, style: style, snaps: [])
+    }
+
+    private func pointerRatio(_ point: CGPoint, style: LayoutStyle, snaps: [Double]) -> Double {
+        SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
+                            axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
+                            snaps: snaps, snapDistance: Self.snapDistance)
     }
 }
 

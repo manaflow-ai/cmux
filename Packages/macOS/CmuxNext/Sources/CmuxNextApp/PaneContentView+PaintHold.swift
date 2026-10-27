@@ -21,12 +21,15 @@ extension AgentPaneView: PaneFirstPaintGated {
 /// A page tab: transparent until its document paints, like an agent page
 /// (no-flicker audit). Content that is not a page has nothing to wait for, a page rebuilt
 /// after a discard shows its last picture until it paints (``InternalPageView/rebuilt(under:restore:)``),
-/// and a page discarded in place draws its hide-time snapshot in the show's turn
-/// (``PageWebView/drawsDiscardSnapshot``): either is its first frame.
+/// a page discarded in place draws its hide-time snapshot in the show's turn
+/// (``PageWebView/drawsDiscardSnapshot``), and a cold page shows its themed stand-in from the open's
+/// turn (``PageWebView/showsStandIn``, feature `pageStandIn`): each is its first frame, so the pane
+/// swaps to it at once, as Chrome shows a new tab's base background before the renderer's first frame.
 extension InternalPageView: PaneFirstPaintGated {
     public var awaitsFirstPaint: Bool {
-        guard picture == nil, let page = content as? PageWebView else { return false }
-        return !page.hasPainted && !page.drawsDiscardSnapshot
+        // The content first: its build shows the picture or the stand-in.
+        guard let page = content as? PageWebView, picture == nil else { return false }
+        return !page.hasPainted && !page.drawsDiscardSnapshot && !page.showsStandIn
     }
 
     public func whenFirstPainted(_ body: @escaping () -> Void) {
@@ -58,7 +61,8 @@ extension PaneContentView {
             // The strip, ring and corners change with the swap, in its transaction.
             guard let self, holdKeepsStrip else { return }
             holdKeepsStrip = false
-            needsLayout = true
+            needsLayout = true // invalidate: the hold that kept the strip ended (the guard above).
+            // sync-layout: the strip moves in the swap's own transaction (`PanePaintHold.end`), not a frame later.
             layoutSubtreeIfNeeded()
         })
     }

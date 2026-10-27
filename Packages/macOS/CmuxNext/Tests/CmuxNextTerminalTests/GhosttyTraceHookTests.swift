@@ -1,10 +1,13 @@
 import CmuxNextCompat
 import CoreGraphics
+@testable import CmuxNextDesign
+import CmuxNextMetrics
 @testable import CmuxNextSignposts
 @testable import CmuxNextTerminal
 @testable import CmuxNextTrace
 @testable import CmuxNextWakeups
 import Darwin
+import Dispatch
 import GhosttyNextKit
 import QuartzCore
 import Testing
@@ -61,7 +64,7 @@ struct GhosttyTraceHookTests {
     struct Rig {
         let hook: GhosttyTraceHook
         let installed: Installed
-        let frames: GhosttyTraceHook.Surface
+        let bridge: SurfaceBridge
         let key: TypingLatencyProbe.SurfaceKey
         /// The surface's `ghostty_surface_trace_id`.
         let id: UInt64 = 41
@@ -79,8 +82,16 @@ struct GhosttyTraceHookTests {
             }
             self.installed = installed
             key = probe.makeSurfaceKey()
-            frames = GhosttyTraceHook.Surface(key: key, echoStage: echoStage)
-            _ = hook.register(frames, id: id)
+            // The surface's input goes nowhere: these tests read only the trace hook.
+            let lane = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "GhosttyTraceHookTests.input", qos: .utility)) { _, _ in .next })
+            bridge = SurfaceBridge(input: TerminalInputSink(lane: lane, typingSurface: key), echoStage: echoStage,
+                                   frameMarks: hook.recorder)
+            _ = hook.register(bridge.frames, id: id)
+        }
+
+        /// Calls the surface's `presented_cb` as the renderer does for frame `frameID`; `presentedTime` 0: not shown.
+        func present(frameID: UInt64, presentedTime: Double = 1) {
+            ghosttySurfacePresented(Unmanaged.passUnretained(bridge).toOpaque(), frameID, mach_absolute_time(), presentedTime)
         }
 
         /// Calls the installed record as Ghostty does for surface `surface` (this rig's by default).
@@ -274,6 +285,7 @@ struct GhosttyTraceHookTests {
         #expect(!stages.gate.isOpen)
     }
 
+    #if !GHOSTTY_RENDERER_FRAMES
     nonisolated final class TraceHookFramesLayer: CALayer {}
 
     /// With a supported hook the layer swizzle of DEBUG and bench builds marks neither the echo stage nor the
@@ -304,6 +316,98 @@ struct GhosttyTraceHookTests {
         probe.turnDidEnd()
         #expect(probe.takePresentCommits() == [FramePresentEstimate.Commit(flow: flow, display: 7, awaitsGPU: true)])
     }
+    #endif
+
+    /// p03-rendering-081: with renderer-owned frames the renderer presents off main and reports each frame through
+    /// the surface's `presented_cb`: that is the probe's contents mark, with no trace hook set, and a presented frame
+    /// never waits for its GPU work. A frame that was not shown marks nothing.
+    @Test func thePresentedFrameMarksTheParsedPressWithoutWaitingForTheGPU() throws {
+        let heard = Heard()
+        let trace = RecordLog().runtime()
+        let probe = TypingLatencyProbe(path: nil, trace: trace, hopRecorder: { heard.hop($0, $1) })
+        probe.startFlows()
+        defer { probe.stopFlows() }
+        let rig = Rig(trace: trace, probe: probe, heard: heard)
+        let flow = try Self.parsedPress(probe, on: rig.key)
+
+        rig.present(frameID: 1, presentedTime: 0)
+        #expect(!heard.has("app.frame.contents", flow), "a frame that was not shown shows no echo")
+        rig.present(frameID: 2)
+        #expect(heard.has("app.frame.contents", flow))
+        #expect(!rig.hook.isInstalled, "the presented frames need no trace hook")
+        probe.turnDidEnd()
+        #expect(probe.takePresentCommits() == [FramePresentEstimate.Commit(flow: flow, display: 7, awaitsGPU: false)])
+        #expect(heard.gpuFlows.isEmpty)
+    }
+
+    @Test func thePresentedFrameIsTheEchoStagesFrame() throws {
+        let stages = TerminalEchoStageTests.Rig()
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), gate: stages.gate, echoStage: stages.stage)
+        try stages.key(at: 1_000)
+        stages.echo()
+        #expect(stages.gate.isOpen)
+
+        rig.present(frameID: 1)
+        #expect(stages.sink.events == [.echoParsed, .contentSubmitted])
+        #expect(!stages.gate.isOpen)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// p03-rendering-093: a renderer-presented frame passes through no `setContents:` hook, so each shown one is a
+    /// contents set of TerminalSurfaceView in the app's RenderStats, once the app gave them; a frame not shown is not.
+    @Test func eachShownPresentedFrameIsATerminalContentsSet() {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace))
+        let stats = RenderStats()
+        stats.ledger.arm(generation: 1)
+        defer { stats.ledger.disarm() }
+
+        rig.present(frameID: 1)
+        rig.hook.countPresentedFrames(in: stats.presentedFrames)
+        rig.present(frameID: 2)
+        rig.present(frameID: 3, presentedTime: 0)
+        rig.present(frameID: 4)
+        #expect(Self.terminalContentsSets(stats) == 2)
+        #expect(stats.totals[.contentsSets] == 2)
+    }
+
+    /// p03-rendering-093: the Core Animation threads that report presented frames count them without a data race
+    /// (run under TSan: `swift test --sanitize=thread`).
+    @Test func presentedFramesFromManyThreadsCountWithoutARace() async {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace))
+        let stats = RenderStats()
+        rig.hook.countPresentedFrames(in: stats.presentedFrames)
+        stats.ledger.arm(generation: 1)
+        defer { stats.ledger.disarm() }
+
+        let bridge = UInt(bitPattern: Unmanaged.passUnretained(rig.bridge).toOpaque())
+        await Self.presentOffMain(bridge: bridge, threads: 8, framesPerThread: 100)
+        withExtendedLifetime(rig.bridge) {}
+        #expect(Self.terminalContentsSets(stats) == 8 * 100)
+    }
+
+    private static func terminalContentsSets(_ stats: RenderStats) -> Int? {
+        stats.owners().first { $0.key == RenderStats.classKey(TerminalSurfaceView.self) }?.totals[.contentsSets]
+    }
+
+    /// `threads` threads off the main thread each report `framesPerThread` shown frames of the surface whose
+    /// bridge is at `bridge`, as the renderer's `presented_cb` does.
+    nonisolated static func presentOffMain(bridge: UInt, threads: Int, framesPerThread: Int) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                DispatchQueue.concurrentPerform(iterations: threads) { thread in
+                    for frame in 0..<framesPerThread {
+                        let frameID = UInt64(thread * framesPerThread + frame + 1)
+                        ghosttySurfacePresented(UnsafeMutableRawPointer(bitPattern: bridge), frameID, mach_absolute_time(), 1)
+                    }
+                }
+                continuation.resume()
+            }
+        }
+    }
+    #endif
 
     @Test func theHookIsInstalledOnlyWhileSomethingReadsIt() {
         let trace = TraceRuntime(role: .app)
@@ -342,6 +446,29 @@ struct GhosttyTraceHookTests {
         probe.stopFlows()
         #expect(!rig.installed.isOn, "stopping them clears it")
         #expect(rig.installed.calls == 4)
+    }
+
+    /// p09-observability-054: the hook turns echo sampling on, sampling keeps the hook set with nothing recording,
+    /// and the handoff of the frame that shows the sampled press's echo is its `key.echo_frame` sample end.
+    @Test func echoSamplingKeepsTheHookSetAndItsHandoffEndsTheSample() throws {
+        let trace = TraceRuntime(role: .app)
+        let store = MetricsStore(role: .app, profile: MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "dev",
+                                                                     osVersion: "26.1.0", hardwareClass: "Mac16,10",
+                                                                     buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 26)))
+        store.attach(to: trace)
+        let probe = TypingLatencyProbe(path: nil, trace: trace, echoFrames: Metrics(runtime: trace))
+        let rig = Rig(trace: trace, probe: probe)
+        #expect(!probe.samplesEchoFrames)
+        rig.hook.refreshDemand()
+        #expect(probe.samplesEchoFrames, "a libghostty with the hook ends samples, so the hook turns sampling on")
+        #expect(rig.hook.isInstalled && !probe.isRecording, "echo sampling reads the handoffs while no press is open")
+
+        for _ in 1..<TypingLatencyProbe.echoSampleInterval { probe.keyDown(eventTimestamp: 0) }
+        _ = try Self.parsedPress(probe, on: rig.key) // the 16th key
+        rig.call(.contentsSet, seq: 1)
+        #expect(!probe.isRecording, "the handoff closed the sample")
+        let echo = store.delta().histograms.first { $0.name == HistogramID.keyEchoFrame(.local).name }
+        #expect(echo?.count == 1)
     }
 
     /// A frame's four hook calls add no allocation to the loop that makes them, with every category on and the

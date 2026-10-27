@@ -129,8 +129,7 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
         }
         let tmp = Path::new("/tmp");
         shared_tmp(tmp)?;
-        // SAFETY: geteuid has no preconditions.
-        let uid = unsafe { libc::geteuid() };
+        let uid = crate::platform::effective_uid();
         let dir = tmp.join(format!("cmux-apps-{uid}")).join(name);
         fits(&dir)?;
         Ok(dir)
@@ -147,8 +146,7 @@ fn shared_tmp(path: &Path) -> Result<(), String> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("no runtime dir, and {} is not a real directory", path.display()));
     }
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     // S_ISVTX; mode_t is u16 on some BSDs, so the bit is spelled out.
     let sticky = meta.mode() & 0o1000 != 0;
     if (meta.uid() != 0 && meta.uid() != uid) || (meta.mode() & 0o022 != 0 && !sticky) {
@@ -170,8 +168,7 @@ pub(super) fn private_dir(path: &Path, what: &str) -> Result<(), String> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("{what} {} is not a real directory", path.display()));
     }
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     if meta.uid() != uid {
         return Err(format!("{what} {} belongs to another user", path.display()));
     }

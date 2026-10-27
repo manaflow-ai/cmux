@@ -4,6 +4,7 @@ import CmuxNextInput
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
@@ -31,17 +32,30 @@ struct PaneSwapDragTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         private(set) var swaps: [(PaneID, PaneID)] = []
-        private var drags: [PaneSwapDrag] = []
+        private(set) var drags: [PaneID: PaneSwapDrag] = [:]
+        /// The drags' frame-aligned input, when the window has it (p04-input-040 tests).
+        let frames: FrameInputTestRig?
+        /// The drag moves' clock: each move is one 1/256 s step after the last, from 1000 s.
+        private var moveTime = 1000 - 1.0 / 256
 
-        init() {
+        /// `frames`: the drags go through the layout's frame-aligned input. `resampled`: the preview's pointer
+        /// is resampled at the frame (p04-input-040).
+        init(frames: FrameInputTestRig? = nil, resampled: Bool = false) {
+            self.frames = frames
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             // Gesture recognizers only see the events of a window on screen.
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
+            root.setDragInput(frames: frames?.coalescers, resampler: { resampled ? DragResampler() : nil })
+            root.context.reduceMotionOverride = false
             for (pane, strip) in provider.strips {
-                drags.append(PaneSwapDrag(strip: strip, pane: pane, input: tap, layout: { [root] in root },
-                                          swap: { [unowned self] in swaps.append(($0, $1)) }))
+                drags[pane] = PaneSwapDrag(strip: strip, pane: pane, input: tap, layout: { [root] in root },
+                                           swap: { [unowned self] in swaps.append(($0, $1)) },
+                                           now: { [unowned self] in
+                                               moveTime += 1.0 / 256
+                                               return moveTime
+                                           })
             }
         }
 
@@ -79,6 +93,18 @@ struct PaneSwapDragTests {
 
         private var lastHeld: CGPoint = .zero
         func release() { send(.leftMouseUp, lastHeld) }
+
+        /// Presses at `start` and drags to `end` in eight moves, one frame after every three, without releasing.
+        func holdInFrames(from start: CGPoint, to end: CGPoint) {
+            send(.leftMouseDown, start)
+            for step in 1...8 {
+                let t = CGFloat(step) / 8
+                send(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
+                if step % 3 == 0 { frames?.frame() }
+            }
+            frames?.frame()
+            lastHeld = end
+        }
 
         private func send(_ type: NSEvent.EventType, _ point: CGPoint) {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -181,5 +207,35 @@ struct PaneSwapDragTests {
         #expect(shown.width > pane.width / 2)
         #expect(shown.height > pane.height / 2)
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+    }
+
+    /// Resampling moves only the preview's pointer (p04-input-040): with the layout's frame-aligned input, the
+    /// same moves preview the same target and the drop swaps the same panes with the resampler on and off,
+    /// while the resampled preview's pointer trails the real one.
+    @Test func theDropIsTheSameWithResamplingOnAndOff() throws {
+        let resampledFrames = FrameInputTestRig()
+        defer { resampledFrames.close() }
+        let plainFrames = FrameInputTestRig()
+        defer { plainFrames.close() }
+        let resampled = Window(frames: resampledFrames, resampled: true)
+        defer { resampled.window.orderOut(nil) }
+        let plain = Window(frames: plainFrames, resampled: false)
+        defer { plain.window.orderOut(nil) }
+        let start = try resampled.emptyStripPoint("p1")
+        let end = try resampled.center("p2")
+        let plainStart = try plain.emptyStripPoint("p1")
+        #expect(start == plainStart)
+        for window in [resampled, plain] { window.holdInFrames(from: start, to: end) }
+
+        let shown = try #require(resampled.drags["p1"]?.shownPointer, "the resampled drag previewed nothing")
+        let plainShown = try #require(plain.drags["p1"]?.shownPointer, "the plain drag previewed nothing")
+        #expect(hypot(plainShown.x - end.x, plainShown.y - end.y) < 0.5, "no resampler: the preview's pointer is the real one")
+        #expect(hypot(shown.x - end.x, shown.y - end.y) > 1, "the resampled preview's pointer is the real one: \(shown)")
+        #expect(resampled.root.highlight.destinationRect == plain.root.highlight.destinationRect,
+                "the previewed target is hit-tested at the real pointer")
+        for window in [resampled, plain] { window.release() }
+        #expect(resampled.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+        #expect(plain.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+        #expect(resampled.tap.subscriberCount(.key, stage: .intercept) == 0, "the drop left the drag's Escape intercept")
     }
 }

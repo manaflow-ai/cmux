@@ -1,3 +1,5 @@
+import CmuxNextIPC
+
 /// `history.closed.maxGroups` and `history.closed.maxAgeDays` applied to one
 /// daemon's closed history (reopen-closed.md S1b). The daemon stores no
 /// limit: the app compares its mirror with the limits and, when the history
@@ -44,9 +46,12 @@ public struct ClosedRetention: Sendable, Equatable {
 extension StateResourceClient {
     /// Applies a retention prune (`closed.delete {all, before_ms, keep_newest}`).
     public func pruneClosed(_ prune: ClosedRetention.Prune) async throws {
-        var params: [String: JSONValue] = ["all": .bool(true)]
-        if let beforeMs = prune.beforeMs { params["before_ms"] = .string(String(beforeMs)) }
-        if let keepNewest = prune.keepNewest { params["keep_newest"] = .number(Double(keepNewest)) }
-        try await stateMutation("closed.delete", params)
+        try await stateMutation(Self.pruneRequest(prune))
+    }
+
+    /// The `closed.delete {all, before_ms?, keep_newest?}` request of `prune`.
+    static func pruneRequest(_ prune: ClosedRetention.Prune) -> V2ClosedDeleteRequest {
+        V2ClosedDeleteRequest(all: true, beforeMs: prune.beforeMs.map { String($0) },
+                              keepNewest: prune.keepNewest.map { UInt32(clamping: $0) })
     }
 }

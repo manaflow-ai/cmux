@@ -14,18 +14,21 @@ public final class EnergyServices {
     ///
     /// - Parameters:
     ///   - source: The app's one policy source (`mainWork.energy`).
-    ///   - isEnabled: The `energySaver` feature is on.
+    ///   - isEnabled: The `energySaver` feature is on; nil until the session's value is known
+    ///     (``EnergyPolicyDriver/resolveFeature(isEnabled:)``).
     ///   - idle: The histogram's monitor; this process's counters by default.
-    public init(source: EnergyPolicySource, isEnabled: Bool,
+    public init(source: EnergyPolicySource, isEnabled: Bool?,
                 idle: IdleEnergyMonitor = IdleEnergyMonitor(sources: .live(activity: .shared))) {
         driver = EnergyPolicyDriver(source: source, isEnabled: isEnabled)
         self.idle = idle
     }
 
-    /// Starts the power inputs the driver follows and the idle histogram. Only `AppServices.startEnergy`
-    /// calls it, so a test's services read no IOKit and add no run loop observer.
-    public func start(inputs: EnergyMonitor) {
+    /// Starts the power inputs the driver follows, with `suspend`'s sleep, wake and display sleep
+    /// (p14-energy-120; nil while the `sleepWakeKeepalives` feature is off), and the idle histogram.
+    /// Only `AppServices.startEnergy` calls it, so a test's services read no IOKit and add no run loop observer.
+    public func start(inputs: EnergyMonitor, suspend: SuspendWatch? = nil) {
         inputs.start()
+        if let suspend { inputs.follow(suspend: suspend) }
         idle.start()
     }
 }

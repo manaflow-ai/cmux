@@ -265,8 +265,8 @@ struct NewTabPreloadTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let view = try #require(services.agentTabs.makeSpare(NewTabPage.sparePage(services)))
             defer { view.close() }
-            // The page view (`PageWebView`) that holds the web view: what the engines read visibility from.
-            let pageView = try #require(view.webView.superview)
+            // The page view (`PageWebView`): what the engines read visibility from.
+            let pageView: NSView = view.page
 
             let rendering = AgentPanePreloadPage(pane: view, parksHidden: false)
             #expect(rendering.preloadView === view)

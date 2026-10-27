@@ -4,8 +4,8 @@
 use super::terminal_io_wire::{
     self, AttachSurfaceParams, ClearHistoryParams, CopyParams,
     MintTerminalRendererByTerminalParams, MintTerminalRendererParams, PasteImageParams,
-    ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams, SendKeyParams,
-    SetCellPixelsParams, SubscribeParams, TerminalEventsParams, WaitForParams,
+    ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams, SendKeyParams, SubscribeParams,
+    TerminalEventsParams, WaitForParams,
 };
 use super::*;
 
@@ -35,6 +35,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::DeleteTerminalCommands(_) | Command::SetCellPixels(_) => {
+            anyhow::bail!("this command requires the asynchronous request path")
+        }
         Command::PasteImage(PasteImageParams {
             surface,
             terminal_id,
@@ -58,11 +61,13 @@ pub(super) fn handle_command_with_cancellation(
             offset.map(terminal_io_wire::wire_usize),
             data,
         ),
-        command @ (Command::SetTerminalCommandHistory(_)
-        | Command::ListTerminalCommands(_)
-        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
+        command @ (Command::SetTerminalCommandHistory(_) | Command::ListTerminalCommands(_)) => {
+            command_history::handle(mux, client, command)
+        }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::DebugDaemonLocks => cmd_server::daemon_locks(mux, client),
+        Command::ServerThreads => cmd_server::server_threads(mux, client),
+        Command::ServerBlocking => cmd_server::server_blocking(mux, client),
         Command::TraceStart(params) => {
             cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
         }
@@ -254,9 +259,7 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::Copy(CopyParams { surface, mode }) => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
-        Command::Notify { title, body, level, surface, source } => {
-            cmd_frontend::notify(mux, actor, title, body, level, surface, source)
-        }
+        Command::Notify(params) => cmd_frontend::notify(mux, actor, params),
         Command::ListAgents { surface, state } => cmd_frontend::list_agents(mux, surface, state),
         Command::ReportAgent { surface, state, source, session } => {
             cmd_frontend::report_agent(mux, surface, state, source, session)
@@ -286,21 +289,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        Command::NewTab(params) => cmd_tabs::new_tab(mux, client, actor, params),
         Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
@@ -318,13 +307,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::NewRemoteTerminalTab(p) => remote_terminal_tabs_wire::create(mux, &actor, p),
         Command::UpdateRemoteTerminalTab(p) => remote_terminal_tabs_wire::update(mux, p),
         Command::RemoteTerminalSnapshot(p) => remote_terminal_tabs_wire::snapshot(mux, p),
-        Command::NewBrowserTab { url, pane, cols, rows } => {
-            cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
-        }
+        Command::NewBrowserTab(params) => cmd_tabs::new_browser_tab(mux, actor, params),
         Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
-        Command::SetCellPixels(SetCellPixelsParams { width_px, height_px }) => {
-            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
-        }
         Command::BrowserFramePresented { surface, frame_seq } => {
             cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }
@@ -471,46 +455,16 @@ pub(super) fn handle_command_with_cancellation(
                 mutation,
             )
         }
-        Command::MoveTabToWorkspace { surface, workspace, transaction } => {
-            cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
-        }
-        Command::MoveTabToSplit {
-            surface,
-            pane,
-            edge,
-            ratio,
-            respawn,
-            keep_focus,
-            transaction,
-        } => cmd_tabs::move_tab_to_split(
-            mux,
-            client,
-            surface,
-            pane,
-            edge,
-            ratio,
-            respawn,
-            keep_focus,
-            transaction,
-        ),
+        Command::MoveTabToWorkspace(params) => cmd_tabs::move_tab_to_workspace(mux, actor, params),
+        Command::MoveTabToSplit(params) => cmd_tabs::move_tab_to_split(mux, client, params),
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
-        Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
-            cmd_tabs::move_tab_to_new_workspace(
-                mux,
-                actor,
-                surface,
-                group,
-                index,
-                name,
-                transaction,
-            )
+        Command::MoveTabToNewWorkspace(params) => {
+            cmd_tabs::move_tab_to_new_workspace(mux, actor, params)
         }
-        Command::MoveTab { surface, pane, index, transaction } => {
-            cmd_tabs::move_tab(mux, actor, surface, pane, index, transaction)
-        }
+        Command::MoveTab(params) => cmd_tabs::move_tab(mux, actor, params),
         Command::ListTabGroups => cmd_tabs::list_tab_groups(mux),
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
             cmd_tabs::create_tab_group(mux, actor, surfaces, name, color, group, transaction)
@@ -565,10 +519,14 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReopenSavedTabGroup { saved, pane, transaction } => {
             cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
-        Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
-        Command::SetTabPinned { surface, pinned } => {
-            cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
+        Command::AckTabNotifications(params) => {
+            cmd_tabs::ack_tab_notifications(mux, params.surface)
+        }
+        Command::ListNotifications(params) => {
+            cmd_frontend::list_notifications(mux, params.limit.map(tabs_wire::wire_usize))
+        }
+        Command::SetTabPinned(params) => {
+            cmd_tabs::set_tab_pinned(mux, actor, params.surface, params.pinned)
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             cmd_workspaces::move_workspace(mux, client, workspace, key, index, mutation)
@@ -821,18 +779,8 @@ pub(super) fn handle_command_with_cancellation(
             palette,
             complete,
         ),
-        Command::CloseSurface { surface } => cmd_tabs::close_surface(mux, actor, surface),
-        Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
-            cmd_tabs::close_tabs(
-                mux,
-                client,
-                surfaces,
-                end_terminals,
-                transaction,
-                reason,
-                mutation,
-            )
-        }
+        Command::CloseSurface(params) => cmd_tabs::close_surface(mux, actor, params.surface),
+        Command::CloseTabs(params) => cmd_tabs::close_tabs(mux, client, params),
         Command::ClosePane { pane, end_terminals } => {
             cmd_panes::close_pane(mux, actor, pane, end_terminals)
         }
@@ -863,8 +811,8 @@ pub(super) fn handle_command_with_cancellation(
             cmd_workspaces::close_provider_managed_workspace(mux, actor, workspace, key, authority)
         }
         Command::RenamePane { pane, name } => cmd_panes::rename_pane(mux, actor, pane, name),
-        Command::RenameSurface { surface, name } => {
-            cmd_tabs::rename_surface(mux, actor, surface, name)
+        Command::RenameSurface(params) => {
+            cmd_tabs::rename_surface(mux, actor, params.surface, params.name)
         }
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
@@ -880,7 +828,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
-        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
@@ -888,16 +838,21 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReleaseSurfaceSize { surface } => {
             cmd_sizing::release_surface_size(mux, client, surface)
         }
-        Command::ReleaseAttachedViewSize { surface, lease, view } => {
+        Command::ReleaseAttachedViewSize { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::release_attached_view_size(mux, client, surface, lease, view)
         }
-        Command::DetachAttachedView { surface, lease, view } => {
-            cmd_attach::detach_attached_view(mux, client, surface, lease, view)
+        Command::DetachAttachedView { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
+            cmd_attach::detach_attached_view(mux, client, writer, surface, lease, view)
+        }
+        Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
+            attach_streams::cancel_stream(mux, client, writer, stream)
         }
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
-        Command::SelectTab { pane, index, delta } => {
-            cmd_tabs::select_tab(mux, actor, pane, index, delta)
-        }
+        Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
         Command::SelectScreen { index, delta } => {
             cmd_screens::select_screen(mux, actor, index, delta)
         }
@@ -908,7 +863,9 @@ pub(super) fn handle_command_with_cancellation(
             cmd_server::report_focus(mux, client_id, pane, tab)
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
-        Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SnapshotRequest(params) => {
+            cmd_terminal_io::snapshot_request(mux, client, writer, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface(ScrollSurfaceParams { surface, delta }) => {
@@ -926,6 +883,7 @@ pub(super) fn handle_command_with_cancellation(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                stream,
                 ..
             } = params;
             // A sized attach is a size report: it starts (or renews) the
@@ -944,6 +902,7 @@ pub(super) fn handle_command_with_cancellation(
                 expected_generation,
                 expected_terminal_id,
                 snapshot,
+                stream,
             )
         }
     }

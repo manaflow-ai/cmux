@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "savedWindowPicture",
+  "owner": "Performance Lead",
+  "description": "At quit each open window (never incognito, full screen, another Space or capture-hidden) is saved as one private HEIC per profile with its frame, theme and layout meta; Secure Input panes are filled. Off deletes them.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

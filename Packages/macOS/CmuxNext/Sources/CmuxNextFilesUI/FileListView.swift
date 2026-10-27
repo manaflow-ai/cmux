@@ -74,6 +74,12 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
         applySelection(selection)
     }
 
+    func redrawIcons() {
+        let rows = table.rows(in: table.visibleRect)
+        guard rows.length > 0, let name = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) else { return }
+        table.reloadData(forRowIndexes: IndexSet(integersIn: rows.location..<(rows.location + rows.length)), columnIndexes: [name])
+    }
+
     private func applySelection(_ selection: Set<String>) {
         var rows = IndexSet()
         if !selection.isEmpty {

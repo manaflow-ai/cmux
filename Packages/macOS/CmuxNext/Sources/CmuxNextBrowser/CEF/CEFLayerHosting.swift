@@ -1,16 +1,23 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSignposts
+import CmuxNextWakeups
+import IOSurface
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
 /// a ``ChromiumHostPageView`` at the bottom of the host view.
 ///
-/// Whether it hosts (``hosting(override:fork:widget:)``): the developer's
-/// `BrowserResizeTunables.layerHosting` hosts every page window from fork API
-/// 26. Without it the default-off feature `cefLayerHosting` hosts a pane's page
-/// only where the app makes every Track A call for the fork (``TrackA``);
+/// Whether it hosts (``hosting(override:fork:widget:)``): the default-off
+/// feature `cefLayerHosting`, which reaches each page window as its fork's
+/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a
+/// pane's page only where the app makes every one of them (``TrackA``);
 /// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them.
+/// until task p03-rendering-056 hosts them. The Debug tunable
+/// `browserResize.layerHosting` is only that feature's local override,
+/// resolved at launch, never read here. The benches' arm, feature
+/// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
+/// hosts every page window, DevTools and popups too.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -38,49 +45,29 @@ import CmuxNextSignposts
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
 ///
+/// Show and hide (p03-rendering-054): while the page is hosted and the fork takes
+/// its visibility from the app (``Fork/setVisibility``), a switch only shows or
+/// hides the view, so the page's layer goes in or out in the switch's own
+/// transaction; the fork hears the page's visibility, the shown tab's activation
+/// and the input window's place after that commit (``CEFSwitchCommit``), as
+/// Chrome shows a tab's saved frame in the switch's frame and its renderer
+/// catches up (`content/browser/renderer_host/delegated_frame_host.cc`,
+/// `WasShown`).
+///
+/// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
+/// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
+/// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
+/// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
+/// next frame takes it away. A snapshot the system purged shows the page's background
+/// (``CEFHiddenPageSnapshot``).
+///
+/// With the fork's attach call (feature `cefAttachedPages`, p03-rendering-045) a pane's tabs attach
+/// Chromium's own view in the host view instead (``attachedPages``): one attach per browser, at the end of
+/// the turn like a hosting request, and the context-id path above is the fallback of a tab the fork refused.
+/// A first refusal retries once, like a hosting request: on the tracker's next read or the tab's next show.
+///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
-    /// The fork's layer hosting call: a seam, so tests run this state machine
-    /// without Chromium.
-    struct Fork {
-        /// `cmux_shim_browser_set_layer_hosting`: the page window's context
-        /// id (> 0) for `enabled`, 0 when off or refused.
-        let setLayerHosting: (_ browser: Int32, _ enabled: Bool) -> UInt32
-        /// `cmux_shim_browser_set_resize_sync` (fork API 27): how long a
-        /// resize of the page window may hold the commit for Chromium's frame
-        /// at the new size, in ms; 0 never holds it. True when the fork took it
-        /// (false for a closed browser's id). Nil below API 27, where Chromium
-        /// holds it up to 500 ms on every resize, and from API 32, where the
-        /// fork never holds it (``hasResizeSync(apiVersion:)``).
-        let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
-        /// The Track A calls the app makes for this fork's pages while the
-        /// feature `cefLayerHosting` is on; nil while it is off.
-        let trackA: TrackA?
-
-        init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
-             trackA: TrackA? = nil) {
-            self.setLayerHosting = setLayerHosting
-            self.setResizeSync = setResizeSync
-            self.trackA = trackA
-        }
-
-        /// The shim's call; nil without a shim or below fork API 26, where
-        /// nothing changes and showing a tab costs nothing here.
-        init?(shim: CEFShimLibrary?, apiVersion: Int32, trackA: TrackA? = nil) {
-            guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
-            setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
-            setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
-                ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
-            self.trackA = trackA
-        }
-
-        /// A page window `runtime` made in process, with its feature's Track A calls.
-        init?(runtime: CEFRuntime) {
-            self.init(shim: runtime.shim, apiVersion: runtime.forkAPIVersion, trackA: runtime.layerHostingTrackA)
-        }
-    }
-
     private enum Pending: Equatable {
         case none
         /// A request runs at the end of this run-loop turn (`retry`: it is
@@ -97,13 +84,26 @@ final class CEFLayerHosting {
     /// The first fork API where a page window never holds the commit
     /// (`cmux_browser_set_resize_fence`): the resize deadline has no effect.
     static let resizeFenceForkAPI: Int32 = 32
+    /// The first fork API whose `cmux_browser_attach_view` attaches (Track B). The shim exports
+    /// `cmux_shim_browser_attach_view` in every build; below this API it always refuses.
+    static let attachViewForkAPI: Int32 = 36
+    /// The first fork API with `cmux_browser_set_embedder_visibility` (p03-rendering-058).
+    static let embedderVisibilityForkAPI: Int32 = 34
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
     static func hasResizeSync(apiVersion: Int32) -> Bool {
         (resizeSyncForkAPI..<resizeFenceForkAPI).contains(apiVersion)
     }
 
-    weak var view: NSView?
+    weak var view: NSView? {
+        didSet { attachedPages.parent = view }
+    }
+    /// The tabs whose Chromium view is attached in the view (Track B); hosting is their fallback.
+    let attachedPages = CEFAttachedPages()
+    /// Browsers whose attach runs at the end of this turn.
+    private var attachPending: Set<Int32> = []
+    /// The page draws with the view's own subviews: hosted in its layers, or the shown tab attached.
+    var drawsWithViews: Bool { page != nil || attachedPages.shownView != nil }
     /// What the view shows; its owner sets it before the first page window.
     var widget = Widget.page
     /// The page's pixels in this window's layer tree; nil while the page
@@ -116,7 +116,11 @@ final class CEFLayerHosting {
     private(set) var forkCalls = 0
     /// A browser of the page window (any tab of it names the same window).
     private(set) var browser: Int32?
-    private var fork: Fork?
+    private(set) var fork: Fork?
+    /// The fork work of a show or hide, after the switch's commit.
+    let switchCommit: CEFSwitchCommit
+    /// The page's volatile snapshot while it is hidden past its grace.
+    let hiddenSnapshot: CEFHiddenPageSnapshot
     /// The fork hosts this view's page window (in process, fork API 26). False in host mode, where
     /// the pane's ``ChromiumHostPageView`` shows the context the Chromium Host gives (task 023).
     var isForkBacked: Bool { fork != nil }
@@ -137,25 +141,30 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: the override that hosts every page window (``hosting(override:fork:widget:)``);
-    ///     the tunable by default.
+    ///   - isEnabled: hosts every page window whatever the features (``hosting(override:fork:widget:)``):
+    ///     tests force hosting with it; the app never does.
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+    ///   - afterCommit: runs a block once this run-loop pass committed its frame; tests run it when they choose.
+    init(isEnabled: @escaping () -> Bool = { false },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> ChromiumHostPageView = { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
+         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
+         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) }) {
         self.isEnabled = isEnabled
+        switchCommit = CEFSwitchCommit(afterCommit: afterCommit)
+        hiddenSnapshot = CEFHiddenPageSnapshot()
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+        switchCommit.pastGrace = { [weak self] browser, fork in self?.hiddenPastGrace(browser: browser, fork: fork) }
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -174,6 +183,7 @@ final class CEFLayerHosting {
         // The window may be in a live resize already.
         syncDeadline()
         guard let fork else { return }
+        if Self.attaches(fork: fork, widget: widget) { return scheduleAttach(browser) }
         let hosting = decide(fork)
         CEFHostView.trackerStats.count(hosting)
         guard hosting == .hosted else { return }
@@ -191,10 +201,24 @@ final class CEFLayerHosting {
     func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         defer { tabSwitch?.pageShown() }
         guard let fork else { return }
+        // Another tab's page: a snapshot of the last one never covers it.
+        hiddenSnapshot.pageShown(browser: browser)
         self.browser = browser
+        if Self.attaches(fork: fork, widget: widget) {
+            attachedPages.show(browser)
+            if attachedPages.shownView != nil { return showAttached(fork) }
+            if attachedPages.needsAttach(browser) { return scheduleAttach(browser) }
+            // The fork refused this tab for good: it keeps the window's hosting, or the window.
+        }
+        showWithoutAttach(fork, browser: browser)
+    }
+
+    /// The shown tab draws without an attached view: hosting turns on or off as ``decide(_:)`` gives.
+    private func showWithoutAttach(_ fork: Fork, browser: Int32) {
         let wanted = wants(fork)
         if wanted == (page != nil) {
-            syncDeadline()
+            // A hosted show makes no fork call in the switch's turn: a changed deadline goes after the commit.
+            if showsInSwitchTransaction { setNeedsCommitPass() } else { syncDeadline() }
             return
         }
         if wanted {
@@ -223,6 +247,7 @@ final class CEFLayerHosting {
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
         inLiveResize = view?.window?.inLiveResize ?? false
+        visibilityMayHaveChanged()
         guard view?.window != nil else { return }
         syncDeadline()
     }
@@ -232,6 +257,8 @@ final class CEFLayerHosting {
     /// last shown tab closed), a live one names the window from now on, so a
     /// later deadline reaches the fork.
     func windowBrowsersChanged(_ browsers: [Int32]) {
+        attachedPages.keep(browsers)
+        attachPending.formIntersection(browsers)
         guard let browser, !browsers.contains(browser) else { return }
         self.browser = browsers.first
     }
@@ -250,6 +277,7 @@ final class CEFLayerHosting {
     /// The fork's tracker read the host view's clip (`ChildWindowPageFallback`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
+        for browser in attachedPages.retryArmed { scheduleAttach(browser) }
         guard pending == .armed else { return }
         request(retry: true)
     }
@@ -258,6 +286,8 @@ final class CEFLayerHosting {
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        attachPending = []
+        attachedPages.reset()
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
@@ -274,6 +304,35 @@ final class CEFLayerHosting {
 
     private func wants(_ fork: Fork) -> Bool {
         decide(fork) == .hosted
+    }
+
+    /// Attaches `browser`'s view at the end of this turn, after Chromium's creation stack returned.
+    private func scheduleAttach(_ browser: Int32) {
+        guard attachPending.insert(browser).inserted else { return }
+        schedule { [weak self] in
+            guard let self, self.attachPending.remove(browser) != nil, let fork = self.fork,
+                  let attach = fork.attachView, CEFLayerHosting.attaches(fork: fork, widget: self.widget) else { return }
+            let outcome = self.attachedPages.attach(browser, with: attach)
+            if outcome != .unchanged { self.forkCalls += 1 }
+            guard browser == self.attachedPages.shown else { return }
+            switch outcome {
+            case .attached: self.showAttached(fork)
+            // A refused tab shown now takes the fallback at once; after a first refusal its retry waits.
+            case .retryArmed, .refused: self.showWithoutAttach(fork, browser: browser)
+            case .unchanged: break
+            }
+        }
+    }
+
+    /// The shown tab draws in its attached view: a hosted context a refused tab had goes.
+    private func showAttached(_ fork: Fork) {
+        pending = .none
+        if page != nil, let browser {
+            forkCalls += 1
+            _ = fork.setLayerHosting(browser, false)
+            dropPage()
+        }
+        syncDeadline()
     }
 
     private func request(retry: Bool) {
@@ -295,6 +354,8 @@ final class CEFLayerHosting {
             if page.show(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
+                // A page hosted while its view is hidden tells the fork so after the commit.
+                visibilityMayHaveChanged()
                 return
             }
             // No CALayerHost to show the context: the page window would stay
@@ -313,7 +374,7 @@ final class CEFLayerHosting {
     /// (``CEFResizeSyncDeadline``): during the window's live resize every page's,
     /// else a hosted page's pane deadline, else 0 (a page in its own window never
     /// holds the commit outside a live resize).
-    private func syncDeadline() {
+    func syncDeadline() {
         guard let browser, let setResizeSync = fork?.setResizeSync else { return }
         let tunable = inLiveResize ? liveResizeDeadlineMs() : (page != nil ? resizeDeadlineMs() : 0)
         let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable, refreshIntervals: refreshIntervals()).milliseconds
@@ -336,6 +397,9 @@ final class CEFLayerHosting {
     }
 
     private func dropPage() {
+        // Not hosted any more: the fork follows the page window again, and no hidden frame is kept for it.
+        switchCommit.reset()
+        hiddenSnapshot.reset()
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
@@ -344,11 +408,6 @@ final class CEFLayerHosting {
     /// Runs `block` on the main run loop at the end of this turn, after the
     /// caller's stack (Chromium's creation stack) returned.
     nonisolated static func atEndOfTurn(_ block: @escaping @MainActor @Sendable () -> Void) {
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { block() }
-        }
-        CFRunLoopWakeUp(main)
+        MainRunLoopBlock.perform(block)
     }
 }

@@ -183,7 +183,7 @@ enum AppActions {
         registry.bindEffect("closeWindow", isEnabled: { services.windows.active != nil }) { invocation in
             let controller: WindowController?
             if let target = invocation.target, target.kind == .window {
-                controller = services.windows.controllers.first { $0.state.id == target.id }
+                controller = services.windows.controllerBuildingIfWaiting(for: target.id)
                 guard controller != nil else { return .refused(RefusalStrings.noWindow(target.id)) }
             } else {
                 controller = services.windows.active

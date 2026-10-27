@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextWakeups
 import Observation
 
 /// `DisabledFeatures` beyond the action registry (spec/enterprise.md 5.2,
@@ -10,20 +11,17 @@ import Observation
 struct FeaturePolicyEnforcer {
     let services: AppServices
 
-    /// Follows the registry's disabled set for the app's lifetime.
-    func start() {
+    /// Follows the registry's disabled set, the current one now; the caller keeps the returned follower for the
+    /// app's lifetime. `automation`: the device management profile (another process) changes the set.
+    func start() -> AnyObject {
         let registry = services.registry
-        apply(registry.disabledFeatures, to: services)
-        // task-owner: app-lifetime observation of the managed policy; ends with the process
-        Task { [weak services] in
-            for await disabled in ObservationStream({ registry.disabledFeatures }) {
-                guard let services else { return }
-                apply(disabled, to: services)
-            }
-        }
+        let disabled = ServiceObservation(.automation, owner: "FeaturePolicyEnforcer", on: services.mainWork) {
+            registry.disabledFeatures
+        } apply: { [weak services] in if let services { Self.apply($0, to: services) } }
+        return disabled
     }
 
-    private func apply(_ disabled: Set<ActionFeature>, to services: AppServices) {
+    private static func apply(_ disabled: Set<ActionFeature>, to services: AppServices) {
         services.applyCloudPolicy(disabled: disabled.contains(.cloud))  // builds no CloudService
         services.madeSSH?.applyPolicy(disabled: disabled.contains(.remoteHosts))  // made later: `AppServices.ssh` applies it
         services.serverReach.applyPolicy(disabled: disabled.contains(.remoteHosts))

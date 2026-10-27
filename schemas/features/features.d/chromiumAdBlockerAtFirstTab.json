@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumAdBlockerAtFirstTab",
+  "owner": "PL-webui",
+  "description": "The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle", "new-surfaces"],
+  "sticky": false,
+  "runtimeMutable": false
+}

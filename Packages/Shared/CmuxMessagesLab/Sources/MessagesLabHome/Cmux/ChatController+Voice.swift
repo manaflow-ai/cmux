@@ -28,11 +28,8 @@ extension ChatController {
         if host.listeningLine.isHidden == line { host.listeningLine.isHidden = !line }
         guard !hidden else { return }
         if controls.isListening != active { controls.setListening(active) }
-        let frame = ComposeVoiceControls.frame(field: compose.fieldRect, listening: active)
-        if controls.frame != frame {
-            controls.frame = frame
-            controls.window?.invalidateCursorRects(for: controls)
-        }
+        // A layer move; the controls view's cursor and tool tip rects follow (ComposeChromeView).
+        controls.frame = ComposeVoiceControls.frame(field: compose.fieldRect, listening: active)
         controls.applyColors(ink: Fixture.waveform, accent: Fixture.caret)
         if active { controls.wave.show(level: voice.level) }
         if line { host.listeningLine.place(field: compose.fieldRect, color: Fixture.placeholder) }
@@ -45,35 +42,67 @@ extension ChatController {
 }
 
 /// "Listening…" in the empty field while a session runs: the placeholder's place and ink, in italics.
-final class ComposeListeningLine: NSView {
-    private let label = NSTextField(labelWithString: "")
+/// A layer of the compose bar's controls view (`ComposeChromeView`, p03-rendering-074): its line is
+/// drawn once per ink, scale and appearance; showing or moving it changes the layer only.
+@MainActor
+final class ComposeListeningLine {
+    weak var owner: ComposeChromeView?
+    /// The drawn line, in the owner's coordinates (y down).
+    let layer = CALayer()
+    /// The ink, scale and appearance the line was drawn with (nil: not drawn).
+    private var drawn: (color: NSColor, scale: CGFloat, appearance: NSAppearance.Name?)?
+    private var scale: CGFloat = DisplayScale.current
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        label.stringValue = CmuxStrings.listening
-        label.font = Self.font
-        label.lineBreakMode = .byClipping
-        label.setAccessibilityElement(false)
-        addSubview(label)
-        isHidden = true
+    init() {
+        layer.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "contents": NSNull(), "contentsScale": NSNull()]
+        layer.contentsGravity = .topLeft
+        layer.isHidden = true
     }
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// The field's font in italics, made once (a `static let`, as the render_font rule wants).
     static let font: NSFont = NSFont(descriptor: ComposeView.font.fontDescriptor.withSymbolicTraits(.italic),
                                      size: ComposeView.font.pointSize) ?? ComposeView.font
+    /// The line's size: its typographic width, the font's ascent and descent.
+    static let size = CGSize(width: TextDraw.width(CmuxStrings.listening, font: ComposeListeningLine.font).rounded(.up) + 1,
+                             height: (ComposeListeningLine.font.ascender - ComposeListeningLine.font.descender).rounded(.up))
+
+    var isHidden: Bool {
+        get { layer.isHidden }
+        set {
+            guard newValue != layer.isHidden else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.isHidden = newValue
+            CATransaction.commit()
+        }
+    }
 
     /// On the field's first line, its baseline on the placeholder's.
     func place(field f: CGRect, color: NSColor) {
-        label.textColor = color
-        label.sizeToFit()
-        let size = label.frame.size
-        let origin = CGPoint(x: f.minX + 12 - 2, y: f.minY + ComposeView.firstBaseline - label.firstBaselineOffsetFromTop)
-        let target = CGRect(origin: origin, size: CGSize(width: size.width, height: size.height))
-        if frame != target { frame = target }
-        label.frame = bounds
+        let target = CGRect(origin: CGPoint(x: f.minX + 12, y: f.minY + ComposeView.firstBaseline - Self.font.ascender), size: Self.size)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if layer.frame != target { layer.frame = target }
+        draw(color)
+        CATransaction.commit()
+    }
+
+    func rescale(_ s: CGFloat) {
+        guard s != scale else { return }
+        scale = s
+        if let drawn { self.drawn = nil; draw(drawn.color) }
+    }
+
+    private func draw(_ color: NSColor) {
+        let appearance = owner?.effectiveAppearance
+        if let drawn, drawn.color == color, drawn.scale == scale, drawn.appearance == appearance?.name { return }
+        drawn = (color, scale, appearance?.name)
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        fmt.opaque = false
+        let font = Self.font, baseline = font.ascender
+        layer.contents = UIGraphicsImageRenderer(size: Self.size, format: fmt).image { ctx in
+            let paint = { TextDraw.line(CmuxStrings.listening, font: font, color: color, x: 0, baseline: baseline, in: ctx.cgContext) }
+            if let appearance { appearance.performAsCurrentDrawingAppearance(paint) } else { paint() }
+        }.cgImage
+        layer.contentsScale = scale
     }
 }

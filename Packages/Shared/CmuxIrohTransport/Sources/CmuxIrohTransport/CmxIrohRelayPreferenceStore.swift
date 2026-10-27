@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Secure account-scoped cache for requested and effective relay preferences.
@@ -10,7 +11,7 @@ public actor CmxIrohRelayPreferenceStore {
     private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
-    private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var accountWaiters: [String: [OnceContinuation<Void, OnceContinuationError>]] = [:]
 
     /// Creates an isolated preference cache.
     public init(
@@ -42,7 +43,7 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let existing = try await storedRecord(account: account)?.preference
         if let existing {
@@ -72,7 +73,7 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         return try await storedRecord(account: account)?.preference
     }
@@ -83,17 +84,17 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         try await secureStore.delete(account: account)
     }
 
-    private func acquire(_ account: String) async {
+    private func acquire(_ account: String) async throws(OnceContinuationError) {
         guard busyAccounts.contains(account) else {
             busyAccounts.insert(account)
             return
         }
-        await withCheckedContinuation { continuation in
+        try await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }
@@ -110,7 +111,7 @@ public actor CmxIrohRelayPreferenceStore {
         } else {
             accountWaiters[account] = waiters
         }
-        next.resume()
+        next.resume(returning: ())
     }
 
     private func storedRecord(account: String) async throws -> Record? {

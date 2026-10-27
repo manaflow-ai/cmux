@@ -32,6 +32,8 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
+    /// When a tab's origin lets it start Chromium during launch (p08-startup-040).
+    let launchDeferral: CEFLaunchDeferral
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -81,8 +83,12 @@ public final class CEFEngine: BrowserEngine {
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
+    ///   - disabledChromiumFeatures: The Chromium `base::Feature`s off (features of process `chromium`), read at
+    ///     start; one on both lists is off.
     ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
     ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
+    ///   - launch: The launch's scheduler, which orders a restored tab's start by its origin (feature
+    ///     `cefLaunchOrigin`, ``CEFLaunchDeferral``). Nil: every tab starts Chromium at once.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
@@ -90,8 +96,9 @@ public final class CEFEngine: BrowserEngine {
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
                 pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                prefetchWork: BackgroundWork? = nil) {
+                disabledChromiumFeatures: [String] = [], prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
         runtimeSource = source
+        launchDeferral = CEFLaunchDeferral(startup: launch)
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
@@ -103,6 +110,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
+        CEFRuntime.shared.disabledChromiumFeatures = disabledChromiumFeatures
         CEFRuntime.shared.prefetchWork = prefetchWork
     }
 
@@ -130,7 +138,9 @@ public final class CEFEngine: BrowserEngine {
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
+    /// A tab made while Chromium does not run waits for its origin's launch turn (``CEFLaunchDeferral``).
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
+        if !isRunning { await launchDeferral.waitForStart(of: configuration.origin) }
         try await startRuntime()
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
@@ -165,7 +175,7 @@ public final class CEFEngine: BrowserEngine {
     /// the main thread).
     public func usedRecently(within window: TimeInterval) async -> Bool {
         let record = useRecord
-        return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
+        return await Task.detached(priority: Task.currentPriority) { record.usedRecently(within: window) }.value
     }
 
     /// A user's page made now when Chromium already runs (its chrome shows in
@@ -249,13 +259,6 @@ public final class CEFEngine: BrowserEngine {
     public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
     #endif
 
-    /// Closes the untaken spare Chromium windows, if any are up (`debug.cef drop_spare`: what
-    /// the spares cost). The next take-free idle moment does not make another; a warm start or a
-    /// take does.
-    public func dropSpareWindow() {
-        CEFRuntime.shared.spareWindow.drop(runtime: .shared)
-    }
-
     /// Runs when a wanted spare Chromium window is not ready (a pane took it, or a window came
     /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
     public var onSpareWindowNeeded: (@MainActor () -> Void)? {
@@ -268,60 +271,6 @@ public final class CEFEngine: BrowserEngine {
     public func libraryLoadEnded() async {
         await CEFRuntime.shared.libraryLoadEnded()
     }
-
-    /// Records `name` once in the start marks (the first Chromium page's
-    /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
-    public func notePoint(_ name: String) -> Bool {
-        CEFStartSteps.shared.point(name)
-        return true
-    }
-
-    /// `notePoint(name)`, then `value`.
-    public func noted<T>(_ name: String, _ value: T) -> T {
-        CEFStartSteps.shared.point(name)
-        return value
-    }
-
-    /// The timed steps of Chromium's start in this process (`debug.cef`).
-    public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
-
-
-    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
-    /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
-    /// inside `cef_load_library`, which holds dyld's loader lock (every main-thread dlopen/dladdr
-    /// waits on it); `binary_ms` is the read of the binary before it.
-    public var frameworkPrefetchFields: [String: Double]? {
-        let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFRuntime.shared.prefetch.last.map {
-            ["bytes": Double($0.bytes), "files": Double($0.files), "ms": ms($0.duration), "services_ms": ms($0.services),
-             "binary_ms": ms($0.binary), "map_ms": ms($0.map)]
-        }
-    }
-
-    /// The default profile's spare window: `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
-    public var spareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .browser).rawValue }
-
-    /// The cmux pages profile's spare window, in the same states (`debug.cef` `pages_spare_window`).
-    public var pagesSpareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .pages).rawValue }
-
-    /// Windows built in this process for a key a spare serves because no spare of its kind was
-    /// ready (`debug.cef` `window_built_on_key_turn`).
-    public var windowsBuiltOnKeyTurn: Int { CEFRuntime.shared.spareWindow.windowsBuiltOnKeyTurn }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// The renderer client ids of the untaken default-profile spare window's about:blank placeholder (`debug.webui`).
-    public var spareWindowRendererClients: [Int32] {
-        CEFRuntime.shared.spareWindow.host(of: .browser)?.placeholder?.rendererClientIDs ?? []
-    }
-
-    /// The renderer client ids of the untaken pages spare window's about:blank placeholder (`debug.webui`).
-    public var pagesSpareWindowRendererClients: [Int32] {
-        CEFRuntime.shared.spareWindow.host(of: .pages)?.placeholder?.rendererClientIDs ?? []
-    }
-    #endif
-
-    /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
-    public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
     /// The extensions of `profile`, once Chromium runs (nil before). Filled once; Chromium's events
     /// keep it current, so a read costs no Chromium call (``CEFExtensionStores/readyStore(for:)``).
@@ -461,10 +410,11 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
-    private func adoptStores() {
-        let runtime = CEFRuntime.shared
+    private func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
-                      hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets)
+                      hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
+                      hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostFileDialogs: runtimeSource.hostFileDialogs)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
@@ -475,9 +425,9 @@ public final class CEFEngine: BrowserEngine {
         try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
     }
 
-    private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
-        adoptStores()
-        let runtime = CEFRuntime.shared
+    /// Makes `configuration`'s tab in a Chromium that runs: the process's runtime, or a test's runtime over a stand-in shim.
+    func makeReadyTab(_ configuration: BrowserTabConfiguration, in runtime: CEFRuntime = .shared) -> CEFTab {
+        adoptStores(in: runtime)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
@@ -487,7 +437,7 @@ public final class CEFEngine: BrowserEngine {
         tab.navigationGuard = configuration.navigationGuard
         host.add(tab)
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
-        if case .chromium(let state)? = configuration.restoreState, let shim = CEFRuntime.shared.shim,
+        if case .chromium(let state)? = configuration.restoreState, let shim = runtime.shim,
            shim.navigationRestoreSupported() == 1, shim.forkAPIVersion() >= CEFTab.navigationRestoreForkAPI {
             tab.pendingRestore = state
         }

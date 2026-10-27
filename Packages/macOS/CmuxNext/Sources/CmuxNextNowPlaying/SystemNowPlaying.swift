@@ -43,6 +43,11 @@ public final class SystemNowPlaying: NowPlayingSource {
     nonisolated static let artworkSide = 320
     /// Decodes the shown artwork off the main actor.
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
+    /// The app's Launch Services answers: the playing app's name is asked on the system lane and kept there.
+    /// Nil names no app.
+    @ObservationIgnored public var queries: WorkspaceQueries?
+    /// Bumped when an app's name lands, so ``nowPlaying`` is read again with it.
+    private var appNameArrivals = 0
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
@@ -96,9 +101,11 @@ public final class SystemNowPlaying: NowPlayingSource {
 
     /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries, stopped
     /// ``idleStop`` after the last surface by a deadline on `deadlines` (the app's one placer).
-    public static func bundled(deadlines: MainDeadlineScheduler) -> SystemNowPlaying {
-        SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
-                         idle: MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: deadlines))
+    public static func bundled(deadlines: MainDeadlineScheduler, queries: WorkspaceQueries) -> SystemNowPlaying {
+        let source = SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
+                                      idle: MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: deadlines))
+        source.queries = queries
+        return source
     }
 
     /// What another app plays, nil while nothing does, cmux itself plays or no surface shows it.
@@ -114,22 +121,30 @@ public final class SystemNowPlaying: NowPlayingSource {
             title: report.title, artist: report.artist, artwork: image, isPlaying: report.isPlaying,
             position: report.elapsed, duration: report.duration, rate: report.rate > 0 ? report.rate : 1,
             positionDate: report.timestamp ?? Date(), canPrevious: true, canNext: true, labels: labels,
-            app: Self.app(report.parentBundleIdentifier ?? report.bundleIdentifier))
+            app: app(report.parentBundleIdentifier ?? report.bundleIdentifier))
     }
 
-    /// The names of the apps that played, by bundle identifier. An app not found is looked up again
-    /// next time (it may be installed since).
-    private static var appNames: [String: String] = [:]
-
     /// The app that plays as the New Tab player's Open in names it: a browser's media helper
-    /// names its browser. Looked up once per app (one Launch Services read).
-    static func app(_ bundleIdentifier: String) -> SidebarNowPlaying.App? {
-        if appNames[bundleIdentifier] == nil,
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-            appNames[bundleIdentifier] = appName(FileManager.default.displayName(atPath: url.path))
+    /// names its browser. Its name is kept per app; until it lands from the system lane, no app is named.
+    func app(_ bundleIdentifier: String) -> SidebarNowPlaying.App? {
+        _ = appNameArrivals
+        guard let queries else { return nil }
+        let query = Self.appName(of: bundleIdentifier)
+        guard let kept = queries.cached(query) else {
+            // Not kept, so the answer comes on a later turn, never inside this read.
+            queries.value(query, priority: .userVisible) { [weak self] _ in self?.appNameArrivals += 1 }
+            return nil
         }
-        guard let name = appNames[bundleIdentifier], !name.isEmpty else { return nil }
+        guard let name = kept, !name.isEmpty else { return nil }
         return SidebarNowPlaying.App(bundleIdentifier: bundleIdentifier, name: name)
+    }
+
+    /// The name Finder shows for the app with `bundleIdentifier`, nil when it is not installed: Launch Services
+    /// and the disk, on the system lane. An app installed since shows once the kept answer is refreshed.
+    nonisolated static func appName(of bundleIdentifier: String) -> WorkspaceQuery<String?> {
+        WorkspaceQuery(id: "nowPlaying.appName." + bundleIdentifier, refreshes: true) { system in
+            system.application(withBundleIdentifier: bundleIdentifier).map { Self.appName(FileManager.default.displayName(atPath: $0.path)) }
+        }
     }
 
     /// Finder's name without the `.app` it shows when extensions are on.

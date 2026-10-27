@@ -19,7 +19,10 @@ public import QuartzCore
 /// (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``,
 /// and ``BackgroundWork/Pending/reply(on:class:owner:file:line:_:)`` for off-main work whose result
 /// comes back): each class has one FIFO queue here, and the board names the posting site of the
-/// task it runs.
+/// task it runs. A GCD block, a run-loop block or a notification takes any ``MainWorkClass``
+/// through ``post(class:owner:file:line:_:)`` and ``callbackClass(_:owner:file:line:)``: input and
+/// frame work runs at once, the rest waits behind a person's input (the ``MainJobGate``) and then
+/// for its class's budget (MainWorkScheduler+Classed.swift).
 ///
 /// It owns the app's ``StartupPhase``: while launching, background work (posts and budgeted
 /// batches) waits in its queue for the reveal, and idle work for the settle; input, frame,
@@ -31,9 +34,9 @@ public import QuartzCore
 /// ```swift
 /// // The composition root, with the app's one display clock:
 /// let displays = DisplayClock()
-/// FrameScheduler.install(displays: displays)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true),
 ///                                  displays: displays)
+/// FrameScheduler.install(displays: displays, energy: mainWork.energy)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
@@ -82,6 +85,14 @@ public final class MainWorkScheduler {
     private var otherLinksSubscription: FrameLinksSubscription?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
+    /// Classed visible, automation and background work held until the input's frame commits
+    /// (MainWorkScheduler+Classed.swift, p04-input-080).
+    var classedHold = ClassedHold()
+    /// Whether classed work that is not input or frame waits now: the app's ``MainJobGateSwitch``
+    /// (``follow(_:)``); never without one. Tests set it.
+    var holdsClassedWork: @MainActor () -> Bool = { false }
+    /// Arms the held classed work's one-refresh deadline; nil: a precise entry on ``wakeUps``. Tests set it.
+    var armClassedDeadline: ClassedDeadlineArm?
     /// Ticks the link while an input response is open (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``
     /// asks for it), so the tick render that closes the response comes even while no budgeted
     /// client has work.
@@ -97,7 +108,7 @@ public final class MainWorkScheduler {
     ///     precise run-loop timer; a long one waits until no scheduler's display link runs
     ///     (`displays`' ``DisplayClock/unbudgetedLinks``).
     ///   - displays: The composition root's display clock, which it shares with ``FrameScheduler/app``
-    ///     and the windows (``FrameScheduler/install(displays:)``).
+    ///     and the windows (``FrameScheduler/install(displays:energy:)``).
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
     ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
     ///     wired; the default is settled, so a scheduler made after launch holds nothing.
@@ -125,6 +136,8 @@ public final class MainWorkScheduler {
         wakeUps = MainWakeUpQueue(energy: energy)
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
+        // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
+        frames.follow(energy)
         inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
         }

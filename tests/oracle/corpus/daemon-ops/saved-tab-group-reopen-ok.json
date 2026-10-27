@@ -49,6 +49,28 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "saved-tab-group-reopen-ok.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "fx-tab-group",
       "op": "resource.call",
       "target": {
@@ -90,6 +112,25 @@
       }
     },
     {
+      "id": "close-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.close",
+        "params": {
+          "tab_group": "$step:fx-tab-group#/value/id"
+        },
+        "idempotencyKey": "saved-tab-group-reopen-ok.close-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -99,7 +140,8 @@
       "args": {
         "method": "saved_tab_group.reopen",
         "params": {
-          "saved_tab_group": "$step:fx-saved-tab-group#/value/id"
+          "saved_tab_group": "$step:fx-saved-tab-group#/value/id",
+          "pane_id": "$step:fx-split#/value/pane_id"
         },
         "idempotencyKey": "saved-tab-group-reopen-ok.call"
       },
@@ -111,7 +153,32 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "round trip: the live group closes, and its saved record opens it again as a new group in the split's pane"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "saved_tab_group.reopen",
+        "params": {
+          "saved_tab_group": "$step:fx-saved-tab-group#/value/id",
+          "pane_id": "$step:fx-split#/value/pane_id"
+        },
+        "idempotencyKey": "saved-tab-group-reopen-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

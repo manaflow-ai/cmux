@@ -1,8 +1,9 @@
 """Commands a server handler module decodes before the daemon's `Command` enum.
 
-server/connection_frame.rs offers each line to the handler modules'
-`try_handle` before the `Command` enum in server.rs. A handler module serves a
-command when its production source has a `try_handle` and an enum tagged
+server/connection_frame.rs hands a line whose `cmd` a feature route names
+(server/routes.rs) to that route before the `Command` enum in server.rs. A
+handler module serves a command when its production source has a route (a
+`ROUTES` const) or a `try_handle` and an enum tagged
 `#[serde(tag = "cmd")]` with that command as a variant: the enum is what the
 handler decodes, so its variants are both the served wire names and the
 request fields. A tuple variant's type is a struct of the same module, or
@@ -53,6 +54,8 @@ _INLINE_STRUCT = re.compile(r"    ([A-Z][A-Za-z0-9]*) \{ (.*) \},")
 _STRUCT = re.compile(r"    ([A-Z][A-Za-z0-9]*) \{")
 _RENAME = re.compile(r'    #\[serde\(rename = "([^"]+)"\)\]')
 _STRUCT_DECL = re.compile(r"(?m)^(?:pub(?:\([a-z]+\))? )?struct (\w+) \{\n")
+# A module's route list (server/routes.rs): its typed handlers decode their lines.
+_ROUTES = re.compile(r"(?m)^pub(?:\([^)]*\))? const ROUTES: ")
 
 
 def production_source(path: Path) -> str:
@@ -170,10 +173,11 @@ def _envelope(source: str, enum: str, label: str) -> str:
 
 
 def module_commands(path: Path, label: str) -> list[HandlerCommand]:
-    """The `cmd`-tagged enum variants of one handler module (none if it has no `try_handle`)."""
+    """The `cmd`-tagged enum variants of one handler module (none if it has no route
+    and no `try_handle`)."""
 
     source = production_source(path)
-    if "fn try_handle(" not in source:
+    if "fn try_handle(" not in source and not _ROUTES.search(source):
         return []
     commands: list[HandlerCommand] = []
     for found in _TAGGED_ENUM.finditer(source):

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Owns one v2 control socket, request map, and credential-renewal lifecycle.
@@ -65,7 +66,7 @@ public actor V2ControlService {
         let attemptID: UUID
         let schemaID: String
         let runID: UUID
-        let continuation: CheckedContinuation<Data, any Error>
+        let continuation: OnceContinuation<Data, any Error>
         var deadline: Task<Void, Never>?
         var sender: Task<Void, Never>?
     }
@@ -290,7 +291,7 @@ public actor V2ControlService {
         // or sender must never complete a later attempt with that same ID.
         let attemptID = UUID()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { continuation in
                 var request = Pending(attemptID: attemptID, schemaID: schemaID, runID: run, continuation: continuation)
                 request.deadline = Task { [weak self, dependencies, configuration] in
                     do { try await dependencies.sleep(configuration.requestTimeout) }

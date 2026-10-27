@@ -371,7 +371,9 @@ public final class FileBrowserModel {
         if entry.kind == .symlink {
             let target = entry.url.resolvingSymlinksInPath()
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue,
+            // SAFETY: `isDir` is a local that outlives the call; Foundation writes one ObjCBool through the pointer
+            // and keeps no reference to it after returning.
+            if unsafe FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue,
                DirectoryLister.isPackage(target.lastPathComponent) == false {
                 await open(target)
                 return .openedFolder(target)
@@ -386,7 +388,7 @@ public final class FileBrowserModel {
 
     private static func describe(_ error: FileBrowserError) -> String {
         switch error {
-        case .unreadable(_, let code): String(cString: strerror(code))
+        case .unreadable(_, let code): FileBrowserError.systemText(code)
         case .failed(let message): message
         default: String(describing: error)
         }

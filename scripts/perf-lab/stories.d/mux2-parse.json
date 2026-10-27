@@ -1,0 +1,18 @@
+{
+  "id": "mux2-parse",
+  "tier": "linux",
+  "description": "VT parse rate of cmux-mux2's mux2-parsebench (release, built at the commit) over a fixed 64 MB corpus of digit, SGR and cursor lines in 16 KiB writes, through the ghostty-vt wrapper and the raw libghostty-vt call, and the wrapper's overhead (cmux-tui/scripts/bench-rust-lab.py).",
+  "command": ["cmux-tui/scripts/bench-rust-lab.py", "--bench", "mux2-parse", "--runs", "3"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "mux2\\.parse\\.(wrapper|raw)", "unit": "bytes_per_s", "better": "higher"},
+    {"name": "mux2\\.parse\\.wrapper_overhead", "unit": "ratio", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["file:cmux-tui/crates/cmux-mux2/src/bin/mux2-parsebench.rs"],
+  "owner": "PL-daemon",
+  "component": "Terminal>Parse"
+}

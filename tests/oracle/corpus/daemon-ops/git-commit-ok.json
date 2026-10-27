@@ -59,6 +59,34 @@
         "settled"
       ],
       "note": "commits the fixture's unstaged notes.txt edit, staging it first"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.commit",
+        "params": {
+          "message": "oracle: commit the notes",
+          "path": "$CASE_ROOT/repos/oracle",
+          "paths": [
+            "notes.txt"
+          ]
+        },
+        "idempotencyKey": "git-commit-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

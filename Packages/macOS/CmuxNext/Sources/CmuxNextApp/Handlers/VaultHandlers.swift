@@ -32,14 +32,14 @@ enum VaultHandlers {
                 throw ActionFailure(message: HistoryAppStrings.machineOffline)
             }
             let spawn = WorkspaceSpawn(cwd: session.cwd, name: session.cwd.flatMap(WorkspaceSpawn.folderName), command: command)
-            services.registry.track(Task { @MainActor in
-                do {
-                    _ = try await services.windows.createWorkspace(spawn, on: daemon)
-                    return nil
-                } catch {
-                    return ActionWorkFailure(RefusalStrings.describe(error))
-                }
-            })
+            let windows = services.windows
+            // The create is awaited off main; its failure is the run's, in one task on main.
+            services.registry.trackWork(owner: "VaultHandlers.resume", on: services.mainWork) {
+                _ = try await windows.createWorkspace(spawn, on: daemon)
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                return ActionWorkFailure(RefusalStrings.describe(error))
+            }
         })
         registry.bind("vaultCopyResumeCommand", run: { invocation in
             let session = try Self.session(invocation, services)
@@ -48,14 +48,16 @@ enum VaultHandlers {
         })
         registry.bind("vaultOpenPullRequest", run: { invocation in
             let session = try Self.session(invocation, services)
-            let vault = services.vault
-            services.registry.track(Task { @MainActor in
-                guard let url = await vault.pullRequests.url(provider: session.provider, sessionID: session.sessionID) else {
-                    return ActionWorkFailure(VaultStrings.noPullRequest)
-                }
+            let pullRequests = services.vault.pullRequests, vault = services.vault
+            let provider = session.provider, sessionID = session.sessionID
+            // The lookup is awaited off main; the page opens (or the run is refused) in one task on main.
+            services.registry.trackWork(owner: "VaultHandlers.pullRequest", on: services.mainWork) {
+                await pullRequests.url(provider: provider, sessionID: sessionID)
+            } then: { result in
+                guard case .success(let url?) = result else { return ActionWorkFailure(VaultStrings.noPullRequest) }
                 vault.openURL(url)
                 return nil
-            })
+            }
         })
     }
 

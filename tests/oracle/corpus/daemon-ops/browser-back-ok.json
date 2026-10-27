@@ -124,6 +124,29 @@
         "settled"
       ],
       "note": "after about:blank and one navigation, back returns to about:blank"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "browser": "$step:fx-browser#/value/browser_id"
+      },
+      "args": {
+        "method": "browser.back",
+        "params": {},
+        "idempotencyKey": "browser-back-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -3,8 +3,9 @@ import CmuxNextCompat
 // One lossy memory consumer of the app's coordinator, as Chrome's urgent page discarding policy
 // (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo), which acts when its limit
 // reaches the critical threshold. The critical limit's release slice, a frame after the level
-// change, runs one urgent pass; the planner's critical pace runs the next ones. The level sets the
-// timeout and the warning pace (p07-memory.md section 3.A).
+// change, runs one urgent pass; the owners' critical paces run the next ones (with
+// `memoryUrgentDiscardRanking` that pass ranks tabs, chats and pages: `urgentPass()`).
+// The level sets the timeout and the warning pace (p07-memory.md section 3.A).
 extension BrowserHibernation: MemoryLevelConsumer {
     static let memoryConsumerName = "browser-hibernation"
     static let memoryTraits = MemoryConsumerTraits(
@@ -15,12 +16,13 @@ extension BrowserHibernation: MemoryLevelConsumer {
     func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level, replans: !memoryLimit.isCritical) }
     func updateMemoryLimit(_ limit: MemoryLimit) { memoryLimit = limit }
 
-    /// At the critical limit, one urgent pass: it starts the probes of the pages due now (each
-    /// discard finishes on its own turn) and arms the planner's next look.
+    /// At the critical limit, one urgent pass: with `memoryUrgentDiscardRanking` the first page of one
+    /// ranking over tabs, chats and pages (``urgentPass()``), without it the probes of the tabs due now
+    /// (each discard finishes on its own turn); then the planner's next look is armed.
     func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         guard slice.limit.isCritical else { return .done }
         urgentPasses += 1
-        replan()
+        if ranksUrgentDiscards { urgentPass() } else { replan() }
         refreshMemoryIfNeeded()
         return .done
     }

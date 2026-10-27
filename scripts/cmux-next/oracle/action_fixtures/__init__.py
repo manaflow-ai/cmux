@@ -19,6 +19,12 @@ defines:
               `enter` ran, also when the sample stopped after it; it returns None or a drift note. What `enter`
               made is an extra close_new closes like PREPARE's.
   PREPARE     {action id: [(action, args)]}, merged into the sweep's PREPARE (an id both name is refused).
+  ARGUMENTS   {(action id, argument name): factory}: values for arguments the sweep's ARGUMENT_FIXTURES does not
+              fill, required or not. The sweep calls each distinct factory once per session run (and again after a
+              relaunch), so keys that share a factory share one ArgumentFixture. `value(driver, base)` runs in the
+              row's plan, before ready(): it returns (value, None), or (None, why) for the row's `gap` skip.
+  UNDO        {action id: (action, args)}: the inverse the restore runs after each sample of an action whose effect
+              no restore sees (a default it set), merged into the sweep's UNDO (an id both name is refused).
   CLOSES      the gap ids this fixture closes. load_families refuses a CLOSES that is not exactly the `closed` ids of
               tests/oracle/gap-closures/<family>.json (the record p15-oracle-087 applies to every-action-gaps.json),
               and that file without a CLOSES.
@@ -54,11 +60,11 @@ FAMILY_SLUG = re.compile(r"^[a-z][A-Za-z0-9_]*$")
 
 class FixtureError(ValueError):
     """A family module that does not load or does not hold the interface, or two families (or a family and the
-    sweep) that claim the same context or PREPARE id."""
+    sweep) that claim the same context, PREPARE, ARGUMENTS or UNDO entry."""
 
 
 class Driver(Protocol):
-    def run(self, action: str, args: Optional[dict] = None) -> Any: ...
+    def run(self, action: str, args: Optional[dict] = None, target: Optional[str] = None) -> Any: ...
 
     def rpc(self, method: str, params: Optional[dict] = None) -> Any: ...
 
@@ -71,7 +77,12 @@ class ContextFixture(Protocol):
     def leave(self, driver: Driver) -> Optional[str]: ...
 
 
+class ArgumentFixture(Protocol):
+    def value(self, driver: Driver, base: Mapping[str, Any]) -> Tuple[Any, Optional[str]]: ...
+
+
 Step = Tuple[str, Dict[str, Any]]
+ArgumentKey = Tuple[str, str]  # (action id, argument name), as the sweep's ARGUMENT_FIXTURES keys
 
 
 @dataclass(frozen=True)
@@ -84,11 +95,13 @@ class Family:
     prepare: Mapping[str, Tuple[Step, ...]]
     closes: Tuple[str, ...]
     module: ModuleType = field(compare=False, repr=False)  # the loaded module, for what a family adds beyond these
+    arguments: Mapping[ArgumentKey, Callable[[], ArgumentFixture]] = field(default_factory=dict)
+    undo: Mapping[str, Step] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class Families:
-    """Every family of a directory, merged: no context key or PREPARE id is claimed twice."""
+    """Every family of a directory, merged: no context key, PREPARE or UNDO id or ARGUMENTS key is claimed twice."""
 
     families: Tuple[Family, ...] = ()
     owners: Mapping[str, str] = field(default_factory=dict)  # context key -> family name
@@ -113,6 +126,41 @@ class Families:
                 merged[ident] = [(step, dict(args)) for step, args in steps]
         return merged
 
+    def new_arguments(self, driver: Driver, gap: Callable[[str], Any]) -> Dict[ArgumentKey, Callable[[Any], Any]]:
+        """The families' ARGUMENTS as ARGUMENT_FIXTURES entries (`base -> (value, None)` or `(None, gap(why))`), over
+        one fresh ArgumentFixture per distinct factory: a session run's (or a relaunch's) own state."""
+        made: Dict[int, ArgumentFixture] = {}
+        fixtures: Dict[ArgumentKey, Callable[[Any], Any]] = {}
+        for family in self.families:
+            for key, factory in family.arguments.items():
+                fixture = made.get(id(factory))
+                if fixture is None:
+                    fixture = made[id(factory)] = factory()
+                fixtures[key] = lambda base, fixture=fixture: _answer(fixture.value(driver, base), gap)
+        return fixtures
+
+    def argument_keys(self) -> Tuple[ArgumentKey, ...]:
+        """Every (action id, argument name) a family fills, for --plan-only's placeholders."""
+        return tuple(key for family in self.families for key in family.arguments)
+
+    def check_arguments(self, sweep_arguments: Iterable[ArgumentKey]) -> None:
+        """Refuses a family argument the sweep already fills (ARGUMENT_FIXTURES): one argument, one value."""
+        taken = sorted(set(sweep_arguments) & set(self.argument_keys()))
+        if taken:
+            raise FixtureError(f"argument {', '.join('.'.join(k) for k in taken)} is filled by the sweep "
+                               f"(ARGUMENT_FIXTURES) and by a family")
+
+    def merged_undo(self, base: Mapping[str, Step]) -> Dict[str, Step]:
+        """`base` (the sweep's UNDO) with every family's inverses added; an id `base` already undoes is refused."""
+        merged = dict(base)
+        for family in self.families:
+            for ident, step in family.undo.items():
+                if ident in merged:
+                    raise FixtureError(f"{family.path.name}: UNDO {ident!r} is already undone by the sweep or another "
+                                       f"family")
+                merged[ident] = step
+        return merged
+
     def check_contexts(self, sweep_contexts: Iterable[str]) -> None:
         """Refuses a family context the sweep already sets up (CONTEXT_SETUP): one key, one setup."""
         taken = sorted(set(sweep_contexts) & set(self.owners))
@@ -121,21 +169,29 @@ class Families:
                                f"{', '.join(sorted({self.owners[k] for k in taken}))}")
 
 
+def _answer(answer: Any, gap: Callable[[str], Any]) -> Tuple[Any, Any]:
+    """An ArgumentFixture's (value, why) as the sweep's (value, None) or (None, gap(why))."""
+    value, why = answer
+    if value is None:
+        return None, gap(why or "the argument fixture gave no value")
+    return value, None
+
+
 def family_paths(directory: Path = HERE) -> List[Path]:
     """The family modules of `directory`, sorted: every *.py but __init__.py and *_test.py."""
     return sorted(p for p in directory.glob("*.py") if p.name != "__init__.py" and not p.stem.endswith("_test"))
 
 
-def _steps(where: str, ident: Any, steps: Any) -> Tuple[Step, ...]:
+def _steps(where: str, ident: Any, steps: Any, table: str = "PREPARE") -> Tuple[Step, ...]:
     if not isinstance(ident, str) or not ident:
-        raise FixtureError(f"{where}: a PREPARE key is an action id, not {ident!r}")
+        raise FixtureError(f"{where}: a {table} key is an action id, not {ident!r}")
     if not isinstance(steps, (list, tuple)):
-        raise FixtureError(f"{where}: PREPARE {ident!r} is a list of (action, args)")
+        raise FixtureError(f"{where}: {table} {ident!r} is a list of (action, args)")
     out = []
     for step in steps:
         if not (isinstance(step, (list, tuple)) and len(step) == 2 and isinstance(step[0], str) and step[0]
                 and isinstance(step[1], dict)):
-            raise FixtureError(f"{where}: PREPARE {ident!r} step {step!r} is not (action id, args dict)")
+            raise FixtureError(f"{where}: {table} {ident!r} step {step!r} is not (action id, args dict)")
         out.append((step[0], dict(step[1])))
     return tuple(out)
 
@@ -157,10 +213,18 @@ def check_family(module: Any, path: Path) -> Family:
         raise FixtureError(f"{where}: CLOSES is a list of action ids")
     if len(set(closes)) != len(closes):
         raise FixtureError(f"{where}: CLOSES names an id twice")
-    if not contexts and not prepare:
-        raise FixtureError(f"{where}: a family gives CONTEXTS or PREPARE")
+    arguments = getattr(module, "ARGUMENTS", {})
+    if not isinstance(arguments, dict) or not all(
+            isinstance(k, tuple) and len(k) == 2 and all(isinstance(p, str) and p for p in k) and callable(v)
+            for k, v in arguments.items()):
+        raise FixtureError(f"{where}: ARGUMENTS maps (action id, argument name) to an ArgumentFixture factory")
+    undo = getattr(module, "UNDO", {})
+    if not isinstance(undo, dict):
+        raise FixtureError(f"{where}: UNDO maps an action id to its (action, args) inverse")
+    if not (contexts or prepare or arguments or undo):
+        raise FixtureError(f"{where}: a family gives CONTEXTS, PREPARE, ARGUMENTS or UNDO")
     return Family(name, path, dict(contexts), {i: _steps(where, i, s) for i, s in prepare.items()}, tuple(closes),
-                  module)
+                  module, dict(arguments), {i: _steps(where, i, [s], "UNDO")[0] for i, s in undo.items()})
 
 
 def load_module(path: Path, name: str) -> ModuleType:
@@ -223,11 +287,21 @@ def load_families(directory: Path = HERE, closures: Path = GAP_CLOSURES) -> Fami
             owners[key] = family.name
         families.append(family)
     prepared: Dict[str, str] = {}
+    filled: Dict[ArgumentKey, str] = {}
+    undone: Dict[str, str] = {}
     for family in families:
         for ident in family.prepare:
             if ident in prepared:
                 raise FixtureError(f"{family.path.name}: PREPARE {ident!r} is also family {prepared[ident]!r}'s")
             prepared[ident] = family.name
+        for key in family.arguments:
+            if key in filled:
+                raise FixtureError(f"{family.path.name}: ARGUMENTS {'.'.join(key)!r} is also family {filled[key]!r}'s")
+            filled[key] = family.name
+        for ident in family.undo:
+            if ident in undone:
+                raise FixtureError(f"{family.path.name}: UNDO {ident!r} is also family {undone[ident]!r}'s")
+            undone[ident] = family.name
         check_closures(family, closures)
     return Families(tuple(families), owners)
 

@@ -193,7 +193,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 62 | `services.locationTrail.watchScope(` | afterFirstFrame | main | 028 | Location trail scope. |
 | 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. Done (029): post `MacScreen.activate` (`LaunchServicePosts.platform`). It used to run in the control socket's served callback; it reads no socket. |
 | 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. Done (029): post `Mobile.follow` (`LaunchServicePosts.platform`). |
-| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017 | Spare agent page; one service per post. |
+| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017, 042 | Spare agent page; one service per post. Done (042): post `NewTabSpares.probe` before `NewTabSpares.warm` (`LaunchServicePosts.laterTabs`). |
 | 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. Done (029): post `Notifications.follow` (`LaunchServicePosts.platform`). The launch sets the preferences from the launch read at once, so the first frame's attention marks and mutes are right, and starts the Chief pet at once (`followChiefPet`), so an arrival before startup completes reaches it. |
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. Done (029): post `Borders.observe` (`LaunchServicePosts.platform`). |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. Done (029): post `Glass.observe` (`LaunchServicePosts.platform`). The launch sets the resolved mode at once (`seedGlass`), so the first frame draws it and the follow repaints only on a change. |
@@ -245,7 +245,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. |
 | O24 | `GhosttyKeybindSync(...)`, `GhosttyConfigLiveReload()` | afterFirstFrame | main | 026 | Built with their starts (Q2 43, 44). |
 | O25 | `services.windows.restoreWhenLoaded()` | critical: `WindowManager.restoreWhenLoaded` | main | 059, 060 | See the allowlist. |
-| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017 | Later tab warm-ups; WKProcessPool warm-up first afterFirstFrame only when a WebKit agent pane shows (017). |
+| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017, 042 | Later tab warm-ups. No WebKit view before completion but the shown agent tabs', each an afterFirstFrame `AgentTabs.launchView` post after its picture, the focused pane's first; while the focused pane shows a drawing terminal, the other panes' tabs post only once the pane region is ready (`LaunchViewQueue`, 042); the agent pages' WebKit warm-up is the afterStartup post `AgentPane.webKitWarmup`. |
 | O27 | `WebAuthSessionWindows(...)`, `WebAuthSessionHandler(broker:)` | critical: `WebAuthSessionHandler.install` | main | 029 | Built inside the install post. |
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
 | O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
@@ -481,3 +481,191 @@ Decisions the probe confirms or refutes:
 - The trace-pc-guard fallback needs a sanitizer in the profile build only, and gives first-hit order, not
   counts. It is the order-file input when `flush` fails; Chrome's Android order file uses the same kind of
   first-call instrumentation (`base/android/orderfile/orderfile_instrumentation.cc`).
+
+## 10. ThinLTO and cross-module optimization A/B (task 110)
+
+Release today is whole-module `-O` with dead-code stripping and no LTO or cross-module optimization
+(CMO): 0 hits for `-lto`, `-cross-module-optimization` and `LLVM_LTO` in `cmux.xcodeproj`,
+`Packages/macOS/CmuxNext/Package.swift` and `scripts/reload.sh`. Chrome builds its official Mac
+binaries with ThinLTO (`build/config/compiler/compiler.gni` `use_thin_lto`, `build/config/compiler/BUILD.gn`
+`-flto=thin` with the `-cache_path_lto` link cache) and ships PGO only on top of it (`docs/pgo.md`). Task 052
+takes its flag set from this A/B, so the A/B runs before PGO.
+
+`scripts/cmux-next/pgo/lto-ab.sh` builds one commit three ways, each `reload.sh --config bench` (the Release
+configuration plus `-DCMUX_BENCH_HOOKS`, so the benches can drive it) in its own DerivedData:
+
+| Variant | Settings (`lto-ab.sh --print-xcconfig <variant>`) |
+|---|---|
+| `base` | none: the shipped Release flags |
+| `thinlto` | `LLVM_LTO[config=Release] = YES_THIN`, `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -lto=llvm-thin` |
+| `cmo` | `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -cross-module-optimization` |
+
+The settings reach the build through `XCODE_XCCONFIG_FILE`, so the project and `Package.swift` do not change
+for the A/B (`reload.sh` gains only `CMUX_RELOAD_BUILD_TIMING_SUMMARY=1`, which passes
+`-showBuildTimingSummary` and changes no build setting); they apply to every Swift target, not only CmuxNext's. How a chosen flag reaches only
+the CmuxNext targets in the shipped build is task 048's finding and task 052's change. A variant counts only
+when its Release log shows its flags on the `-module-name CmuxNext*` compiles (and, for ThinLTO, `-flto=thin`
+on the app executable's own link command, the lines under `Ld .../Objects-normal/<arch>/Binary/cmux normal
+<arch>`; a clang compile that also says `-o` does not count), and `base` shows none of them.
+
+Measured per variant, on one host:
+
+- size: the executable's bytes, its `__TEXT` bytes (`size`) and the app bundle (`du -sk`);
+- build time: the clean build; link time: Release is universal, so the per-arch `Ld` writes
+  `Objects-normal/<arch>/Binary/cmux` and only `CreateUniversalBinary` writes the product executable. The
+  script runs a no-op rebuild, removes those per-arch linker outputs and the LTO cache, and rebuilds; link
+  time is the relink's `Ld` seconds from the Build Timing Summary minus the no-op's. The relink must show an
+  `Ld` of `cmux` and the no-op none, or the row records why the link time is missing;
+- first frame: `bench-startup.py --mode cold --mode warm --runs 10`, the three apps interleaved run by run,
+  `first_window_frame_committed` p50 and p95; cold purges the file cache when the host has the `purge`
+  right, and the table says when it did not;
+- typing: `bench-typing.py --samples 200`, three rounds interleaved, the median of the rounds'
+  single-phase `key_to_frame_ms` p95;
+- Debug: one cold Debug build, then one leaf edit (a comment appended to `CmuxNextApp/ActionScope.swift`) per
+  variant with that variant's xcconfig. Debug is unchanged when no variant flag is in the Debug log and the
+  rebuild compiles as many Swift files as `base`'s does. A failed Debug build, or a variant with no
+  leaf-edit numbers, is a problem and that variant is not adopted; `--skip-debug` is recorded, the run can
+  exit 0, and no variant is adopted without the Debug check.
+
+Decision, per variant against `base`: adopt it when the cold or the warm first-frame p50 is 3 % faster or
+more and Pinpoint's floored rule (`perf_stats.compare`) calls the samples different, neither first frame is
+slower with a different verdict, typing p95 is at most 2 % slower, and Debug is unchanged. Link time and size
+are reported for the nightly's cost, not gated. When both variants win, 052 takes both flags and its PGO A/B
+reruns them together.
+
+Run (fleet, GUI host): `cmux-ci run --class isolated --script scripts/cmux-next/pgo/lto-ab.sh --ref SHA`.
+It writes `artifacts/lto-ab/<sha>/table.md` and `results.json`, and `lto-ab.sh --table DIR` renders the
+table again. Exit 1 when a variant does not build, its flags are missing, its relink did not link `cmux`, a bench
+gives no samples, a Debug build failed or Debug changed. The fixture test `bash scripts/cmux-next/tests/lto-ab.test.sh` checks the xcconfigs, the fleet guard
+and the verdicts without a build.
+
+Results: not run yet. The fleet run pastes its `table.md` here, with the commit, Xcode and host it names.
+
+| variant | build | flags | build s | link s | exe MB | __TEXT MB | app MB | cold first frame p50/p95 ms | warm first frame p50/p95 ms | typing key-to-frame p95 ms | Debug leaf-edit s | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| base | - | - | - | - | - | - | - | - | - | - | - | reference |
+| thinlto | - | - | - | - | - | - | - | - | - | - | - | - |
+| cmo | - | - | - | - | - | - | - | - | - | - | - | - |
+
+## 11. PGO and order refresh (054)
+
+The profile and the order file are refreshed by hand, at one commit, with one fleet step; there is no CI job
+or schedule (p08-startup.md section F, "Refresh is a manual fleet script"). The fleet step gets no bucket
+credentials (the step environment is an allowlist) and its checkout is removed after it, so the refresh is two
+steps that pass one file:
+
+```sh
+# 1, on the fleet: steps 1 to 5, then the bundle artifacts/pgo-refresh/SHA.tar.gz in the step's checkout
+cmux-ci run --class isolated --script scripts/cmux-next/pgo/refresh.sh --ref SHA \
+  --arg=--no-publish --artifact artifacts/pgo-refresh/SHA.tar.gz
+cmux-ci artifact STEP_ID pgo-refresh-SHA.tar.gz
+# 2, where gh is signed in and the bucket credentials are set: steps 6 and 7, no build and no fleet
+scripts/cmux-next/pgo/refresh.sh --publish-bundle pgo-refresh-SHA.tar.gz
+```
+
+A host that has the credentials, gh and the fleet's build environment can run all seven steps in one run
+(`refresh.sh --ref SHA`). The bundle holds `commit`, `cmux-next.profdata` and its `.sha256`, `cmux-next.order`,
+`check.passed` and `evidence.txt` (the host and Xcode, the `PGO-STAGE` lines of both stages and the
+`PGO-CHECK` line). `--publish-bundle` checks that the profile matches its sha256, that the order is bound to
+it and that `check.passed` names both, and refuses (exit 1) a bundle that does not; it publishes the commit
+the bundle names, whatever HEAD is.
+
+| Step | What runs | Output in `artifacts/pgo-refresh/<sha>/` |
+| --- | --- | --- |
+| 1 profile build | `pgo/build-profile.sh --no-launch` (049) | `cmux DEV pgo-prof-<sha12>.app` |
+| 2 stage 1 | `run-scenarios.py --stage profile` (050) | `profile/cmux-next.profdata`, its `.sha256`, `launch-functions.txt` |
+| 3 use build | `reload.sh --config bench` with the profile through `pgo/release-env.sh` (052) and the companions of `cmux-next.pgo.conf`; the log must show `-profile-use=<that profile>` | `use/link-map.txt` (051), `use/app` |
+| 4 stage 2 | `run-scenarios.py --stage order` on that build (109) | `order/cmux-next.order`, bound to the profile's sha256 |
+| 5 check | `pgo/check.py` on that build: coverage, binding, link map (053); with `--no-publish` the run ends here | `check.json`, `check.passed`; the bundle `artifacts/pgo-refresh/<sha>.tar.gz` |
+| 6 upload | the profile to the bucket at `pgo/cmux-next/<sha256>.profdata`; `fetch-profdata.sh` fetches it back from the public URL and checks it | `publish/fetched/` |
+| 7 PR | one commit on `origin/<base>` (default `feat-cmux-next`) that changes the pin line of `Resources/build/cmux-next.profdata.sha256` and `Resources/build/cmux-next.order`, pushed to `pgo-refresh/<sha12>`, and a PR | `publish/pr.md` |
+
+It refuses (exit 2), before any build: a run that builds in a checkout with tracked or untracked changes or
+with a HEAD that is not `--ref`, a run off the fleet while a build step is left, and, unless `--no-publish`, a
+commit that is not on `origin/<base>`, a gh that is not signed in, or missing bucket credentials (the
+variables of `scripts/ci/r2-cache.sh save`) while the upload is left. It never changes the checkout or HEAD:
+the commit is written with a separate index.
+
+It is idempotent, and a rerun does not need the run folder of the run before it. On one host, a step whose
+outputs in `--out` are complete is skipped. The record that survives a fleet step is the branch
+`pgo-refresh/<sha12>`: a publishing run looks at it before any build. When it is there, the run checks that it
+is one commit that changes only the pin and the order, is based on the commit and says so, that its order is
+bound to its pin, and that `pgo/cmux-next/<sha256>.profdata` fetches back by that sha256; then it only opens or
+reports the PR, with no build, no upload, no credentials and no fleet. A rerun after a push whose PR did not
+open therefore opens the PR and does not make a new profile (stage 1 is timing-dependent, so a rebuild would
+make another sha256). A run whose own checked profile or order (from `--out` or a bundle) differs from the
+branch's is refused (exit 1), never forced. The bucket object is named by its content and an existing one is
+kept. An open PR of the branch is reported, not opened again, and a base that already pins this profile and
+order ends the run with exit 0. The switch in `cmux-next.pgo.conf` is not touched: turning PGO on stays its
+own reviewed commit.
+
+The branch's commit message carries the bundle's evidence, and the PR body is made from it, so a resumed run
+writes the same body: the host and Xcode of the build, the `PGO-STAGE` lines of both stages and the
+`PGO-CHECK` line. check.py's launch-window check is not in it: that needs a Release link with the new order
+and a fresh launch profile, so it runs on the first Release build after the merge.
+
+Chrome refreshes the same way: `tools/pgo/generate_profile.py` makes the profile on a `chrome_pgo_phase=1`
+build, the profile is uploaded by name, and a roll changes only `chrome/build/mac-arm.pgo.txt`, which
+`tools/update_pgo_profiles.py` reads to fetch it (`docs/pgo.md`).
+
+Test without a build: `bash scripts/cmux-next/tests/pgo-refresh.test.sh` (a sandbox clone and a bare remote,
+stubs for the builds, the stages, the check, the upload and gh). It covers a rerun with a fresh `--out` after
+the push and before the PR (exit 0, no build, off the fleet, no credentials), and `--no-publish` followed by
+`--publish-bundle` in another clone (a PR, no build), next to the refusals and the resume on one host. Result
+of the first fleet run: not run. Like the probe (section 9), `cmux-ci run` takes the script only after the
+controller's ci-step allowlist (cmuxterm-hq) lists `scripts/cmux-next/pgo/refresh.sh`.
+
+## 12. Rust PGO for cmux-tui and cmux-app-ffi (task 056)
+
+`scripts/cmux-next/pgo/rust-pgo.sh` gives the app's Rust code Chrome's PGO flow (`docs/pgo.md`,
+`tools/pgo/generate_profile.py`, `build/config/compiler/pgo/pgo.gni`), with no new CI job or step:
+
+1. `generate` builds the daemon (`cmux-tui`, `cmux-tui-host`) and `cmux-app-ffi` with `-Cprofile-generate`,
+   each into its own profile directory. Every build passes an explicit `--target`, so RUSTFLAGS never reach
+   build scripts or proc macros, and the generate and use builds differ only in the profile flag.
+2. `run` drives `rust_pgo_scenarios.py`. The FFI half calls every C ABI the app calls, as the app calls it
+   (`rust_pgo_ffi.py`): the palette ranker and focus rule corpora recorded from the app, the per-frame motion
+   steps, the sidebar document mirror (load, view, drag acceptance, intents and their echo batches: confirmed,
+   stale, gapped then reloaded, rejected), the window focus machine (topology, every event kind, the history
+   reads, a journal checkpoint), the drop, drag, layout and tasks reducer ops, the remote desktop core on
+   loopback (receiver and two-stream session on both carriers, with loss, NACKs, feedback, input acks and a
+   bulk transfer with credit) and the remote tab client vectors. Then `coverage` fails the run unless every C
+   function that the app's Swift sources name and the library exports has counts in the profile: LLVM compiles
+   a function with no counts as cold code, so an unexercised hot path would get slower. The daemon half is a
+   headless daemon serving the app's requests (connect reads, `new-tab`, `send`, `read-screen`, layout reads,
+   `close-terminal`); it ends through `shutdown-daemon`, so it exits through `exit(3)` and writes its profile.
+   `--storm-tag` adds the CLI storm against a tagged app that bundles the instrumented daemon.
+3. `merge` uses `llvm-profdata` from the pinned rustc's `llvm-tools` component, after a check that its LLVM
+   major is rustc's (rustc reads only profiles of its own LLVM). `--pin` writes the pointers.
+4. Pointers name one profile by sha256, LLVM major and target, as `chrome/build/mac-arm.pgo.txt` does:
+   `cmux-tui/crates/cmux-tui/pgo.txt` and `cmux-tui/crates/cmux-app-ffi/pgo.txt`. Each is inside its crate, so a
+   new profile changes the inputs of what is built with it: the cmux-tui tree key, and the app FFI pin
+   (`check-app-ffi-pin.sh`, whose inputs, like the FFI release's push paths, also list `rust-pgo.sh`). The tree
+   key lists `rust-pgo.sh` too. The profile is fetched by sha256 from `ci-cache.cmux.com/pgo/<part>/` into
+   `~/Library/Caches/cmux/pgo/rust/`.
+5. Use, in the builds that ship (Chrome builds its official binaries with the profile on the builders):
+   `build-app-ffi.sh` adds `rust-pgo.sh rustflags cmux-app-ffi --target <slice>` per slice of the app FFI
+   xcframework. The daemon gets `rust-pgo.sh rustflags cmux-tui --target <triple> --strict` in the builds of
+   the published cmux-tui tree and commit artifacts, which Release, Nightly and the Xcode Release phase bundle:
+   `macos-cross.sh all` (the Linux darwin builder) and `cmux-tui-build-package.yml`'s Mac builds, and in
+   `nightly.yml`'s fast build. `--strict` fails such a build when the pinned profile cannot be fetched, so a
+   published binary depends only on its tree. Not covered: `macos-cross.sh bins` (cmuxterm-hq pins its text)
+   and `build-cmux-tui-client.sh` (a development client; it passes no `--target`, so RUSTFLAGS would reach its
+   build scripts). Debug builds never ask.
+
+No pointer: nothing changes, no warning and no rustc run. A pointer for another target (the x86_64 slice) or
+LLVM builds without PGO; a profile whose sha256 differs or that cannot be fetched warns, or fails a `--strict`
+build. `CMUX_RUST_PGO=off` turns it off for one build.
+
+Test phase: `rust-pgo.sh ab` builds the regular daemon of the checkout and one built the same way with the
+merged profile (`DIR/cmux-tui.profdata`, or `--profile`), so it needs no pointer and no clean tree, then runs
+the daemon scenario on both in ABBA order and prints p50 and p95 per request class. The target is -5 % at p50
+and p95 over all requests. Measured on 2026-10-26 on a shared 360-core Linux VM (x86_64, load average about
+100), 15 and 20 rounds of 8 tabs: no gain (all requests p50 +8.1 % and +4.1 %, p95 +1.2 % and +3.0 %). On this
+host the client-side time is mostly the socket and the Python client. Before any pointer is committed, run
+the same A/B on a fleet Mac (aarch64-apple-darwin), where the profile is pinned:
+`generate`, `run`, `merge --pin` (the pointers stay uncommitted) and `ab` in one
+`cmux-ci run --class isolated --script ... --ref SHA` step. Commit the pointers and upload the profiles only
+when that A/B meets the target. As for refresh.sh (section 11), `cmux-ci run` takes the script only after the
+controller's ci-step allowlist (cmuxterm-hq) lists `scripts/cmux-next/pgo/rust-pgo.sh`. Result of the first
+fleet run: not run.

@@ -67,7 +67,7 @@ struct ChordTracker {
     /// keys; `KeyBindingTable.step(after:readings:in:isRunnable:)` holds the
     /// shared sequence rules). `canArm` says whether the focus lets a chord
     /// start (not a text input, not browser focus mode, no marked text;
-    /// `KeyRouter.canArm`); asked only for a first key. `focus` is the
+    /// `ChordTracker.canArm`); asked only for a first key. `focus` is the
     /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
                        context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
@@ -132,5 +132,25 @@ struct ChordTracker {
 
     mutating func cancel() {
         pending = nil
+    }
+}
+
+// When a chord may arm, and what a key that ends an armed chord without completing it does (`KeyRouter.routeChord`).
+extension ChordTracker {
+    /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
+    /// where content shortcuts run (a terminal, a page, an agent chat, the
+    /// sidebar list), never in a text field, DevTools or browser focus mode,
+    /// whose own Cmd-J stays theirs, and never while an input method is
+    /// composing (marked text), so IME input is never cut short.
+    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool {
+        !hasMarkedText && KeyRouter.allows(.content, focus: focus)
+    }
+
+    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
+    /// `routeChord`): a Command or Control chord bound to a system or navigation action, other than the leader
+    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
+    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+        guard KeyRouter.isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
+        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }

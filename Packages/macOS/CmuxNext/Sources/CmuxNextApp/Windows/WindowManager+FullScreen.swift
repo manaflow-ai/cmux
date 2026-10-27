@@ -5,18 +5,12 @@ import CmuxNextWakeups
 // update relaunches), once restore finished: never from the launch snapshot,
 // whose window restore adopts again and re-frames.
 extension WindowManager {
-    /// Longest wait for a window's full screen transition to begin.
-    private static let fullScreenStartLimit: Duration = .seconds(3)
-    /// Settle time after it began, so the next window's transition does not
-    /// overlap it (AppKit runs one at a time).
-    private static let fullScreenSettle: Duration = .milliseconds(800)
-
     /// Starts the next restored full screen window that is on screen. One at
     /// a time; a window clears its flag only once in full screen (or when
     /// its transition never starts), so a window still off screen keeps it
     /// and enters when presented. Tests and no-activate runs never do.
     func enterRestoredFullScreens() {
-        guard fullScreenRestoreReady, !fullScreenRestoreRunning, ordersWindowsIn,
+        guard fullScreenRestoreReady, fullScreenRestore == nil, ordersWindowsIn,
               services.environment.testWindow == nil, !services.environment.noActivate else { return }
         guard let controller = controllers.first(where: { $0.state.restoresFullScreen && $0.window?.isVisible == true }),
               let window = controller.window else { return }
@@ -25,42 +19,58 @@ extension WindowManager {
             enterRestoredFullScreens()
             return
         }
-        fullScreenRestoreRunning = true
         window.toggleFullScreen(nil)
-        Task { @MainActor [weak self, weak controller, weak window] in
-            await RestoredFullScreen.waitForStart(of: window, limit: Self.fullScreenStartLimit)
-            await RestoredFullScreen.settle(Self.fullScreenSettle)
+        fullScreenRestore = RestoredFullScreen(window: window, events: WindowEvents.of(window),
+                                               deadlines: services.mainDeadlines) { [weak self, weak controller] in
             controller?.state.restoresFullScreen = false
             guard let self else { return }
-            fullScreenRestoreRunning = false
+            fullScreenRestore = nil
             enterRestoredFullScreens()
         }
     }
 }
 
-/// The waits of a restored window's full screen entry: events and one-shot
-/// deadlines, not polls.
-private enum RestoredFullScreen {
-    /// Until the transition begins (AppKit puts `.fullScreen` in the style
-    /// mask and posts willEnterFullScreen), or `limit` passes.
-    static func waitForStart(of window: NSWindow?, limit: Duration) async {
-        let began = Task { @MainActor [weak window] in
-            guard let window else { return }
-            let entering = NotificationCenter.default.notifications(named: NSWindow.willEnterFullScreenNotification, object: window)
-            guard !window.styleMask.contains(.fullScreen) else { return }
-            for await _ in entering { return }
+/// One restored window's full screen entry: the transition's start (AppKit puts `.fullScreen` in the style
+/// mask and posts willEnterFullScreen), bounded by ``startLimit``, then ``settle`` so the next window's
+/// transition does not overlap it (AppKit runs one at a time). Events and one deadline, not polls.
+@MainActor
+final class RestoredFullScreen {
+    /// Longest wait for the transition to begin.
+    static let startLimit: Duration = .seconds(3)
+    /// Settle time after it began.
+    static let settle: Duration = .milliseconds(800)
+
+    private var began: EventSubscription?
+    /// The start bound, then the settle time: one deadline, rescheduled once.
+    private let deadline: MainDeadline
+    private let done: @MainActor () -> Void
+    private var settling = false
+
+    /// - Parameters:
+    ///   - window: The window whose transition was just asked for.
+    ///   - events: The window's notices (`WindowEvents.of(window)`; tests pass one on their own center).
+    ///   - deadlines: The app's one main-thread deadline scheduler.
+    ///   - done: Runs once the transition began (or never did) and settled.
+    init(window: NSWindow, events: WindowEvents, deadlines: MainDeadlineScheduler, done: @escaping @MainActor () -> Void) {
+        self.done = done
+        deadline = MainDeadline(owner: "WindowManager.fullScreenRestore", workClass: .visible, scheduler: deadlines)
+        guard !window.styleMask.contains(.fullScreen) else {
+            startSettling()
+            return
         }
-        let bound = DemandTimer(owner: "WindowManager.fullScreenStart")
-        bound.scheduleOnMain(after: limit) { began.cancel() }
-        await began.value
-        bound.cancel()
+        // raw-observer-allow: the name opens a subscription on the window's one WindowEvents (recipe R-notif)
+        began = events.subscribe(NSWindow.willEnterFullScreenNotification, owner: "WindowManager.fullScreenRestore") { [weak self] in
+            self?.startSettling()
+        }
+        deadline.schedule(after: Self.startLimit) { [weak self] in self?.startSettling() }
     }
 
-    static func settle(_ delay: Duration) async {
-        let settle = DemandTimer(owner: "WindowManager.fullScreenSettle")
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            settle.schedule(after: delay) { continuation.resume() }
-        }
-        settle.cancel()  // keeps it alive until it fires: its deinit drops the deadline
+    /// The transition began, or its start bound passed: the next window waits ``settle``.
+    private func startSettling() {
+        guard !settling else { return }
+        settling = true
+        began?.cancel()
+        began = nil
+        deadline.schedule(after: Self.settle) { [weak self] in self?.done() }
     }
 }

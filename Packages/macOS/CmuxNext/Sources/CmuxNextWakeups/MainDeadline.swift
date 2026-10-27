@@ -38,8 +38,8 @@ public final class MainDeadline {
     /// Bumped by every schedule and cancel, so a wake or a posted action of an older plan does nothing.
     private var generation: UInt64 = 0
     private var runningAction = false
-    /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscriptions to its node: a visibility flip, media starting
-    /// or stopping and a capture vote place the pending wake again.
+    /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscriptions to its node: a visibility flip (a capture vote
+    /// that does not stay hidden flips it) and media starting or stopping place the pending wake again.
     private var subscriptions: [VisibilitySubscription] = []
 
     private struct Pending {

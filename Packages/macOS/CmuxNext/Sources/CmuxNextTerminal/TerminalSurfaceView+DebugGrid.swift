@@ -9,8 +9,8 @@ extension TerminalSurfaceView {
     /// before the surface reports its grid.
     public func debugGridMetrics() -> (cellWidth: Double, cellHeight: Double, paddingLeft: Double, paddingTop: Double)? {
         guard let surface else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cell_width > 0, metrics.cell_height > 0 else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface), metrics.cell_width > 0, metrics.cell_height > 0 else { return nil }
         return (Double(metrics.cell_width), Double(metrics.cell_height), Double(metrics.padding_left), Double(metrics.padding_top))
     }
 }

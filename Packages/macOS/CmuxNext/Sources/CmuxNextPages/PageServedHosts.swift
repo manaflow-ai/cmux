@@ -3,7 +3,9 @@ import Foundation
 /// Resolves the bundled page origins a pooled host is allowed to serve.
 ///
 /// The spare never serves file pages or arbitrary origins. Keeping this table to bundled React
-/// pages also prevents a pooled WebKit view from acquiring a TCC-sensitive file URL.
+/// pages also prevents a pooled WebKit view from acquiring a TCC-sensitive file URL. The shared chunk
+/// origin (`cmux.shared`) is not a page and not in this table: every handler answers it from its
+/// ``PageSchemeHandler/sharedRoot`` (``PageSharedChunks``).
 enum PageServedHosts {
     static let pooledDescriptors: [PageDescriptor] = [.settings, .history, .cloud]
 

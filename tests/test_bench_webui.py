@@ -46,10 +46,12 @@ class FakeApp:
     override), or ignored (a reply that confirms nothing, as a build without the verb).
     `other_pane` holds the tabs of a second pane; a new chat opens in the first. Cmd-, opens Settings, painted
     `open_delay` s after the key (`cold_delay` when its renderer is new); Cmd-W closes it. `freeze_after` None is
-    `browser.freezeHiddenTabs` "off" (pages stay hidden and still discard on time)."""
+    `browser.freezeHiddenTabs` "off" (pages stay hidden and still discard on time). `engine_close` is when a Cmd-W
+    ends Settings' engine page, stamped in `debug.webui` `retire`: "deferred" at the retirer's deadline (0.5 s
+    later), "in_turn" in the key's turn; None is a build with no `retire`."""
 
     def __init__(self, clock, census=True, windows=1, tabs=("terminal",), cef=None, leak=False, fork_api=29, keep=(),
-                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10):
+                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10, engine_close=None):
         self.clock, self.has_census, self.leak, self.keep = clock, census, leak, set(keep)
         self.windows, self.tabs, self.other_pane = windows, list(tabs), list(other_pane)
         self.verbs, self.open_delay, self.cold_delay = verbs, open_delay, cold_delay
@@ -64,6 +66,7 @@ class FakeApp:
         self.hides = 0  # the order pages were hidden in: socket calls take no fake time, so several hide at once
         self.budget, self.shown_tab, self.seeded = [], None, {}
         self.visible = iter([4.0, 6.0, 7.5, 9.0] * 50)
+        self.engine_close, self.engine_close_uptimes = engine_close, []
 
     def page_for(self, action, args):
         for page_id, name, _ in webui.PAGES10:
@@ -140,6 +143,8 @@ class FakeApp:
             elif params["key"] == "w":
                 self.pages.pop("cmux.settings", None)
                 self.record("closeTab")
+                if self.engine_close:
+                    self.engine_close_uptimes.append(self.clock.now + (0.5 if self.engine_close == "deferred" else 0.001))
             return {}
         if method == "debug.action_budget":
             return {"recent": self.budget[-params.get("limit", 64):]}
@@ -195,7 +200,9 @@ class FakeApp:
                               "keep_reasons": ["audio"] if p in self.keep else [],
                               "renderer_pid": None if page["state"] == "discarded" else page["pid"],
                               "hidden_deliveries": page["deliveries"], "hidden_pushes": 0, "devtools": False}
-                             for p, page in self.pages.items()]}
+                             for p, page in self.pages.items()],
+                    **({"retire": {"engine_closes": len(self.engine_close_uptimes),
+                                   "engine_close_uptimes": self.engine_close_uptimes[-32:]}} if self.engine_close else {})}
         if method == "debug.wakeups":
             return {"ledger": [{"owner": "terminal.cursor", "reason": "blink", "per_second": 2}]}
         return {}
@@ -236,7 +243,8 @@ class FakeInstance:
 
 def options(**overrides):
     values = dict(engine="chromium", session="light", settle=60, measure=60, hide_settle=10, discard_settle=300,
-                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False)
+                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False,
+                  page_code_cache=False, mode="pages10", enable_feature=[], push_hz=10)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -642,6 +650,18 @@ class OpenTests(unittest.TestCase):
                      "settings.cmd_w_engine_close_calls", "settings.cover_frame_ms"):
             self.assertEqual(got[name]["status"], "unscored", name)
 
+    def test_settings_cmd_w_counts_the_engine_closes_in_the_keys_turn(self):
+        clock = FakeClock()
+        app = FakeApp(clock, engine_close="deferred")
+        deferred = self.run_open(app, clock, kill=self.killer(app, set()))["settings.cmd_w_engine_close_calls"]
+        self.assertEqual(deferred["value"], 0)  # each close's engine page ended at the retirer's deadline
+        self.assertEqual(deferred["status"], "met")
+        clock = FakeClock()
+        app = FakeApp(clock, engine_close="in_turn")
+        in_turn = self.run_open(app, clock, kill=self.killer(app, set()))["settings.cmd_w_engine_close_calls"]
+        self.assertEqual(in_turn["value"], 7)  # one per Cmd-W: the first, --runs 4 and --cold-runs 2
+        self.assertEqual(in_turn["status"], "missed")
+
     def test_a_renderer_that_is_not_killed_gives_no_cold_sample(self):
         clock = FakeClock()
         got = self.run_open(FakeApp(clock), clock, kill=lambda pid, sig: None)  # signal 0 says it still runs
@@ -682,6 +702,172 @@ class OpenTests(unittest.TestCase):
         clock = FakeClock()
         got = self.run_open(FakeApp(clock), clock, chat_turns=50)
         self.assertEqual(got["frozen_chat.live_ms"]["note"].split(";")[0], "50 seeded turns")
+
+
+class PageCodeCacheTests(unittest.TestCase):
+    """Task 052's A/B arm: the switches reach the app only with --page-code-cache, and a run whose renderers do not
+    carry them is refused: before the mode, at the first Settings open and at the end."""
+
+    RENDERER = "Chromium Helper (Renderer) --type=renderer --lang=en"
+    SWITCHED = RENDERER + " " + webui.CODE_CACHE_MARK + " --enable-features=WebUICodeCache"
+    EXTENSION = RENDERER + " --extension-process"
+
+    def run_open(self, commands, **overrides):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        return bench(app, clock, instance=FakeInstance(clock, commands=commands), cold_runs=0, **overrides).run("open")
+
+    def test_the_switches_reach_the_app_only_with_the_option(self):
+        on = webui.launch_env(webui.parse(["open", "--app", "x", "--page-code-cache"]), "/t.json")
+        self.assertEqual(on["CMUX_NEXT_CEF_EXTRA_SWITCHES"],
+                         "cmux-code-cache-schemes=cmux-page:enable-features=WebUICodeCache")
+        self.assertEqual(on["CMUX_NEXT_DEBUG_TUNABLES_FILE"], "/t.json")
+        off = webui.launch_env(webui.parse(["open", "--app", "x"]), "/t.json")
+        self.assertEqual(off, {"CMUX_NEXT_DEBUG_TUNABLES_FILE": "/t.json"})
+
+    def test_enable_feature_turns_features_on_for_the_run(self):
+        """p13-webui-055: the home bench's arm with an off feature on (chromiumAdBlockerAtFirstTab)."""
+        opts = webui.parse(["home", "--app", "x", "--enable-feature", "chromiumAdBlockerAtFirstTab", "--enable-feature", "other"])
+        self.assertEqual(webui.launch_env(opts, "/t.json")["CMUX_ENABLE_FEATURES"], "chromiumAdBlockerAtFirstTab,other")
+        self.assertNotIn("CMUX_ENABLE_FEATURES", webui.launch_env(webui.parse(["home", "--app", "x"]), "/t.json"))
+
+    def test_switched_renderers_measure_and_are_counted(self):
+        report = self.run_open([self.SWITCHED, self.SWITCHED, self.EXTENSION], page_code_cache=True)
+        got = rows(report)
+        self.assertTrue(report["facts"]["page_code_cache"])
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["value"], 2)  # extension renderers are not pages
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "met")
+        self.assertIn("settings.open_ms", got)
+
+    def test_a_renderer_without_the_switch_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack"):
+            self.run_open([self.SWITCHED, self.RENDERER], page_code_cache=True)
+
+    def run_late(self, commands_after):
+        """No renderer before the mode; `commands_after(opens)` lists the command lines once Cmd-, opened Settings
+        `opens` times."""
+        clock = FakeClock()
+        app = FakeApp(clock)
+        instance = FakeInstance(clock)
+        opens = lambda: sum(entry["id"] == "openSettings" for entry in app.budget)
+        instance.pids = lambda: dict(enumerate(commands_after(opens()), start=900)) if opens() else {}
+        return bench(app, clock, instance=instance, cold_runs=0, page_code_cache=True).run("open")
+
+    def test_a_late_renderer_without_the_switch_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 1 Chromium renderers lack .* while Settings shows"):
+            self.run_late(lambda opens: [self.RENDERER])
+
+    def test_a_late_switched_renderer_measures(self):
+        got = rows(self.run_late(lambda opens: [self.SWITCHED]))
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "met")
+        self.assertIn("settings.cold_open_ms", got)
+
+    def test_a_renderer_without_the_switch_after_the_first_open_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack .* at the end of the run"):
+            self.run_late(lambda opens: [self.SWITCHED] + ([self.RENDERER] if opens > 1 else []))
+
+    def test_no_renderer_while_settings_shows_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "no Chromium renderer while Settings shows"):
+            self.run_open([], page_code_cache=True)
+
+    def test_the_off_arm_adds_no_row(self):
+        report = self.run_open([self.RENDERER])
+        self.assertFalse(report["facts"]["page_code_cache"])
+        self.assertNotIn("page_code_cache.renderers_with_switch", rows(report))
+
+    def test_webkit_has_no_code_cache_arm(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            webui.parse(["open", "--app", "x", "--engine", "webkit", "--page-code-cache"])
+
+
+class PushApp(FakeApp):
+    """FakeApp with `debug.page ping` (task 079): each ping is a host call into the page and the page's answer,
+    `ms` after the send, as `form` ("data" on the push channel, else "script"), which the census counts per page
+    (the call and the page's reply). `ping` None is a build without the verb, `counts` False a census without the delivery counts."""
+
+    def __init__(self, clock, form="script", ping=1.5, counts=True, **kwargs):
+        super().__init__(clock, freeze_after=None, **kwargs)
+        self.form, self.ping, self.counts = form, ping, counts
+
+    def rpc(self, method, params=None, timeout=60):
+        params = params or {}
+        if method == "debug.page" and params.get("action") == "ping":
+            self.calls.append((method, params))
+            page = self.pages.get(params.get("page"))
+            if self.ping is None or not page:
+                return {"error": "unknown action"}
+            page[f"{self.form}_deliveries"] = page.get(f"{self.form}_deliveries", 0) + 2
+            return {"ms": self.ping}
+        reply = super().rpc(method, params, timeout)
+        if method == "debug.webui" and isinstance(reply, dict) and self.counts:
+            for entry in reply.get("rows") or []:
+                page = self.pages.get(entry.get("page")) or {}
+                entry.update(script_deliveries=page.get("script_deliveries", 0), data_deliveries=page.get("data_deliveries", 0))
+        return reply
+
+
+class PushTests(unittest.TestCase):
+    """push (task 079): the page push channel's A/B over the ten pages, by `debug.page ping`."""
+
+    def run_push(self, app, clock, features=(), per_pid=None, **overrides):
+        instance = FakeInstance(clock, per_pid=per_pid or {})
+        report = bench(app, clock, instance, enable_feature=list(features), push_hz=10, measure=2, **overrides).run("push")
+        return instance, rows(report)
+
+    def test_the_on_arm_counts_data_deliveries_and_no_scripts(self):
+        clock = FakeClock()
+        app = PushApp(clock, form="data", fork_api=39)
+        _, got = self.run_push(app, clock, features=("pagePushChannel",))
+        pings = sum(1 for method, params in app.calls if method == "debug.page" and params.get("action") == "ping")
+        self.assertEqual(pings, 2 * 10 * 10)  # 2 s at 10 Hz to ten pages
+        self.assertEqual(got["push.script_deliveries.on"]["value"], 0)
+        self.assertEqual(got["push.script_deliveries.on"]["status"], "met")
+        self.assertEqual(got["push.data_deliveries.on"]["value"], 2 * pings)
+        self.assertEqual(got["push.round_trip_ms.on"]["value"]["n"], pings)
+        self.assertEqual(got["push.round_trip_ms.on"]["value"]["p99"], 1.5)
+
+    def test_the_off_arm_scores_no_script_bound(self):
+        clock = FakeClock()
+        _, got = self.run_push(PushApp(clock, form="script", fork_api=39), clock)
+        self.assertEqual(got["push.script_deliveries.off"]["status"], "info")
+        self.assertGreater(got["push.script_deliveries.off"]["value"], 0)
+        self.assertEqual(got["push.data_deliveries.off"]["value"], 0)
+
+    def test_renderer_cpu_is_per_thousand_deliveries_of_page_renderers_only(self):
+        clock = FakeClock()
+        app = PushApp(clock, form="data", fork_api=39)
+        instance = FakeInstance(clock)
+        renderer_pids = []
+
+        def window(seconds, during=None, per_pid=False):
+            during(seconds)
+            renderer_pids.extend(sorted({page["pid"] for page in app.pages.values()}))
+            # 10 % of a core per page renderer over 2 s; pid 1 is not a page renderer.
+            return {"kinds": {}, "seconds": seconds,
+                    "pids": [{"pid": pid, "cpu_pct": 10.0} for pid in renderer_pids] + [{"pid": 1, "cpu_pct": 90.0}]}
+
+        instance.window = window
+        report = bench(app, clock, instance, enable_feature=["pagePushChannel"], push_hz=10, measure=2).run("push")
+        entry = rows(report)["push.renderer_cpu_ms_per_1000.on"]
+        cpu_ms = 0.1 * 2 * 1000 * len(renderer_pids)
+        self.assertAlmostEqual(entry["value"], round(cpu_ms * 1000 / 400, 3))
+
+    def test_a_build_without_ping_leaves_the_round_trip_unscored(self):
+        clock = FakeClock()
+        _, got = self.run_push(PushApp(clock, ping=None), clock)
+        self.assertEqual(got["push.round_trip_ms.off"]["status"], "unscored")
+
+    def test_a_census_without_counts_leaves_the_delivery_rows_unscored(self):
+        clock = FakeClock()
+        _, got = self.run_push(PushApp(clock, counts=False, form="data", fork_api=39), clock, features=("pagePushChannel",))
+        self.assertEqual(got["push.script_deliveries.on"]["status"], "unscored")
+
+    def test_the_run_turns_page_freezing_off(self):
+        self.assertEqual(webui.launch_config(options(mode="push"))["browser"]["freezeHiddenTabs"], "off")
+
+    def test_a_pace_of_zero_is_refused(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            webui.parse(["push", "--app", "x", "--push-hz", "0"])
 
 
 class CrashPressurePriorityTests(unittest.TestCase):

@@ -6,7 +6,7 @@ import CmuxNextSettingsWindow
 import Foundation
 import Testing
 
-/// Help > Feature Flags (`help.featureFlags`, `cmux settings feature-flags`):
+/// Help > Feature Flags (`help.featureFlags`, `cmux action run help.featureFlags`):
 /// cmux-next's feature flags are the Labs toggles (`labs.*`), so the action
 /// opens Settings > Advanced > Labs instead of showing a greyed-out reason.
 @MainActor @Suite(.serialized)

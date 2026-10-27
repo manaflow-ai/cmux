@@ -75,13 +75,19 @@ struct BridgeChildReapTests {
     }
 
     private static func spawn() throws -> pid_t {
-        let arguments = ["/bin/sleep", "30"].map { strdup($0) } + [nil]
-        let environment = ["PATH=/usr/bin:/bin"].map { strdup($0) } + [nil]
+        let arguments = cStrings(["/bin/sleep", "30"])
+        let environment = cStrings(["PATH=/usr/bin:/bin"])
         defer { for pointer in arguments + environment { free(pointer) } }
         var pid: pid_t = 0
         let result = posix_spawn(&pid, "/bin/sleep", nil, nil, arguments, environment)
         guard result == 0 else { throw SetupFailed(code: result) }
         return pid
+    }
+
+    /// `strings` as C strings for `posix_spawn`, ending with nil; the caller frees each one. Typed, so the
+    /// literals are not taken for `UnsafePointer<CChar>` arguments.
+    private static func cStrings(_ strings: [String]) -> [UnsafeMutablePointer<CChar>?] {
+        strings.map { strdup($0) } + [nil]
     }
 }
 #endif

@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits`` and ``actionPresentedEstimate`` have an emitter today. The
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -217,7 +218,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
 
     /// One task the main-thread scheduler runs, from its start to its return: a frame batch
-    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
+    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|userBlocking|visible|automation|background>
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
@@ -268,13 +269,18 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `FrameSequenceTracker`). Ring: instant; arg0 expected frames, arg1 frames that committed changes.
     case frameSequence = 49
 
-    // MARK: task (reserved: task 042, Performance Lead)
-    /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
-    /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
+    // MARK: task (task 042, Performance Lead)
+    /// Task 042 (``TaskTrace``). A work item posted to a ``BackgroundWork`` lane or accepted by the control
+    /// queue (Chrome's `TaskAnnotator::WillQueueTask` with `FROM_HERE`); a refused item writes none. Ring:
+    /// flow-out; arg0 the post site (the interned `#fileID`'s id in bits 0-15, the line in bits 16-47), arg1 the
+    /// flow id (bit 63 set).
     case taskPost = 50
-    /// A BackgroundWork lane item's run (emitter: CmuxNextWakeups `LaneScheduler`, p02-threads-124; the flow-in
-    /// from its post is reserved for task 042). Ring: B/E; arg0 the lane (bits 8-15) and priority (bits 0-7), arg1
-    /// the queue wait in us.
+    /// A posted item's run (Chrome's `ThreadPool_RunTask`): a BackgroundWork lane item's (emitter: CmuxNextWakeups
+    /// `LaneScheduler`, p02-threads-124) or a control request's on the main thread (``TaskTrace``, task 042). Ring:
+    /// B/E. B arg0 the lane in bits 8-15 (0 files, 1 system, 2 cpu, 3 main, 0xFF a lane made without one) and the
+    /// priority in bits 0-7 (a `WorkPriority`'s, or on the main lane a `MainWorkClass`'s, `rawValue`); B arg1 the
+    /// queue wait in us (on the main lane `UInt64.max` when the post was not traced). Right after the B, the flow-in
+    /// of a traced post (task 042): arg0 the post site, arg1 the flow id.
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)
@@ -340,10 +346,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg0 the interned site.
     case crashDumpWithoutCrashing = 65
 
-    // MARK: control (reserved: tasks 042 and 115, Performance Lead)
-    /// Reserved (tasks 042 and 115, Performance Lead). One control-socket request, from the accept to the
-    /// reply, with instants for parsed, queued and dispatched. Ring: AB/AE keyed by the request; begin arg0
-    /// the method id, arg1 the source (cli, mcp, agent, app).
+    // MARK: control (task 042; reserved: task 115, Performance Lead)
+    /// Task 042 (`ControlRequestTrace`). One queued control request, from its enqueue on `MainActorWorkQueue` to
+    /// the end of its run or its failure. Ring: AB/AE keyed by an async id (`TraceRuntime.nextAsyncScope`, in
+    /// arg1 of both). AB arg0 the method's main task board owner index in bits 0-31 (0 without a board) and the
+    /// main work class code (`MainWorkClass.rawValue + 1`) in bits 32-39. AE arg0 the outcome (0 ran, 1 expired
+    /// while queued, 2 refused as busy: it never queued). Reserved (task 115): the accept-to-reply part and the
+    /// parsed, queued and dispatched instants.
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)
@@ -449,6 +458,25 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg1 the presented time (uptime ns).
     case actionPresented = 84
 
+    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
+
+    /// cmux's memory pressure vote into Chromium's aggregator (`cmux_shim_memory_pressure_vote`), the synchronous
+    /// part of the call on the main thread: in process, the vote and the sync listeners Chromium runs when the
+    /// aggregate changes; in host library mode, one post to the Chromium Host. Async listeners are not in it: in
+    /// process they run in later `cef.pump` slices, in host mode in the host process. The memory coordinator's
+    /// release slices run on later frames. Message: `level=<0 none|1 moderate|2 critical>`. Ring: B/E; begin arg0
+    /// the level. Once per change of the coordinator's vote.
+    case cefMemoryPressureVote = 86
+
+    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
+
+    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
+    /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
+    /// (`ghostty_surface_set_lock_wait_callback`).
+    /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
+    /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
+    case ghosttyLockWait = 87
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -537,6 +565,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .motionLateCommits: "motion.late_commits"
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
+        case .cefMemoryPressureVote: "cef.memory_pressure_vote"
+        case .ghosttyLockWait: "ghostty.lock_wait"
         }
     }
 }

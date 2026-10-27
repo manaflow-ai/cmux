@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -17,9 +18,19 @@ final class CloudCredentialProvider {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.relay")
     private let relay: CloudCredentialRelay
     /// One task per call in flight, by request id; a cancel ends it.
-    private var running: [UInt64: Task<Void, Never>] = [:]
+    private var running: [UInt64: Task<Void, any Error>] = [:]
+    /// Where each answer runs, off main (the relay's network calls and the reply).
+    private let work: BackgroundWork
+    /// Where an answered call leaves ``running``.
+    private let mainWork: MainWorkScheduler
 
-    init(relay: CloudCredentialRelay) {
+    /// - Parameters:
+    ///   - work: The app's one ``BackgroundWork``.
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - relay: Answers each call of the family.
+    init(work: BackgroundWork, mainWork: MainWorkScheduler, relay: CloudCredentialRelay) {
+        self.work = work
+        self.mainWork = mainWork
         self.relay = relay
     }
 
@@ -51,10 +62,11 @@ final class CloudCredentialProvider {
         }
         guard let call = AppsProviderCall(event),
               call.op.hasPrefix(CloudCredentialRelay.family + ".") else { return }
-        let relay = relay
+        let relay = relay, mainWork = mainWork
         let id = call.requestID
-        // task-owner: running[id]; removed when it answers, cancelled by apps-provider-cancel or stop()
-        running[id] = Task { [weak self] in
+        // task-owner: running[id]; removed when it answers, cancelled by apps-provider-cancel or stop().
+        // R-hop: the answer runs off main; only its removal from `running` is a main task.
+        running[id] = work.task(.userVisible) { [weak self] in
             let answer = await relay.answer(call)
             if !Task.isCancelled {
                 do {
@@ -63,7 +75,7 @@ final class CloudCredentialProvider {
                     Self.logger.error("credential provider: result \(id) not sent: \(String(describing: error), privacy: .public)")
                 }
             }
-            self?.running[id] = nil
+            mainWork.postFromAnyThread(.background, owner: "CloudCredentialProvider.answered") { [weak self] in self?.running[id] = nil }
         }
     }
 

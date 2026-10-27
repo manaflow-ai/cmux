@@ -131,6 +131,7 @@ extension PaneController {
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
             return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, timing: timing, then: then)
         }
+        // main-hop-allow: the action's tracked work awaits the daemon connection's actor and the agent page's main-actor context; selection and focus run in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
@@ -165,6 +166,7 @@ extension PaneController {
                                    keys: CreationInputBuffer.Ticket?, window: NSWindow?, timing: CreateTabInterval?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
+            // main-hop-allow: the agent page's working context is its main-actor async read; the stand-in already shows
             Task { @MainActor () -> String? in
                 guard let cwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(cwd) else { return nil }
                 return cwd
@@ -173,6 +175,7 @@ extension PaneController {
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
         selectWhenReported(surface: pending.surface)
+        // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
@@ -218,6 +221,7 @@ extension PaneController {
         let daemon = daemon
         let runs = daemon.closeRuns(surfaces: prepared.surfaces, commands: prepared.commands)
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
+        // main-hop-allow: the tabs left the strip in this turn (the close intent); the tracked work awaits the daemon service's main-actor close runs
         services.registry.track(Task { [services] in
             let outcome = await daemon.runReportingOutcomes(runs)
             if outcome.failed, userClose { RefusedCloseNotice(services: services).show(codes: outcome.codes, in: view.window) }
@@ -312,6 +316,7 @@ extension PaneController {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.tabMetadata.rawValue))
             return
         }
+        // main-hop-allow: daemon.intend is the store's main-actor intent: the pin shows in its first step, the send and rollback follow
         services.registry.track(Task { [services] in
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 if let resource { return try await connection.state.setTabPinned(resource, pinned) }
@@ -332,6 +337,7 @@ extension PaneController {
 
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
+        // main-hop-allow: daemon.intend is the store's main-actor intent: the name shows in its first step, the send and rollback follow
         Task { [daemon] in
             await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)

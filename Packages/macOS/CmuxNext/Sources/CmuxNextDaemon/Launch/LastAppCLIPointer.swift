@@ -37,13 +37,15 @@ public struct LastAppCLIPointer: Sendable, Equatable {
             return false
         }
         let temporary = directory.appendingPathComponent(".last-app-cli.\(getpid()).\(UUID().uuidString)")
-        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let descriptor = unsafe open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return false }
-        let bytes = Array((cliPath + "\n").utf8)
-        let written = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        let written = (try? handle.blockingWrite(contentsOf: Data((cliPath + "\n").utf8))) != nil
         close(descriptor)
-        guard written == bytes.count, rename(temporary.path, file.path) == 0 else {
-            unlink(temporary.path)
+        // SAFETY: rename and unlink read the NUL-terminated copies of the paths made for each call.
+        guard written, unsafe rename(temporary.path, file.path) == 0 else {
+            _ = unsafe unlink(temporary.path)
             return false
         }
         return true

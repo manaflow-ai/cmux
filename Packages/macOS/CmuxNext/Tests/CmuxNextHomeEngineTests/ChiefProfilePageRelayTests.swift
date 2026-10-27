@@ -1,5 +1,7 @@
 import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextIPC
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -19,7 +21,7 @@ import Testing
     @Test func callsShareOneHomeChannelsStream() async throws {
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1")])
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
         _ = try await pageRelay.send(operation: "chief.profile.get", params: ["chief": .string("c")], idempotencyKey: nil, gestureEvent: nil)
         #expect(await relay.pages == ["home-channels"])
@@ -34,7 +36,7 @@ import Testing
         // The socket already serves a restarted owner the main connection is not attached to.
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerB, "c1"), Self.epoch(Self.ownerB, "c2")])
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         await #expect(throws: DaemonError.notConnected) {
             _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
         }
@@ -48,7 +50,7 @@ import Testing
     @Test func aRestartedOwnerGetsANewStream() async throws {
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1"), Self.epoch(Self.ownerB, "c2")])
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
         owner.attached = Self.ownerB
         _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
@@ -62,7 +64,7 @@ import Testing
     @Test func anEndedStreamIsReplaced() async throws {
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1"), Self.epoch(Self.ownerA, "c2")])
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
         await relay.opened[0].close()
         _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
@@ -75,7 +77,7 @@ import Testing
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1"), Self.epoch(Self.ownerA, "c2")],
                                   firstSendFails: .connectionClosed(reason: "owner restarted"))
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         let result = try await pageRelay.send(operation: "chief.profile.update", params: ["chief": .string("c"), "display_name": .string("Ship")],
                                               idempotencyKey: "k1", gestureEvent: nil)
         #expect(result == .object(["ok": .bool(true)]))
@@ -88,31 +90,91 @@ import Testing
     @Test func aGestureCallIsTheUsersOnceWithATokenBoundToItsStream() async throws {
         let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1")])
         let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         let params: [String: JSONValue] = ["display_name": .string("Ship")]
         _ = try await pageRelay.send(operation: "chief.profile.create", params: params, idempotencyKey: "k1", gestureEvent: 5)
         // The same event backs no second call: that one goes as the page.
         _ = try await pageRelay.send(operation: "chief.profile.create", params: params, idempotencyKey: "k2", gestureEvent: 5)
         #expect(owner.confirmations.count == 1)
         let issued = try #require(owner.confirmations.first)
-        #expect(issued["operation"] == .string("chief.profile.create"))
-        #expect(issued["params_sha256"] == .string(try ResourceRelayClient.paramsDigest(params, operation: "chief.profile.create")))
-        #expect(issued["relay_connection_id"] == .string("c1"))
-        #expect(issued["relay_stream"] == .number(1))
+        #expect(issued.operation == "chief.profile.create")
+        #expect(issued.paramsSha256 == (try ResourceRelayClient.paramsDigest(params, operation: "chief.profile.create")))
+        #expect(issued.relayConnectionID == "c1")
         let origins = await relay.opened[0].sent.map(\.origin)
         #expect(origins == [.object(["claim": .string("user"), "confirmation": .string("token-1")]),
                             .object(["claim": .string("page")])])
     }
 
+    /// Settings > Agents > Chiefs and Home (p13-webui-066): 30 s after the editor's last call the
+    /// owner has no page-relay client of this relay; a call in between keeps it, and the next call
+    /// opens a new stream.
+    @Test func theStreamClosesThirtySecondsAfterTheLastCall() async throws {
+        let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1"), Self.epoch(Self.ownerA, "c2")])
+        let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
+        let deadline = ManualIdleDeadline()
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: deadline)
+        _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
+        #expect(deadline.armed?.delay == PageRelayIdleClose.delay)
+        #expect(PageRelayIdleClose.delay == .seconds(30))
+        let first = try #require(await relay.opened.first)
+        #expect(await first.isOpen, "the close waits out the idle delay")
+
+        // A second call before the deadline keeps the stream and arms the close again.
+        _ = try await pageRelay.send(operation: "chief.profile.get", params: ["chief": .string("c")], idempotencyKey: nil, gestureEvent: nil)
+        #expect(await relay.opened.count == 1)
+        deadline.fire()
+        await pageRelay.closing?.value
+        #expect(!(await first.isOpen), "0 page-relay clients 30 s after the last call")
+        #expect(deadline.armed == nil)
+
+        _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
+        let streams = await relay.opened
+        #expect(streams.count == 2, "the next call opens a new stream")
+        #expect(await streams[1].isOpen)
+        #expect(await streams[1].sent.map(\.operation) == ["chief.profile.list"])
+    }
+
+    /// A deadline that fires while a call runs does nothing: the stream closes only once idle.
+    @Test func aCallInFlightKeepsTheStream() async throws {
+        let relay = FakePageRelay(epochs: [Self.epoch(Self.ownerA, "c1")])
+        let owner = FakeChiefOwner(attached: Self.ownerA, relay: relay)
+        let deadline = ManualIdleDeadline()
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: deadline)
+        _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
+        let stale = try #require(deadline.armed?.action)
+        owner.onAttachedOwner = { stale() }
+        _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
+        #expect(pageRelay.closing == nil, "the stale wake found the stream in use")
+        let streams = await relay.opened
+        #expect(streams.count == 1)
+        #expect(await streams[0].isOpen)
+        #expect(await streams[0].sent.count == 2)
+    }
+
     @Test func noCallWithoutAnAttachedOwner() async throws {
         let relay = FakePageRelay(epochs: [])
         let owner = FakeChiefOwner(attached: nil, relay: relay)
-        let pageRelay = ChiefProfilePageRelay(owner: owner)
+        let pageRelay = ChiefProfilePageRelay(owner: owner, idle: ManualIdleDeadline())
         await #expect(throws: DaemonError.notConnected) {
             _ = try await pageRelay.send(operation: "chief.profile.list", params: [:], idempotencyKey: nil, gestureEvent: nil)
         }
         #expect(await relay.pages.isEmpty)
         #expect(owner.sockets.isEmpty)
+    }
+}
+
+/// The idle close's deadline, fired by the test.
+@MainActor
+final class ManualIdleDeadline: PageRelayIdleDeadline {
+    private(set) var armed: (delay: Duration, action: @MainActor () -> Void)?
+
+    func schedule(after delay: Duration, _ action: @escaping @MainActor () -> Void) { armed = (delay, action) }
+    func cancel() { armed = nil }
+
+    func fire() {
+        let action = armed?.action
+        armed = nil
+        action?()
     }
 }
 
@@ -122,18 +184,26 @@ private final class FakeChiefOwner: ChiefProfileRelayOwner {
     var attached: ChiefProfilePageRelay.OwnerKey?
     let relay: FakePageRelay
     private(set) var sockets: [String] = []
-    private(set) var confirmations: [[String: JSONValue]] = []
+    private(set) var confirmations: [V2OriginConfirmationIssueRequest] = []
 
     init(attached: ChiefProfilePageRelay.OwnerKey?, relay: FakePageRelay) {
         self.attached = attached
         self.relay = relay
     }
 
-    func attachedOwner() async -> ChiefProfilePageRelay.OwnerKey? { attached }
+    /// Runs inside the next call, before it opens or uses a stream.
+    var onAttachedOwner: (@MainActor () -> Void)?
 
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue {
-        confirmations.append(params)
-        return .object(["token": .string("token-\(confirmations.count)")])
+    func attachedOwner() async -> ChiefProfilePageRelay.OwnerKey? {
+        let hook = onAttachedOwner
+        onAttachedOwner = nil
+        hook?()
+        return attached
+    }
+
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation {
+        confirmations.append(request)
+        return V2OriginConfirmation(expiresAt: "1700000060000", token: "token-\(confirmations.count)")
     }
 
     func pageRelay(socket: String) -> any PageRelayStreamOpening {
@@ -157,7 +227,7 @@ private actor FakePageRelay: PageRelayStreamOpening {
     func openStream(page: String) async throws -> any PageRelayStream {
         pages.append(page)
         guard !epochs.isEmpty else { throw DaemonError.notConnected }
-        let stream = FakePageStream(page: page, epoch: epochs.removeFirst(), stream: 1, failsFirstSend: firstSendFails)
+        let stream = FakePageStream(page: page, epoch: epochs.removeFirst(), failsFirstSend: firstSendFails)
         firstSendFails = nil
         opened.append(stream)
         return stream
@@ -173,23 +243,17 @@ private actor FakePageStream: PageRelayStream {
 
     nonisolated let page: String
     nonisolated let epoch: PageRelayEpoch
-    private nonisolated let stream: UInt16
     private var failsFirstSend: DaemonError?
     private var open = true
     private(set) var sent: [Sent] = []
 
-    init(page: String, epoch: PageRelayEpoch, stream: UInt16, failsFirstSend: DaemonError?) {
+    init(page: String, epoch: PageRelayEpoch, failsFirstSend: DaemonError?) {
         self.page = page
         self.epoch = epoch
-        self.stream = stream
         self.failsFirstSend = failsFirstSend
     }
 
     var isOpen: Bool { open }
-
-    nonisolated var confirmationBinding: [String: JSONValue] {
-        ["relay_connection_id": .string(epoch.connectionID), "relay_stream": .number(Double(stream))]
-    }
 
     func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
               origin: JSONValue) async throws -> JSONValue {

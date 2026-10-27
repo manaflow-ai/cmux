@@ -66,7 +66,7 @@ import UniformTypeIdentifiers
     /// A camera-sized PNG on disk (the kind of picture a person drags in).
     private func png(_ name: String, in dir: URL) throws -> URL {
         let w = 3024, h = 2016
-        let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        let ctx = try #require(CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let seed = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         for i in 0..<24 {

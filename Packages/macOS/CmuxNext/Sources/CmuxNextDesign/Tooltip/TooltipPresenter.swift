@@ -165,7 +165,7 @@ public final class TooltipPresenter {
     /// Shows `current`: fading in when `fade` (the first of a warm group), else at once.
     private func show(fade: Bool = false) {
         guard let tracker = current, let view = tracker.view, let window = view.window,
-              let text = tracker.text, let anchor = tracker.screenRect else { return }
+              let text = tracker.text, let anchor = tracker.anchorScreenRect else { return }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
         panel.show(text: text, shortcut: tracker.shortcut, scope: view.themeScope.fullStrength,

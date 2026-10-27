@@ -80,3 +80,62 @@ fn cmux_next_agent_cli_intent_wire_settles_rows_so_they_stop_blocking() {
     assert_code(&denied.call(&mux, foreign), "agent_cli_intents.not_trusted");
     assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
 }
+
+/// The route answers every line as the sniffer did: one decode past the
+/// head for a line it accepts or refuses, a `null` id answered as `null`,
+/// a repeated member's last value, and a line with no `Value` left to the
+/// `Command` parse.
+#[test]
+fn cmux_next_agent_cli_intent_wire_decodes_once_and_answers_as_the_sniffer_did() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("intent-wire-typed");
+    let caller = Caller::new(&mux, true);
+    let list = envelope(&mux, "agent-cli-intents-list");
+    let (listed, parses) = caller.call_counted(&mux, &list.to_string());
+    assert_eq!(listed["ok"], true, "{listed}");
+    assert_eq!(parses, 2, "the head and the route's decode");
+
+    let mut unknown = list.clone();
+    unknown["actor"] = json!("claim");
+    let (refused, parses) = caller.call_counted(&mux, &unknown.to_string());
+    assert_code(&refused, "agent_cli_intents.bad_request");
+    assert_eq!(refused["id"], 1, "{refused}");
+    assert_eq!(parses, 2, "a refusal takes its id from the same decode");
+
+    let mut null_id = list.clone();
+    null_id["id"] = Value::Null;
+    let answered = caller.call(&mux, null_id);
+    assert_eq!(answered.get("id"), Some(&Value::Null), "{answered}");
+    let mut anonymous = list.clone();
+    anonymous.as_object_mut().unwrap().remove("id");
+    let anonymous = caller.call(&mux, anonymous);
+    assert_eq!(anonymous["ok"], true, "{anonymous}");
+    assert!(anonymous.get("id").is_none(), "{anonymous}");
+
+    let repeated = format!(
+        r#"{{"id":2,"cmd":"agent-cli-intents-list","expected_machine_id":"{}","expected_session_id":"session_{}","expected_session_id":"{}"}}"#,
+        mux.machine_public_id,
+        "b".repeat(32),
+        mux.session_public_id,
+    );
+    let last_wins = caller.call_line(&mux, &repeated);
+    assert_eq!(last_wins["ok"], true, "a repeated member keeps its last value: {last_wins}");
+    assert_eq!(last_wins["id"], 2);
+
+    // The route is found by the decoded `cmd`, never a substring of the
+    // line, so an escaped name answers as its plain spelling.
+    let escaped =
+        list.to_string().replace("agent-cli-intents-list", r"agent-cli-intents\u002dlist");
+    let routed = caller.call_line(&mux, &escaped);
+    assert_eq!(routed["ok"], true, "{escaped}: {routed}");
+
+    let generic = caller.call_line(&mux, r#"{"id":3,"cmd":"agent-cli-intents-list","x":1e999}"#);
+    assert_eq!(generic["ok"], false, "{generic}");
+    assert!(generic.get("error_code").is_none(), "the Command parse answers it: {generic}");
+
+    let denied = Caller::new(&mux, false);
+    let mut shapeless = list;
+    shapeless["intents"] = json!("not a list");
+    assert_code(&denied.call(&mux, shapeless), "agent_cli_intents.not_trusted");
+    assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
+}

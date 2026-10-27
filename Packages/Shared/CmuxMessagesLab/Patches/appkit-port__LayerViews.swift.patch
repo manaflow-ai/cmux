@@ -1,6 +1,16 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-port/LayerViews.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-port/LayerViews.swift
-@@ -238,15 +238,13 @@
+@@ -188,7 +188,8 @@
+ 
+     var overridesDraw: Bool {
+         let sel = #selector(UIView.draw(_:))
+-        return class_getMethodImplementation(type(of: self), sel) != class_getMethodImplementation(UIView.self, sel)
++        // SAFETY: the two implementation pointers are only compared, never called or dereferenced.
++        return unsafe class_getMethodImplementation(type(of: self), sel) != class_getMethodImplementation(UIView.self, sel)
+     }
+ 
+     func draw(_ layer: CALayer, in ctx: CGContext) {
+@@ -238,15 +239,13 @@
  /// The header's live material: a real NSVisualEffectView that the window
  /// places at this view's frame, above the transcript (Host.swift). It has no
  /// pixels in the layer tree, so captures use the fitted blur instead.

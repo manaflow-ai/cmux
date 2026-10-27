@@ -56,7 +56,7 @@ import Testing
     /// it presents.
     static func renderText(config text: String) async throws -> TextPixelSample {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
+        GhosttyRuntime.startedForTests()
         // A fresh config keeps the runner's own Ghostty config out.
         let config = try #require(ghostty_config_new())
         text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "cmux-next-test") }

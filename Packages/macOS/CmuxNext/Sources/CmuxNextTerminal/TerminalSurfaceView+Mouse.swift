@@ -13,6 +13,8 @@ extension TerminalSurfaceView {
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(
             rect: .zero,
+            // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
+            // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
             options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
             owner: self
         )
@@ -67,12 +69,14 @@ extension TerminalSurfaceView {
         super.rightMouseUp(with: event)
     }
 
+    // local-monitor-allow: Ghostty's pointer input goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order; the link state reset is two stores
     public override func mouseMoved(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every move over a terminal)
         linkPointer.movedWithoutButton()
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event)
     }
 
+    // local-monitor-allow: Ghostty's drag goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order
     public override func mouseDragged(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every left drag event)
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event, phase: .followingPress)
@@ -102,6 +106,7 @@ extension TerminalSurfaceView {
 
     /// A trackpad scroll while the program has the mouse waits for the frame, summed per phase
     /// (``TerminalPointerFrames``); a scroll through the scrollback and a wheel's lines go at once.
+    // local-monitor-allow: a mouse-reporting trackpad scroll goes through the window's FrameInputCoalescer (pointerFrames); a scrollback scroll goes to Ghostty at once, in order
     public override func scrollWheel(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every scroll event)
         if let pointerFrames, event.hasPreciseScrollingDeltas, scrollReportsToProgram(event),
            pointerFrames.post(event, in: window) { return }
@@ -149,18 +154,19 @@ extension TerminalSurfaceView {
     public override func quickLook(with event: NSEvent) {
         pointerFrames?.flush()
         guard let surface else { return super.quickLook(with: event) }
-        var text = ghostty_text_s()
-        guard ghostty_surface_quicklook_word(surface, &text) else { return super.quickLook(with: event) }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return super.quickLook(with: event) }
-        let word = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let read = unsafe GhosttyTextRead(quickLookWordOf: surface), !read.bytes.isEmpty else {
+            return super.quickLook(with: event)
+        }
         var attributes: [NSAttributedString.Key: Any] = [:]
-        if let fontPointer = ghostty_surface_quicklook_font(surface) {
-            attributes[.font] = Unmanaged<CTFont>.fromOpaque(fontPointer).takeRetainedValue()
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        if let font = unsafe GhosttyTextRead.quickLookFont(surface) {
+            attributes[.font] = font
         }
         // Ghostty reports the word's top-left in points, top-left origin;
         // the baseline sits one cell lower.
-        let point = NSPoint(x: text.tl_px_x, y: bounds.height - text.tl_px_y - cellPointSize.height)
+        let point = NSPoint(x: read.topLeft.x, y: bounds.height - read.topLeft.y - cellPointSize.height)
+        let word = read.string
         showDefinition(for: NSAttributedString(string: word, attributes: attributes), at: point)
     }
 
@@ -268,7 +274,8 @@ extension TerminalSurfaceView {
     /// terminal's lock, so it runs only with Command alone held (or during a link click).
     func pointerMods(_ flags: NSEvent.ModifierFlags) -> TerminalPointerMods {
         let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || linkPressInCapture
-        let captured = asks && surface.map { ghostty_surface_mouse_captured($0) } == true
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let captured = unsafe asks && surface.map { unsafe ghostty_surface_mouse_captured($0) } == true
         return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
     }
 

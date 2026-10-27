@@ -109,6 +109,34 @@
         "settled"
       ],
       "note": "a pointer move on the live page"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "browser": "$step:fx-browser#/value/browser_id"
+      },
+      "args": {
+        "method": "browser.input.mouse",
+        "params": {
+          "kind": "move",
+          "x_px": 10.0,
+          "y_px": 10.0,
+          "pointer_frame_seq": "1"
+        },
+        "idempotencyKey": "browser-input-mouse-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

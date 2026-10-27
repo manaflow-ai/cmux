@@ -44,8 +44,8 @@ App side (`CEFPageWindowWidgets`, in `ChildWindowPageFallback.swift` with the re
 - Each show is counted in `debug.cef` `tracker.page_window_widget_shows` and `page_window_widget_shows_by_kind`,
   the one expected exception to DC8b's "page windows ordered in = 0".
 
-Fork side (a follow-up fork change, API 33 or later; 044's spec says the page window never orders in and does
-not cover it):
+Fork side (a follow-up fork change at the next free API, max + 1 of the fork lines then, above 044's 36;
+044's spec says the page window never orders in and does not cover it):
 
 - `libcef/browser/chrome/views/chrome_child_window_mac.mm`: when a widget of these kinds becomes a child of the
   Browser's widget (`Widget::AddChild` / `NativeWidgetMac::ReparentNativeView`), order the page window in,

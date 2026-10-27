@@ -44,6 +44,8 @@
 //! fd 3 blocks until the next timer is due, never longer, never shorter.
 //! Exit codes: [`host_loop::exit`].
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(feature = "engine")]
 pub mod host_loop;
 pub mod protocol;

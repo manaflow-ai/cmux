@@ -49,6 +49,26 @@
       }
     },
     {
+      "id": "first-create",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "correlation_key": "oracle"
+        },
+        "idempotencyKey": "screen-create-error.first-create"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,19 +79,37 @@
       "args": {
         "method": "screen.create",
         "params": {
-          "correlation_key": ""
+          "name": "other",
+          "correlation_key": "oracle"
         },
         "idempotencyKey": "screen-create-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "creation.conflict",
+        "errorDetails": {
+          "correlation_key": "oracle",
+          "existing_operation": "screen.create"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a second create with the same correlation key and another name: creation.conflict, no third screen"
+    },
+    {
+      "id": "two-screens",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

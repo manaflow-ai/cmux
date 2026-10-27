@@ -91,8 +91,8 @@ import Testing
         turns.runAll()
         #expect(MirrorSpy.frees == 1, "the source's own string, read when the event came")
         MirrorSpy.navigationState = "state-B"
-        #expect(shim.takeString(shim.tabNavigationState(5)) == "state-A")
-        #expect(shim.takeString(shim.tabNavigationState(5)) == "state-A")
+        #expect(shim.tabNavigationState(5) == "state-A")
+        #expect(shim.tabNavigationState(5) == "state-A")
         #expect(MirrorSpy.frees == 1, "the cache's copies never reach the source's free")
     }
 
@@ -157,10 +157,8 @@ import Testing
         runtime.receive(.tab(.windowDestroyed, browser: 0, window: 9, value: 0))
         turns.runAll()
 
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        #expect(shim.popupWindowBounds(9, &x, &y, &width, &height) == 1)
-        #expect([x, y, width, height] == [10, 20, 30, 40])
-        #expect(shim.popupWindowBounds(8, &x, &y, &width, &height) == 0, "no batch pushed window 8")
+        #expect(shim.popupWindowBounds(9) == CEFShimBounds(result: 1, x: 10, y: 20, width: 30, height: 40))
+        #expect(shim.popupWindowBounds(8).result == 0, "no batch pushed window 8")
     }
 
     @Test func aTestsDeliveryTakesTheShimsPathAndKeepsTheOrder() throws {

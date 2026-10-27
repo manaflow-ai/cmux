@@ -42,6 +42,7 @@ public final class BrowserDownloadTempFiles {
 
     private func enqueue(_ change: Change) {
         let previous = last, store = store
+        // priority-allow: only tests await last (idle()); no person waits for a record change
         last = Task.detached(priority: .utility) {
             await previous?.value
             await store.apply(change)

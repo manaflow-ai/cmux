@@ -14,6 +14,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
@@ -23,8 +24,10 @@ import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
+import Foundation
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
 /// and visible work, never in the turn that asks (Chrome posts memory release as BEST_EFFORT tasks).
@@ -47,21 +50,32 @@ struct AppMemoryConsumers {
     let services: AppServices
 
     /// The app's one memory coordinator: it follows `pressure` and releases in background-class frame
-    /// work on `mainWork`. AppServices holds it next to its pressure source.
+    /// work on the main-thread scheduler of `deadlines`, or on main run loop passes while the app is hidden
+    /// (``followHiddenApp()``). Two background-class one-shots on `deadlines` hold lossless limits 30 s after a
+    /// fall in level and release working-set entries a release kept once they age out (p07-memory-070).
+    /// AppServices holds it next to its pressure source.
     ///
     /// - Parameters:
     ///   - pressure: The app's one memory pressure source.
-    ///   - mainWork: The app's main-thread scheduler.
+    ///   - deadlines: The app's one `MainDeadline` placer, on the app's main-thread scheduler.
     /// - Returns: The coordinator.
-    static func coordinator(pressure: MemoryPressureEvents, mainWork: MainWorkScheduler) -> MemoryCoordinator {
-        MemoryCoordinator(pressure: pressure, slicer: FrameReleaseSlicer(
-            queue: FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: mainWork)))
+    static func coordinator(pressure: MemoryPressureEvents, deadlines: MainDeadlineScheduler) -> MemoryCoordinator {
+        MemoryCoordinator(
+            pressure: pressure,
+            slicer: FrameReleaseSlicer(
+                queue: FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: deadlines.work)),
+            turns: MainRunLoopReleaseTurns(),
+            limitRiseDeadline: MainDeadline(
+                owner: "MemoryCoordinator.limitRise", workClass: .background, scheduler: deadlines),
+            workingSetDeadline: MainDeadline(
+                owner: "MemoryCoordinator.workingSet", workClass: .background, scheduler: deadlines))
     }
 
     /// AppServices' init calls this once, after the services the consumers belong to are built. Each
     /// consumer's owner keeps its registration token; nothing here stores one.
     func registerMemoryConsumers() {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
+        followHiddenApp()  // CmuxNextMemory (p07-memory-071)
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerAgentPaneCaches()  // CmuxNextAgentPane
@@ -71,11 +85,22 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
+        registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
+        registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
+        registerTabCaches()  // CmuxNextTabs
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryHiddenAppRelease` (default off): while no window shows, the coordinator releases in 8 ms slices on
+    /// main run loop passes; the person's input puts it back on 2 ms frame slices (p07-memory-071).
+    func followHiddenApp() {
+        guard services.features.isEnabled(.memoryHiddenAppRelease) else { return }
+        services.memoryCoordinator.followApp(windows: services.appVisibility.shownWindows, input: services.inputTap)
     }
 
     /// `memoryAgentAndControlCaches` (default off): the agent pane's New Tab frames, chat tails and
@@ -99,6 +124,33 @@ struct AppMemoryConsumers {
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
     }
 
+    /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store
+    /// every window shares) are one lossless consumer (p07-memory-053).
+    func registerDesignCaches(backdrops: BackdropImageStore = .shared) {
+        guard services.features.isEnabled(.memoryBackdropImages) else { return }
+        backdrops.registerMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `sharedGlyphMasks` (default off): the chrome labels of `scope`'s tree (the app's) draw their glyphs
+    /// through one byte-capped cache, so equal labels draw once; one lossless consumer (p03-rendering-075).
+    func registerGlyphMasks(in scope: ThemeScope = .app) {
+        guard services.features.isEnabled(.sharedGlyphMasks) else { return }
+        let masks = GlyphMaskCache()
+        masks.registerMemoryConsumer(with: services.memoryCoordinator)
+        scope.sharedGlyphMasks = masks
+    }
+
+    /// `memoryHomeLabCaches` (default off): the Home transcript's shared pixel caches and the Home lists' row
+    /// bitmaps as one lossless consumer on `homeRenderBitmapBytes`, emptied after 60 s with no Home view shown
+    /// (p07-memory-081). Nil while the feature is off; Home makes it with its service and keeps it.
+    func makeHomeLabCaches() -> MessagesLabMemoryConsumer? {
+        guard services.features.isEnabled(.memoryHomeLabCaches) else { return nil }
+        return MessagesLabMemoryConsumer(
+            budgetBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).homeRenderBitmapBytes,
+            registry: services.memoryCoordinator,
+            idle: MainDeadline(owner: "Home.labCaches.idle", workClass: .background, scheduler: services.mainDeadlines))
+    }
+
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical
     /// (p07-memory-054). The store is made lazily with the sidebar layout, so `SidebarDocWiring.start` calls this.
     func registerSidebarDoc(_ store: SidebarDocStore) {
@@ -113,17 +165,20 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryAppCaches` (default off): the registry the app's caches register with, nil while the feature
-    /// is off. Caches made per page (Browse more art in Settings) take it at their init.
+    /// is off. Caches made per page take it at their init: Browse more art in Settings (p07-memory-056),
+    /// the Apps page's glyph masks and the Settings page's backdrop thumbnails (p07-memory-057).
     var appCacheRegistry: (any MemoryConsumerRegistry)? {
         services.features.isEnabled(.memoryAppCaches) ? services.memoryCoordinator : nil
     }
 
     /// `memoryAppCaches` (default off): the app-lifetime caches (agent panes' saved frames and launch
-    /// pages, decoded icon assets) are memory consumers (p07-memory-056).
+    /// pages, decoded icon assets, Launch Services' kept icons) are memory consumers (p07-memory-056,
+    /// p02-threads-056).
     private func registerAppCaches() {
         guard let registry = appCacheRegistry else { return }
         services.launchImages.registerMemoryConsumer(with: registry)
         IconAssetImages.shared.registerMemoryConsumer(with: registry)
+        services.workspaceQueries.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryImageCaches` (default off): terminal previews are a rebuildable consumer that shrinks at warning;
@@ -157,6 +212,16 @@ struct AppMemoryConsumers {
         services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
     }
 
+    /// `webKitSameSiteProcesses` (default off): WebKit tabs share a same-site WebContent process from the Chromium
+    /// renderer limit on (p07-memory-088), or from the limit a bench run forces; nil while the feature is off.
+    var webKitProcessReuse: WebKitProcessReuse? {
+        guard services.features.isEnabled(.webKitSameSiteProcesses) else { return nil }
+        let limit = WebKitProcessReuse.benchRendererLimit(environment: ProcessInfo.processInfo.environment,
+                                                          bundleIdentifier: Bundle.main.bundleIdentifier)
+            ?? SubsystemBudget.forThisMac(gpuResidentAvailable: false).chromiumRendererLimit
+        return WebKitProcessReuse.loading(rendererLimit: limit, work: services.work, mainWork: services.mainWork)
+    }
+
     /// The Files pane's thumbnail pixel bytes, a quarter of the Mac's image cache budget (32 MiB at
     /// 16 GB), whatever the feature state: only the registration waits for `memoryFileHomeCaches`.
     var filesThumbnailBytes: Int {
@@ -178,6 +243,14 @@ struct AppMemoryConsumers {
     func registerAppBundleImages(_ cache: AppBundleImageCache) {
         guard let registry = fileCacheRegistry else { return }
         cache.registerMemoryConsumer(with: registry)
+    }
+
+    /// `memoryTabCaches` (default off): the tab strips' drawn symbols, pack icons, agent marks, emoji and
+    /// known symbol names are lossless consumers that keep only what was drawn in the last 2 s at critical
+    /// (p07-memory-052). The hover card thumbnails register with each strip (PaneController).
+    private func registerTabCaches() {
+        guard services.features.isEnabled(.memoryTabCaches) else { return }
+        TabIconMemoryConsumers(registry: services.memoryCoordinator).register()
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
@@ -220,7 +293,8 @@ struct AppMemoryConsumers {
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
-    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats and New Tab pages join it when
+    /// the browser hibernation makes their `AgentPageHibernation` (p13-webui-038).
     private func registerPageLifecycle() {
         guard services.features.isEnabled(.pageLifecycle) else { return }
         installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))
@@ -238,7 +312,7 @@ struct AppMemoryConsumers {
         services.webUI.lifecycle = lifecycle
         // Crash budgets per renderer: Chromium groups pages only with `pageProcessGroups` (FirstPartyPageSchemes).
         services.webUI.crashGroups = PageCrashGroups(chromiumSharesByGroup: services.features.isEnabled(.pageProcessGroups)) { page in
-            guard let chromium = page.chromiumPage else { return WebContentProcess.identifier(of: page.webKitView).map { .webKit(pid: $0) } }
+            guard let chromium = page.chromiumPage else { return page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }.map { .webKit(pid: $0) } }
             return (chromium as? CEFPageChromiumPage)?.soleRendererClientID.map { .chromium(client: $0) }
         }
         services.cache.pageLifecycle = lifecycle
@@ -249,5 +323,22 @@ struct AppMemoryConsumers {
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+    }
+
+    /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's
+    /// terminal frames one lossy consumer, and the terminals' Kitty image budget halves below normal pressure
+    /// (p07-memory-083). The changelog page's pictures register with each page (`PageFactory.changelogPage`), and the
+    /// launch reads go at the settle (`LaunchSettle.dropLaunchReads`).
+    private func registerSmallAppStores() {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        let coordinator = services.memoryCoordinator
+        GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
+        services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
+        let kittyImages = GhosttyImageStorageBudget(
+            fullBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface,
+            riseDeadline: MainDeadline(owner: "GhosttyImageStorageBudget.rise", workClass: .background, scheduler: services.mainDeadlines),
+            riseDelay: MemoryCoordinator.limitRiseDelay) { GhosttyRuntime.shared.setImageStorageBytesPerScreen($0) }
+        kittyImages.follow(coordinator)
+        services.lifetimeFollowers.append(kittyImages)
     }
 }

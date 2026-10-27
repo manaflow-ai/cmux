@@ -44,6 +44,10 @@ public struct HangRecord: Sendable, Hashable {
         /// A scheduled main-thread task that ran past its class's per-frame budget
         /// (``MainThreadWatchdog/overBudget``); its details name the task and class.
         case overBudget = "over_budget"
+        /// A scheduled main-thread task still running past its class's hang deadline
+        /// (``MainThreadWatchdog/taskHangs``, ``MainTaskBoard/hangScopeNanos(_:)``): its details name the
+        /// task's owner, class, posting location and turn, and its duration is how long it had run when sampled.
+        case taskHang = "task_hang"
         /// A hang-watch scope on another thread still running `HangWatch.hangAfterBudget` (2 s) past
         /// its budget (``MainThreadWatchdog/threadHangs``); its details name the scope, the thread and
         /// the crash keys, and its duration is how far past the budget it was when sampled.
@@ -69,8 +73,9 @@ public struct HangRecord: Sendable, Hashable {
     /// Busy records: scope, process, CPU share, busiest wakeup owners.
     public var details: [String: JSONValue] = [:]
 
-    /// Symbolicated ``addresses``. Resolves symbols; call off the main thread.
-    public var frames: [HangFrame] { StackSymbolicator().frames(for: addresses) }
+    /// Symbolicated ``addresses``. Reads the app's symbol map and resolves symbols: call off the main
+    /// thread, for one record; for many, make one ``StackSymbolicator`` and pass it ``addresses``.
+    public var frames: [HangFrame] { StackSymbolicator(map: AppSymbolMap.loadMain()).frames(for: addresses) }
 
     public var json: JSONValue {
         var object: [String: JSONValue] = [
@@ -153,7 +158,7 @@ public final class HangLog: Sendable {
                 state.summary.totalDuration += duration
             case .busy:
                 state.summary.busyCount += 1
-            case .overBudget, .hang, .jank: // each in a log of its own kind
+            case .overBudget, .taskHang, .hang, .jank: // each in a log of its own kind
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration

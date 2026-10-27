@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// Keeps the home session's session registry and the one-time migration in
 /// step with the connected sessions (plans/cmux-next/data-model.md 1.1 and
@@ -12,8 +12,13 @@ import Observation
 /// open. Nothing runs against a home daemon without `profiles-v1`.
 @MainActor
 final class SessionRegistrar {
-    private unowned let machines: MachineRegistry
-    private var observation: Task<Void, Never>?
+    /// Held strongly, as the session observation's read already holds it; the registry holds nothing of this.
+    private let machines: MachineRegistry
+    /// Where the Mac's name and the one-time imports are awaited, off the main actor.
+    private let work: BackgroundWork
+    /// Where the session list is followed and the replies land: bookkeeping nobody sees, `background`.
+    private let mainWork: MainWorkScheduler
+    private var observation: ServiceObservation<[String]>?
     /// Sessions recorded in this app run, with what was sent.
     private var recorded: [String: SessionSnapshot] = [:]
     private var importing: Set<String> = []
@@ -26,29 +31,32 @@ final class SessionRegistrar {
         var transport: JSONValue
     }
 
-    init(machines: MachineRegistry) {
+    init(machines: MachineRegistry, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.machines = machines
+        self.work = work
+        self.mainWork = mainWork
     }
 
     func start() {
         observation?.cancel()
-        Task { [weak self] in
+        let mainWork = mainWork
+        work.task(.bestEffort) { [weak self] in
             let name = await MacName().displayName()
-            self?.computerName = name
-            self?.recorded.removeAll()
-            self?.sync()
-        }
-        let machines = machines
-        observation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
-                 String(machines.local.store.isProvisional)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
-                    + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
-                    + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
-            }) {
+            mainWork.postFromAnyThread(.background, owner: "SessionRegistrar.macName") { [weak self] in
+                self?.computerName = name
+                self?.recorded.removeAll()
                 self?.sync()
             }
+        }
+        let machines = machines
+        observation = ServiceObservation(.background, owner: "SessionRegistrar.sessions", on: mainWork) { () -> [String] in
+            [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
+             String(machines.local.store.isProvisional)]
+                + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
+                + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
+                + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
+        } apply: { [weak self] _ in
+            self?.sync()
         }
     }
 
@@ -71,9 +79,12 @@ final class SessionRegistrar {
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
                 importing.insert(session)
                 let request = Self.organization(of: daemon.store, session: session)
-                Task { [weak self] in
+                let mainWork = mainWork
+                work.task(.bestEffort) { [weak self] in
                     _ = try? await connection.importOrganization(request)
-                    self?.importing.remove(session)
+                    mainWork.postFromAnyThread(.background, owner: "SessionRegistrar.imported") { [weak self] in
+                        _ = self?.importing.remove(session)
+                    }
                 }
             }
         }

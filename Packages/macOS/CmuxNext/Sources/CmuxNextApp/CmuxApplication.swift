@@ -5,6 +5,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextTerminal
+import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextFocusUI
 import CmuxNextInput
@@ -91,6 +92,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
+    /// Set once in `CmuxNextApp.main` while feature `mainJobGate` is on (p04-input-076): each event's
+    /// route is marked as a dispatch on its word, so the main-actor jobs the route enqueues pass it.
+    var jobGate: MainJobGateSwitch?
+
     /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
     private var turnMeter: MainTurnMeter?
 
@@ -110,10 +115,19 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     override func sendEvent(_ event: NSEvent) {
         let outerDelivered = dispatchDelivered
         dispatchDelivered = false
-        defer { dispatchDelivered = outerDelivered }
+        inputTap?.sendEventBegan(event)
+        defer { dispatchDelivered = outerDelivered; inputTap?.sendEventEnded() }
         if let turnMeter { turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) } } else { tapped(event, dispatchedNanos: nil) }
         // Every path, outside the turn meter's input span and the tap's dispatch scope.
         inputTap?.deliverDispatchEnd(event, outcome: dispatchDelivered ? .delivered : .consumed)
+    }
+
+    /// A menu item's action: its tracking event answers it (`InputEventTap.actionEvent`), in or out of a dispatch.
+    override func sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        guard sender is NSMenuItem, let inputTap else { return super.sendAction(action, to: target, from: sender) }
+        inputTap.menuActionBegan()
+        defer { inputTap.menuActionEnded() }
+        return super.sendAction(action, to: target, from: sender)
     }
 
     private func tapped(_ event: NSEvent, dispatchedNanos: UInt64?) {
@@ -128,8 +142,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
-        let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
-        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+        let outerDispatch = jobGate?.beginDispatch()
+        defer { if let outerDispatch { jobGate?.endDispatch(restoring: outerDispatch) } }
+        // Every key-down: the probe opens a sample while it records and for its 1-in-16 key.echo_frame sample.
+        let probesKey = event.type == .keyDown && TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
@@ -142,7 +158,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
-        if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        if event.type == .keyDown, Self.dropsCrossWindowKey(event, keyWindow: keyWindow, using: crossWindowKeyGuard) { return }
         // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
         // key.frame or key.scroll_frame interval (InputLatencyDispatch).
         let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
@@ -175,7 +191,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func dispatch(_ event: NSEvent) {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
-        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
+        if event.type == .keyDown, FindPillView.forwardArrowKeyDownToEditingPill(event, in: keyWindow ?? event.window) { return }
         Self.dispatchThroughTap(event, tap: inputTap) { delivered in
             dispatchDelivered = true
             super.sendEvent(delivered)
@@ -288,6 +304,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
+    func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
+        jobGate?.follow(on: mainWork) { [weak settings] in
+            guard let settings, settings.loadCount >= 1 else { return nil }
+            return settings.snapshot.mainJobGate.enabled
+        }
+    }
+
     /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
     /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
     /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in
@@ -308,6 +332,14 @@ extension CmuxApplication {
         let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
         if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { tap?.deliverAfterDispatch(event) } } else { tap?.deliverAfterDispatch(event) }
         return result
+    }
+
+    /// The cross-window stage of a key-down: true when `keyGuard` (`CrossWindowInputGuard`) drops
+    /// it. The guard runs only when the key window is not the window the key was typed into, so a
+    /// key in the key window costs one window-number compare.
+    static func dropsCrossWindowKey(_ event: NSEvent, keyWindow: NSWindow?, using keyGuard: ((NSEvent, NSWindow?) -> Bool)?) -> Bool {
+        guard let keyGuard, let keyWindow, event.windowNumber != keyWindow.windowNumber else { return false }
+        return keyGuard(event, keyWindow)
     }
 }
 

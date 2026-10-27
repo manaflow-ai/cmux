@@ -49,6 +49,48 @@
       }
     },
     {
+      "id": "fx-screen-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.create",
+        "params": {
+          "screens": [
+            "$step:fx-workspace#/value/screen_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "screen-group-add-screens-error.fx-screen-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-group-add-screens-error.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -58,22 +100,36 @@
       "args": {
         "method": "screen_group.add_screens",
         "params": {
-          "screen_group": "",
+          "screen_group": "$step:fx-screen-group#/value/id",
           "screens": [
-            "$step:fx-workspace#/value/screen_id"
+            "screen_0123456789abcdef0123456789abcdef"
           ]
         },
         "idempotencyKey": "screen-group-add-screens-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "id": "screen_0123456789abcdef0123456789abcdef",
+          "scope": "screen"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "screen_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a well-formed screen id that names no screen: resource.not_found, the group is unchanged"
+    },
+    {
+      "id": "second-ungrouped",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/extra/screen_group_id",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

@@ -1,5 +1,6 @@
-import CmuxNextSidebar
+import CmuxNextActions
 import CmuxNextFocus
+import CmuxNextSidebar
 
 /// Previous / Next (Leo 2026-10-09, rapid switching): what the
 /// browser-style keys step from the window's keyboard focus. A focused pane
@@ -102,5 +103,13 @@ extension PreviousNext {
         case .tab(_, let tab)?: _ = services.revealTab(tab.rawValue)
         case nil: break
         }
+    }
+}
+
+extension PreviousNext {
+    /// A person's step from a key binding (the key dispatcher gives its run a key context), not the CLI's or a
+    /// script's: only such a step prewarms the item past it (`directionalPrewarm`, p04-input-044).
+    static func isKeyStep(_ invocation: ActionInvocation) -> Bool {
+        invocation.origin == .user && invocation.keyContext != nil
     }
 }

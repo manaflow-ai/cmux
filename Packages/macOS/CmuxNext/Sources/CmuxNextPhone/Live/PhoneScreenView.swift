@@ -13,7 +13,8 @@ import IOSurface
 @MainActor
 public final class PhoneScreenView: NSView {
     private let content = CALayer()
-    private static let contentsChanged = privateSelector("setContentsChanged")
+    /// The layer's private `setContentsChanged`, resolved on the first repeated frame (nil when it lacks it).
+    private lazy var markContentsChanged: (() -> Void)? = privateAction(content, "setContentsChanged")
     /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
     private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
@@ -55,9 +56,9 @@ public final class PhoneScreenView: NSView {
         CATransaction.setDisableActions(true)
         if content.contents as AnyObject? !== surface {
             content.contents = surface
-        } else if content.responds(to: Self.contentsChanged) {
+        } else if let markContentsChanged {
             // Core Animation re-reads an IOSurface it already shows only when told its contents changed.
-            _ = content.perform(Self.contentsChanged)
+            markContentsChanged()
         } else {
             content.contents = nil
             content.contents = surface

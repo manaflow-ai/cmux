@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CheckpointClient, type CheckpointClientOptions, type Request } from "./client";
-import type { CheckpointTarget } from "./protocol";
+import { CHECKPOINT_CAPABILITY_OP, type CheckpointTarget } from "./protocol";
 import { CheckpointReview } from "./Review";
 import type { CheckpointStrings } from "./strings";
 
@@ -25,7 +25,7 @@ export function useCheckpoints({
       new CheckpointClient(request, {
         ...options,
         capabilities:
-          options?.capabilities ?? (() => request("git.capabilities", {}) as Promise<{ checkpoints: boolean }>),
+          options?.capabilities ?? (() => request(CHECKPOINT_CAPABILITY_OP, {}) as Promise<{ checkpoints: boolean }>),
       }),
   );
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);

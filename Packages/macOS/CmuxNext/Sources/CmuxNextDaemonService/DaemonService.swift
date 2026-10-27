@@ -1,6 +1,8 @@
 import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -50,10 +52,9 @@ public final class DaemonService {
     /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
     @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
     @ObservationIgnored var terminalColorsPending = false
-    /// The current (or last) daemon's identity. The store owns it and
-    /// replaces it on every handshake, so capabilities follow a daemon that
-    /// restarted or was handed off to a newer build after the first connect.
-    public var identity: DaemonIdentity? { store.identity }
+    /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
+    @ObservationIgnored var energyFollow: DaemonEnergyFollow?
+    @ObservationIgnored var featureHello: DaemonFeatureHello?  // the local hellos' features (`start`); settled at the first connection
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
@@ -70,16 +71,15 @@ public final class DaemonService {
     /// shows. Under a budgeted class it waited while a key was pending or other visible work spent the
     /// frame, and the backlog grew without bound under steady churn (review 2 of pl-main-bc).
     @ObservationIgnored let drainScheduler: FrameBatcher
+    /// The app's main-thread scheduler: a person-scope command's reply settles on it as
+    /// userBlocking work (``settleReply(_:)``).
+    let mainWork: MainWorkScheduler
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
-    /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`LaunchSnapshotWindow`); nil without one.
-    @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
-    /// The local session whose launch snapshot path each handshake records.
-    @ObservationIgnored var launchSnapshotSession: String?
-    @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// The local daemon's launch snapshot, read off main and drawn before the first connection (``DaemonLaunchSnapshot``).
+    @ObservationIgnored public let launchSnapshot: DaemonLaunchSnapshot
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
-    @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
@@ -89,7 +89,8 @@ public final class DaemonService {
     ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
-    ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
+    ///     budget). The service drains its store on a batcher it builds on it and settles person-scope
+    ///     replies on it (a test passes one it ticks by hand).
     ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
     ///     its recorder (nil in a release build without field data opt-in, which counts nothing).
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
@@ -105,6 +106,8 @@ public final class DaemonService {
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
+        self.mainWork = mainWork
+        launchSnapshot = DaemonLaunchSnapshot(store: store, mainWork: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -158,18 +161,20 @@ public final class DaemonService {
     /// for a remote or test service.
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
-    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with
-    /// `resolvedTerminalEnvironment` over it, goes to the daemon process and
-    /// to every terminal it creates for this app.
-    /// `prestart` is the first connect attempt `main` began
+    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with `resolvedTerminalEnvironment` over it,
+    /// goes to the daemon process and to every terminal it creates for this app. `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``).
+    /// `work` (the app's one ``BackgroundWork``). `launchSnapshot` is the snapshot's read `main` began; without one
+    /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
+    /// `featureHello`: the app's daemon features for every hello.
     public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil) {
+               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil,
+               featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
+        self.featureHello = prestart?.featureHello ?? featureHello
         let launcher: DaemonLauncher
         if let prestart {
             launcher = prestart.launcher
@@ -183,6 +188,7 @@ public final class DaemonService {
                                                 wireStats: wireStats)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                self.featureHello?.settle()  // no daemon will answer this launch's hello
                 return
             }
         }
@@ -196,13 +202,15 @@ public final class DaemonService {
         }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
-        launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        self.launchSnapshot.take(launchSnapshot, session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory, work: work)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-                                                    hangWatch: hangWatch)
+                                                    hangWatch: hangWatch, featureHello: self.featureHello)
+        // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
+        let marks = prestart?.marks ?? Self.launchConnectMarks()
+        marks.mark(.connectStarted)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -225,19 +233,21 @@ public final class DaemonService {
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")
             return true
         }
-        start(first: first, handOff: handOff) {
-            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
+        start(first: first, handOff: handOff, marks: marks) {
+            DaemonConnection(configuration: configuration, endpointProvider: marks.endpointProvider(of: launcher))
         }
     }
-
 
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
     /// The connection reconnects by itself afterwards. `handOff` runs before
     /// the app attaches; true means the daemon is exiting for a version
     /// handoff, so the app connects again and attaches to its successor only.
+    /// `marks` (the launch's connect milestones) attaches the connection the app runs, and closes when the startup
+    /// gives up.
     public func start(first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
                handOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)? = nil,
+               marks: DaemonConnectMarks? = nil,
                makeConnection: @escaping @Sendable () -> DaemonConnection) {
         guard runTask == nil else { return }
         let store = store
@@ -263,11 +273,16 @@ public final class DaemonService {
                                                                    onFailure: onFailure)
                 }
             }
-            guard let (connection, identity) = connected else { return }
+            guard let (connection, identity) = connected else {
+                marks?.close()
+                return
+            }
             guard let self, !Task.isCancelled else {
+                marks?.close()
                 await connection.close()
                 return
             }
+            await marks?.attach(connection)
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
@@ -365,8 +380,9 @@ public final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
+        connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         self.connection = connection
-        rememberLaunchSnapshot(identity)
+        launchSnapshot.remember(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
         startupDeadlineTimer?.cancel()

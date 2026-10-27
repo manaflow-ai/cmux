@@ -43,9 +43,8 @@ enum DebugDriverControl {
                 return .value(CaptureSceneRegistry(services: services).list())
             },
             .async("debug.scene.render") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
-                let registry = await MainActor.run { CaptureSceneRegistry(services: services) }
-                return await registry.render(call.params)
+                guard let services else { return .null }
+                return await CaptureSceneRegistry(services: services).render(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.webkit_inspector") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -53,7 +52,7 @@ enum DebugDriverControl {
             },
             // Open popup panels (sized window.open popups).
             .async("debug.popups") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugPopups.report(call.params, services: services)
             },
             // Scripted input into the real agent cursor stacks (visual checks).
@@ -86,7 +85,7 @@ enum DebugDriverControl {
                                                 hangReports: hangReports ?? .init(available: false, setting: nil, decision: nil, enabled: false))
             }.method,
             .async("debug.palette.capture") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugPaletteCapture.capture(call.params, services: services)
             },
             // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
@@ -111,7 +110,7 @@ enum DebugDriverControl {
                 return .value(DebugOmnibar.type(call.params, services: services))
             },
             .async("debug.window.ax_set_frame") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
@@ -134,7 +133,7 @@ enum DebugDriverControl {
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             .async("debug.window_snapshot") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
             },
             .mainActor("debug.window.focus") { [weak services] call in
@@ -190,7 +189,7 @@ enum DebugDriverControl {
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
             .mainActor("debug.menu") { [weak services] call in
-                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus, popupMenu: services?.cache.chromium.built?.hostPopupMenu))
             },
             // The browser-data import offer on the first browser tab.
             .mainActor("debug.browser_import_offer") { [weak services] call in
@@ -216,7 +215,6 @@ enum DebugDriverControl {
             },
             // The file pages: tabs, recovery drafts, toasts, and the notice's Open.
             .async("debug.filepages") { [weak services] call in
-                let services = await MainActor.run { services }
                 guard let services else { return .null }
                 return await DebugFilePages.run(call.params, services)
             },
@@ -250,10 +248,14 @@ enum DebugDriverControl {
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
+                guard let services else { return .value(.null) }
                 let secret = SecretBytes(copying: Array((call.params["secret"]?.stringValue ?? "fixture").utf8))
-                let surface = NativePasswordSecretSurface(), anchor = services?.windows.active?.window?.contentView
-                // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits
-                Task { await surface.reveal(secret, site: call.params["site"]?.stringValue ?? "example.com", username: "proof", anchor: anchor) }
+                let surface = NativePasswordSecretSurface(pasteboard: ConcealedPasteboard(deadlines: services.mainDeadlines))
+                let anchor = services.windows.active?.window?.contentView
+                let site = call.params["site"]?.stringValue ?? "example.com"
+                // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits.
+                // Off main until the sheet: the reveal itself is the surface's main-actor work.
+                services.work.task(.userVisible) { await surface.reveal(secret, site: site, username: "proof", anchor: anchor) }
                 return .value(["shown": .bool(true)])
             },
             .mainActor("debug.extensions.prompt") { [weak services] call in

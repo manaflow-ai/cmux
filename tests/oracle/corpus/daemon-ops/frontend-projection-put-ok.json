@@ -55,6 +55,34 @@
         "settled"
       ],
       "note": "put creates the projection: its id, frontend and window are the caller's names, not fixture objects"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "frontend_projection": "projection_0000000000000000000000000000000a"
+      },
+      "args": {
+        "method": "frontend_projection.put",
+        "params": {
+          "projection": {},
+          "frontend_id": "oracle-frontend",
+          "window_id": "oracle-window",
+          "generation": "oracle"
+        },
+        "idempotencyKey": "frontend-projection-put-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

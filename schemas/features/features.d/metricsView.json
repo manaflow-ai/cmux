@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "metricsView",
+  "owner": "PL-telemetry",
+  "description": "The app serves metrics.snapshot (cmux metrics) and the palette offers View Metrics: every field histogram recorded since launch, as JSON in a file tab.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

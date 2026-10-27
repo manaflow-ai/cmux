@@ -9,7 +9,6 @@ struct WorkspaceTodoRow: View {
     let item: WorkspaceChecklistItem
     let isEditing: Bool
     let actions: WorkspaceTodoRowActions
-    @State private var text = ""
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -20,12 +19,7 @@ struct WorkspaceTodoRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(WorkspaceChecklistStrings.toggle)
             if isEditing {
-                TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
-                    .textFieldStyle(.plain)
-                    .focusEffectDisabled()
-                    .onAppear { text = item.text }
-                    .onSubmit { actions.commitEdit(item.id, text) }
-                    .onExitCommand { actions.cancelEdit() }
+                WorkspaceTodoEditField(item: item, actions: actions)
             } else {
                 Text(item.text)
                     .strikethrough(item.state == .done)
@@ -64,5 +58,24 @@ struct WorkspaceTodoRow: View {
         case .inProgress: "circle.lefthalf.filled"
         case .done: "checkmark.circle.fill"
         }
+    }
+}
+
+/// The text field of an item being edited. Its text starts as the item's when the edit begins (the
+/// field is made), not on appear: a gated page tab appears again on each show
+/// (`VisibilityGatedHostingView`), and the text typed so far must stay.
+private struct WorkspaceTodoEditField: View {
+    let item: WorkspaceChecklistItem
+    let actions: WorkspaceTodoRowActions
+    @State private var text: String
+
+    init(item: WorkspaceChecklistItem, actions: WorkspaceTodoRowActions) {
+        (self.item, self.actions) = (item, actions)
+        _text = State(initialValue: item.text)
+    }
+
+    var body: some View {
+        TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text).textFieldStyle(.plain).focusEffectDisabled()
+            .onSubmit { actions.commitEdit(item.id, text) }.onExitCommand { actions.cancelEdit() }
     }
 }

@@ -29,7 +29,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
-    case findResult(browser: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
+    /// A result of the find `findID` (``CEFFindRequests``): the shim stamps the caller's id of the
+    /// browser's last `cmux_shim_find`.
+    case findResult(browser: Int32, findID: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
     case closeRequested(browser: Int32)
     case tab(CEFForkTabEvent, browser: Int32, window: Int32, value: Int)
     case popup(browser: Int32, url: String, disposition: Int, userGesture: Bool)
@@ -43,8 +45,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsOpened(browser: Int32, devTools: Int32, docked: Bool)
     case devToolsClosed(browser: Int32, devTools: Int32)
     /// The tab's renderer ended unexpectedly: `status` is
-    /// `cef_termination_status_t`, `code` the exit code or signal.
-    case renderTerminated(browser: Int32, status: Int, code: Int, text: String)
+    /// `cef_termination_status_t`, `code` the exit code or signal, `end` whether this browser
+    /// is the first that renderer hosted to report it (``CEFRendererEnd``).
+    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd)
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
@@ -119,6 +122,13 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case widgetContext(ChromiumHostWidgetContext)
     /// That widget closed (WIDGET_GONE).
     case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
+    /// The page's cursor or tooltip changed, or it answered a drag (CURSOR, TOOLTIP, DRAG_OPERATION; host mode).
+    case pageView(browser: Int32, CEFPageViewEvent)
+    /// A page opened a `<select>` popup (POPUP_MENU; host mode, only after `popupMenus.setEnabled(1)`): answer
+    /// it once with `popupMenus.reply`. `popup` is nil when its JSON could not be read.
+    case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
+    /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
+    case popupMenuHidden(browser: Int32, token: Int64)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -140,7 +150,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
         case 14:
             self = .findResult(
-                browser: browser, count: Int(a),
+                browser: browser, findID: request, count: Int(a),
                 activeOrdinal: Int(Int32(truncatingIfNeeded: b)), isFinal: (b >> 32) & 1 != 0
             )
         case 15: self = .closeRequested(browser: browser)
@@ -153,7 +163,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 20: self = .devToolsWillOpen(browser: browser)
         case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
         case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
-        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1)
+        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1, end: CEFRendererEnd(rawValue: request) ?? .unknown)
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
@@ -189,7 +199,39 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             self = ChromiumHostWidgetContext(owner: browser, request: request, a: a, s1: s1, s2: s2).map(Self.widgetContext)
                 ?? .unknown(kind: kind)
         case 53: self = request != 0 ? .widgetGone(browser: browser, widget: ChromiumHostWidgetID(rawValue: request)) : .unknown(kind: kind)
+        case 54: self = .pageView(browser: browser, .cursor(CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1)))
+        case 55: self = .pageView(browser: browser, .dragOperation(a))
+        case 56: self = .pageView(browser: browser, .wheelAck(BrowserWheelAck(request: request, a: a, b: b)))
+        case 57: self = .pageView(browser: browser, .tooltip(s1))
+        case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
+        case 59: self = .popupMenuHidden(browser: browser, token: a)
+        case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
+        }
+    }
+}
+
+extension CEFShimEvent {
+    /// The browser the event is about, nil for one about no page.
+    var browserID: Int32? {
+        switch self {
+        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
+             .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
+             .fullscreen(let b, _), .findResult(let b, _, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
+             .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
+             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
+             .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
+             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
+             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
+             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _):
+            b
+        case .widgetContext(let context):
+            context.owner
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
+            nil
         }
     }
 }

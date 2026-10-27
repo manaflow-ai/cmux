@@ -70,6 +70,7 @@ extension AppActions {
             let actions = services.home.groupActions
             let shows = invocation.origin == .user
             // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2): it awaits the main-actor HomeGroupActions; post has no userBlocking class
             registry.track(result: Task { @MainActor in
                 switch await actions.create(named: members, title: title, replies: replies) {
                 case .created(let id):

@@ -117,7 +117,7 @@ fn session_children_needs_an_attached_tab_of_a_trusted_connection() {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let websocket = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let handled = agent_session_attach::try_handle(&mux, websocket, &frame.to_string(), &writer);
+    let handled = through_route(&mux, websocket, &frame.to_string(), &writer);
     assert_eq!(handled, Some(true));
     let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_code(&reply, "agent_session.not_trusted");

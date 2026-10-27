@@ -2,6 +2,8 @@
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
+import QuartzCore
 import Testing
 
 /// `debug.frames` (p03-rendering-001): the render counters add `render_armed` to every reply and their
@@ -31,5 +33,20 @@ struct DebugFrameProbeTests {
             return
         }
         #expect(members["render_armed"] == .bool(false))
+    }
+
+    /// The run's cap is read on the probes' own frames, with no expiry timer (p06-scheduler-307, recipe R-timer):
+    /// a frame within ``DebugFrameProbe/maximumRun`` of the run's start is kept, the first one past it ends the run.
+    @Test func theFirstFramePastTheRunCapEndsTheRun() {
+        let probe = DebugFrameProbe(render: RenderFrameLog(stats: RenderStats(), windows: { [] }))
+        #expect(probe.frame(Self.tick(at: 1)), "a frame inside the cap ended the run")
+        #expect(!probe.frame(Self.tick(at: DebugFrameProbe.maximumRun + 1)), "a frame past the cap kept the run")
+        let cpu = DebugMainCPUProbe()
+        #expect(cpu.frame(Self.tick(at: 1)), "a frame inside the cap ended the CPU run")
+        #expect(!cpu.frame(Self.tick(at: DebugMainCPUProbe.maximumRun + 1)), "a frame past the cap kept the CPU run")
+    }
+
+    private static func tick(at timestamp: CFTimeInterval) -> FrameTick {
+        FrameTick(timestamp: timestamp, elapsed: 1.0 / 60, rawElapsed: 1.0 / 60, refreshInterval: 1.0 / 60)
     }
 }

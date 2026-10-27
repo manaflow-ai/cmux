@@ -1,8 +1,8 @@
 /// The app's startup phases (plans/cmux-next/chrome-parity/p06-scheduler.md, section A,
 /// "Startup phases"): what may run on the main thread while the first window is still coming.
 ///
-/// - ``Phase/launching``: input, frame, visible and automation work run; background work is
-///   held.
+/// - ``Phase/launching``: input, frame, userBlocking, visible and automation work run; background
+///   work is held.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
 ///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when a window's
 ///   first frame never comes. Background work opens.
@@ -183,7 +183,7 @@ public final class StartupPhase {
     }
 
     /// Whether `workClass` may run now. Only background waits for the reveal; input, frame,
-    /// visible and automation work are never held.
+    /// userBlocking, visible and automation work are never held.
     public func admits(_ workClass: MainWorkClass) -> Bool { phase >= workClass.startupOpening }
 
     /// Runs `action` now when the phase is `target` or later; else holds it and runs it at the
@@ -281,12 +281,12 @@ public final class StartupPhase {
 }
 
 extension MainWorkClass {
-    /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, background waits for the reveal and idle work for the settle. Exhaustive
-    /// on purpose: a new class does not compile until it is mapped here.
+    /// The startup phase that opens this class: input, frame, userBlocking, visible and automation
+    /// work run while launching, background waits for the reveal and idle work for the settle.
+    /// Exhaustive on purpose: a new class does not compile until it is mapped here.
     public var startupOpening: StartupPhase.Phase {
         switch self {
-        case .input, .frame, .visible, .automation: .launching
+        case .input, .frame, .userBlocking, .visible, .automation: .launching
         case .background: .revealed
         case .idle: .settled
         }

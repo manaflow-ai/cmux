@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
 import Foundation
 
 /// One page call in flight: its work's task and the continuation the router answers. The first of
@@ -8,7 +9,7 @@ final class PageCallInFlight {
     let op: String
     /// When the call arrived (`systemUptime`).
     let started = ProcessInfo.processInfo.systemUptime
-    private var continuation: CheckedContinuation<JSONValue, any Error>?
+    private var continuation: OnceContinuation<JSONValue, any Error>?
     private var task: Task<Void, Never>?
     private var cancelled = false
 
@@ -16,10 +17,11 @@ final class PageCallInFlight {
         self.op = op
     }
 
-    func start(_ continuation: CheckedContinuation<JSONValue, any Error>, _ work: @escaping @MainActor () async throws -> JSONValue) {
+    func start(_ continuation: OnceContinuation<JSONValue, any Error>, _ work: @escaping @MainActor () async throws -> JSONValue) {
         self.continuation = continuation
         guard !cancelled else { return finish(.failure(PageError.opCancelled)) }
         // task-owner: one page call; ends with its work or the page's cancel (navigation, tab close)
+        // main-hop-allow: the work is the provider's main-actor async op (PageProvider calls run on main and await their own off-main parts); the task only runs it and answers the router's continuation once
         task = Task { @MainActor [weak self] in
             let result: Result<JSONValue, any Error>
             do { result = .success(try await work()) } catch { result = .failure(error) }

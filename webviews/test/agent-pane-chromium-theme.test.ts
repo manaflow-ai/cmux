@@ -4,7 +4,8 @@
 // new-document scripts (PageChromiumDocumentScripts): those run before the parser makes <html>.
 // WebTheme's document-start apply then registered every `--cmux-*` color (initial value
 // transparent) and threw in setTransition on a null root, so the chat's text and background stayed
-// transparent. The page here is the built resource (CI builds the web bundles before this suite;
+// transparent. The page here is the built resource with its shared chunks (test/support/builtPane.ts;
+// CI builds the web bundles before this suite;
 // locally run scripts/cmux-next/build-agent-pane-web.sh first), served under the page host's real
 // CSP header, with WebTheme.bootstrapScript and its apply wrapped exactly as the Chromium page host
 // wraps them. Its first state must already be the themed one: the same as after the host applies
@@ -17,17 +18,14 @@ import { chromium, webkit, type BrowserType } from "playwright";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
 import { themeTokens, webThemePayload } from "../src/gallery/theme/web";
+import { BUILT_PANE, builtPaneResponse } from "./support/builtPane";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-chromium-theme.test.ts", async () => {
   setDefaultTimeout(120_000);
-  const pane = path.resolve(
-    import.meta.dir,
-    "../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
-  );
-  if (!fs.existsSync(path.join(pane, "index.html")))
+  if (!fs.existsSync(path.join(BUILT_PANE, "index.html")))
     throw new Error(
-      `agent-pane-chromium-theme: ${pane}/index.html is not built (scripts/cmux-next/build-agent-pane-web.sh)`,
+      `agent-pane-chromium-theme: ${BUILT_PANE}/index.html is not built (scripts/cmux-next/build-agent-pane-web.sh)`,
     );
 
   /** The page host's Content-Security-Policy header for the agent page, as the app sends it. */
@@ -44,9 +42,7 @@ await requireBrowserLane("agent-pane-chromium-theme.test.ts", async () => {
     server = Bun.serve({
       port: 0,
       fetch(request) {
-        const name = new URL(request.url).pathname.replace(/^\/+/, "") || "index.html";
-        const file = Bun.file(path.join(pane, path.normalize(name).replace(/^(\.\.(\/|$))+/, "")));
-        return new Response(file, { headers: { "Content-Security-Policy": APP_CSP } });
+        return builtPaneResponse(new URL(request.url).pathname, { "Content-Security-Policy": APP_CSP });
       },
     });
   });

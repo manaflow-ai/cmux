@@ -58,7 +58,9 @@
       },
       "args": {
         "method": "screen.create",
-        "params": {},
+        "params": {
+          "name": "second"
+        },
         "idempotencyKey": "screen-create-ok.call"
       },
       "expect": {
@@ -69,7 +71,65 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a named screen after the fixture screen; its layout is one leaf, the new pane"
+    },
+    {
+      "id": "two-screens",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "new-last",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/id",
+        "equals": "$step:call#/value/screen_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "new-leaf",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/layout/root/pane_id",
+        "equals": "$step:call#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-create-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

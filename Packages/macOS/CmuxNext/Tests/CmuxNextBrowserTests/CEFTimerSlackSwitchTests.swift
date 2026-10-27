@@ -11,7 +11,8 @@ import Testing
     @Test func theFeatureTurnsOnTimerSlack() {
         let switches = CEFSwitches.current(forkAPIVersion: 27, chromiumFeatures: ["TimerSlackMac"],
                                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
-        #expect(switches.arguments.filter { $0 == "enable-features=TimerSlackMac" }.count == 1, "\(switches.arguments)")
+        let features = CEFSwitchesWakeUpAlignmentTests.enabledFeatures(switches.arguments)
+        #expect(features.filter { $0 == "TimerSlackMac" }.count == 1, "\(switches.arguments)")
     }
 
     @Test func withoutTheFeatureItStaysOff() {
@@ -22,6 +23,10 @@ import Testing
     @Test func chromiumFeaturesShareOneEnableEntry() {
         let switches = CEFSwitches.current(forkAPIVersion: 27, chromiumFeatures: ["TimerSlackMac", "AlignWakeUps"],
                                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
-        #expect(switches.arguments.contains("enable-features=TimerSlackMac,AlignWakeUps"), "\(switches.arguments)")
+        let entries = switches.arguments.filter { $0.hasPrefix("enable-features=") }
+        #expect(entries.count == 1, "\(switches.arguments)")
+        let features = CEFSwitchesWakeUpAlignmentTests.enabledFeatures(entries)
+        #expect(features.contains("TimerSlackMac"), "\(switches.arguments)")
+        #expect(features.filter { $0 == "AlignWakeUps" }.count == 1, "\(switches.arguments)")
     }
 }

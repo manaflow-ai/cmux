@@ -8,7 +8,10 @@ import QuartzCore
 
 /// A compact row of saved group chips (the saved tab groups bar).
 /// One view; chips are CALayers in one content layer that scrolls
-/// horizontally (trackpad or wheel) when the chips overflow. Click reopens a
+/// horizontally (trackpad or wheel) when the chips overflow: a scroll sets
+/// that layer's bounds origin and lays out no chip, at most twice per frame
+/// with `scrollFrameInput` (p04-input-087, as Chrome's layer-backed
+/// `views::ScrollView`, ui/views/controls/scroll_view.cc). Click reopens a
 /// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
 public final class SavedGroupsBarView: NSView {
     public static var preferredHeight: CGFloat { Metrics.controlHeight }
@@ -23,6 +26,10 @@ public final class SavedGroupsBarView: NSView {
     private lazy var hoverMoves = PointerFrameHover(owner: "SavedGroupsBarView.hover", view: self) { [weak self] point in
         self?.hover(atWindowPoint: point)
     }
+    /// The bar's wheel and trackpad scrolls (feature `tabStripScrollFrames`, `scrollFrameInput`).
+    private lazy var wheel = PointerFrameWheel(owner: "SavedGroupsBarView.wheel", view: self) { [weak self] scroll in
+        self?.scrolled(scroll)
+    }
     private var pressed: TabGroupID?
     private var observation: Task<Void, Never>?
     private var tokenObservation: Task<Void, Never>?
@@ -34,6 +41,11 @@ public final class SavedGroupsBarView: NSView {
     /// Horizontal scroll position, 0...maxScrollOffset.
     private(set) var scrollOffset: CGFloat = 0
     var maxScrollOffset: CGFloat { max(0, contentWidth - bounds.width) }
+    /// The scroll offset the chips' accessibility frames were written at (nil: none yet); VoiceOver
+    /// asking for the chips writes them again after a scroll (`accessibilityChildren`).
+    private var accessibilityOffset: CGFloat?
+    /// Content layer moves (debug and tests): one per layout and per scroll delivery, none per chip.
+    private(set) var scrollApplies = 0
 
     public init(model: SavedGroupsBarModel) {
         self.model = model
@@ -58,7 +70,8 @@ public final class SavedGroupsBarView: NSView {
     public override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight) }
 
     public override func accessibilityChildren() -> [Any]? {
-        order.compactMap { chips[$0]?.accessibility }
+        if accessibilityOffset != scrollOffset { writeAccessibilityFrames() }
+        return order.compactMap { chips[$0]?.accessibility }
     }
 
     public override func viewDidMoveToWindow() {
@@ -95,7 +108,7 @@ public final class SavedGroupsBarView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: a new backing scale re-aligns the chips' layers
     }
 
     func sync() {
@@ -113,7 +126,7 @@ public final class SavedGroupsBarView: NSView {
             chip.font = Typography.caption
         }
         order = ids
-        needsLayout = true
+        needsLayout = true // invalidate: new groups or metrics (the observations run on a change only)
     }
 
     private func makeChip(_ item: TabGroupItem, count: Int) -> TabGroupChipCell {
@@ -146,16 +159,25 @@ public final class SavedGroupsBarView: NSView {
         scrollOffset = min(max(0, scrollOffset), maxScrollOffset)
         applyScroll()
         CATransaction.commit()
+        writeAccessibilityFrames()
     }
 
-    /// Moves the content layer to `scrollOffset` and keeps accessibility
-    /// frames in view coordinates.
+    /// Moves the content layer to `scrollOffset`: one layer, no chip.
     private func applyScroll() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         contentLayer.frame = bounds
         contentLayer.bounds = CGRect(x: scrollOffset, y: 0, width: bounds.width, height: bounds.height)
         CATransaction.commit()
+        scrollApplies += 1
+    }
+
+    /// The chips' accessibility frames in view coordinates at the current scroll. Written at a layout, a
+    /// scroll gesture's end and when VoiceOver asks for the chips, not every scroll frame (Chrome sends
+    /// accessibility location changes after the frame, not per scroll: content/renderer/accessibility/
+    /// render_accessibility_impl.cc `SendLocationChanges`).
+    private func writeAccessibilityFrames() {
+        accessibilityOffset = scrollOffset
         for id in order {
             guard let chip = chips[id] else { continue }
             chip.accessibility.setAccessibilityFrameInParentSpace(chip.frame.offsetBy(dx: -scrollOffset, dy: 0))
@@ -174,13 +196,25 @@ public final class SavedGroupsBarView: NSView {
         return true
     }
 
+    /// The windows' frame-aligned wheels (feature `tabStripScrollFrames`): a frame interval's first scroll
+    /// moves the chips at once and the rest once at its frame, summed per phase. Nil: each event scrolls.
+    public var scrollFrameInput: FrameInputCoalescers? {
+        get { wheel.frames }
+        set { wheel.frames = newValue }
+    }
+
     public override func scrollWheel(with event: NSEvent) {
-        // Trackpads scroll horizontally; a plain mouse wheel's vertical
-        // motion scrolls the bar too, like the tab strip.
-        var delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
-        if !event.hasPreciseScrollingDeltas { delta *= metrics.tabHeight / 2 }
-        guard delta != 0, scroll(by: -delta) else { return super.scrollWheel(with: event) }
-        if let window { setHovered(chip(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))) }
+        guard maxScrollOffset > 0 else { return super.scrollWheel(with: event) }
+        wheel.scrolled(event)
+    }
+
+    /// One wheel delivery. Trackpads scroll horizontally; a plain mouse wheel's vertical motion scrolls
+    /// the bar too, like the tab strip. The chip under the pointer is hit-tested where the chips moved.
+    private func scrolled(_ scroll: PointerFrameWheel.Scroll) {
+        var delta = abs(scroll.delta.dx) >= abs(scroll.delta.dy) ? scroll.delta.dx : scroll.delta.dy
+        if !scroll.isPrecise { delta *= metrics.tabHeight / 2 }
+        if delta != 0, self.scroll(by: -delta) { setHovered(chip(at: convert(scroll.location, from: nil))) }
+        if scroll.endsGesture || scroll.isNotch, accessibilityOffset != scrollOffset { writeAccessibilityFrames() }
     }
 
     private func chip(at point: CGPoint) -> TabGroupID? {
@@ -217,6 +251,7 @@ public final class SavedGroupsBarView: NSView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        wheel.flush()
         hoverMoves.flush()
         pressed = chip(at: convert(event.locationInWindow, from: nil))
         if let pressed { chips[pressed]?.isPressed = true }

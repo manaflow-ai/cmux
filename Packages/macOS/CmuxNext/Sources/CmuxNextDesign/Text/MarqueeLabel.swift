@@ -18,7 +18,7 @@ public final class MarqueeLabel: NSView {
         set {
             guard newValue != text.string else { return }
             text.string = newValue
-            needsLayout = true
+            needsLayout = true // invalidate: new text (the guard above); the marquee measures its overflow again.
         }
     }
 
@@ -28,7 +28,7 @@ public final class MarqueeLabel: NSView {
             guard newValue != text.font else { return }
             text.font = newValue
             invalidateIntrinsicContentSize()
-            needsLayout = true
+            needsLayout = true // invalidate: a new font (the guard above).
         }
     }
 
@@ -88,6 +88,7 @@ public final class MarqueeLabel: NSView {
     /// fits or motion is reduced or off.
     @discardableResult
     public func startMarquee() -> Bool {
+        // sync-layout: the marquee starts from the fade geometry layout() computes for the current width.
         layoutSubtreeIfNeeded()
         return fade.startMarquee()
     }

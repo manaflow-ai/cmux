@@ -46,16 +46,19 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// of every mounted workspace's node.
     let visibility: VisibilityNode
     unowned let services: AppServices
-    private var workspaceObservation: Task<Void, Never>?
-    private var titleObservation: Task<Void, Never>?
-    private var startupObservation: Task<Void, Never>?
+    /// Shows the requested workspace, also while the window is hidden (`observeWorkspace`, WindowController+TopPage).
+    var workspaceObservation: ServiceObservation<Void>?
+    private var titleObservation: VisibleObservation<String>?
+    private var startupObservation: VisibleObservation<DaemonStartupState>?
+    /// Set by ``teardown()``: an observation that starts later does not start.
+    var tornDown = false
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors at any light/dark, so it matches the content beside
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
-    private var roomObservation: Task<Void, Never>?
-    private var roomBrowserProfileObservation: Task<Void, Never>?
+    var roomObservation: VisibleObservation<ProfileID>?
+    var roomBrowserProfileObservation: ServiceObservation<BrowserProfileKey?>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
     /// What the window shows, for `debug.daemon`: `content` (a workspace), `connecting` (the connecting view) or `none`.
@@ -73,7 +76,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
-    init(state: WindowState, services: AppServices, frame: NSRect?) {
+    /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
+    ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
+    init(state: WindowState, services: AppServices, frame: NSRect?, window premade: ShellWindow? = nil) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
@@ -88,31 +93,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, signals: services.appearance)
+        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
-        let registry = services.registry
-        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
-                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
-        let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
+        let window = premade ?? ShellWindow.main(frame: frame)
         window.keyRouter = services.keyRouter
         window.turnMeter = services.mainWork.budget.turns
-        window.title = Strings.appName
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        window.minSize = NSSize(width: 520, height: 320)
-        window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
-        visibility = WindowVisibilitySource.of(window, name: "window:\(state.id)", app: services.appVisibility.node).node
+        let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
+        visibility = node
+        let registry = services.registry
+        root.toolbarBand.follow(on: node, work: services.mainWork, title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
+                                shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         super.init(window: window)
         installHistoryButtons()
         // The key tracker observes through the app's events before the
@@ -132,17 +126,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.inputDispatch = services.inputDispatch
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
-        observeWorkspace()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
         if rightSidebar.isVisible { showRightSidebar() }
+        // From the next turn: the manager registers this window and shows its first workspace first. Behind the
+        // launch picture the build starts it once its slices ran (`LaunchWindowBuild`, p08-startup-060).
+        if premade == nil {
+            services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        tornDown = true
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -164,46 +163,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: Workspace
-
-    /// The window recolors when it switches room.
-    private func observeRoom() {
-        let state = state
-        roomObservation = Task { [weak self] in
-            for await _ in ObservationStream({ state.profileID }) {
-                guard let self else { return }
-                services.themes.windowDidChange(self)
-            }
-        }
-        // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),
-        // and again when the room's record changes.
-        let home = services.machines.local.store
-        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
-        roomBrowserProfileObservation = Task {
-            for await _ in ObservationStream({ home.profile(state.profileID)?.browserProfileID }) { state.refreshRoomBrowserProfile() }
-        }
-    }
-
-    private func observeWorkspace() {
-        let machines = services.machines
-        let cloud = services.cloud
-        let windows = services.windows
-        let state = state
-        workspaceObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
-                self?.showWorkspace(requested: state.workspaceID)
-                // A parked terminal (the classic migration's background workspaces) starts on its first show.
-                if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
-            }
-        }
-    }
-
-    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
-    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
-        _ = creationKey(state, cloud, machines)
-        _ = windows.registry.members(of: state.id)
-        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
-    }
 
     /// Shows the requested workspace on whichever machine holds it. While
     /// its Cloud machine is still connecting (relaunch), the window waits
@@ -245,11 +204,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         themeScope.show(nil)
         guard startupObservation == nil else { return }
         let daemon = services.daemon
-        startupObservation = Task { [weak self, weak view] in
-            for await startup in ObservationStream({ daemon.startup }) {
-                view?.apply(startup)
-                if self?.content != nil { return }
-            }
+        // Until a workspace shows (`show` drops it); a hidden window's view reads the state when it shows.
+        startupObservation = VisibleObservation(visibility, owner: "WindowController.connecting", on: services.mainWork) {
+            daemon.startup
+        } apply: { [weak view] startup in
+            view?.apply(startup)
         }
     }
 
@@ -300,8 +259,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
         // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
-        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
-            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
+        let names = WorkspaceAutoNameWiring(services: services), selection = state.selection
+        titleObservation = VisibleObservation(visibility, owner: "WindowController.title", on: services.mainWork) {
+            names.reader.titlebarName(workspace) { selection.selection(in: $0.id) }
+        } apply: { [weak self] title in
+            self?.root.titlebar.title = title
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
@@ -330,7 +292,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
         let snapshots = services.sidebarSnapshots, id = state.id
-        Task { await snapshots.touch(window: id) }
+        services.work.task(.bestEffort) { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
         services.canvasContextDidChange()
@@ -339,8 +301,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
         // Hover cards in other windows show this window's pages (R131). The
-        // next key window is known on the next main-actor turn.
-        Task { @MainActor [weak self] in
+        // next key window is known on a later main-actor turn.
+        services.mainWork.post(.visible, owner: "WindowController.resignKey") { [weak self] in
             guard let self, let window = self.window else { return }
             WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
                                               presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
@@ -354,7 +316,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
-    var sidebarObservation: Task<Void, Never>?
+    var sidebarObservation: ServiceObservation<Bool>?
 
 
     /// Set once closing this incognito window was confirmed (or needed no
@@ -417,10 +379,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting {
+    /// Views that follow an ancestor's move read their place after each outermost layout pass (`layoutIfNeeded`).
+    let layoutPasses = WindowLayoutPasses()
+    /// The traffic lights' last windowed place: their left edge, their top's distance from the window's top,
+    /// and their size (the window may come back from full screen at another height).
     private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
@@ -471,11 +434,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         return button
     }
 
-    /// The Chromium fork adds each page window as a child ordered above
-    /// everything, the overlay panel included. Lift the overlay (and the app
-    /// panels above it) in the same call, before the window server shows a
-    /// frame with the page over the focus ring; the notifications that
-    /// follow the page would come a frame late.
+    /// The Chromium fork adds each page window as a child ordered above everything, the overlay panel included.
+    /// Lift the overlay (and the app panels above it) in the same call, before the window server shows a frame
+    /// with the page over the focus ring; the notifications that follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
@@ -489,9 +450,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// windows, divider catcher panels) runs after the pass, never inside a
     /// view's `layout()`: changing another window or the child window order
     /// from inside layout re-marks this window and can loop until AppKit
-    /// throws (2026-10-09 nightly crash). The overlay planes also re-read
-    /// their home's place here, so a pane ring follows a pane that moved
-    /// because an ancestor moved (sidebar width), not only its own layout.
+    /// throws (2026-10-09 nightly crash). The overlay planes also re-read their home's place here, so a
+    /// pane ring follows a pane that moved because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
@@ -500,10 +460,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         #endif
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, before the overlay layer's after-pass work (an occluder change it causes
+        // joins that work); views that follow an ancestor's move hear didLayout before the queued blocks run.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout()
+            layoutPasses.didLayout()
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }
@@ -511,9 +472,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.windowDidLayout()
     }
 
-    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
-    /// The overlay layer counts a depth only in the turn that began the pass:
-    /// after an exception AppKit caught skipped the end of a pass, the next
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end). The overlay layer counts a depth only
+    /// in the turn that began the pass: after an exception AppKit caught skipped the end of a pass, the next
     /// turn's first pass is the outermost one again.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 

@@ -56,6 +56,28 @@ import Testing
         #expect(source.node.effective == .occluded)
     }
 
+    /// AppKit reports a window under a same-size opaque cmux window as visible (crbug.com/883031);
+    /// its occlusion family's verdict caps the node at occluded, and never lifts a miniaturized one.
+    @Test func theOcclusionFamilyOccludesAWindowAppKitCallsVisible() {
+        let center = NotificationCenter()
+        let window = Self.window()
+        let state = FakeWindowState()
+        let events = WindowEvents(window: window, center: center)
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events) { _ in state.value }
+        let family = WindowOcclusionFamily.of(window)
+        #expect(source.node.isVisible)
+        family.set(occluded: true)
+        #expect(source.node.effective == .occluded)
+        state.value = .hidden
+        center.post(name: NSWindow.didMiniaturizeNotification, object: window)
+        #expect(source.node.effective == .hidden)
+        state.value = .visible
+        center.post(name: NSWindow.didDeminiaturizeNotification, object: window)
+        #expect(source.node.effective == .occluded, "the family still says covered")
+        family.set(occluded: false)
+        #expect(source.node.isVisible)
+    }
+
     @Test func aHiddenAppHidesEveryWindowAndSleepingDisplaysOccludeThem() {
         let appCenter = NotificationCenter()
         let workspaceCenter = NotificationCenter()

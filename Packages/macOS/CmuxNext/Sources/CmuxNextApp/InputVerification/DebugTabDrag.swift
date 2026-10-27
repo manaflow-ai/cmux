@@ -62,7 +62,7 @@ enum DebugTabDrag {
             func topLeft(_ r: CGRect) -> JSONValue { rect(CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)) }
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
                 let strip = pane.view.stripView
-                guard strip.window === window, !strip.isHiddenOrHasHiddenAncestor else { continue }
+                guard strip.window === window, strip.isShownForInput else { continue }
                 let tabs: [JSONValue] = (strip.accessibilityChildren() ?? []).compactMap { child in
                     guard let element = child as? NSAccessibilityElement else { return nil }
                     let frame = strip.convert(element.accessibilityFrameInParentSpace(), to: nil)

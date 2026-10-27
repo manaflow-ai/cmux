@@ -2,6 +2,10 @@ import CmuxNextCompat
 public import CmuxNextTrace
 import Darwin
 import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Runs work that may block off Swift's cooperative pool, on small lanes by kind, at a stated priority.
 ///
@@ -34,6 +38,8 @@ import Dispatch
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority. The app
 /// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
 /// ``LaunchFence/cap`` (``LaunchFence``).
+///
+/// Every lane item is traced from its `fileID` and `line` post to its run (``TaskTrace``, Chrome's `TaskAnnotator`).
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
@@ -87,12 +93,14 @@ public final class BackgroundWork: Sendable {
     let taskHooks: TaskHooks
     /// The main-thread task board whose open input work makes an awaited low item a priority-inversion site.
     let inputTurns: MainTaskBoard?
+    /// Traces each lane item's post; its run's flow-in goes in the lane's `task.run` slice.
+    let taskTrace: TaskTrace
 
     struct DrainState {
         var nextID: UInt64 = 1
         /// Block-shutdown items (lane items and tasks) that have not finished.
         var blocking = 0
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// ``beginShutdown()`` ran: only block-shutdown items are taken.
         var closed = false
         /// ``shutdown()`` has returned: no item is taken, a block-shutdown one neither.
@@ -137,14 +145,16 @@ public final class BackgroundWork: Sendable {
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     ///   - inputTurns: the app's main task board; an item below `.userBlocking` awaited on main while it runs input
     ///     work is a Debug priority-inversion site. nil checks nothing.
+    ///   - trace: the runtime of each lane item's ``TaskTrace`` records and `task.run` slices; default the process's.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, filesWidths: FilesLaneWidths = .standard,
                             label: String = "com.cmuxterm.next.work",
                             hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                             onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
-                            uptimeNanos: (@Sendable () -> UInt64)? = nil, inputTurns: MainTaskBoard? = nil) {
+                            uptimeNanos: (@Sendable () -> UInt64)? = nil, inputTurns: MainTaskBoard? = nil,
+                            trace: TraceRuntime = .shared) {
         self.init(cpuWidth: cpuWidth, filesWidths: filesWidths, label: label, hangs: hangs, onQueued: onQueued,
-                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none, inputTurns: inputTurns)
+                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none, inputTurns: inputTurns, trace: trace)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
@@ -158,6 +168,7 @@ public final class BackgroundWork: Sendable {
          inputTurns: MainTaskBoard? = nil, trace: TraceRuntime = .shared) {
         self.taskHooks = taskHooks
         self.inputTurns = inputTurns
+        taskTrace = TaskTrace(runtime: trace)
         self.cpuWidth = max(1, cpuWidth)
         self.filesWidths = filesWidths
         self.label = label
@@ -252,11 +263,12 @@ public final class BackgroundWork: Sendable {
                               _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 guard let job = makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
                                         work: { continuation.resume(with: Result { try body() }) },
                                         abandoned: { continuation.resume(throwing: CancellationError()) }) else {
-                    return continuation.resume(throwing: CancellationError())
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
                 submitted(scheduler.submit(job, at: priority, posted: false, cap: cap, unless: { Task.isCancelled }), job, on: lane)
@@ -392,7 +404,8 @@ public final class BackgroundWork: Sendable {
     /// it once, after the engines stop and inside its deadline (QuitCompletion).
     public func shutdown() async {
         beginShutdown()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A waiter the drain state drops unresumed ends abandoned: shutdown returns.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let now = state.withLock { state -> Bool in
                 if state.blocking == 0 {
                     state.drained = true
@@ -401,7 +414,7 @@ public final class BackgroundWork: Sendable {
                 state.waiters.append(continuation)
                 return false
             }
-            if now { continuation.resume() }
+            if now { continuation.resume(returning: ()) }
         }
     }
 
@@ -425,7 +438,7 @@ public final class BackgroundWork: Sendable {
     /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
     /// (recorded, never run). `onRan` gets the level the lane ran it at, not the one it was posted at.
     /// `finished` runs once the item ran or was abandoned, after its shutdown count dropped (a ``WorkSequence``
-    /// starts its next item then).
+    /// starts its next item then). The post is traced here, at `site`.
     func makeJob(id: UInt64, lane: BlockingLane, shutdown: ShutdownBehavior,
                  site: CallSite, work body: @escaping @Sendable () -> Void,
                  abandoned: @escaping @Sendable () -> Void,
@@ -433,7 +446,8 @@ public final class BackgroundWork: Sendable {
         let work: @Sendable (WorkPriority) -> Void = { _ in body() }
         let report = runReport(lane: lane)
         guard shutdown == .blockShutdown else {
-            return LaneJob(id: id, shutdown: shutdown, work: work, ran: report, abandoned: abandoned, done: finished)
+            return LaneJob(id: id, shutdown: shutdown, trace: tracePost(site, on: lane), work: work, ran: report,
+                           abandoned: abandoned, done: finished)
         }
         let taken = state.withLock { state -> Bool in
             guard !state.drained else { return false }
@@ -444,8 +458,8 @@ public final class BackgroundWork: Sendable {
             blockShutdownRefused(site)
             return nil
         }
-        return LaneJob(id: id, shutdown: shutdown, work: work, ran: blockShutdownRan(site, then: report),
-                       abandoned: abandoned, done: { [self] in
+        return LaneJob(id: id, shutdown: shutdown, trace: tracePost(site, on: lane), work: work,
+                       ran: blockShutdownRan(site, then: report), abandoned: abandoned, done: { [self] in
             blockItemFinished()
             finished()
         })
@@ -454,7 +468,7 @@ public final class BackgroundWork: Sendable {
     /// One block-shutdown item (lane item or task) finished or was abandoned: resumes ``shutdown()`` when it
     /// was the last.
     func blockItemFinished() {
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             state.blocking -= 1
             guard state.blocking == 0, !state.waiters.isEmpty else { return [] }
             // A shutdown() waits: it returns now, so later block items are refused.
@@ -462,7 +476,7 @@ public final class BackgroundWork: Sendable {
             defer { state.waiters = [] }
             return state.waiters
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
 }

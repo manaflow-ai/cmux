@@ -82,6 +82,7 @@ public final class ThemedFieldBox: NSView {
         applyTheme()
     }
 
+    // visibility-walk-allow: three layer stores (fill, border color, border width); no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

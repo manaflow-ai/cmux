@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxSafeConcurrency
 import Foundation
 
 /// Owns Iroh endpoint generations and recreates unexpectedly stopped drivers.
@@ -9,7 +10,7 @@ import Foundation
 public actor CmxIrohEndpointSupervisor {
     private struct RelayReadinessWaiter {
         let generation: UInt64
-        let continuation: CheckedContinuation<Void, any Error>
+        let continuation: OnceContinuation<Void, any Error>
     }
 
     private let factory: any CmxIrohEndpointFactory
@@ -514,8 +515,8 @@ public actor CmxIrohEndpointSupervisor {
     private func awaitRelayReadiness(generation: UInt64) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation {
+                (continuation: OnceContinuation<Void, any Error>) in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -528,7 +529,7 @@ public actor CmxIrohEndpointSupervisor {
                     return
                 }
                 if relayReadyGeneration == generation {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     relayReadinessWaiters[id] = RelayReadinessWaiter(
                         generation: generation,
@@ -554,7 +555,7 @@ public actor CmxIrohEndpointSupervisor {
         let ready = relayReadinessWaiters.filter { $0.value.generation == generation }
         for (id, waiter) in ready {
             relayReadinessWaiters[id] = nil
-            waiter.continuation.resume()
+            waiter.continuation.resume(returning: ())
         }
     }
 

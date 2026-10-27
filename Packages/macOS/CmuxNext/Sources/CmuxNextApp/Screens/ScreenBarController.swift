@@ -19,7 +19,11 @@ final class ScreenBarController {
     let view: TabStripView
     private unowned let content: WorkspaceContentController
     private let preview: ScreenPreviewSource
-    private var observation: Task<Void, Never>?
+    /// Follows the workspace's screens while the workspace shows (``VisibleObservation``: its apply only touches the
+    /// bar and the layout); a hidden workspace's bar catches up in its show turn.
+    private var observation: VisibleObservation<Snapshot?>?
+    /// The strip height the bar's container last laid out at.
+    private var stripHeight: CGFloat?
     /// Called when the bar should appear (two or more screens) or hide.
     var onVisibilityChange: ((Bool) -> Void)?
     private(set) var isVisible = false
@@ -31,12 +35,16 @@ final class ScreenBarController {
     private struct Snapshot: Equatable {
         var bar: ScreenBarMapping.Snapshot
         var active: String?
+        /// The design's strip height: a new one moves the bar and the layout in their container.
+        var stripHeight: CGFloat
     }
 
-    init(content: WorkspaceContentController) {
+    /// - Parameter node: The node the bar follows its screens under; nil: the workspace's, else the bar's own.
+    init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
         view = TabStripView(model: model, input: content.services.inputTap)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
+        view.scrollFrameInput = content.services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
@@ -45,10 +53,12 @@ final class ScreenBarController {
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        apply(snapshot())
-        observation = Task { [weak self] in
-            guard let content = self?.content else { return }
-            for await snapshot in ObservationStream({ Self.snapshot(content) }) { self?.apply(snapshot) }
+        // The workspace's node once it has one (p06-scheduler-023); until then the bar's own, always visible.
+        let node = node ?? content.visibilityNode ?? VisibilityNode(root: "screen-bar", own: .visible)
+        observation = VisibleObservation(node, owner: "ScreenBar.snapshot", on: content.services.mainWork) { [weak self] in
+            self.map { Self.snapshot($0.content) }
+        } apply: { [weak self] snapshot in
+            if let snapshot { self?.apply(snapshot) }
         }
     }
 
@@ -57,15 +67,18 @@ final class ScreenBarController {
         view.cancelInlineRename()
     }
 
-    private func snapshot() -> Snapshot { Self.snapshot(content) }
-
     private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
         Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon,
                                                        assetIcon: IconAssetImages.shared.tabIcon(owner: content.daemon)),
-                 active: content.layoutModel.activeScreenID?.rawValue)
+                 active: content.layoutModel.activeScreenID?.rawValue, stripHeight: TabStripView.preferredHeight)
     }
 
     private func apply(_ snapshot: Snapshot) {
+        if stripHeight != snapshot.stripHeight {
+            // invalidate: a new strip height (the observation applies a changed snapshot only) moves the bar and the layout.
+            if stripHeight != nil { view.superview?.needsLayout = true }
+            stripHeight = snapshot.stripHeight
+        }
         if model.groups != snapshot.bar.groups { model.groups = snapshot.bar.groups }
         if model.tabs != snapshot.bar.items { model.tabs = snapshot.bar.items }
         let selected = snapshot.active.map { StripTabID($0) }
@@ -229,19 +242,27 @@ final class ScreenBarController {
 
 /// Hover card thumbnails for screens: the preview of the screen's active
 /// pane's selected tab (the terminal or page the screen shows first).
+///
+/// It holds what it reads, not the workspace content: a hover card's thumbnail task keeps it past the
+/// content's teardown, and none of these refers back to it.
 @MainActor
 final class ScreenPreviewSource: TabPreviewProvider {
-    private unowned let content: WorkspaceContentController
+    private let workspace: WorkspaceModel
+    private let selection: TabSelectionMemory
+    private let cache: TabContentCache
 
-    init(content: WorkspaceContentController) { self.content = content }
+    init(content: WorkspaceContentController) {
+        workspace = content.workspace
+        selection = content.state.selection
+        cache = content.services.cache
+    }
 
     func previewImage(for tab: StripTabID, maxPixelSize: CGSize) async -> CGImage? {
-        guard let screen = content.workspace.screens.first(where: { $0.id == tab.rawValue }),
+        guard let screen = workspace.screens.first(where: { $0.id == tab.rawValue }),
               let pane = screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first else { return nil }
-        let selected = content.state.selection.selection(in: pane.id)
+        let selected = selection.selection(in: pane.id)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id)
         guard let key = selected else { return nil }
-        let cache = content.services.cache
         return await TabPreviewSource.shown(cache.previewImage(for: key, maxPixelSize: maxPixelSize), key: key, cache: cache)
     }
 }

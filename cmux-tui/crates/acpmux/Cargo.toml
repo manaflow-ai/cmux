@@ -16,6 +16,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# The agent tool relay (src/mcp_relay.rs): std and serde_json only, under 1 MB.
+[[bin]]
+name = "acpmux-mcp-relay"
+path = "src/mcp_relay_main.rs"
+
 [lints.rust]
 # The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
@@ -27,6 +32,11 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
+# Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
+cmux-memory.workspace = true
+# The daemon's features and their sources, shared with the cmux-tui owner (the leftover
+# daemon idle exit, src/daemon_lifecycle.rs), and `memoryAcpmuxPressure`.
+cmux-features = { workspace = true, features = ["sources"] }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
@@ -64,6 +74,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = { version = "0.2", default-features = false }
 # The Release trace ring (src/trace_layer.rs): event instants and request slices.
 cmux-trace.workspace = true
+# Catalog refresh, the health check and the upload sweep on one MaintenanceClock
+# (src/maintenance.rs), and Energy Saver (src/energy_control.rs).
+cmux-wake.workspace = true
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
@@ -110,3 +123,8 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # `log` crate events in tests/trace_layer.rs, forwarded by tracing-log's LogTracer.
 log = "0.4"
 tracing-log = "0.2"
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
+disallowed_types = "allow"

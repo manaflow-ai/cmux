@@ -56,6 +56,12 @@ pub(crate) struct RequestQos {
 }
 
 impl RequestQos {
+    /// Whether the feature is on: requests and connection threads
+    /// (server/connection_qos.rs) change class.
+    pub(crate) const fn enabled(self) -> bool {
+        self.enabled
+    }
+
     /// Makes `cause` this thread's cause and, with the feature on, its class
     /// ([`EventCause::request_qos`]) until the scope drops.
     pub(crate) fn enter(self, cause: EventCause) -> CauseScope {
@@ -67,7 +73,32 @@ impl RequestQos {
         }
         CauseScope { _qos: class.map(WorkQos::enter), _cause: cause_scope }
     }
+
+    /// With the feature on, runs this thread at `class` until the scope
+    /// drops, as a request of that class: a daemon thread's work that no
+    /// request waits on (the journal writer between receipts).
+    pub(crate) fn enter_class(self, class: cmux_threads::ThreadQos) -> Option<WorkQos> {
+        self.enabled.then(|| WorkQos::enter(class))
+    }
+
+    /// One pass of a daemon upkeep thread (output store writer, journal
+    /// retention and maintenance) at [`UPKEEP_PASS_QOS`], with the feature
+    /// on. The thread is declared at [`UPKEEP_THREAD_QOS`] and lowered per
+    /// pass as a [`WorkQos`], so a ranked lock the pass holds (a terminal
+    /// slot a PTY reader waits for, the workspace registry a request waits
+    /// for) raises it to `LOCK_HOLDER_QOS` until it is released
+    /// (`crate::lock_rank`). A thread declared utility is never raised.
+    pub(crate) fn enter_upkeep_pass(self) -> Option<WorkQos> {
+        self.enter_class(UPKEEP_PASS_QOS)
+    }
 }
+
+/// The class a daemon upkeep thread is started at
+/// ([`RequestQos::enter_upkeep_pass`]).
+pub(crate) const UPKEEP_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+
+/// The class of one upkeep pass with the feature on.
+pub(crate) const UPKEEP_PASS_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
 
 /// A request's cause and class on this thread. The class drops first, then
 /// the cause.

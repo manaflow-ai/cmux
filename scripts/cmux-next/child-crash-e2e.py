@@ -15,8 +15,9 @@ Cases (each `--only` name, its engine):
   network       chromium  SIGKILL the network service utility (--utility-sub-type=network.mojom.NetworkService):
                           Chromium starts a new one and a navigation of the tab loads over it.
   host          chromium  with cefHelperHost on: SIGKILL the Chromium browser host that serves the tab (the one
-                          parent of the tab's renderers, a process of the app's tree that is not the app); a host
-                          starts again and the same tab answers. No such host: NOT-MEASURABLE.
+                          parent of the tab's renderers, a process of the app's tree that is not the app): the tab
+                          shows the crash page with Reload, and Reload starts a new host under which the same tab
+                          answers. No such host: NOT-MEASURABLE.
   browser_check chromium  chrome://inducebrowsercrashforrealz, run only on proof that Chromium's browser process is
                           not the app (cefHelperHost on and the tab's renderers all under one host). Without that
                           proof (in process until F2, or no renderer to read) a browser CHECK would end cmux, so the
@@ -38,16 +39,18 @@ Two modes:
   Bench (the story, scripts/perf-lab/stories.d/crash-survival*.json): `--app APP --tag TAG --out DIR` launches the
   app through bench_launch.BenchApp once per run (a fresh browser per run: Chromium falls back from hardware GPU
   after kGpuFallbackCrashCount GPU crashes, content/browser/gpu/gpu_process_host.cc, so runs never share one), with
-  the typing probe on, and per `--host-arms` arm (cefHelperHost off, on). It types one key at a time into a terminal
-  beside the page through each kill window and writes cmux-perf-result/v1 through BenchApp.record:
+  the typing probe on, and per `--host-arms` arm (cefHelperHost off, on: each run's own tunables file sets the
+  feature's local override `browserHost.helper` to the arm). It types one key at a time into a terminal beside the
+  page through each kill window and writes cmux-perf-result/v1 through BenchApp.record:
     crash_survival.<engine>                  ratio  survived/cases of the run, EXPECTED-FAIL left out (target
                                                     crash-survival.<engine>: 1.0)
     crash_survival.<engine>.measured         ratio  measured (survived or died)/cases of the run
     crash_survival.<engine>.<case>.recover   ms     the kill to the page answering again
     crash_survival.<engine>.<case>.key_to_frame  ms  each terminal key drawn after the kill, to its frame
   A case survives when the app still runs, the page comes back, and (typing on) the terminal drew at least one key
-  after the kill. An arm whose app does not report cefHelperHost on is NOT-MEASURABLE (nothing recorded). Exit 1 only
-  when nothing could be measured; a case that died is a FAIL line and a ratio under 1.
+  after the kill. An arm whose app's features.list does not report cefHelperHost in the arm's state within
+  HOST_SETTLE_SECONDS is NOT-MEASURABLE (nothing recorded). Exit 1 only when nothing could be measured; a case that
+  died is a FAIL line and a ratio under 1.
 
   Check (the capture slot: `capture-host launch` runs the app with its debug socket): `--socket PATH [--app-pid PID]`
   drives the running app once, never launches or quits it, writes no result, and exits 1 on any failure.
@@ -73,10 +76,16 @@ CASES = {
 STORIES = {"chromium": "crash-survival", "webkit": "crash-survival-webkit"}
 # Check mode's cases unless --only names others: the capture slot's set from before the story.
 CHECK_CASES = ("renderer", "gpu", "webkit", "agent")
-# The feature that moves Chromium's browser process into the Chromium Host app (task p12-perf-process-101), and the
-# variable that turns a feature on at launch (FeatureOverrides.enableVariable).
+# The feature that moves Chromium's browser process into the Chromium Host app (task p12-perf-process-101) and its
+# local override, the Debug toggle a bench sets through its tunables file (CMUX_NEXT_DEBUG_TUNABLES_FILE, as
+# chromium-host-bench.py does): a launched app strips an inherited CMUX_ENABLE_FEATURES (LaunchIdentity), and
+# features.list reports the toggle's value with source `local`. The file loads off the main thread after launch.
 HOST_FEATURE = "cefHelperHost"
-ENABLE_FEATURES = "CMUX_ENABLE_FEATURES"
+HOST_TOGGLE = "browserHost.helper"
+# chromiumHostTabs' local override: with the host on, the arm's Chromium tabs run in it (p01-process-080).
+HOST_TABS_TOGGLE = "browserHost.tabs"
+TUNABLES_FILE = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
+HOST_SETTLE_SECONDS = 15
 NETWORK_SERVICE = "network.mojom.NetworkService"
 WEBCONTENT = "com.apple.WebKit.WebContent"
 PAGE_TITLE = "crash-e2e"
@@ -631,7 +640,8 @@ class Driver:
             at = self.kill("host", host)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
-            outcome, detail, recover = self.page_answers_after("host", tab, at)
+            # The host's end shows the crash page with Reload, and Reload starts a new host (p01-process-082).
+            outcome, detail, recover = self.sad_tab_reloads("host", tab, at)
             if outcome != SURVIVED:
                 return outcome, detail, recover
             fresh = tab_host()
@@ -785,18 +795,46 @@ def check_mode(opts):
         sys.exit(f"FAIL no app process for {opts.socket}")
     if not wait(lambda: "error" not in (rpc("debug.crashes", None, timeout=5) or {"error": "no reply"}), 60):
         sys.exit("FAIL the app does not answer on its socket")
-    features = (bench_launch.features_snapshot(rpc("features.list", None, timeout=10)) or ({}, None, None))[0]
+    features = bench_launch.features_snapshot(rpc("features.list", None, timeout=10))
     server, url = serve()
     print(f"app pid {pid}, page {url}", flush=True)
     engines, only = selected(opts)
     driver = Driver(rpc, pid, url, socket_path=opts.socket, strict=True,
-                    host_on=(features.get(HOST_FEATURE) or {}).get("state") == "on")
+                    host_on=host_state(features) == "on")
     results = driver.run_cases(engines, only)
     server.shutdown()
     write_report(opts.out, {"mode": "check", "runs": [[r.report() for r in results]]})
     if driver.failures:
         sys.exit(f"FAIL {len(driver.failures)}: {', '.join(driver.failures)}")
     print("PASS every child process crash is contained")
+
+
+def host_state(snapshot):
+    """cefHelperHost's `state` in a features.list snapshot (bench_launch.features_snapshot), or None."""
+    return ((snapshot or ({}, None, None))[0].get(HOST_FEATURE) or {}).get("state")
+
+
+def arm_env(arm, probe, tunables_path):
+    """The launch environment of one run of `arm`: the typing probe, and a tunables file of its own that sets the
+    host toggle to the arm (off too, so a developer's own Debug Settings never pick the off arm's value)."""
+    with open(tunables_path, "w") as handle:
+        json.dump({"version": 1, "values": {HOST_TOGGLE: arm == "on", HOST_TABS_TOGGLE: arm == "on"}}, handle)
+    return {"CMUX_NEXT_TYPING_PROBE": probe, TUNABLES_FILE: tunables_path}
+
+
+def settle_host_state(app, arm, seconds=HOST_SETTLE_SECONDS):
+    """cefHelperHost's state once the arm's toggle applies: the tunables file loads after the launch's first
+    features.list read, so an arm whose snapshot does not show it yet reads features.list again (``app.features``
+    becomes that answer, the one its results record) until it does or `seconds` pass."""
+    want = "on" if arm == "on" else "off"
+    if host_state(app.features) != want:
+        def settled():
+            snapshot = app.read_features()
+            if snapshot is not None:
+                app.features = snapshot
+            return host_state(snapshot) == want
+        wait(settled, seconds, step=0.5)
+    return host_state(app.features)
 
 
 def bench_mode(opts):
@@ -813,18 +851,16 @@ def bench_mode(opts):
         runs, last = [], None  # `last`: the arm's last launch; it records the arm's series (its build, host, features)
         for run in range(opts.runs):
             probe = os.path.join(opts.out, f"typing-host-{arm}-{run}.csv")
-            env = {"CMUX_NEXT_TYPING_PROBE": probe}
-            if arm == "on":
-                env[ENABLE_FEATURES] = HOST_FEATURE
+            env = arm_env(arm, probe, os.path.join(opts.out, f"debug-tunables-host-{arm}-{run}.json"))
             app = bench_launch.BenchApp(opts.app, out=opts.out, env=env, log_name=f"app-host-{arm}-{run}.log",
                                         perf_session=opts.session, build_config=opts.build_config)
             server = None
             try:
                 app.launch()
-                features = (app.features or ({}, None, None))[0]
-                state = (features.get(HOST_FEATURE) or {}).get("state")
-                if arm == "on" and state != "on":
-                    print(f"NOT-MEASURABLE host arm: the app reports {HOST_FEATURE} {state or 'undeclared'}, not on", flush=True)
+                state = settle_host_state(app, arm)
+                if (arm == "on") != (state == "on"):
+                    print(f"NOT-MEASURABLE host arm {arm}: the app reports {HOST_FEATURE} {state or 'undeclared'}",
+                          flush=True)
                     report["arms"][arm] = {"not_measurable": f"{HOST_FEATURE} {state or 'undeclared'}"}
                     break
                 last = app

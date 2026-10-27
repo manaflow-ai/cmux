@@ -6,7 +6,8 @@ import Testing
 
 /// The GitHub poll is a self-rescheduling DemandTimer on the injected clock (p14-energy-019c): a
 /// refresh at start, the next one an interval after each ends, a restart on a new interval, and a
-/// stop that also stops the refresh that is running.
+/// stop that also stops the refresh that is running. Under Energy Saver it waits four intervals,
+/// and while no window shows it books nothing (p14-energy-032).
 @MainActor
 @Suite struct GitHubFeedSourcePollTests {
     /// Answers notification `n` (ETag `n-<n>`) to the n-th call, records each call's ETag, and
@@ -64,7 +65,7 @@ import Testing
         let calls: AsyncStream<Int>
         let source: GitHubFeedSource
 
-        init() {
+        init(energy: EnergyPolicySource = EnergyPolicySource(), shown: ShownWindows? = nil) {
             let (calls, started) = AsyncStream.makeStream(of: Int.self)
             let clock = ManualClock()
             let owner = Owner()
@@ -73,7 +74,8 @@ import Testing
             self.owner = owner
             self.script = script
             self.calls = calls
-            source = GitHubFeedSource(owner: owner, client: Client(script: script), interval: .seconds(120), clock: clock)
+            source = GitHubFeedSource(owner: owner, client: Client(script: script), interval: .seconds(120),
+                                      energy: energy, shown: shown, clock: clock)
         }
 
         /// Waits for the next call to start and returns its number.
@@ -136,6 +138,92 @@ import Testing
         #expect(await rig.script.notificationETags == [nil, "n-1", nil])
         try await rig.clock.waitForSleeper()
         #expect(rig.owner.posted == ["github:notification:1", "github:notification:3"])
+        rig.source.stop()
+    }
+
+    // MARK: p14-energy-032
+
+    /// Under Energy Saver the next refresh waits four intervals.
+    @Test(.timeLimit(.minutes(1))) func theSaverStretchesTheIntervalFourTimes() async throws {
+        let rig = Rig(energy: EnergyPolicySource(EnergyPolicy(saverReason: .lowPowerMode)))
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(480))
+        rig.source.stop()
+    }
+
+    /// With every window hidden no refresh is booked, however long; a window showing again refreshes
+    /// once when the interval has passed, and books the rest of it when it has not.
+    @Test(.timeLimit(.minutes(1))) func hiddenWindowsBookNoRefreshAndAShowRefreshesOnce() async throws {
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        shown.track(window)
+        let rig = Rig(shown: shown)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        try await rig.clock.waitForSleeper()
+
+        window.set(.occluded)
+        #expect(rig.clock.sleeperCount == 0, "a hidden app kept its next refresh")
+        rig.clock.advance(by: .seconds(600))
+        #expect(rig.clock.sleeperCount == 0)
+        #expect(await rig.script.notificationETags.count == 1, "a refresh ran while no window showed")
+
+        window.set(.visible)
+        #expect(await rig.nextCall() == 2, "a show past the interval refreshes at once")
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(720))
+        #expect(await rig.script.notificationETags.count == 2, "a show refreshed more than once")
+
+        window.set(.hidden)
+        rig.clock.advance(by: .seconds(30))
+        window.set(.visible)
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(720), "a show inside the interval books its rest")
+        #expect(await rig.script.notificationETags.count == 2)
+        rig.source.stop()
+    }
+
+    /// A start while no window shows waits for one, then refreshes at once.
+    @Test(.timeLimit(.minutes(1))) func aStartWhileHiddenRefreshesOnTheFirstShow() async throws {
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .hidden)
+        shown.track(window)
+        let rig = Rig(shown: shown)
+        rig.source.start()
+        #expect(rig.source.runner == nil, "a hidden start refreshed")
+        window.set(.visible)
+        #expect(await rig.nextCall() == 1)
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(120))
+        rig.source.stop()
+    }
+
+    /// A restart while no window shows (a new interval, an account change, a reconnect) forgets
+    /// the old generation's last refresh: the first show refreshes at once, as a shown restart does.
+    @Test(.timeLimit(.minutes(1))) func aRestartWhileHiddenRefreshesAtOnceOnTheFirstShow() async throws {
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        shown.track(window)
+        let rig = Rig(shown: shown)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        try await rig.clock.waitForSleeper()
+
+        window.set(.hidden)
+        rig.clock.advance(by: .seconds(10))
+        rig.source.stop()
+        rig.source.start()
+        #expect(rig.source.runner == nil, "a hidden restart refreshed")
+        #expect(rig.clock.sleeperCount == 0)
+
+        window.set(.visible)
+        #expect(rig.clock.sleeperCount == 0, "a show after a hidden restart booked the old interval's rest")
+        #expect(await rig.nextCall() == 2, "a show after a hidden restart did not refresh at once")
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(130))
+        #expect(await rig.script.notificationETags.count == 2)
         rig.source.stop()
     }
 }

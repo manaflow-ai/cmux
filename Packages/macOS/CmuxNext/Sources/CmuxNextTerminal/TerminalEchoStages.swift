@@ -33,10 +33,15 @@ public final class TerminalEchoStages {
         traceHook?.echoStagesInstalled()
     }
 
+    /// Where a new surface's presented frames are marked (``SurfaceBridge/frameMarks``): the trace hook's
+    /// recorder, which marks the stages, the typing probe and the new-terminal trace; nil without one.
+    var frameMarks: GhosttyTraceHook.Recorder? { traceHook?.recorder }
+
     /// A new surface's stage, or nil while no sink is installed or the build sees no terminal frames:
-    /// neither the DEBUG layer hook (``TypingFrameProbe/hooksEveryLayer``) nor a libghostty with the trace hook.
+    /// neither the DEBUG layer hook (``TypingFrameProbe/hooksEveryLayer``) nor a libghostty with the trace
+    /// hook or presented frames (``GhosttyTraceHook/seesFrames``).
     func makeStage() -> TerminalEchoStage? {
-        guard TypingFrameProbe.hooksEveryLayer || traceHook?.isSupported == true, let sink else { return nil }
+        guard TypingFrameProbe.hooksEveryLayer || traceHook?.seesFrames == true, let sink else { return nil }
         return TerminalEchoStage(sink: sink, gate: contentsGate,
                                  deadline: DemandEchoDeadline())
     }

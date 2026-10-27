@@ -242,7 +242,7 @@ struct KeyDownDispatchTests {
     /// `NSWindow.sendEvent`, off `CmuxApplication.sendEvent`: the terminal still reports the key it took.
     @Test func aKeyTheTerminalTookExpectsAFrameOffTheAppsSendEvent() throws {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
+        GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()
         let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")

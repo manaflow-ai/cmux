@@ -3,36 +3,9 @@
 import CmuxNextCompat
 import Darwin
 import Foundation
-
-/// How a Chromium host process ended.
-nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertible {
-    /// The signal that ended it (SIGKILL, SIGSEGV, SIGTRAP for a CHECK), or nil for an exit.
-    var signal: Int32?
-    /// The exit status when it exited.
-    var status: Int32?
-
-    var description: String {
-        if let signal { return "signal \(signal)" }
-        return "exit \(status ?? -1)"
-    }
-
-    /// The exit statuses of a host that could not start (`kExit*` in
-    /// `ChromiumHost/src/chromium_host_wire.h`), with what each means.
-    static let startFailures: [Int32: String] = [
-        64: "launched without the wire",
-        65: "the Chromium framework did not load",
-        66: "the Chromium fork is older than the host needs",
-        67: "CefInitialize failed",
-    ]
-
-    /// Why the host could not start, when it exited with one of
-    /// ``startFailures``; nil for a crash, a signal or any other exit. A new
-    /// host would fail the same way, so the session does not restart it.
-    var startFailure: String? {
-        guard signal == nil, let status, let reason = Self.startFailures[status] else { return nil }
-        return "could not start (exit \(status)): \(reason)"
-    }
-}
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A started host: its pid and cmux's ends of the wire (frames from the host
 /// on `readFD`, to it on `writeFD`).
@@ -94,13 +67,16 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// Delivers the exit events of this launcher's hosts (no thread per host). Serial, one per launcher: an
     /// event handler only collects an exit the kernel has posted (`waitid` waits at most until the status is
     /// collectable, which follows the event at once), so hosts never wait on each other for long.
-    /// userInitiated: the exit restarts the page a person is looking at.
-    private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
+    /// By default userInitiated: the exit restarts the page a person is looking at.
+    private let exitQueue: DispatchQueue
     /// Spawns hosts off the main thread, on the user-blocking launcher (Chrome's process launcher,
     /// content/browser/child_process_launcher_helper.cc): the host draws the page a person is looking at.
     private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: .userBlocking)
 
-    init() {}
+    /// - Parameter exitQueue: The serial queue the exit events of this launcher's hosts arrive on.
+    init(exitQueue: DispatchQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)) {
+        self.exitQueue = exitQueue
+    }
 
     func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle {
         let priority = launcher.priority
@@ -113,56 +89,94 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// set the spawning thread's signal mask).
     static func spawn(executable: URL, arguments: [String],
                       priority: MayBlockPriority) throws(LaunchError) -> ChromiumHostProcessHandle {
-        var toHost: [Int32] = [-1, -1]
-        var fromHost: [Int32] = [-1, -1]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw .socketPair(errno) }
-        toHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
-            let error = errno
+        let toHost = try socketPair()
+        let fromHost: [Int32]
+        do throws(LaunchError) {
+            fromHost = try socketPair()
+        } catch {
             toHost.forEach { _ = Darwin.close($0) }
-            throw .socketPair(error)
+            throw error
         }
-        fromHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
-        for fd in [toHost[0], fromHost[0]] {
-            // A write after the host died fails with EPIPE instead of a SIGPIPE.
-            var noSigPipe: Int32 = 1
-            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        }
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_addinherit_np(&actions, 1)
-        posix_spawn_file_actions_addinherit_np(&actions, 2)
-        posix_spawn_file_actions_adddup2(&actions, toHost[1], 3)
-        posix_spawn_file_actions_adddup2(&actions, fromHost[1], 4)
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        var emptyMask = sigset_t()
-        sigemptyset(&emptyMask)
-        var everySignal = sigset_t()
-        sigfillset(&everySignal)
-        posix_spawnattr_setsigmask(&attributes, &emptyMask)
-        posix_spawnattr_setsigdefault(&attributes, &everySignal)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
-        let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
-        defer { argv.forEach { free($0) } }
-        var pid: pid_t = 0
-        let result = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, priority: priority)
-        Darwin.close(toHost[1])
-        Darwin.close(fromHost[1])
-        guard result == 0 else {
+        do throws(LaunchError) {
+            let pid = try spawn(executable: executable, arguments: arguments, hostEnds: [toHost[1], fromHost[1]], priority: priority)
+            return ChromiumHostProcessHandle(pid: pid, readFD: fromHost[0], writeFD: toHost[0])
+        } catch {
             Darwin.close(toHost[0])
             Darwin.close(fromHost[0])
-            throw .spawn(result)
+            throw error
         }
-        return ChromiumHostProcessHandle(pid: pid, readFD: fromHost[0], writeFD: toHost[0])
+    }
+
+    /// The Chromium Host of host mode (``ChromiumHostSupervisor``): one stream `socketpair`, the host's end on its
+    /// fd 3, where browser_host_main.mm reads its control channel (`kControlFd`), the rest as
+    /// ``spawn(executable:arguments:priority:)`` starts a host. Returns the host's pid and cmux's end of the channel.
+    static func spawnControlled(executable: URL, arguments: [String],
+                                priority: MayBlockPriority) throws(LaunchError) -> (pid: pid_t, controlFD: Int32) {
+        let control = try socketPair()
+        do throws(LaunchError) {
+            let pid = try spawn(executable: executable, arguments: arguments, hostEnds: [control[1]], priority: priority)
+            return (pid, control[0])
+        } catch {
+            Darwin.close(control[0])
+            throw error
+        }
+    }
+
+    /// One stream `socketpair`, both ends close-on-exec; cmux keeps index 0, the host gets index 1.
+    private static func socketPair() throws(LaunchError) -> [Int32] {
+        var pair: [Int32] = [-1, -1]
+        // SAFETY: socketpair writes two descriptors into the two-element array during the call.
+        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .socketPair(errno) }
+        pair.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
+        // A write after the host died fails with EPIPE instead of a SIGPIPE.
+        var noSigPipe: Int32 = 1
+        // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
+        _ = unsafe setsockopt(pair[0], SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        return pair
+    }
+
+    /// Starts `executable` with `hostEnds` on its fds 3, 4, ... in order, and closes this process's copies of
+    /// them whether or not it started.
+    private static func spawn(executable: URL, arguments: [String], hostEnds: [Int32],
+                              priority: MayBlockPriority) throws(LaunchError) -> pid_t {
+        defer { hostEnds.forEach { _ = Darwin.close($0) } }
+        // SAFETY (the spawn below): `actions` and `attributes` are initialized here and destroyed once by the
+        // defers, after the spawn; each call reads or writes only them, the local signal sets and the
+        // NUL-terminated strings Swift copies for the call.
+        var actions: posix_spawn_file_actions_t?
+        unsafe posix_spawn_file_actions_init(&actions)
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        unsafe posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        unsafe posix_spawn_file_actions_addinherit_np(&actions, 1)
+        unsafe posix_spawn_file_actions_addinherit_np(&actions, 2)
+        for (index, end) in hostEnds.enumerated() {
+            unsafe posix_spawn_file_actions_adddup2(&actions, end, Int32(3 + index))
+        }
+        var attributes: posix_spawnattr_t?
+        unsafe posix_spawnattr_init(&attributes)
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
+        var emptyMask = sigset_t()
+        unsafe sigemptyset(&emptyMask)
+        var everySignal = sigset_t()
+        unsafe sigfillset(&everySignal)
+        unsafe posix_spawnattr_setsigmask(&attributes, &emptyMask)
+        unsafe posix_spawnattr_setsigdefault(&attributes, &everySignal)
+        unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+        // SAFETY: strdup copies each argument, NUL-terminated, and the list ends with NULL; the copies are freed
+        // once by the defer, after posix_spawn copied them into the child.
+        let argv: [UnsafeMutablePointer<CChar>?] = unsafe ([executable.path] + arguments).map { unsafe strdup($0) } + [nil]
+        defer { unsafe argv.forEach { unsafe free($0) } }
+        var pid: pid_t = 0
+        // SAFETY: as above; `environ` is the process's NULL-terminated environment, which posix_spawn copies.
+        let result = unsafe blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, priority: priority)
+        guard result == 0 else { throw .spawn(result) }
+        return pid
     }
 
     func exit(of pid: pid_t) async -> ChromiumHostExit {
         if let ended = Self.exited(pid, blocking: false) { return ended }
-        return await withCheckedContinuation { continuation in
+        // A source dropped before its event (abandoned) is an exit with no status, as for a pid not ours.
+        let exit = try? await withOnceContinuation { (continuation: OnceContinuation<ChromiumHostExit, OnceContinuationError>) in
             // DispatchSource process source: the carve-out for a child's exit (no Foundation async
             // API for a posix_spawn'ed pid); it never reaps, so the zombie stays until reap(_:).
             let queue = exitQueue
@@ -183,6 +197,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
             // A host that ended before the source was armed posts no event: it is a zombie now.
             queue.async { if let ended = Self.exited(pid, blocking: false) { finish(ended) } }
         }
+        return exit ?? ChromiumHostExit(signal: nil, status: nil)
     }
 
     /// The exit of `pid` without reaping it (`WNOWAIT`): nil while it runs
@@ -191,8 +206,10 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     private static func exited(_ pid: pid_t, blocking: Bool) -> ChromiumHostExit? {
         var info = siginfo_t()
         let options = WEXITED | WNOWAIT | (blocking ? 0 : WNOHANG)
-        var result = waitid(P_PID, id_t(pid), &info, options)
-        while result < 0 && errno == EINTR { result = waitid(P_PID, id_t(pid), &info, options) }
+        // SAFETY: waitid writes one siginfo_t into `info` during the call.
+        var result = unsafe waitid(P_PID, id_t(pid), &info, options)
+        // SAFETY: as above.
+        while result < 0 && errno == EINTR { result = unsafe waitid(P_PID, id_t(pid), &info, options) }
         guard result == 0 else { return ChromiumHostExit(signal: nil, status: nil) }  // not our child
         guard info.si_pid == pid else { return nil }  // WNOHANG: still running
         return info.si_code == CLD_EXITED
@@ -202,8 +219,10 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
 
     func reap(_ pid: pid_t) {
         var status: Int32 = 0
-        var result = waitpid(pid, &status, WNOHANG)
-        while result < 0 && errno == EINTR { result = waitpid(pid, &status, WNOHANG) }
+        // SAFETY: waitpid writes one Int32 into `status` during the call.
+        var result = unsafe waitpid(pid, &status, WNOHANG)
+        // SAFETY: as above.
+        while result < 0 && errno == EINTR { result = unsafe waitpid(pid, &status, WNOHANG) }
     }
 
     func kill(_ pid: pid_t) {

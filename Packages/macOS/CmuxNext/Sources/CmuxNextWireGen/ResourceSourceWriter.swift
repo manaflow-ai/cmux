@@ -66,7 +66,7 @@ struct ResourceSourceWriter {
 
     private mutating func writeMemberwiseInit(_ fields: [ResourceDeclaration.Field], _ indent: Int) {
         let parameters = fields.map { field in
-            let defaultArgument = field.defaultArgument ?? (field.presence == .optional ? "nil" : nil)
+            let defaultArgument = field.defaultArgument ?? Self.defaultArgument(field.presence)
             return "\(field.member.spelling): \(field.declaredType)" + (defaultArgument.map { " = \($0)" } ?? "")
         }
         guard !fields.isEmpty else {
@@ -84,6 +84,16 @@ struct ResourceSourceWriter {
         line("}", indent)
     }
 
+    /// The init parameter's default for a field without its own: nil for an optional field,
+    /// `.unchanged` for an optional nullable one.
+    private static func defaultArgument(_ presence: ResourceDeclaration.Presence) -> String? {
+        switch presence {
+        case .required, .requiredNullable: nil
+        case .optional: "nil"
+        case .optionalNullable: ".unchanged"
+        }
+    }
+
     private mutating func writeDecode(_ fields: [ResourceDeclaration.Field], _ indent: Int) {
         line("public init(from decoder: any Decoder) throws {", indent)
         if fields.isEmpty {
@@ -94,12 +104,13 @@ struct ResourceSourceWriter {
         }
         for field in fields {
             let member = field.member.spelling
-            let call = switch field.presence {
-            case .required: "decode(\(field.type).self"
-            case .requiredNullable: "decode(\(field.type)?.self"
-            case .optional: "decodeIfPresent(\(field.type).self"
+            let value = switch field.presence {
+            case .required: "container.decode(\(field.type).self, forKey: .\(member))"
+            case .requiredNullable: "container.decode(\(field.type)?.self, forKey: .\(member))"
+            case .optional: "container.decodeIfPresent(\(field.type).self, forKey: .\(member))"
+            case .optionalNullable: "ResourceFieldUpdate(from: container, forKey: .\(member))"
             }
-            line("self.\(member) = try container.\(call), forKey: .\(member))", indent + 1)
+            line("self.\(member) = try \(value)", indent + 1)
         }
         line("}", indent)
     }
@@ -113,9 +124,16 @@ struct ResourceSourceWriter {
         }
         for field in fields {
             let member = field.member.spelling
-            // A required nullable field writes `null`; an optional one is left out when nil.
-            let call = field.presence == .optional ? "encodeIfPresent" : "encode"
-            line("try container.\(call)(self.\(member), forKey: .\(member))", indent + 1)
+            // A required nullable field writes `null`; an optional one is left out when nil; an
+            // optional nullable one is left out, `null` or the value.
+            switch field.presence {
+            case .required, .requiredNullable:
+                line("try container.encode(self.\(member), forKey: .\(member))", indent + 1)
+            case .optional:
+                line("try container.encodeIfPresent(self.\(member), forKey: .\(member))", indent + 1)
+            case .optionalNullable:
+                line("try self.\(member).encode(into: &container, forKey: .\(member))", indent + 1)
+            }
         }
         line("}", indent)
     }

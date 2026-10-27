@@ -7,8 +7,8 @@ import CmuxNextSettings
 /// Debug-build control methods for extension verification without a real
 /// pointer: `debug.cef.devtools` runs a DevTools method on the focused
 /// Chromium tab (trusted `Input.*` events, such as a right click that opens
-/// the page menu), and `debug.menu` lists the open page menu's items and can
-/// choose one by title or dismiss it.
+/// the page menu), and `debug.menu` lists the open page menu's (or a host
+/// page's `<select>` menu's) items and can choose one by title or dismiss it.
 @MainActor
 enum DebugExtensions {
     static func devTools(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -43,9 +43,9 @@ enum DebugExtensions {
         }
     }
 
-    static func menu(_ params: [String: JSONValue], presenter: BrowserContextMenuBuilder?) -> JSONValue {
-        // The page menu, else the device menu (Emulate Device…).
-        guard let menu = presenter?.presentedMenu ?? BrowserDeviceHandlers.presentedMenu else { return .object(["open": .bool(false)]) }
+    static func menu(_ params: [String: JSONValue], presenter: BrowserContextMenuBuilder?, popupMenu: NSMenu? = nil) -> JSONValue {
+        // The page menu, else a host page's <select> menu, else the device menu (Emulate Device…).
+        guard let menu = presenter?.presentedMenu ?? popupMenu ?? BrowserDeviceHandlers.presentedMenu else { return .object(["open": .bool(false)]) }
         let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
         if let choose = params["choose"]?.stringValue, let index = menu.items.firstIndex(where: { $0.title == choose }) {
             menu.cancelTracking()

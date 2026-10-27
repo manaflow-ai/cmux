@@ -147,6 +147,35 @@ extension HangWatch {
         return ScanResult(overdue: overdue, nextScanNanos: final == 0 || final == .max ? nil : final)
     }
 
+    /// Cancels every scope open now, in both tiers (monitor thread only): the monitor woke too late to blame
+    /// them. Chrome's `HangWatcher::Wait` (base/threading/hang_watcher.cc), after a wait past
+    /// `kWaitDriftTolerance`, moves `deadline_ignore_threshold_` to the latest deadline open then; cmux marks
+    /// those scopes instead, because its budgets differ by scope (100 ms to 30 s) and a threshold would also
+    /// hide a shorter scope that opens later. A scope that opens afterwards, nested in a cancelled one or not,
+    /// is watched; a cancelled one passes the cancellation back to the scope around it when it closes, as
+    /// after ``invalidateActive()``.
+    ///
+    /// - Returns: How many scopes it cancelled.
+    @discardableResult
+    public func ignoreOpenScopes() -> Int {
+        var ignored = 0
+        for index in 0..<min(claimedEnd.load(ordering: .acquiring), Self.capacity) {
+            guard let slot = slot(at: index) else { continue }
+            let word = Self.word(slot, Self.deadlineWord)
+            var current = word.load(ordering: .sequentiallyConsistent)
+            while current & Self.deadlineMask != 0, current & Self.silencedMask == 0 {
+                let (exchanged, original) = word.compareExchange(expected: current, desired: current | Self.ignoredFlag,
+                                                                 ordering: .acquiringAndReleasing)
+                if exchanged {
+                    ignored += 1
+                    break
+                }
+                current = original
+            }
+        }
+        return ignored
+    }
+
     /// Whether `overdue`'s scope is still open (its stack, sampled after the scan, is still its own).
     public func isStillOpen(_ overdue: Overdue) -> Bool {
         guard let slot = slot(at: overdue.slot) else { return false }

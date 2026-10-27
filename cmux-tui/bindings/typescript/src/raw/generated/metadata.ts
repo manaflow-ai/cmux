@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36. */
+/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36" as const;
+export const SDK_IR_SHA256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -748,6 +748,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "terminal-snapshot-v1"
       },
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "viewer_backlog_bytes": {
         "since": null,
         "capability": "terminal-snapshot-v1"
@@ -766,6 +770,7 @@ export const COMMAND_METADATA = {
         "render-state",
         "resized",
         "scroll-changed",
+        "stream-end",
         "vt-state"
       ],
       "kind": "attach",
@@ -777,7 +782,8 @@ export const COMMAND_METADATA = {
           "notification",
           "scroll-changed",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ],
         "bytes": [
           "vt-state",
@@ -787,14 +793,16 @@ export const COMMAND_METADATA = {
           "scroll-changed",
           "notification",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ],
         "render": [
           "render-state",
           "render-delta",
           "scroll-changed",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ]
       },
       "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
@@ -1009,6 +1017,17 @@ export const COMMAND_METADATA = {
       "Cancels the caller's own running apps-run request or script cell; unknown, answered or another connection's requests change nothing.",
       "Advertised with apps-v1.",
       "Local (Unix) connections only (apps.local otherwise)."
+    ]
+  },
+  "cancel-stream": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Ends the attach stream with stream-end{reason:\"canceled\"}, dropping what it still queues, and removes its view before the reply.",
+      "Idempotent: an id with no open stream answers outcome:ended."
     ]
   },
   "chief-inspect": {
@@ -1941,6 +1960,10 @@ export const COMMAND_METADATA = {
     "since": 10,
     "capability": "view-attachment-detach-v1",
     "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "view": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -3207,6 +3230,10 @@ export const COMMAND_METADATA = {
     "since": 10,
     "capability": "view-attachment-lease-v1",
     "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "view": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -3394,6 +3421,10 @@ export const COMMAND_METADATA = {
       "identity": {
         "since": 12,
         "capability": "shared-sizing-v1"
+      },
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
       },
       "view": {
         "since": 12,
@@ -3587,6 +3618,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "server-blocking": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+    ]
+  },
   "server-stats": {
     "authority": "local-admin",
     "since": 12,
@@ -3596,6 +3637,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
       "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
+    ]
+  },
+  "server-threads": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
     ]
   },
   "set-cell-pixels": {
@@ -3987,7 +4038,12 @@ export const COMMAND_METADATA = {
     "authority": "frontend",
     "since": 12,
     "capability": "terminal-snapshot-v1",
-    "fields": {},
+    "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
@@ -5114,6 +5170,16 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "stream-end": {
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "streams": [
+      "attach-byte",
+      "attach-render",
+      "attach-browser"
     ],
     "emission": "emitted"
   },
@@ -7547,6 +7613,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "CancelStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "applied",
+            "ended"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "CellPixelFailure": {
     "additional_properties": false,
     "fields": {
@@ -7637,6 +7728,115 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ClientHelloFeaturePending": {
+    "additional_properties": false,
+    "fields": {
+      "app": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "daemon": {
+        "constraints": [
+          "The value the daemon keeps for its session."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatureReport": {
+    "additional_properties": false,
+    "fields": {
+      "applied": {
+        "constraints": [
+          "The process=daemon kill switches the hello turned off now (a verified app only)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "hash": {
+        "constraints": [
+          "The daemon's values hash after the hello."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pending": {
+        "constraints": [
+          "Every other difference; the daemon keeps its value until it restarts."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ClientHelloFeaturePending"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatures": {
+    "additional_properties": false,
+    "fields": {
+      "hash": {
+        "constraints": [
+          "FNV-1a 64 of name=1 or name=0 per value in registry order, 16 hex digits; equal to the daemon's skips the comparison."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "values": {
+        "constraints": [
+          "The app's value of each of its daemon and both features, by registry name; at most 512."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ClientHelloPageOperations": {
     "additional_properties": false,
     "fields": {
@@ -7688,6 +7888,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "features": {
+        "constraints": [
+          "A role main hello with features, once the daemon installed its own: what it reconciled (step 2 again, with the proved app's kill switches)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloFeatureReport"
         }
       },
       "install_id": {
@@ -10446,6 +10657,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "bulk_frame_max": {
+        "constraints": [
+          "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
         }
       },
       "capabilities": {
@@ -20767,7 +20989,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows must be supplied together.",
         "Browser surfaces reject mode:render.",
         "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
-        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
+        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot.",
+        "With stream, every item of the view carries stream, stream-end is its last item, and the id is free once the client reads that stream-end. A failure after the id was taken queues stream-end{reason:\"attach_failed\"} before the error reply."
       ],
       "fields": {
         "cols": {
@@ -20863,7 +21086,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "A client-minted id for this view, unique among this connection's open attach streams; an id whose stream-end has not been queued is stream_in_use."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
+          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -21604,6 +21842,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "cancel-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "CancelStreamResult"
+    }
+  },
   "chief-inspect": {
     "request": {
       "additional_properties": false,
@@ -21748,6 +22006,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "features": {
+          "constraints": [
+            "Step 1, role main only: the app's daemon features (client_hello.bad_request {field: features} otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ClientHelloFeatures"
+          }
+        },
         "install_id": {
           "constraints": [
             "1-128 of A-Z a-z 0-9 _ -. Step 1 with role main: asks for a nonce. Step 2, required: the install id it proves."
@@ -26249,6 +26518,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -27129,7 +27412,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "revisions": {
           "constraints": [
-            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+            "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",
@@ -30963,6 +31246,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -31611,6 +31908,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           ],
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "uint16"
@@ -32380,6 +32691,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "server-blocking": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "The blocking calls made on threads that disallow blocking, by call site, with their kinds and counts since start. See spec/commands.md server-blocking."
+    }
+  },
   "server-stats": {
     "request": {
       "additional_properties": false,
@@ -32402,6 +32724,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ServerStatsResult"
+    }
+  },
+  "server-threads": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "Every registered daemon thread with its declared, desired and kernel QoS and scheduler priority, the work lanes, and the process task role; the rows are the threads alive at the read. See spec/commands.md server-threads."
     }
   },
   "set-cell-pixels": {
@@ -33872,6 +34205,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). The snapshot is asked of that view only."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -34850,7 +35197,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "favicon_url": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -34868,7 +35214,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "profile_id": {
-          "default": null,
           "description": "Move the frontend browser tab to this browser profile; null clears its profile.",
           "nullable": true,
           "presence": "optional",
@@ -35064,7 +35409,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "snapshot": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -35081,7 +35425,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "title": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -39115,6 +39458,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "stream-end": {
+    "additional_properties": false,
+    "constraints": [
+      "The last item of a client-minted attach stream; nothing of that stream follows it, and its id is free for a new attach-surface."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "stream-end"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "canceled",
+            "detached",
+            "overflow",
+            "attach_failed"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },

@@ -47,8 +47,9 @@ extension TypingLatencyProbe {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = Thread.isMainThread
-        let recorded = state.withLock { state -> Recorded? in
+        let recorded = withState { state -> Recorded? in
             guard let index = state.open.firstIndex(where: { $0.awaitsWrite(on: surface) }) else { return nil }
+            state.dropEchoSample(overtakenBy: index)
             return state.record(.ioWrite, at: index, now: now, onMain: onMain)
         }
         finish(recorded.map { [$0] } ?? [])
@@ -59,7 +60,7 @@ extension TypingLatencyProbe {
     public func mark(_ mark: Mark, flow: UInt64) {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let recorded = state.withLock { state -> Recorded? in
+        let recorded = withState { state -> Recorded? in
             guard let index = state.open.firstIndex(where: { $0.flow == flow }) else { return nil }
             return state.record(mark, at: index, now: now, onMain: false)
         }
@@ -74,7 +75,7 @@ extension TypingLatencyProbe {
     public func outputDecoded(flow: UInt64?) {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let (recorded, dropped) = state.withLock { state -> (Recorded?, [Sample]) in
+        let (recorded, dropped) = withState { state -> (Recorded?, [Sample]) in
             if let flow {
                 state.exactEchoes = true
                 guard let index = state.open.firstIndex(where: { $0.flow == flow }),
@@ -110,7 +111,7 @@ extension TypingLatencyProbe {
     public func mark(_ mark: Mark, surface: SurfaceKey, awaitsGPU: Bool = false) -> [UInt64] {
         guard isSampling else { return [] }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let recorded = state.withLock { state -> [Recorded] in
+        let recorded = withState { state -> [Recorded] in
             let commitsBefore = state.echoCommits.count
             defer {
                 if awaitsGPU {

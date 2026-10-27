@@ -5,6 +5,7 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { focusSearchField } from "../shared/searchField";
@@ -12,7 +13,7 @@ import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import table from "./generated/strings.json";
 import { DebugSettingsPage } from "./DebugSettingsPage";
 import { MockDebugTunablesProvider } from "./mockProvider";
-import { DebugSettingsStore } from "./store";
+import { DEBUG_SETTINGS_PAGE, DebugSettingsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -20,9 +21,12 @@ export function mountDebugSettingsPage(
   root: HTMLElement,
   client: PageClient | null = defaultClient(),
 ): DebugSettingsStore {
+  const state = openPageState(client, DEBUG_SETTINGS_PAGE);
   const store = new DebugSettingsStore(client, {
     writeClipboard: (text) => navigator.clipboard.writeText(text),
   });
+  // The app keeps the search and the selection (DebugSettingsModel): the page keeps its scroll.
+  state.keep(() => null);
   // The app's key dispatcher (and the window's Cmd-F) sends page commands; the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {
