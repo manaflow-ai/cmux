@@ -126,7 +126,7 @@ export function EnvironmentPicker({
     value: string;
     text: string;
     detail?: string;
-    kind: "local" | "ssh" | "cloud" | "saved";
+    kind: "local" | "ssh" | "cloud" | "saved" | "phone";
     icon?: React.ReactNode;
     run(): void;
   };
@@ -190,7 +190,17 @@ export function EnvironmentPicker({
         ]
       : []),
     ...(onConnect
-      ? [{ value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") }]
+      ? [
+          { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") },
+          // Connect Phone… opens the Mobile Pairing page: cmux on iPhone reaches this Mac.
+          {
+            value: ACTION + "phone",
+            text: t("composer.connectPhone"),
+            kind: "phone" as const,
+            icon: <PhoneIcon />,
+            run: () => onConnect("phone"),
+          },
+        ]
       : []),
   ];
   const suggestions = [
@@ -278,11 +288,11 @@ export function EnvironmentPicker({
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-kind={action.kind === "saved" ? undefined : action.kind}
+          data-kind={action.kind === "saved" || action.kind === "phone" ? undefined : action.kind}
           data-section={section}
           data-first-section={first ? "" : undefined}
         >
-          {action.kind === "saved" ? action.icon : <EnvironmentIcon kind={action.kind} />}
+          {action.kind === "saved" || action.kind === "phone" ? action.icon : <EnvironmentIcon kind={action.kind} />}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
             {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
@@ -434,6 +444,27 @@ function PlusIcon() {
       focusable="false"
     >
       <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="4.5" y="1.75" width="7" height="12.5" rx="1.75" />
+      <path d="M7 12h2" />
     </svg>
   );
 }

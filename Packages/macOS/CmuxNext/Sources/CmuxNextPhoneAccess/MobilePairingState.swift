@@ -32,6 +32,22 @@ public nonisolated enum MobilePairingState: Sendable, Equatable {
         }
     }
 
+    /// The state for the iPhone host (`IPhoneHostService`, the bundled `cmux-mobile-host` that
+    /// cmux on iPhone connects through): the account, `mobile.allowIPhoneConnections` and hostd's
+    /// phase. `removedReason` is the text a removed Mac shows (the person allows it again in Settings).
+    public static func resolve(signedIn: Bool, allowed: Bool, host phase: MobileHostState.Phase,
+                               removedReason: String) -> MobilePairingState {
+        guard signedIn else { return .signedOut }
+        guard allowed else { return .accessOff }
+        switch phase {
+        case .online: return .ready
+        case .unavailable(let reason): return .failed(reason)
+        case .removed: return .failed(removedReason)
+        // Starting, registering or retrying: hostd gets there by itself.
+        case .off, .connecting, .waiting: return .preparing
+        }
+    }
+
     /// The page's name for the state (`MobilePairingStatus.state` in webviews/src/pages/mobile-pairing/types.ts).
     public var wireName: String {
         switch self {

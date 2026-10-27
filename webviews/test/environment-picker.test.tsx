@@ -258,18 +258,20 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
     false,
   ]);
   // New Cloud Machine and Open Cloud… close the Cloud section, the first with what one
-  // gives; New environment, last, holds SSH….
-  expect(rows().slice(-3)).toEqual(newRows());
+  // gives; New environment, last, holds SSH… and Connect Phone….
+  expect(rows().slice(-4)).toEqual(newRows());
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.newCloudMachine"),
     t("composer.openCloud"),
     t("composer.connectSSH"),
+    t("composer.connectPhone"),
   ]);
   expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
   expect(newRows().map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
     null,
     null,
     t("composer.newEnvironment"),
+    null,
   ]);
 });
 
@@ -295,7 +297,7 @@ test("the search field filters by name and section, keeping each machine's short
   await type("cloud");
   const shown = machineRows();
   expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
-  expect(newRows()).toHaveLength(3);
+  expect(newRows()).toHaveLength(4);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
@@ -314,9 +316,9 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
   expect(calls).toEqual([]);
 });
 
-test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, the Cloud page and the connect flow", async () => {
+test("New Cloud Machine, Open Cloud…, SSH… and Connect Phone… open the host's create flow, the Cloud page, the connect flow and the pairing page", async () => {
   const calls = await mount(true);
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1, 2, 3]) {
     await openPicker();
     await act(async () => newRows()[index]!.click());
     expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
@@ -325,6 +327,7 @@ test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, t
     ["connect", "cloud"],
     ["connect", "cloudPage"],
     ["connect", "ssh"],
+    ["connect", "phone"],
   ]);
 });
 
@@ -337,6 +340,7 @@ test("each connect choice runs its own host action", async () => {
     cloudPage: "palette.openCloudPane",
     move: "cloudMove",
     bringBack: "cloudBringBack",
+    phone: "palette.mobileConnect",
   });
 });
 

@@ -38,6 +38,15 @@ extension IPhoneHostService {
         ]
     }
 
+    /// `mobile.allowIPhoneConnections` as the service follows it (the Mobile Pairing page's switch).
+    public var allowsConnections: Bool { allowed }
+
+    /// hostd's phase (the Mobile Pairing page's step).
+    public var phase: MobileHostState.Phase { state.phase }
+
+    /// What a removed Mac says (the Mobile Pairing page's detail line).
+    public static var removedText: String { IPhoneHostStrings.removed }
+
     /// The waiting pairing requests, oldest first: who asks, as which account, since when.
     private var pendingRows: [JSONValue] {
         guard allowed else { return [] }
