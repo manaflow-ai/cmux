@@ -116,11 +116,19 @@ public struct PushActions: Sendable {
         button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
     }
 
-    /// The buttons the content extension sets: the payload's own, except with
-    /// Show previews off, when the static buttons stay (their titles never name
-    /// an option on the lock screen; PR #24156 review L1).
-    public func extensionActions(for payload: PushPayload) -> [UNNotificationAction] {
-        payload.previews ? actions(for: payload) : []
+    /// The buttons the content extension sets: the payload's own, or nil to
+    /// keep the static buttons, as with Show previews off (their titles never
+    /// name an option on the lock screen; PR #24156 review L1). With
+    /// `inlineComposer` the long look's own composer is the way to reply, so
+    /// no Reply button stands next to it (two text fields, one unexplained).
+    public func extensionActions(for payload: PushPayload, inlineComposer: Bool = false) -> [UNNotificationAction]? {
+        guard payload.previews else { return nil }
+        let plan = plan(for: payload).filter { !(inlineComposer && $0.action == .reply) }
+        return plan.map { button in
+            // Without the composer the system field is the way to reply: say to whom.
+            let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title
+            return action(button.action, title: title)
+        }
     }
 
     /// Every category, with the buttons a notification gets without the

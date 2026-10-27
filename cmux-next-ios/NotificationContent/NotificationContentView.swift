@@ -16,7 +16,7 @@ final class NotificationContentModel {
     /// False with Show previews off while the phone is locked.
     private(set) var showsContent = true
     var draft = ""
-    private(set) var attachments: [String] = []
+    private(set) var attachments: [ComposerBar.Attachment] = []
     var sent = false
     var failure: String?
     /// False: shown, but no row, Submit or composer acts (PR B security review H1).
@@ -25,7 +25,11 @@ final class NotificationContentModel {
     @ObservationIgnored var send: (PushReply.Action) -> Void = { _ in }
     @ObservationIgnored var openApp: () -> Void = {}
     @ObservationIgnored var presentPicker: (UIViewController) -> Void = { _ in }
-    @ObservationIgnored private var pickerDelegate: PickerDelegate?
+    @ObservationIgnored var attachmentsChanged: ([ComposerBar.Attachment]) -> Void = { _ in }
+    @ObservationIgnored private var pickerDelegate: (any NSObjectProtocol)?
+
+    /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
+    nonisolated static let maxFileBytes = 25 * 1024 * 1024
 
     func load(payload: PushPayload?, group: PushAppGroup?) {
         self.payload = payload
@@ -35,13 +39,35 @@ final class NotificationContentModel {
         let unlocked = PushProtectedMarker(directory: markerDirectory).isUnlocked()
         showsContent = PushForm.showsContent(previews: payload?.previews ?? true, unlocked: unlocked)
         // The saved chat holds the person's own messages: only while unlocked (review L1).
-        if showsContent, PushForm.loadsSnapshot(unlocked: unlocked), let payload, let mac = payload.mac, let session = payload.sessionId {
-            snapshot = PushSnapshotStore(group: group)?.load(mac: mac, session: session)
+        if showsContent, PushForm.loadsSnapshot(unlocked: unlocked), let payload, let mac = payload.mac {
+            // A Chief push names the turn's session; the app saves Chief's conversation under the Mac.
+            let session = payload.kind == .chief ? PushSnapshot.chiefSession : payload.sessionId
+            snapshot = session.flatMap { PushSnapshotStore(group: group)?.load(mac: mac, session: $0) }
         }
     }
 
     /// A handover is possible: the build shares an App Group with the app.
     var canHandOver: Bool { outbox != nil }
+
+    /// The docked reply bar: a kind that takes text, in a build that can hand it to the app.
+    var showsComposer: Bool {
+        payload != nil && showsContent && actionable && canHandOver && form?.hasComposer == true && !sent
+    }
+
+    /// The conversation up to and including the notified message.
+    var history: PushHistory? {
+        payload.map { PushHistory(payload: $0, snapshot: snapshot) }
+    }
+
+    /// Who a Chief notification is from: the name and avatar the Mac set, as the app shows them.
+    var chiefName: String { snapshot?.title ?? payload?.agent ?? String(localized: "Chief") }
+    var chiefAvatar: String { snapshot?.avatar ?? "C" }
+
+    var composerPlaceholder: String {
+        guard let payload else { return String(localized: "Reply") }
+        if payload.kind == .question { return String(localized: "Type an answer") }
+        return String(localized: "Reply to \(payload.kind == .chief ? chiefName : payload.agent ?? String(localized: "your agent"))")
+    }
 
     func tap(_ row: PushForm.Row) {
         guard var form else { return }
@@ -62,10 +88,10 @@ final class NotificationContentModel {
     }
 
     func sendDraft() {
-        guard let action = form?.composerReply(draft, attachments: attachments) else { return }
+        guard let action = form?.composerReply(draft, attachments: attachments.map(\.name)) else { return }
         deliver(action)
         draft = ""
-        attachments = []
+        setAttachments([])
     }
 
     private func deliver(_ action: PushReply.Action) {
@@ -73,15 +99,43 @@ final class NotificationContentModel {
         send(action)
     }
 
-    /// "+": photos from PHPicker (no library permission needed), copied into the outbox.
+    private func setAttachments(_ items: [ComposerBar.Attachment]) {
+        attachments = items
+        attachmentsChanged(items)
+    }
+
+    func removeAttachment(_ name: String) {
+        outbox?.removeAttachments([name])
+        setAttachments(attachments.filter { $0.name != name })
+    }
+
+    private func added(_ item: ComposerBar.Attachment) {
+        setAttachments(attachments + [item])
+    }
+
+    /// Photos from PHPicker (no library permission needed), copied into the outbox.
     func pickPhotos() {
         guard let outbox else { return openApp() }
         var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 4
+        config.filter = .any(of: [.images, .screenshots])
+        config.selectionLimit = 6
         let picker = PHPickerViewController(configuration: config)
-        let delegate = PickerDelegate(folder: outbox.attachments) { [weak self] names in
-            self?.attachments += names
+        let delegate = PickerDelegate(folder: outbox.attachments) { [weak self] item in self?.added(item) }
+        pickerDelegate = delegate
+        picker.delegate = delegate
+        presentPicker(picker)
+    }
+
+    /// Files from the Files app, copied into the outbox (the picker hands a copy).
+    func pickFiles() {
+        guard let outbox else { return openApp() }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = true
+        let delegate = FilePickerDelegate(folder: outbox.attachments) { [weak self] result in
+            switch result {
+            case .success(let item): self?.added(item)
+            case .failure: self?.failure = String(localized: "That file is too large to send from a notification.")
+            }
         }
         pickerDelegate = delegate
         picker.delegate = delegate
@@ -89,13 +143,32 @@ final class NotificationContentModel {
     }
 }
 
+/// A picked file's thumbnail, small (ImageIO), so the extension stays inside its memory budget.
+nonisolated func attachmentThumbnail(_ url: URL, side: CGFloat) -> UIImage? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: side * 3,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
+}
+
+/// A plain file name for an attachment: a short unique prefix, then the original
+/// name (what the Mac shows), never a path.
+nonisolated func attachmentName(_ original: String) -> String {
+    let base = (original as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "-")
+    let clean = base.isEmpty || base.hasPrefix(".") ? "file" + base : base
+    return String(UUID().uuidString.prefix(8)).lowercased() + "-" + String(clean.suffix(120))
+}
+
 /// Copies picked images into the outbox's attachments folder.
 @MainActor
 private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
     let folder: URL
-    let done: @MainActor @Sendable ([String]) -> Void
+    let done: @MainActor @Sendable (ComposerBar.Attachment) -> Void
 
-    init(folder: URL, done: @escaping @MainActor @Sendable ([String]) -> Void) {
+    init(folder: URL, done: @escaping @MainActor @Sendable (ComposerBar.Attachment) -> Void) {
         self.folder = folder
         self.done = done
     }
@@ -113,7 +186,46 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
                 let name = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "jpg" : url.pathExtension)
                 let target = folder.appendingPathComponent(name)
                 guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return }
-                Task { @MainActor in done([name]) }
+                let thumbnail = attachmentThumbnail(target, side: ComposerBar.thumbnailSize)
+                let item = ComposerBar.Attachment(name: name, title: String(localized: "Photo"), thumbnail: thumbnail)
+                Task { @MainActor in done(item) }
+            }
+        }
+    }
+}
+
+/// Moves files picked in Files into the outbox's attachments folder.
+@MainActor
+private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
+    struct TooLarge: Error {}
+
+    let folder: URL
+    let done: @MainActor (Result<ComposerBar.Attachment, TooLarge>) -> Void
+
+    init(folder: URL, done: @escaping @MainActor (Result<ComposerBar.Attachment, TooLarge>) -> Void) {
+        self.folder = folder
+        self.done = done
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        let folder = folder
+        Task { @MainActor in
+            for url in urls {
+                let result = await Task.detached(priority: .userInitiated) { () -> Result<ComposerBar.Attachment, TooLarge>? in
+                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    guard size <= NotificationContentModel.maxFileBytes else {
+                        try? FileManager.default.removeItem(at: url)
+                        return .failure(TooLarge())
+                    }
+                    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    let name = attachmentName(url.lastPathComponent)
+                    let target = folder.appendingPathComponent(name)
+                    guard (try? FileManager.default.moveItem(at: url, to: target)) != nil else { return nil }
+                    let isImage = UTType(filenameExtension: target.pathExtension)?.conforms(to: .image) ?? false
+                    let thumbnail = isImage ? attachmentThumbnail(target, side: ComposerBar.thumbnailSize) : nil
+                    return .success(ComposerBar.Attachment(name: name, title: url.lastPathComponent, thumbnail: thumbnail))
+                }.value
+                if let result { done(result) }
             }
         }
     }
@@ -121,20 +233,26 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
 
 struct NotificationContentView: View {
     let model: NotificationContentModel
+    /// The history's full height; the view shows at most `maxHistoryHeight` of it and scrolls.
+    @State private var historyHeight: CGFloat = 0
+
+    static let maxHistoryHeight: CGFloat = 380
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             if let payload = model.payload {
                 header(payload)
                 if model.showsContent {
                     preview(payload)
                     if model.actionable, let form = model.form { options(form) }
                     if model.sent {
-                        Label("Opening cmux to send…", systemImage: "paperplane").font(.footnote).foregroundStyle(.secondary)
+                        Label("Sending in cmux…", systemImage: "paperplane")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("cmux.push.sent")
                     } else if let failure = model.failure {
                         Text(failure).font(.footnote).foregroundStyle(.red)
                     }
-                    if model.actionable, model.form?.hasComposer == true { composer }
                 } else {
                     Label("Unlock to see this notification", systemImage: "lock").font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -142,24 +260,35 @@ struct NotificationContentView: View {
                 Text("Open cmux to see this notification.").font(.subheadline).foregroundStyle(.secondary)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Header
 
+    @ViewBuilder
     private func header(_ payload: PushPayload) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol(payload.kind)).foregroundStyle(tint(payload.kind))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headline(payload)).font(.headline).lineLimit(1)
-                Text([payload.placeName, payload.macDisplayName].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        if payload.kind == .chief {
+            // Chief's own header, as its chat draws it: which Chief, on which Mac.
+            ChiefHeader(name: model.chiefName, avatar: model.chiefAvatar, mac: payload.macDisplayName)
+        } else {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: symbol(payload.kind))
+                    .font(.title3)
+                    .foregroundStyle(tint(payload.kind))
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(headline(payload)).font(.headline).lineLimit(1)
+                    Text([payload.placeName, payload.macDisplayName].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if let state = payload.state, payload.kind.isAsk { stateBadge(state) }
             }
-            Spacer(minLength: 4)
-            if let state = payload.state { stateBadge(state) }
+            .accessibilityElement(children: .combine)
         }
-        .accessibilityElement(children: .combine)
     }
 
     private func headline(_ payload: PushPayload) -> String {
@@ -169,7 +298,7 @@ struct NotificationContentView: View {
         case .permission: return String(localized: "\(agent) needs permission")
         case .completed: return String(localized: "\(agent) finished")
         case .failed: return String(localized: "\(agent) stopped with an error")
-        case .chief: return String(localized: "Chief")
+        case .chief: return model.chiefName
         case .terminal: return payload.title ?? String(localized: "Terminal")
         }
     }
@@ -223,37 +352,23 @@ struct NotificationContentView: View {
                     .lineLimit(12)
             }
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(bubbles(payload).enumerated()), id: \.offset) { _, message in
-                    bubble(message)
-                }
-                if let title = payload.title, payload.kind.isAsk {
-                    Text(title).font(.body.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                } else if let body = payload.body, payload.kind == .failed || payload.kind == .chief {
-                    bubble(PushSnapshot.Message(role: .agent, text: body))
-                }
+            if let history = model.history, !history.messages.isEmpty { transcript(history) }
+            if let title = payload.title, payload.kind.isAsk {
+                Text(title).font(.body.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    /// The saved chat's last messages, else the payload's last lines.
-    private func bubbles(_ payload: PushPayload) -> [PushSnapshot.Message] {
-        if let messages = model.snapshot?.messages, !messages.isEmpty { return Array(messages.suffix(5)) }
-        return payload.tail.suffix(5).map { PushSnapshot.Message(role: .agent, text: $0) }
-    }
-
-    private func bubble(_ message: PushSnapshot.Message) -> some View {
-        let mine = message.role == .user
-        return HStack {
-            if mine { Spacer(minLength: 40) }
-            Text(message.text)
-                .font(.subheadline)
-                .lineLimit(6)
-                .padding(.horizontal, 11).padding(.vertical, 7)
-                .background(mine ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary), in: RoundedRectangle(cornerRadius: 16))
-                .foregroundStyle(mine ? Color.white : Color.primary)
-            if !mine { Spacer(minLength: 40) }
+    /// The last messages, scrolled to the newest; taller than the cap, they scroll.
+    private func transcript(_ history: PushHistory) -> some View {
+        ScrollView(.vertical) {
+            TranscriptPreview(messages: history.messages)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { historyHeight = $0 }
         }
+        .defaultScrollAnchor(.bottom)
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(historyHeight > Self.maxHistoryHeight ? .automatic : .hidden)
+        .frame(height: min(max(historyHeight, 1), Self.maxHistoryHeight))
     }
 
     // MARK: Options
@@ -336,49 +451,4 @@ struct NotificationContentView: View {
         Binding(get: { model.form?.other[q] ?? "" }, set: { model.form?.other[q] = $0 })
     }
 
-    // MARK: Composer
-
-    private var composer: some View {
-        @Bindable var model = model
-        return VStack(alignment: .leading, spacing: 6) {
-            if !model.attachments.isEmpty {
-                Label("\(model.attachments.count) photo(s) attached", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                if model.canHandOver {
-                    Button { model.pickPhotos() } label: {
-                        Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 32, height: 32)
-                            .background(.quaternary, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Attach photos")
-                    .accessibilityIdentifier("cmux.push.attach")
-                }
-                if model.canHandOver {
-                    TextField(model.payload?.kind == .question ? "Type an answer" : "Reply", text: $model.draft, axis: .vertical)
-                        .lineLimit(1...4)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.quaternary))
-                        .submitLabel(.send)
-                        .onSubmit { model.sendDraft() }
-                        .accessibilityIdentifier("cmux.push.composer")
-                    Button { model.sendDraft() } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.title)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model.form?.composerReply(model.draft, attachments: model.attachments) == nil)
-                    .accessibilityLabel("Send")
-                    .accessibilityIdentifier("cmux.push.send")
-                } else {
-                    // A build without the App Group cannot hand text over.
-                    Button { model.openApp() } label: {
-                        Label("Open in app", systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity).padding(.vertical, 8)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("cmux.push.open")
-                }
-            }
-        }
-        .padding(.top, 4)
-    }
 }

@@ -146,16 +146,23 @@ public struct PushSnapshot: Codable, Sendable, Equatable {
         }
     }
 
+    /// The `session` key of a Mac's Chief conversation (its pushes carry the
+    /// turn's session, not the conversation).
+    public static let chiefSession = "chief"
+
     public var mac: String
     public var session: String
     public var title: String?
+    /// Chief's avatar text (an emoji or initials), as Home and the chat draw it.
+    public var avatar: String?
     public var messages: [Message]
     public var updatedAt: Date
 
-    public init(mac: String, session: String, title: String? = nil, messages: [Message], updatedAt: Date = Date()) {
+    public init(mac: String, session: String, title: String? = nil, avatar: String? = nil, messages: [Message], updatedAt: Date = Date()) {
         self.mac = mac
         self.session = session
         self.title = title
+        self.avatar = avatar
         self.messages = messages
         self.updatedAt = updatedAt
     }
@@ -189,7 +196,8 @@ public struct PushSnapshotStore: Sendable {
         snapshot.messages = snapshot.messages.suffix(Self.maxMessages).map {
             PushSnapshot.Message(role: $0.role, text: String($0.text.prefix(Self.maxCharacters)))
         }
-        if let old = load(mac: snapshot.mac, session: snapshot.session), old.messages == snapshot.messages, old.title == snapshot.title { return }
+        if let old = load(mac: snapshot.mac, session: snapshot.session), old.messages == snapshot.messages, old.title == snapshot.title,
+           old.avatar == snapshot.avatar { return }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(snapshot).write(to: file(mac: snapshot.mac, session: snapshot.session),
