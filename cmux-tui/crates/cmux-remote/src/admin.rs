@@ -582,9 +582,10 @@ fn parse_linux_proc_stat(contents: &[u8]) -> io::Result<LinuxProcStat> {
         .windows(2)
         .rposition(|window| window == b") ")
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed process stat"))?;
-    let mut fields = contents
-        .get(comm_end.saturating_add(2)..)
-        .unwrap_or_default()
+    let (_, after_comm) = contents.split_at(comm_end);
+    let mut fields = after_comm
+        .strip_prefix(b") ")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed process stat"))?
         .split(u8::is_ascii_whitespace)
         .filter(|field| !field.is_empty());
     let state = fields
@@ -875,6 +876,24 @@ mod tests {
     use super::*;
     use crate::identity::AuthDatabase;
     use crate::session::SessionLimits;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_proc_stat_parses_state_and_start_time_after_last_comm_paren() {
+        let stat = b"42 (a) b) c) S 1 42 42 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 98765 0 0";
+        let parsed = parse_linux_proc_stat(stat).unwrap();
+        assert_eq!(parsed.state, b'S');
+        assert_eq!(parsed.start_time, 98765);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_proc_stat_rejects_malformed_input_with_invalid_data() {
+        for stat in [&b"42 (comm)"[..], b"42 (comm) ", b"42 (comm) SS 1", b""] {
+            let error = parse_linux_proc_stat(stat).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{stat:?}");
+        }
+    }
 
     #[test]
     fn admin_listener_retries_recoverable_accept_errors() {
