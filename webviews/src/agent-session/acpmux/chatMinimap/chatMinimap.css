@@ -62,7 +62,7 @@
   pointer-events: none;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
-.acpmux-chat-minimap__placeholder::after {
+.acpmux-chat-minimap__placeholder[data-look="shimmer"]::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -83,4 +83,20 @@
 :root[data-cmux-motion="reduced"] .acpmux-chat-minimap__placeholder::after,
 :root[data-cmux-motion="off"] .acpmux-chat-minimap__placeholder::after {
   display: none;
+}
+/* The other looks (placeholder.experiment.ts), compared in the gallery: none moves. */
+.acpmux-chat-minimap__placeholder[data-look="skeleton"] {
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-chat-minimap__placeholder[data-look="dotted"] {
+  background: none;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 35%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-chat-minimap__placeholder[data-look="lines"] {
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--agent-text) 22%, transparent) 0 1px,
+    transparent 1px 2px
+  );
 }

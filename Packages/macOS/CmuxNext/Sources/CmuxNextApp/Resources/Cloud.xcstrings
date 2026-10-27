@@ -15226,137 +15226,6 @@
         }
       }
     },
-    "cloud.machineUpdate.unsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ runs a cmux too old to update in place. Use a new Cloud machine instead."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يشغّل %@ إصدارًا من cmux أقدم من أن يُحدَّث في مكانه. استخدم جهاز Cloud جديدًا بدلًا منه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ koristi cmux prestar za ažuriranje na licu mjesta. Umjesto toga koristi novu Cloud mašinu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kører en cmux, der er for gammel til at blive opdateret på stedet. Brug en ny Cloud-maskine i stedet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auf %@ läuft ein cmux, das zu alt ist, um es direkt zu aktualisieren. Verwende stattdessen eine neue Cloud-Maschine."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ejecuta un cmux demasiado antiguo para actualizarlo en el sitio. Usa una nueva máquina de Cloud."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ exécute un cmux trop ancien pour être mis à jour sur place. Utilisez plutôt une nouvelle machine Cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ esegue un cmux troppo vecchio per essere aggiornato sul posto. Usa invece una nuova macchina Cloud."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の cmux は古すぎるため、その場でアップデートできません。新しい Cloud マシンを使ってください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ដំណើរការ cmux ចាស់ពេកដើម្បីធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង។ សូមប្រើម៉ាស៊ីន Cloud ថ្មីជំនួសវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@의 cmux가 너무 오래되어 그 자리에서 업데이트할 수 없습니다. 대신 새 Cloud 머신을 사용하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kjører en cmux som er for gammel til å oppdateres på stedet. Bruk en ny Cloud-maskin i stedet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ działa na cmux zbyt starym, by zaktualizować go na miejscu. Użyj zamiast tego nowej maszyny Cloud."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ executa um cmux antigo demais para ser atualizado no local. Use uma nova máquina do Cloud."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ работает слишком старый cmux, чтобы обновить его на месте. Используйте новую машину Cloud."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ใช้ cmux ที่เก่าเกินกว่าจะอัปเดตในที่ได้ ใช้เครื่อง Cloud ใหม่แทน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ yerinde güncellenemeyecek kadar eski bir cmux çalıştırıyor. Bunun yerine yeni bir Cloud makinesi kullan."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ працює надто старий cmux, щоб оновити його на місці. Натомість скористайтеся новою машиною Cloud."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ chạy cmux quá cũ để cập nhật tại chỗ. Hãy dùng một máy Cloud mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 上的 cmux 太旧，无法就地更新。请改用新的 Cloud 机器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 上的 cmux 太舊，無法就地更新。請改用新的 Cloud 機器。"
-          }
-        }
-      }
-    },
     "cloud.machineUpdate.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -18114,6 +17983,245 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux Cloud 傳來的回應此版本的 cmux 無法讀取。請更新 cmux，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.cli.enrollNameInvalid": {
+      "comment": "cmux cloud enroll-machine: the ssh host name is not usable. Keep the flag as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The machine's ssh name must be letters, digits, dots, dashes or underscores: pass --name lane-vm-N."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンの ssh 名には英数字、ドット、ハイフン、アンダースコアのみ使用できます。--name lane-vm-N を指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der ssh-Name der Maschine darf nur Buchstaben, Ziffern, Punkte, Bindestriche oder Unterstriche enthalten: Gib --name lane-vm-N an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le nom ssh de la machine ne peut contenir que des lettres, chiffres, points, tirets ou traits de soulignement : passez --name lane-vm-N."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El nombre ssh de la máquina solo puede tener letras, dígitos, puntos, guiones o guiones bajos: pasa --name lane-vm-N."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يجب أن يتكوّن اسم ssh للجهاز من حروف أو أرقام أو نقاط أو شرطات أو شرطات سفلية: مرّر ‎--name lane-vm-N."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신의 ssh 이름은 영문자, 숫자, 점, 하이픈, 밑줄만 쓸 수 있습니다. --name lane-vm-N을 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器的 ssh 名称只能包含字母、数字、点、连字符或下划线：请传入 --name lane-vm-N。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器的 ssh 名稱只能包含字母、數字、點、連字號或底線：請傳入 --name lane-vm-N。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "SSH ime mašine smije sadržavati samo slova, cifre, tačke, crtice ili donje crte: proslijedi --name lane-vm-N."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinens ssh-navn må kun bestå af bogstaver, cifre, punktummer, bindestreger eller understreger: angiv --name lane-vm-N."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il nome ssh della macchina può contenere solo lettere, cifre, punti, trattini o trattini bassi: passa --name lane-vm-N."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឈ្មោះ ssh របស់ម៉ាស៊ីនត្រូវមានតែអក្សរ លេខ ចំណុច សញ្ញាដក ឬសញ្ញាគូសក្រោម៖ បញ្ជូន --name lane-vm-N។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinens ssh-navn kan bare inneholde bokstaver, sifre, punktum, bindestreker eller understreker: oppgi --name lane-vm-N."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nazwa ssh maszyny może zawierać tylko litery, cyfry, kropki, myślniki lub podkreślenia: podaj --name lane-vm-N."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O nome ssh da máquina só pode ter letras, dígitos, pontos, hífens ou sublinhados: passe --name lane-vm-N."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Имя ssh машины может содержать только буквы, цифры, точки, дефисы или подчёркивания: укажите --name lane-vm-N."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ชื่อ ssh ของเครื่องต้องมีเฉพาะตัวอักษร ตัวเลข จุด ขีดกลาง หรือขีดล่าง: ส่ง --name lane-vm-N"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makinenin ssh adı yalnızca harf, rakam, nokta, tire veya alt çizgi içerebilir: --name lane-vm-N verin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ім'я ssh машини може містити лише літери, цифри, крапки, дефіси або підкреслення: вкажіть --name lane-vm-N."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tên ssh của máy chỉ được gồm chữ cái, chữ số, dấu chấm, dấu gạch ngang hoặc dấu gạch dưới: truyền --name lane-vm-N."}}
+      }
+    },
+    "cloud.cli.enrollNoAddress": {
+      "comment": "cmux cloud enroll-machine: the machine has no private network address to reach.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This Cloud machine has no private address yet, so ssh can't reach it. Try again once it is running."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud マシンにはまだプライベートアドレスがないため、ssh で接続できません。実行中になってから再試行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Diese Cloud-Maschine hat noch keine private Adresse, daher erreicht ssh sie nicht. Versuche es erneut, sobald sie läuft."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Cette machine Cloud n’a pas encore d’adresse privée, ssh ne peut donc pas l’atteindre. Réessayez une fois qu’elle est en marche."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Esta máquina de Cloud aún no tiene dirección privada, así que ssh no puede llegar a ella. Vuelve a intentarlo cuando esté en ejecución."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ليس لجهاز Cloud هذا عنوان خاص بعد، لذا لا يستطيع ssh الوصول إليه. أعد المحاولة بعد أن يعمل."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 머신에는 아직 사설 주소가 없어 ssh로 연결할 수 없습니다. 실행 중이 되면 다시 시도하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 机器还没有私有地址，ssh 无法连接。请在它运行后重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 機器還沒有私有位址，ssh 無法連線。請在它執行後重試。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ova Cloud mašina još nema privatnu adresu, pa je ssh ne može dosegnuti. Pokušaj ponovo kada bude pokrenuta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-maskine har endnu ingen privat adresse, så ssh kan ikke nå den. Prøv igen, når den kører."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Questa macchina Cloud non ha ancora un indirizzo privato, quindi ssh non può raggiungerla. Riprova quando è in esecuzione."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន Cloud នេះមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយ ដូច្នេះ ssh មិនអាចភ្ជាប់ទៅវាបានទេ។ សូមព្យាយាមម្ដងទៀតនៅពេលវាកំពុងដំណើរការ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-maskinen har ingen privat adresse ennå, så ssh kan ikke nå den. Prøv igjen når den kjører."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ta maszyna Cloud nie ma jeszcze adresu prywatnego, więc ssh nie może się z nią połączyć. Spróbuj ponownie, gdy będzie działać."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Esta máquina do Cloud ainda não tem endereço privado, então o ssh não consegue alcançá-la. Tente de novo quando ela estiver em execução."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "У этой машины Cloud ещё нет частного адреса, поэтому ssh не может до неё достучаться. Повторите попытку, когда она запустится."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง Cloud นี้ยังไม่มีที่อยู่ส่วนตัว ssh จึงเข้าถึงไม่ได้ ลองอีกครั้งเมื่อเครื่องทำงานแล้ว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Cloud makinesinin henüz özel adresi yok, bu yüzden ssh ona ulaşamıyor. Çalışır duruma gelince tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ця машина Cloud ще не має приватної адреси, тому ssh не може до неї дістатися. Спробуйте знову, коли вона запуститься."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy Cloud này chưa có địa chỉ riêng nên ssh không thể kết nối tới. Hãy thử lại khi máy đang chạy."}}
+      }
+    },
+    "cloud.cli.enrollKeyUnreadable": {
+      "comment": "cmux cloud enroll-machine: the ssh public key file can't be used. %@ is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Can't use the ssh key %@: it must be one ssh-ed25519 public key. Pass --ssh-key with an absolute path."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ssh 鍵 %@ を使用できません。ssh-ed25519 公開鍵 1 つである必要があります。--ssh-key に絶対パスを指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der ssh-Schlüssel %@ kann nicht verwendet werden: Er muss genau ein öffentlicher ssh-ed25519-Schlüssel sein. Gib --ssh-key mit einem absoluten Pfad an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d’utiliser la clé ssh %@ : elle doit être une seule clé publique ssh-ed25519. Passez --ssh-key avec un chemin absolu."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se puede usar la clave ssh %@: debe ser una sola clave pública ssh-ed25519. Pasa --ssh-key con una ruta absoluta."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام مفتاح ssh ‏%@: يجب أن يكون مفتاحًا عامًا واحدًا من نوع ssh-ed25519. مرّر ‎--ssh-key بمسار مطلق."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "ssh 키 %@을(를) 사용할 수 없습니다. ssh-ed25519 공개 키 하나여야 합니다. --ssh-key에 절대 경로를 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用 ssh 密钥 %@：它必须是一个 ssh-ed25519 公钥。请用绝对路径传入 --ssh-key。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用 ssh 金鑰 %@：它必須是一個 ssh-ed25519 公鑰。請用絕對路徑傳入 --ssh-key。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće koristiti ssh ključ %@: mora biti jedan javni ključ ssh-ed25519. Proslijedi --ssh-key s apsolutnom putanjom."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kan ikke bruge ssh-nøglen %@: den skal være én offentlig ssh-ed25519-nøgle. Angiv --ssh-key med en absolut sti."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile usare la chiave ssh %@: deve essere una sola chiave pubblica ssh-ed25519. Passa --ssh-key con un percorso assoluto."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចប្រើសោ ssh %@ បានទេ៖ វាត្រូវតែជាសោសាធារណៈ ssh-ed25519 តែមួយ។ បញ្ជូន --ssh-key ជាមួយផ្លូវពេញ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kan ikke bruke ssh-nøkkelen %@: den må være én offentlig ssh-ed25519-nøkkel. Oppgi --ssh-key med en absolutt sti."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można użyć klucza ssh %@: musi to być jeden klucz publiczny ssh-ed25519. Podaj --ssh-key ze ścieżką bezwzględną."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não é possível usar a chave ssh %@: ela precisa ser uma única chave pública ssh-ed25519. Passe --ssh-key com um caminho absoluto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Невозможно использовать ключ ssh %@: это должен быть один открытый ключ ssh-ed25519. Укажите --ssh-key с абсолютным путём."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้คีย์ ssh %@ ไม่ได้: ต้องเป็นคีย์สาธารณะ ssh-ed25519 เพียงหนึ่งคีย์ ส่ง --ssh-key พร้อมพาธแบบเต็ม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ ssh anahtarı kullanılamıyor: tek bir ssh-ed25519 açık anahtarı olmalı. --ssh-key'i mutlak bir yolla verin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Неможливо використати ключ ssh %@: це має бути один відкритий ключ ssh-ed25519. Вкажіть --ssh-key з абсолютним шляхом."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể dùng khóa ssh %@: đây phải là một khóa công khai ssh-ed25519 duy nhất. Truyền --ssh-key với đường dẫn tuyệt đối."}}
+      }
+    },
+    "cloud.cli.enrollAuthorizeFailed": {
+      "comment": "cmux cloud enroll-machine: setting up ssh on the machine failed. %@ is the machine's own error output.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't set up ssh on the machine: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンで ssh を設定できませんでした: %@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "ssh konnte auf der Maschine nicht eingerichtet werden: %@"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de configurer ssh sur la machine : %@"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo configurar ssh en la máquina: %@"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إعداد ssh على الجهاز: %@"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에서 ssh를 설정하지 못했습니다: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法在机器上设置 ssh：%@"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在機器上設定 ssh：%@"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće postaviti ssh na mašini: %@"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke konfigurere ssh på maskinen: %@"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile configurare ssh sulla macchina: %@"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចរៀបចំ ssh នៅលើម៉ាស៊ីនបានទេ៖ %@"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke sette opp ssh på maskinen: %@"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie udało się skonfigurować ssh na maszynie: %@"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível configurar o ssh na máquina: %@"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось настроить ssh на машине: %@"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตั้งค่า ssh บนเครื่องไม่ได้: %@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makinede ssh ayarlanamadı: %@"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося налаштувати ssh на машині: %@"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể thiết lập ssh trên máy: %@"}}
+      }
+    },
+    "cloud.machineUpdate.unsupportedKeepsWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ إصدارًا من cmux أقدم من أن يُحدَّث في مكانه. تستمر محادثاته وطرفياته في العمل، وتبقى الميزات الأحدث من إصدار cmux فيه متوقفة هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ koristi cmux prestar za ažuriranje na licu mjesta. Njegovi chatovi i terminali i dalje rade; funkcije novije od njegovog cmuxa tamo ostaju isključene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kører en cmux, der er for gammel til at blive opdateret på stedet. Dens chats og terminaler bliver ved med at virke; funktioner, der er nyere end dens cmux, forbliver slået fra der."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ verwendet ein cmux, das zu alt für ein Update vor Ort ist. Chats und Terminals laufen dort weiter; Funktionen, die neuer als dieses cmux sind, bleiben dort aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa un cmux demasiado antiguo para actualizarse en su sitio. Sus chats y terminales siguen funcionando; las funciones más nuevas que su cmux quedan desactivadas allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ utilise un cmux trop ancien pour être mis à jour sur place. Ses discussions et terminaux continuent de fonctionner ; les fonctionnalités plus récentes que son cmux y restent désactivées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa un cmux troppo vecchio per essere aggiornato sul posto. Le sue chat e i suoi terminali continuano a funzionare; le funzioni più recenti del suo cmux restano disattivate lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は古いため、その場で更新できません。チャットとターミナルはそのまま動作します。その cmux より新しい機能はそこではオフのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ដំណើរការ cmux ចាស់ពេកដើម្បីធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង។ ការជជែក និងទែមីណាល់របស់វានៅតែដំណើរការ ហើយមុខងារថ្មីជាង cmux របស់វានៅតែបិទនៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux는 너무 오래되어 그 자리에서 업데이트할 수 없습니다. 채팅과 터미널은 계속 작동하며, 그 cmux보다 새로운 기능은 그곳에서 꺼진 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kjører en cmux som er for gammel til å oppdateres på stedet. Chattene og terminalene fortsetter å virke; funksjoner som er nyere enn dens cmux, forblir av der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ma cmux zbyt stary, by zaktualizować go na miejscu. Czaty i terminale nadal działają; funkcje nowsze niż ten cmux pozostają tam wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ usa um cmux antigo demais para ser atualizado no local. Os chats e terminais continuam funcionando; os recursos mais novos que esse cmux ficam desativados lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ работает cmux, слишком старый для обновления на месте. Чаты и терминалы продолжают работать; функции новее этого cmux там остаются выключенными."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ใช้ cmux ที่เก่าเกินกว่าจะอัปเดตในที่ได้ แชทและเทอร์มินัลยังทำงานต่อได้ ส่วนฟีเจอร์ที่ใหม่กว่า cmux ของเครื่องนั้นจะยังปิดอยู่ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yerinde güncellenemeyecek kadar eski bir cmux çalıştırıyor. Sohbetleri ve terminalleri çalışmaya devam eder; cmux sürümünden yeni özellikler orada kapalı kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ працює cmux, надто старий для оновлення на місці. Чати й термінали працюють далі; функції, новіші за цей cmux, там залишаються вимкненими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chạy cmux quá cũ để cập nhật tại chỗ. Các cuộc trò chuyện và terminal vẫn hoạt động; những tính năng mới hơn cmux của máy đó vẫn tắt ở đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 运行的 cmux 太旧，无法就地更新。它的聊天和终端仍可正常使用；比其 cmux 更新的功能在那里保持关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 執行的 cmux 太舊，無法就地更新。它的聊天和終端機仍可正常使用；比其 cmux 更新的功能在那裡保持關閉。"
           }
         }
       }

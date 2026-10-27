@@ -36,7 +36,7 @@
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -55,6 +55,9 @@ pub struct SubagentTree {
     /// The session's own agent session id (its harness thread), once known:
     /// never one of its subagents.
     own: Option<String>,
+    /// The background subagents still running: they outlive the turn that
+    /// started them, so the session works on past it (`hub/work_below.rs`).
+    background: HashSet<String>,
 }
 
 impl SubagentTree {
@@ -78,6 +81,12 @@ impl SubagentTree {
     /// Writes the subagent model into one `session/update`'s params. Returns
     /// the subagent the update belongs to, or `None` for the session's own.
     pub fn annotate(&mut self, params: &mut Value) -> Option<String> {
+        self.annotate_live(params, true)
+    }
+
+    /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
+    /// changes which background subagents run, since the replay may hold a start without its end.
+    pub fn annotate_live(&mut self, params: &mut Value, live: bool) -> Option<String> {
         let owner = params
             .get("sessionId")
             .and_then(Value::as_str)
@@ -89,6 +98,9 @@ impl SubagentTree {
         if let Some(owner) = &owner {
             fields.insert("subagent".into(), json!(owner));
         }
+        if live {
+            self.note_background(&events);
+        }
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
         }
@@ -96,6 +108,30 @@ impl SubagentTree {
             merge_mux_meta(params, Value::Object(fields));
         }
         owner
+    }
+
+    /// How many background subagents still run.
+    pub fn background_running(&self) -> usize {
+        self.background.len()
+    }
+
+    /// The harness is gone, and its background subagents with it.
+    pub fn end_background(&mut self) {
+        self.background.clear();
+    }
+
+    /// Follows the background subagents through one update's events: one
+    /// marked `background` that runs is added (a later event of it need not
+    /// repeat the mark), and any that ends leaves.
+    fn note_background(&mut self, events: &[Value]) {
+        for event in events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            if event.get("state").and_then(Value::as_str) != Some("running") {
+                self.background.remove(id);
+            } else if event.get("background") == Some(&Value::Bool(true)) {
+                self.background.insert(id.to_owned());
+            }
+        }
     }
 
     fn events(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
@@ -389,5 +425,50 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+
+    fn annotate(tree: &mut SubagentTree, update: Value, live: bool) {
+        let mut params = json!({"sessionId": "s1", "update": update});
+        tree.annotate_live(&mut params, live);
+    }
+
+    /// manaflow-ai/cmux#25230: the background subagents a chat runs past its turn, from their
+    /// start to their end; a foreground one ends with its turn, and a replay changes nothing.
+    #[test]
+    fn background_subagents_run_from_their_start_to_their_end() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "background": background});
+        let end = |id: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": "completed"});
+        annotate(&mut tree, spawn("fg", false), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("replayed", true), false);
+        assert_eq!(tree.background_running(), 0, "a replay starts nothing");
+        annotate(&mut tree, spawn("bg", true), true);
+        // Moved to the background later (Claude's task_started is_backgrounded).
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "fg", "background": true}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        // Progress without the mark keeps it.
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "bg"}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        annotate(&mut tree, end("bg"), true);
+        annotate(&mut tree, end("fg"), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("bg2", true), true);
+        tree.end_background();
+        assert_eq!(tree.background_running(), 0, "its harness exited");
     }
 }

@@ -61,15 +61,23 @@ nonisolated enum AcpmuxStrayDaemon {
     /// that daemon, so the caller starts the bundled one. Who it is comes from the socket's own
     /// peer (`LOCAL_PEERPID`), never from the pid the daemon reports alone.
     static func handOffIfStray(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
-        guard let peer = AcpmuxServerPeer.socketPeer(socketPath: environment.socketPath), peer.uid == getuid(),
-              let pid = status.pid, peer.pid == pid,
-              isStray(runningPath: peer.executablePath, executable: environment.executable) else { return false }
+        guard let peer = strayPeer(status, environment: environment), let pid = status.pid else { return false }
         let path = peer.executablePath
-        guard status.agentHosts else {
-            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and has no agent hosts; its agents would end, so it keeps running")
+        // Without agent hosts its agents end, but chats it keeps on disk resume in the bundled
+        // daemon; only a memory store's would be lost.
+        guard AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk) else {
+            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and keeps its chats in memory without agent hosts; they would be lost, so it keeps running")
             return false
         }
-        guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
+        // Taken and marked restarting in one step, as a version handoff does: Settings' daemon
+        // line says restarting until the lookup that starts the bundled one settles, or until
+        // this takeover fails.
+        let inserted = handedOff.withLock { pids in
+            let inserted = pids.insert(pid).inserted
+            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            return inserted
+        }
+        guard inserted else { return false }
         logger.info("acpmux \(pid) at \(path, privacy: .public) is not this app's; taking it over")
         // launchd's SIGTERM detaches its agents like a shutdown. A bootout that fails falls back
         // to the shutdown request.
@@ -80,10 +88,34 @@ nonisolated enum AcpmuxStrayDaemon {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux takeover request failed: \(String(describing: error), privacy: .public)")
+            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        return exited
+    }
+
+    /// The socket's peer when the daemon `status` describes is stray: this user's, the very
+    /// process on the socket (`LOCAL_PEERPID`), run from no cmux install. Nil otherwise.
+    private static func strayPeer(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) -> UnixSocketPeer? {
+        guard let peer = AcpmuxServerPeer.socketPeer(socketPath: environment.socketPath), peer.uid == getuid(),
+              let pid = status.pid, peer.pid == pid,
+              isStray(runningPath: peer.executablePath, executable: environment.executable) else { return nil }
+        return peer
+    }
+
+    /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
+    /// ``AcpmuxDaemonSummary``): whether it is stray, and whether ``handOffIfStray(_:environment:)``
+    /// would take it over now. An attached daemon is never taken over, nor one this process took once.
+    static func takesOver(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) -> (stray: Bool, takesOver: Bool) {
+        guard strayPeer(status, environment: environment) != nil, let pid = status.pid else { return (false, false) }
+        guard !environment.isAttached,
+              AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk) else {
+            return (true, false)
+        }
+        return (true, !handedOff.withLock { $0.contains(pid) })
     }
 
     /// Boots out this user's launchd job whose own process is daemon `runningPID` (`acpmux host
