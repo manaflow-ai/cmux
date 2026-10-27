@@ -1510,7 +1510,8 @@ export class FreestyleProvider implements VMProvider {
       }),
       async (span) => {
         try {
-          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          // A caller's signal (ExecOptions.signal) ends the request with it.
+          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS, opts?.signal);
           const vm = fs.vms.ref(vmId);
           // Public `vm exec` commands belong to the same account as Cloud
           // terminals and coding agents. Leaving `linuxUser` unset asks the
