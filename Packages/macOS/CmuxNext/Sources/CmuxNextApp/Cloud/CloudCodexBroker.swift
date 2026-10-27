@@ -516,8 +516,6 @@ private actor CodexBrokerSession {
     private let process: Process
     private let input: FileHandle
     private let output: FileHandle
-    // task-owner: this reader is cancelled with the private broker process.
-    private var readTask: Task<Void, Never>?
     private var buffer = Data()
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<BrokerResult, Swift.Error>] = [:]
@@ -539,7 +537,9 @@ private actor CodexBrokerSession {
         self.process = process
         self.input = inputPipe.fileHandleForWriting
         self.output = outputPipe.fileHandleForReading
-        self.readTask = Task { [weak self, output = outputPipe.fileHandleForReading] in
+        // task-owner: this reader is bounded by the private broker process and
+        // terminates on EOF; pending continuations are failed by terminationHandler.
+        Task { [weak self, output = outputPipe.fileHandleForReading] in
             do {
                 for try await line in output.bytes.lines {
                     await self?.consume(Data((line + "\n").utf8))
@@ -555,7 +555,6 @@ private actor CodexBrokerSession {
     }
 
     deinit {
-        readTask?.cancel()
         try? input.close()
         try? output.close()
         if process.isRunning { process.terminate() }
