@@ -215,54 +215,33 @@ pub(super) fn serve_connection(
     admission: &dyn admission::LineAdmission,
     frames: &mut dyn FrameLane,
 ) -> ConnectionEnd {
-    let Ok(mut write_half) = stream.try_clone_box() else { return ConnectionEnd::Dropped };
+    let Ok(write_half) = stream.try_clone_box() else { return ConnectionEnd::Dropped };
     let Ok(control) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
-    let Ok(writer_socket) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
+    // The timeout a blocking write obeys; the reactor's own writes never
+    // block and end a peer that takes nothing for as long.
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
     let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+    outbound.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
     );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let writer_ipc = mux.ipc_stats().clone();
-    let writer_hangs = mux.echo_watch();
-    // The writer holds the connection's slot until it has written its last
-    // item, so the reader never joins it: a join is a wait for another
-    // thread, which a reader that disallows blocking may not make.
-    let writer_permit = connection_permit.clone();
-    let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
-        let _permit = writer_permit;
-        // Ends the connection however the writer ends, a panic included: a
-        // dead writer with an open socket left its client waiting forever.
-        let _end = WriterEnd { writer: writer_close, socket: writer_socket };
-        let _hang_watch =
-            cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
-        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
-        let mut batch = Vec::new();
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
-        while writer_outbound.recv_batch(&mut batch) {
-            // Each batch's write is a 100 ms hang scope; the wait above is not.
-            let _batch = writer_hangs.item(WatchKind::LineOut);
-            // One scope per write, as long as the socket's write timeout:
-            // the queue wait above is outside it.
-            let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
-            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
-            drop(write);
-            // The written texts go now, not when the next item arrives.
-            batch.clear();
-            if written.is_err() {
-                writer_outbound.close();
-                break;
-            }
-        }
-    }) else {
+    // The IO reactor writes the queue from here on (p05-ipc-156). It holds
+    // the connection's slot until it has written the last item, so the
+    // reader never waits for the writes to end.
+    let output = io_reactor::LineOutput {
+        outbound,
+        socket: write_half,
+        ipc: mux.ipc_stats().clone(),
+        hangs: mux.echo_watch(),
+        _end: Box::new(WriterEnd { writer: writer.clone(), _permit: connection_permit.clone() }),
+    };
+    if mux.io_reactor.adopt(output).is_err() {
         writer.close();
         return ConnectionEnd::Dropped;
-    };
+    }
     let client = mux.control_clients.register(transport, writer.clone());
     // The connection's stream 0, open until the connection ends
     // (`server-stats` `ipc`).
@@ -271,10 +250,9 @@ pub(super) fn serve_connection(
     origin_gate::set_peer_identity_at_accept(&mux, client, peer);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
-        // limits): nothing is read or dispatched. The writer ends on its own
-        // once the disconnect closes its queue.
+        // limits): nothing is read or dispatched. The reactor ends the
+        // output once the disconnect closes its queue.
         disconnect_client(&mux, client, false);
-        drop(writer_thread);
         return ConnectionEnd::Dropped;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -387,8 +365,9 @@ pub(super) fn serve_connection(
     let (end, panic) = match served {
         Ok(end) => (end, None),
         Err(panic) => {
-            // Close the queue first: the writer ends and shuts the socket
-            // down even if the disconnect below finds a poisoned lock.
+            // Close the queue first: the reactor ends the output and shuts
+            // the socket down even if the disconnect below finds a poisoned
+            // lock.
             writer.close();
             (ConnectionEnd::Dropped, Some(panic))
         }
@@ -404,9 +383,8 @@ pub(super) fn serve_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    // The disconnect closed the writer's queue: the writer writes what is
-    // left, shuts the socket down and releases its hold on the slot.
-    drop(writer_thread);
+    // The disconnect closed the queue: the reactor writes what is left,
+    // shuts the socket down and releases its hold on the slot.
     drop(connection_permit);
     if let Some(panic) = panic {
         std::panic::resume_unwind(panic);
@@ -414,19 +392,18 @@ pub(super) fn serve_connection(
     end
 }
 
-/// The end of a connection's writer, however the writer ends: its queue
-/// closes and its socket shuts down, so the client reads the end of the
-/// stream and the reader's next read fails. It takes only locks that
-/// recover from poison, so it runs while the writer unwinds too.
+/// The end of a connection's output, however it ends (its queue drained
+/// after the close, a failed write, a stalled peer, a panic in its turn):
+/// the reactor drops it after the socket shut down, which closes the
+/// connection's writer and then frees its slot.
 struct WriterEnd {
     writer: MessageWriter,
-    socket: Box<dyn transport::Stream>,
+    _permit: Option<ConnectionPermit>,
 }
 
 impl Drop for WriterEnd {
     fn drop(&mut self) {
         self.writer.close();
-        let _ = self.socket.shutdown(Shutdown::Both);
     }
 }
 

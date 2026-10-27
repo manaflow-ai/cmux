@@ -16,9 +16,10 @@
 //! longer than the connection's chunk size (BULK_FRAME_MAX) leaves in chunks,
 //! so a reply waits for at most one chunk of it.
 //!
-//! The writer thread takes every ready item, in that order, up to
-//! [`WRITE_BATCH_BYTES`] and writes them with one `writev` of their buffers
-//! (headers and payloads unconcatenated), as Mojo's
+//! A line connection's writer, the IO reactor (server/io_reactor.rs), takes
+//! every ready item, in that order, up to [`WRITE_BATCH_BYTES`] and writes
+//! them with one `writev` of their buffers (headers and payloads
+//! unconcatenated), as Mojo's
 //! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
 //! writes its queued messages. A chunk ends its batch, so the one-chunk bound
 //! above holds for the batched writer too.
@@ -40,6 +41,7 @@ use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::attach_streams::ClientStreams;
 use crate::panic_free::RecoverPoison;
+use crate::stream_interrupt::ReadyHook;
 use cmux_ipc::FrameHeader;
 use cmux_ipc::lane_writer::BULK_FRAME_MAX;
 use cmux_threads::checked::sync as waits;
@@ -50,7 +52,7 @@ use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::MutexGuard;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 #[path = "outbound_lanes.rs"]
@@ -69,13 +71,20 @@ mod tests;
 
 #[path = "outbound_batch.rs"]
 mod batch;
-pub(super) use batch::write_counted_batch;
 #[cfg(test)]
 pub(super) use batch::write_line_outbound_item;
+pub(super) use batch::{BatchTake, answer_flushes, count_batch_sent, write_gathered_from};
 
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
     pub(super) changed: Condvar,
+    /// The writer that does not wait on `changed` (the IO reactor,
+    /// server/io_reactor.rs): run after every change a writer acts on, an
+    /// item queued or the queue closed.
+    writer_ready: ReadyHook,
+    /// How long the writer waits for a peer that takes no bytes before it
+    /// ends the connection, in milliseconds; 0 waits without a limit.
+    write_timeout_ms: AtomicU64,
 }
 
 impl Default for BoundedOutbound {
@@ -191,7 +200,41 @@ pub(super) fn claim_connection(
 impl BoundedOutbound {
     /// A queue whose stream frames longer than `chunk_bytes` leave in chunks.
     pub(super) fn with_chunk_bytes(chunk_bytes: usize) -> Self {
-        Self { state: Mutex::new(BoundedOutboundState::new(chunk_bytes)), changed: Condvar::new() }
+        Self {
+            state: Mutex::new(BoundedOutboundState::new(chunk_bytes)),
+            changed: Condvar::new(),
+            writer_ready: ReadyHook::default(),
+            write_timeout_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Installs the writer's wake; false when one is installed already.
+    pub(super) fn set_writer_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.writer_ready.set(hook)
+    }
+
+    /// Wakes the queue's writer after a change it acts on: the thread that
+    /// waits on `changed` (`notify_all` wakes waiting producers too), and
+    /// the writer's hook, outside the queue's lock.
+    fn wake_writer(&self, all: bool) {
+        if all {
+            self.changed.notify_all();
+        } else {
+            self.changed.notify_one();
+        }
+        self.writer_ready.wake();
+    }
+
+    /// Sets how long the writer waits for a peer that takes no bytes
+    /// (`None`: no limit), as `SO_SNDTIMEO` bounds a blocking write.
+    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) {
+        let millis = timeout.map_or(0, |timeout| timeout.as_millis().clamp(1, u64::MAX as u128));
+        self.write_timeout_ms.store(millis as u64, Ordering::Relaxed);
+    }
+
+    pub(super) fn write_timeout(&self) -> Option<Duration> {
+        let millis = self.write_timeout_ms.load(Ordering::Relaxed);
+        (millis > 0).then(|| Duration::from_millis(millis))
     }
 
     pub(super) fn push_regular(
@@ -231,7 +274,7 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         let result = Self::push_regular_locked(&mut state, message, initial);
         drop(state);
-        self.changed.notify_all();
+        self.wake_writer(true);
         result
     }
 
@@ -257,7 +300,7 @@ impl BoundedOutbound {
                 let message = RegularOutbound::line(text, stream);
                 let result = Self::push_regular_locked(&mut state, message, false);
                 drop(state);
-                self.changed.notify_all();
+                self.wake_writer(true);
                 return result;
             }
             let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
@@ -359,7 +402,8 @@ impl BoundedOutbound {
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
         Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
+        drop(state);
+        self.wake_writer(false);
         Ok(())
     }
 
@@ -371,7 +415,7 @@ impl BoundedOutbound {
         }
         state.enqueue_control(ControlOutbound::Flush(flushed_tx));
         drop(state);
-        self.changed.notify_one();
+        self.wake_writer(false);
         match waits::recv_timeout(&flushed_rx, timeout) {
             Ok(()) => Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
@@ -397,7 +441,8 @@ impl BoundedOutbound {
             return Ok(());
         }
         Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
+        drop(state);
+        self.wake_writer(false);
         Ok(())
     }
 
@@ -415,7 +460,7 @@ impl BoundedOutbound {
         state.mark_terminal_queued(stream);
         Self::push_control_locked(&mut state, text)?;
         drop(state);
-        self.changed.notify_one();
+        self.wake_writer(false);
         Ok(())
     }
 
@@ -434,7 +479,7 @@ impl BoundedOutbound {
             state = next;
         }
         drop(state);
-        self.changed.notify_all();
+        self.wake_writer(true);
         Ok(())
     }
 
@@ -454,7 +499,7 @@ impl BoundedOutbound {
             return Ok(false);
         }
         drop(state);
-        self.changed.notify_all();
+        self.wake_writer(true);
         Ok(true)
     }
 
@@ -555,7 +600,7 @@ impl BoundedOutbound {
         Self::admit_control_locked(&mut state, text.len())?;
         state.enqueue_control(ControlOutbound::Frame(header, text));
         drop(state);
-        self.changed.notify_one();
+        self.wake_writer(false);
         Ok(())
     }
 
@@ -615,7 +660,7 @@ impl BoundedOutbound {
     }
 
     /// The writer's next item, or `None` once the queue is closed and empty.
-    /// Only the connection's writer (`mux-line-out`, `mux-ws-out`) calls it,
+    /// Only a connection's writer thread (`mux-ws-out`) calls it,
     /// at the top of its loop: with nothing queued it is idle, holding no
     /// one else's work, so the wait is an idle wait (Chromium's
     /// `WaitableEvent::declare_only_used_while_idle`, which
@@ -681,7 +726,7 @@ impl BoundedOutbound {
     fn release_closed(&self, mut state: MutexGuard<'_, BoundedOutboundState>) {
         let room = std::mem::take(&mut state.room_waiters);
         drop(state);
-        self.changed.notify_all();
+        self.wake_writer(true);
         for waker in room {
             waker();
         }

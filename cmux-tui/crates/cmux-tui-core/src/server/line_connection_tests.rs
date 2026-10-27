@@ -408,7 +408,7 @@ fn line_connection_the_declared_capability_negotiates_frames() {
 }
 
 /// A connection's stream whose next write, once `stall` is set, takes
-/// 150 ms: an injected `mux-line-out` stall.
+/// 150 ms: an injected stall of the IO reactor's write.
 struct StallingStream {
     inner: UnixStream,
     stall: Arc<AtomicBool>,
@@ -464,10 +464,10 @@ fn settled_wakeups(mux: &Mux) -> u64 {
     }
 }
 
-/// p02-threads task 232: the connection's `mux-line-out` writer watches each
+/// p02-threads task 232: the IO reactor (p05-ipc-156) watches each
 /// item it writes. A reply whose write stalls 150 ms is one hang of the
 /// mux's watchdog (`slow_requests.hangs`; the request watchdog tests check
-/// the row names `mux-line-out`), the replies before and after it none, and
+/// the row names `mux-io-reactor`), the replies before and after it none, and
 /// the idle connection then wakes the watchdog 0 times.
 #[test]
 fn line_connection_a_stalled_write_is_one_line_out_hang_and_idle_wakes_nothing() {

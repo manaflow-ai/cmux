@@ -413,7 +413,8 @@ fn server_threads_names_a_connection_threads_connection() {
     assert_eq!(connection["origin"], "agent", "{row}");
     assert_eq!(connection["remote_device"], false, "{row}");
     assert_eq!(connection["peer_pid"], std::process::id(), "{row}");
-    for writer in rows.iter().filter(|row| row["name"] == "mux-line-out") {
+    let reactor = crate::server::io_reactor::REACTOR_THREAD;
+    for writer in rows.iter().filter(|row| row["name"] == reactor) {
         assert!(
             writer["connection"].is_null(),
             "a writer is no reader or request thread: {writer}"

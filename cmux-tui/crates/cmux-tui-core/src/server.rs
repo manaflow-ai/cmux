@@ -2393,11 +2393,13 @@ use connection_scheduler::{
     ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
 };
 
+mod io_reactor;
+pub(crate) use io_reactor::IoReactor;
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_counted_batch,
+    SynchronizedTcpStream, claim_connection,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};

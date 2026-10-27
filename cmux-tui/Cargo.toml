@@ -290,6 +290,8 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+# The daemon's IO reactor (cmux-tui-core server/io_reactor.rs); tokio links the same version.
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"

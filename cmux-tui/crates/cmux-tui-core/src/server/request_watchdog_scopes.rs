@@ -33,7 +33,8 @@ pub(crate) enum WatchKind {
     /// Debug builds only: the owner's hang log test (tests/owner_panic.rs).
     #[cfg(debug_assertions)]
     OwnerTest,
-    /// One item a connection's `mux-line-out` writer writes to its socket.
+    /// One turn of the IO reactor (`mux-io-reactor`) writing a line
+    /// connection's queue to its socket.
     LineOut,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,
@@ -89,7 +90,7 @@ impl WatchKind {
             Self::HolderLink => "holder-link",
             #[cfg(debug_assertions)]
             Self::OwnerTest => "owner-hang-test",
-            Self::LineOut => "mux-line-out",
+            Self::LineOut => "mux-io-reactor",
             Self::PtyInput => "mux-pty-input",
             Self::AttachOut => "mux-attach-out",
             Self::RenderAttachOut => "mux-render-attach-out",

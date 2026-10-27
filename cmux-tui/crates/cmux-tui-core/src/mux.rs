@@ -836,6 +836,8 @@ pub struct Mux {
     /// The daemon-wide sequenced pool: every connection's control sequence
     /// and stream sequences run on its fixed workers (p05-ipc-073).
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// The IO reactor that writes every line connection (p05-ipc-156).
+    pub(crate) io_reactor: crate::server::IoReactor,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life

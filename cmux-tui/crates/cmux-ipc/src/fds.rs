@@ -127,6 +127,36 @@ pub fn send_with_fds(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize
     }
 }
 
+/// Buffers one gathered write takes at most (`IOV_MAX` on Linux and macOS);
+/// a longer list sends its first `MAX_IOVECS` buffers.
+pub const MAX_IOVECS: usize = 1024;
+
+/// One gathered `sendmsg` of `bufs` that never waits: a full send buffer is
+/// a `WouldBlock` error whatever the socket's blocking mode, so a reactor
+/// can write a socket whose other handles read it blocking (Mojo's
+/// `ChannelPosix` writes with `MSG_DONTWAIT` the same way,
+/// mojo/public/cpp/platform/socket_utils_posix.cc `SendmsgWithHandles`).
+/// Returns the bytes sent.
+pub fn send_vectored_nonblocking(fd: RawFd, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+    let bufs = bufs.get(..bufs.len().min(MAX_IOVECS)).unwrap_or(bufs);
+    // SAFETY: zeroed msghdr is a valid empty header.
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    // `IoSlice` is ABI-compatible with `iovec` on Unix; sendmsg only reads it.
+    msg.msg_iov = bufs.as_ptr().cast::<libc::iovec>().cast_mut();
+    msg.msg_iovlen = bufs.len() as _;
+    loop {
+        // SAFETY: msg points at `bufs`, live for the call.
+        let n = unsafe { libc::sendmsg(fd, &msg, SEND_FLAGS | libc::MSG_DONTWAIT) };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 /// `sendmsg` flags: a write to a gone peer is EPIPE, not SIGPIPE (macOS
 /// gets that from `SO_NOSIGPIPE` on the socket instead).
 #[cfg(target_os = "linux")]

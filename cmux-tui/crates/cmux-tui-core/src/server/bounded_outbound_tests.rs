@@ -58,7 +58,7 @@ fn pop(outbound: &BoundedOutbound) -> Option<OutboundItem> {
 
 const SNAPSHOT_BYTES: usize = MAX_FRAME_PAYLOAD as usize;
 
-/// p02-threads 308: a connection's writer (`mux-line-out`, an echo thread
+/// p02-threads 308: a connection's writer thread (`mux-ws-out`, an echo thread
 /// with blocking disallowed) waits for its next item at the top of its loop.
 /// That wait is the thread being idle, not a blocking call (Chromium's
 /// `WaitableEvent::declare_only_used_while_idle`): in the detector's panic

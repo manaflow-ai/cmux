@@ -147,6 +147,12 @@ impl IpcStats {
         self.bad_message.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// A nonblocking write found the peer's receive buffer full (the IO
+    /// reactor's `WouldBlock`): the stall a blocking write would have waited.
+    pub fn write_would_block(&self) {
+        self.write_stalls.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// `writer`, with each `write` or `write_vectored` call (one syscall on
     /// a socket) counted
     /// and timed against [`WRITE_STALL_THRESHOLD`].

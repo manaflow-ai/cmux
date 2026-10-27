@@ -1860,6 +1860,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "mio",
  "notify",
  "objc2-foundation",
  "parking_lot",

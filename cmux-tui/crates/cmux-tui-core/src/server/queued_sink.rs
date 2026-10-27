@@ -311,6 +311,9 @@ impl MessageSink for QueuedSink {
     }
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        // The IO reactor's writes never block: it ends a stalled peer at the
+        // queue's timeout. A blocking writer obeys the socket's.
+        self.outbound.set_write_timeout(timeout);
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
     }
 

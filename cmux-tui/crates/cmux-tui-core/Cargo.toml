@@ -82,6 +82,8 @@ base64.workspace = true
 # attach frame payloads share it (server/attach_frames.rs).
 bytes.workspace = true
 libc.workspace = true
+# One poll for every connection's writes (server/io_reactor.rs, p05-ipc-156).
+mio.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true

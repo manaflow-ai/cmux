@@ -192,7 +192,7 @@ fn request_watchdog_ledger_counts_an_echo_item_after_its_hang_log_record() {
     watcher.advance(500_000);
     let hangs = watchdog.hangs();
     assert_eq!(hangs.over_250ms, 2, "{hangs:?}");
-    assert_eq!(hangs.records[1].span, "mux-line-out:write-item", "{hangs:?}");
+    assert_eq!(hangs.records[1].span, "mux-io-reactor:write-item", "{hangs:?}");
     assert_eq!(hangs.records[1].duration_ms, 400, "busy up to the read: {hangs:?}");
     drop(item);
     watcher.advance(10_000_000);

@@ -1,7 +1,7 @@
 //! An accepted Unix connection in the detector's panic mode, the Debug
 //! default (`CMUX_DAEMON_BLOCKING` unset). Its reader (`mux-conn`) and its
-//! writer (`mux-line-out`) disallow blocking, so a blocking call on either
-//! is a panic that leaves the client with no reply and no close: the test
+//! writer (the IO reactor, `mux-io-reactor`) disallow blocking, so a
+//! blocking call on either is a panic that leaves the client with no reply and no close: the test
 //! suite's daemon tests then waited for their 120 s timeout.
 
 use std::io::{BufRead, BufReader, Read, Write};

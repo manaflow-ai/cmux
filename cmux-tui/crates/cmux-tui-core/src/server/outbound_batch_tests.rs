@@ -258,3 +258,93 @@ fn outbound_batch_ping_reply_waits_at_most_one_chunk_of_a_32_mib_snapshot() {
     let chunks = batch.iter().filter(|item| matches!(item, OutboundItem::Chunk { .. })).count();
     assert!(chunks <= 1, "{chunks} chunks in one batch");
 }
+
+/// A batch take frees room like a single pop (p05-ipc-156): a producer
+/// stopped at its stream's backpressure cap is woken through its space
+/// hook. The batched writer took items without waking it.
+#[test]
+fn outbound_batch_take_wakes_a_stream_waiting_for_space() {
+    let service = RenderService::new();
+    let outbound = BoundedOutbound::default();
+    let stream = stream_on(&service, 1, StreamLane::Bulk);
+    let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = woken.clone();
+    assert!(stream.space_hook.set(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    while outbound.has_backpressure_room(&stream) {
+        outbound.push_regular(payload(&service, 8), &stream).unwrap();
+    }
+    let mut batch = Vec::new();
+    // `recv_batch` and `try_batch` take through one path.
+    assert!(outbound.recv_batch(&mut batch));
+    assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1, "the producer is woken");
+    assert_eq!(outbound.try_batch(&mut batch), BatchTake::Empty);
+    outbound.close();
+    assert_eq!(outbound.try_batch(&mut batch), BatchTake::Ended);
+}
+
+/// Takes at most `room` bytes, then refuses with `WouldBlock` until it is
+/// given more: a nonblocking socket whose buffer filled.
+struct FullSocket {
+    bytes: Vec<u8>,
+    room: usize,
+}
+
+impl Write for FullSocket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.write_vectored(&[IoSlice::new(buf)])
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        if self.room == 0 {
+            return Err(ErrorKind::WouldBlock.into());
+        }
+        let mut taken = 0;
+        for buf in bufs {
+            let count = buf.len().min(self.room - taken);
+            self.bytes.extend_from_slice(&buf[..count]);
+            taken += count;
+            if taken == self.room {
+                break;
+            }
+        }
+        self.room -= taken;
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The reactor's write (p05-ipc-156) resumes a batch at the byte the full
+/// socket stopped: the bytes match single pops' in order.
+#[test]
+fn outbound_batch_write_resumes_where_the_socket_would_block() {
+    let service = RenderService::new();
+    let (single, batched) = (BoundedOutbound::default(), BoundedOutbound::default());
+    queue_mixed(&service, &single, 100, 3_000);
+    queue_mixed(&service, &batched, 100, 3_000);
+    let expected = written_one_by_one(&single);
+
+    let mut socket = FullSocket { bytes: Vec::new(), room: 0 };
+    let mut batch = Vec::new();
+    let mut would_block = 0;
+    while batched.try_batch(&mut batch) == BatchTake::Taken {
+        let mut written = 0;
+        loop {
+            match write_gathered_from(&mut socket, &batch, &mut written) {
+                Ok(()) => break,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    would_block += 1;
+                    socket.room = 1_000;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        answer_flushes(&mut batch);
+    }
+    assert!(would_block > 10, "{would_block}");
+    assert!(socket.bytes == expected, "the resumed writes changed the bytes or their order");
+}

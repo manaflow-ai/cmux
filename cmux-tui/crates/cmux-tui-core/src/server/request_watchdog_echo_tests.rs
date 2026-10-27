@@ -1,4 +1,4 @@
-//! Echo thread items (p02-threads task 232): each item of `mux-line-out`,
+//! Echo thread items (p02-threads task 232): each item of `mux-io-reactor`,
 //! `mux-pty-input`, `mux-attach-out` and `mux-render-attach-out` work is a
 //! 100 ms scope of the request watchdog. One busy past it is one hang
 //! record naming the thread's scope; a short one is none; an idle watchdog
@@ -36,7 +36,7 @@ fn scope_and_method(record: &serde_json::Value) -> (Option<&str>, Option<&str>) 
     (record["scope"].as_str(), record["method"].as_str())
 }
 
-/// A 150 ms line-out write is one row naming `mux-line-out` at its 100 ms
+/// A 150 ms reactor write is one row naming `mux-io-reactor` at its 100 ms
 /// tier; it never lands in `slow_requests`, and nothing else is written.
 #[test]
 fn a_150ms_line_out_item_is_one_hang_row_naming_mux_line_out() {
@@ -47,7 +47,7 @@ fn a_150ms_line_out_item_is_one_hang_row_naming_mux_line_out() {
         std::thread::sleep(Duration::from_millis(150));
     }
     let record = received.recv_timeout(Duration::from_secs(10)).expect("a hang record");
-    assert_eq!(scope_and_method(&record), (Some("mux-line-out"), Some("write-item")), "{record}");
+    assert_eq!(scope_and_method(&record), (Some("mux-io-reactor"), Some("write-item")), "{record}");
     assert_eq!(record["hang_ms"], 100, "{record}");
     assert!(record["busy_ms"].as_u64().unwrap() >= 150, "{record}");
     assert!(record.get("client").is_none(), "{record}");

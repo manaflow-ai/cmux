@@ -1,6 +1,6 @@
 //! The daemon's echo path threads run at UserInteractive with blocking
-//! disallowed (p02-threads task 210): a served connection's writer, its
-//! attach writers, the read loop a local PTY surface reads on and the frame
+//! disallowed (p02-threads task 210): the IO reactor that writes served
+//! connections (p05-ipc-156), their attach writers, the read loop a local PTY surface reads on and the frame
 //! producer are registered at that class. Connection readers stay at their own class until
 //! the client class is known (task 224).
 
@@ -56,7 +56,8 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     // A local PTY reads on its owner's read loop, not a thread of its own
     // (p07-memory-095).
     let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
-    for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", reader] {
+    let reactor = io_reactor::REACTOR_THREAD;
+    for name in [reactor, "mux-attach-out", "mux-render-attach-out", reader] {
         assert_rows(name, ECHO_PATH_QOS);
     }
     assert_rows("surface-frames", ECHO_PATH_QOS);
