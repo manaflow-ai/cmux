@@ -34,6 +34,18 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// Whether a machine is a dedicated agent VM (vmHost): Claude runs there
+    /// without the sandbox and your own machine's sessions start approve-all,
+    /// the VM being the boundary. On by default on a VM cmux created, never
+    /// on a personal or SSH-added machine (`on` is refused there). Applies to
+    /// new sessions at once, with no restart.
+    VmHost {
+        /// A peer; omit for this machine.
+        name: Option<String>,
+        /// on or off; omit to show it.
+        #[arg(value_parser = ["on", "off"])]
+        state: Option<String>,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -95,6 +107,23 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+    },
+    /// Hold a machine (a peer name or its ssh host) off `host update`: the
+    /// update, `--all` and the app's own update queue leave it alone (`held`)
+    /// and never reach it, so its daemon is never restarted. For a machine
+    /// that is not yours to update now, such as one reserved for someone
+    /// else. With no NAME, list the holds (~/.acpmux/update-holds.json).
+    Hold {
+        name: Option<String>,
+        /// Why, shown in the update's row.
+        #[arg(long, requires = "name")]
+        reason: Option<String>,
+        /// When the hold ends by itself (RFC 3339, 2026-10-28T23:59:59Z).
+        #[arg(long, requires = "name")]
+        until: Option<String>,
+        /// End the hold.
+        #[arg(long, requires = "name", conflicts_with_all = ["reason", "until"])]
+        release: bool,
     },
     /// On a Linux host, bring this machine's own daemon to the newest build
     /// of a channel (what acpmux-update.timer runs every 15 minutes): when

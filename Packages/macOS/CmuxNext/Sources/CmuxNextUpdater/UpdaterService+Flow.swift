@@ -95,6 +95,7 @@ extension UpdaterService {
         case .install:
             stagedRefresh.installStarted()
             automaticInstallInFlight = false
+            automaticInstallFrontmost = nil
             // The newest build of the ring, not a stale staged one (one click, one relaunch).
             stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
         case .download:
@@ -165,6 +166,7 @@ extension UpdaterService {
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
         tipCheck.refresh(self)
+        followReleasePush()
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -173,6 +175,7 @@ extension UpdaterService {
             // An install nobody clicked failed: nothing opens over the person's work; the
             // log keeps it and the next check offers the update again.
             automaticInstallInFlight = false
+            automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
@@ -218,11 +221,13 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
-        // "Download and Install Updates Automatically": on, a downloaded update installs by itself
-        // (the relaunch keeps every session); off, nothing downloads or relaunches until a click.
-        if let controller, controller.installsUpdatesWhenIdle != downloadAutomatically { controller.installsUpdatesWhenIdle = downloadAutomatically }
+        // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
+        // them. The app restarts only on the person's click (Restart to Update), so the idle install
+        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
+        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
+        refreshReleasePush()
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -265,6 +270,7 @@ extension UpdaterService {
         defer {
             tipCheck.refresh(self)
             stagedRefresh.policyChanged(updater: self)
+            refreshReleasePush()
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads

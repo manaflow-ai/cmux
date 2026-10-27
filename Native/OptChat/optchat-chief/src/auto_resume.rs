@@ -154,12 +154,6 @@ const TRANSIENT: &[&str] = &[
     "rate limit",
     "rate_limit",
     "too many requests",
-    "429",
-    "500",
-    "502",
-    "503",
-    "504",
-    "529",
     "internal server error",
     "bad gateway",
     "service unavailable",
@@ -171,6 +165,35 @@ const TRANSIENT: &[&str] = &[
     "internal error",
     "server error",
 ];
+
+/// HTTP statuses a retry may clear, matched only as a whole number: "500"
+/// inside "205000 tokens" or a request id is none.
+const TRANSIENT_STATUS: &[&str] = &["429", "500", "502", "503", "504", "529"];
+
+/// Errors of the request itself: the same request fails again, whatever
+/// else the text names (a token count, an "upstream" word). Checked before
+/// `TRANSIENT`.
+const FINAL: &[&str] = &[
+    "invalid_request_error",
+    "prompt is too long",
+    "authentication_error",
+    "permission_error",
+    "not_found_error",
+    "api error: 400",
+    "api error: 401",
+    "api error: 403",
+    "api error: 404",
+    "api error: 413",
+];
+
+/// Whether `code` stands in `text` as a whole number (no digit next to it).
+fn has_status(text: &str, code: &str) -> bool {
+    text.match_indices(code).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + code.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_digit()) && !after.is_some_and(|c| c.is_ascii_digit())
+    })
+}
 
 /// The error line of a reply, when it ends on one: its last non-empty line
 /// when that line is a harness error (`API Error`, `(turn failed: ...)`,
@@ -194,9 +217,17 @@ pub fn classify(report: &str, user_stopped: bool) -> StopKind {
     if user_stopped {
         return StopKind::UserStopped;
     }
-    let Some(line) = error_line(report) else {
-        return StopKind::Done;
-    };
+    match error_line(report) {
+        Some(line) => classify_error(line),
+        None => StopKind::Done,
+    }
+}
+
+/// How an error line ended a run, with no check that it is one: the
+/// Chief's own turn reads its harness error from the turn's outcome, not
+/// from the end of a reply (`brain/turns.rs` `cut_kind`). `Done` when the
+/// error is none a retry can clear.
+pub fn classify_error(line: &str) -> StopKind {
     let lower = line.to_ascii_lowercase();
     if lower.contains("cancelled") || lower.contains("canceled") {
         return StopKind::UserStopped;
@@ -209,7 +240,12 @@ pub fn classify(report: &str, user_stopped: bool) -> StopKind {
     if USAGE_LIMIT.iter().any(|p| plain.contains(p)) {
         return StopKind::UsageLimit(line.to_owned());
     }
-    if TRANSIENT.iter().any(|p| lower.contains(p)) {
+    if FINAL.iter().any(|p| lower.contains(p)) {
+        return StopKind::Done;
+    }
+    if TRANSIENT.iter().any(|p| lower.contains(p))
+        || TRANSIENT_STATUS.iter().any(|c| has_status(&lower, c))
+    {
         return StopKind::Transient(line.to_owned());
     }
     StopKind::Done
@@ -485,6 +521,26 @@ mod tests {
             "API Error: 502 Bad Gateway",
         ] {
             assert!(matches!(classify(r, false), StopKind::Transient(_)), "{r}");
+        }
+    }
+
+    /// A status code inside a number is none, and an error of the request
+    /// itself is final even when it names a 5xx-looking count (issue 25577).
+    #[test]
+    fn a_request_error_or_a_code_inside_a_number_is_not_transient() {
+        for e in [
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 205000 tokens > 200000 maximum\"}}",
+            "API Error: 401 authentication_error: invalid x-api-key (request req_0115002)",
+            "setting the turn's system prompt: wrote 15004 bytes, sha mismatch",
+        ] {
+            assert_eq!(classify_error(e), StopKind::Done, "{e}");
+        }
+        for e in [
+            "API Error: 500 Internal server error",
+            "status 503: try later",
+            "API Error: 429",
+        ] {
+            assert!(matches!(classify_error(e), StopKind::Transient(_)), "{e}");
         }
     }
 

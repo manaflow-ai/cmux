@@ -256,7 +256,7 @@
 }
 
 .keys-cap {
-  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 12px var(--font-ui);
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid var(--page-separator);
@@ -536,13 +536,16 @@
 }
 
 /* Chromium only (WebKit's backdrop blurs in place): over an opaque window too, the tint alone
-   lets the crisp rows through, so the recorder lays it over the underlay in every window. The
-   tint is opaque under Reduce Transparency (glass.css), so this is too. */
-@supports not (-webkit-backdrop-filter: none) {
-  :root:not([data-glass-lens]) .ui-popup.ui-glass.keys-recorder {
-    background:
-      linear-gradient(var(--glass-tint), var(--glass-tint)),
-      color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+   lets the crisp rows through, so the recorder lays it over the underlay in every window. Under
+   Reduce Transparency (the system's, or the host's data-reduce-transparency) the underlay is left
+   out, as glass.css leaves out its own: the tint is opaque there, so the popup is the same. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-glass-lens], [data-reduce-transparency]) .ui-popup.ui-glass.keys-recorder {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
   }
 }
 
@@ -560,6 +563,7 @@
 .keys-recorder-hint {
   font-size: var(--text-body);
   color: var(--ui-fg-2);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* "Press ⌫ to delete" leads the recorder: brighter than the other hints, not the full ink. */
@@ -614,6 +618,7 @@
   font-size: var(--text-title);
   font-weight: 600;
   color: var(--keys-taken);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .keys-recorder-refusal .keys-recorder-owner {
@@ -675,6 +680,7 @@
   box-shadow:
     inset 0 0 0 0.5px var(--ui-line),
     inset 0 -1px 0 var(--ui-line);
+    letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* The saved keys' conflicts, one line of text in the primary ink: "ⓘ Conflicts with: A, B". */
@@ -682,6 +688,7 @@
   display: block;
   font-size: var(--text-caption);
   color: var(--ui-fg);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .keys-recorder-conflict .keys-icon {
@@ -715,6 +722,7 @@
   text-align: start;
   font-size: var(--text-caption);
   color: var(--ui-fg-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .keys-recorder-button {
@@ -728,6 +736,7 @@
   font: inherit;
   font-size: var(--text-caption);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .keys-recorder-choices {

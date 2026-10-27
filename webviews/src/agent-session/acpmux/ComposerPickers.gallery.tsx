@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixtures exercise picker states and labels, not shipped copy.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
+import { rememberFullAccess } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -14,7 +15,8 @@ const galleryAccounts: ChatAccounts = {
 };
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
-type Props = { claude?: boolean; accounts?: boolean };
+/** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
+type Props = { claude?: boolean; accounts?: boolean; managed?: boolean };
 
 const directAccounts: ChatAccounts = {
   list: async () =>
@@ -185,7 +187,12 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts }: Props) {
+function GalleryComposerPickers({ claude, accounts, managed }: Props) {
+  // As an acpmux answer would set it; cleared again when the variant goes.
+  useEffect(() => {
+    rememberFullAccess(managed ? "managed" : undefined);
+    return () => rememberFullAccess(undefined);
+  }, [managed]);
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -387,6 +394,17 @@ const openMode: Play = async (ctx) => {
   }
 };
 
+const managedMode: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const row = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes("Full access"),
+  );
+  if (row?.getAttribute("aria-disabled") !== "true") throw new Error("Full access must be disabled while managed");
+  if (row.querySelector(".acpmux-menu-description")?.textContent?.trim() !== "Managed by your organization")
+    throw new Error("Full access must say it is managed by the organization");
+};
+
 const accessGrants: Play = async (ctx) => {
   const trigger = ctx.find({ role: "button", name: "Mode" });
   if (trigger.textContent?.includes("Trusted")) throw new Error("Trust state leaked into the Access trigger");
@@ -509,6 +527,11 @@ export default componentEntry<Props>({
       play: fastMode,
     },
     "permission-menu": { props: {}, play: openMode },
+    "permission-managed": {
+      note: "MDM keeps full access off (#23322): Full access is disabled and says Managed by your organization; the other rows are unchanged.",
+      props: { managed: true },
+      play: managedMode,
+    },
     "access-grants": {
       note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
       props: {},

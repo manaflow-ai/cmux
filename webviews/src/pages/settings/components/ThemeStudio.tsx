@@ -38,6 +38,7 @@ import { ResetButton, ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
+import { ThemeOverrides } from "./ThemeOverrides";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
@@ -277,6 +278,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
           />
         </figure>
       ) : null}
+      <ThemeOverrides disabled={!state.connected} />
       <section className="group" data-theme-rows="">
         <div className="rows">
           {names.length === 0 ? (

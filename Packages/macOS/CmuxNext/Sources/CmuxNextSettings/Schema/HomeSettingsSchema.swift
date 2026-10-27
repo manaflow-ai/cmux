@@ -71,6 +71,7 @@ nonisolated enum HomeSettingsSchema {
                     SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
                     SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
                     SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
+                    SettingChoice("mochi", SettingsText.keyed("settings.choice.chiefPetMascot.mochi", "Mochi")),
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
             ),

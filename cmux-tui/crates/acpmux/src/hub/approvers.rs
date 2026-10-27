@@ -56,37 +56,7 @@ impl ApproverSet {
             .get("approvers")
             .and_then(Value::as_array)
             .ok_or_else(|| RpcError::invalid_params("approvers must be a list"))?;
-        if list.len() > MAX_APPROVERS {
-            return Err(RpcError::invalid_params(format!("at most {MAX_APPROVERS} approvers")));
-        }
-        let mut approvers = Vec::with_capacity(list.len());
-        for entry in list {
-            let id = entry.get("id").and_then(Value::as_str).filter(|i| valid_id(i)).ok_or_else(
-                || RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]"),
-            )?;
-            let public_key = entry
-                .get("publicKey")
-                .and_then(Value::as_str)
-                .and_then(unhex)
-                .filter(|k| k.len() == 65 && k[0] == 4)
-                .ok_or_else(|| {
-                    RpcError::invalid_params(
-                        "publicKey must be a 65-byte uncompressed P-256 point as hex",
-                    )
-                })?;
-            let name: String = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(64)
-                .collect();
-            if approvers.iter().any(|a: &Approver| a.id == id) {
-                return Err(RpcError::invalid_params(format!("approver {id} is listed twice")));
-            }
-            approvers.push(Approver { id: id.to_owned(), public_key, name });
-        }
+        let approvers = parse_approvers(list)?;
         let count = approvers.len();
         *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             (mac.to_owned(), approvers);
@@ -118,6 +88,39 @@ impl ApproverSet {
         decision: &Value,
         now: u64,
     ) -> bool {
+        self.verifies_then(
+            instance,
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            decision,
+            now,
+            || true,
+        )
+    }
+
+    /// `verifies`, then `commit` (the answer counting: its nonce spent) when it does; whether
+    /// both did. The set's lock is held from the key lookup through `commit`, so a revocation
+    /// (`set`) waits for an answer being committed, and once it returns no signature of a
+    /// removed approver counts (#24233, landing term 4). `commit` must not await or take this
+    /// set's lock. Lock order: the prompt's lock (`session.permissions`, held by the caller),
+    /// then this set's, then the person gate's spent-nonce store (`spend_decision`); nothing
+    /// takes them the other way round (`set`, `list` and `verifies` hold this one alone).
+    #[allow(clippy::too_many_arguments)]
+    pub fn verifies_then(
+        &self,
+        instance: &str,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        decision: &Value,
+        now: u64,
+        commit: impl FnOnce() -> bool,
+    ) -> bool {
         let field = |f: &str| decision.get(f).and_then(Value::as_str);
         let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
             return false;
@@ -127,14 +130,13 @@ impl ApproverSet {
             return false;
         }
         let Some(signature) = unhex(signature).filter(|s| s.len() == 64) else { return false };
-        let (mac, key) = {
-            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(a) = inner.1.iter().find(|a| a.id == id) else { return false };
-            (inner.0.clone(), a.public_key.clone())
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(key) = inner.1.iter().find(|a| a.id == id).map(|a| &a.public_key) else {
+            return false;
         };
         let message = message(&Parts {
             instance,
-            mac: &mac,
+            mac: &inner.0,
             approver: id,
             session,
             permission,
@@ -143,10 +145,50 @@ impl ApproverSet {
             expires_at: expires,
             answers: &answers_digest(answers),
         });
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, &key)
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
             .verify(&message, &signature)
             .is_ok()
+            && commit()
     }
+}
+
+/// The approvers of a list `[{id, publicKey, name}]`, checked whole: at most
+/// [`MAX_APPROVERS`], each id once, each key a 65-byte uncompressed P-256 point as hex.
+/// The enrolled Macs' file is read with it too (`mac_approvers.rs`).
+pub(super) fn parse_approvers(list: &[Value]) -> Result<Vec<Approver>, RpcError> {
+    if list.len() > MAX_APPROVERS {
+        return Err(RpcError::invalid_params(format!("at most {MAX_APPROVERS} approvers")));
+    }
+    let mut approvers = Vec::with_capacity(list.len());
+    for entry in list {
+        let id =
+            entry.get("id").and_then(Value::as_str).filter(|i| valid_id(i)).ok_or_else(|| {
+                RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]")
+            })?;
+        let public_key = entry
+            .get("publicKey")
+            .and_then(Value::as_str)
+            .and_then(unhex)
+            .filter(|k| k.len() == 65 && k[0] == 4)
+            .ok_or_else(|| {
+                RpcError::invalid_params(
+                    "publicKey must be a 65-byte uncompressed P-256 point as hex",
+                )
+            })?;
+        let name: String = entry
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(64)
+            .collect();
+        if approvers.iter().any(|a: &Approver| a.id == id) {
+            return Err(RpcError::invalid_params(format!("approver {id} is listed twice")));
+        }
+        approvers.push(Approver { id: id.to_owned(), public_key, name });
+    }
+    Ok(approvers)
 }
 
 /// What an approver signs.
@@ -257,16 +299,16 @@ pub fn fingerprint(key: &[u8]) -> String {
     hex(&sha2::Sha256::digest(key)[..8])
 }
 
-fn valid_id(s: &str) -> bool {
+pub(super) fn valid_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Option<Vec<u8>> {
+pub(super) fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2)
         || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
@@ -408,6 +450,32 @@ mod tests {
             {"id": "phone-1", "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]}))
             .unwrap();
         assert!(!check(&set, &good, 200, None, 100));
+    }
+
+    /// Landing term 4 of #24233: revoking the phone stops even a signature made before. A
+    /// revocation sent while a signed answer is being committed returns only after that commit,
+    /// and from then on the same signature counts nothing.
+    #[test]
+    fn a_revocation_during_a_commit_waits_for_it_and_then_the_signature_counts_nothing() {
+        use std::time::Duration;
+        let k = key();
+        let set = std::sync::Arc::new(enrolled(&k));
+        let good = sign(&k, &parts(200, ""));
+        let decision = json!({"approver": "phone-1", "expiresAt": 200, "signature": good});
+        let (revoked, returned) = std::sync::mpsc::channel();
+        let revoker = set.clone();
+        let committed =
+            set.verifies_then("inst", "s1", "p1", "allow", "n1", None, &decision, 100, || {
+                std::thread::spawn(move || {
+                    revoker.set(&json!({"macDevice": "mac-1", "approvers": []})).unwrap();
+                    let _ = revoked.send(());
+                });
+                // The commit is in flight: the revocation has not returned.
+                returned.recv_timeout(Duration::from_millis(300)).is_err()
+            });
+        assert!(committed, "the revocation returned while the answer was being committed");
+        returned.recv_timeout(Duration::from_secs(10)).expect("the revocation returns");
+        assert!(!check(&set, &good, 200, None, 100), "the old signature counts after revocation");
     }
 
     #[test]
