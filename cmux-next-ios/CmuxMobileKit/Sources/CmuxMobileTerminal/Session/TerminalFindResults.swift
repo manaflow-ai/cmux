@@ -99,43 +99,65 @@ public struct TerminalFindResults: Equatable, Sendable {
 
     // MARK: Search
 
+    /// Matches in document order. Lines are searched newest first, so past `limit` the
+    /// matches kept are the newest (nearest the prompt), as the selected one is.
     private static func search(rows: [String], wraps: [Bool], firstRow: Int, columns: Int, query: String) -> [Match] {
-        guard !query.isEmpty, !rows.isEmpty else { return [] }
-        var found: [Match] = []
+        let needle = query.map { Self.folded($0) }
+        guard !needle.isEmpty, !rows.isEmpty else { return [] }
+        // Logical lines: the rows soft-wrapped into each other.
+        var lines: [ClosedRange<Int>] = []
         var start = 0
-        while start < rows.count, found.count < limit {
-            // One logical line: the rows soft-wrapped into each other.
+        while start < rows.count {
             var end = start
             while end < rows.count - 1, end < wraps.count, wraps[end] { end += 1 }
-            searchLine(rows: rows[start...end], firstIndex: start, firstRow: firstRow, columns: columns, query: query, into: &found)
+            lines.append(start...end)
             start = end + 1
         }
-        return found
+        var newestFirst: [[Match]] = []
+        var count = 0
+        for line in lines.reversed() where count < limit {
+            var found = searchLine(rows: rows, line: line, firstRow: firstRow, columns: columns, needle: needle)
+            if count + found.count > limit { found = Array(found.suffix(limit - count)) }
+            count += found.count
+            if !found.isEmpty { newestFirst.append(found) }
+        }
+        return newestFirst.reversed().flatMap { $0 }
     }
 
-    private static func searchLine(rows: ArraySlice<String>, firstIndex: Int, firstRow: Int, columns: Int, query: String,
-                                   into found: inout [Match]) {
-        let line = rows.joined()
-        guard line.range(of: query, options: .caseInsensitive) != nil else { return }
-        // Cells of each character of the line: its row and column.
+    /// One character compared without case (Ghostty's search is case-insensitive).
+    private static func folded(_ character: Character) -> String {
+        String(character).lowercased()
+    }
+
+    /// The matches in one logical line. The line is the rows' characters in order, each
+    /// with its own cells: no joining (a join can merge graphemes across a wrap and shift
+    /// every cell after it), and every match is at least one character long.
+    private static func searchLine(rows: [String], line: ClosedRange<Int>, firstRow: Int, columns: Int,
+                                   needle: [String]) -> [Match] {
+        var characters: [String] = []
         var cells: [(row: Int, start: Int, end: Int)] = []
-        for (offset, text) in rows.enumerated() {
-            let row = TerminalCellRow(text, columns: columns)
-            for index in row.characters.indices {
-                cells.append((firstRow + firstIndex + offset, row.starts[index], row.starts[index] + row.widths[index] - 1))
+        for index in line {
+            let row = TerminalCellRow(rows[index], columns: columns)
+            for (offset, character) in row.characters.enumerated() {
+                characters.append(folded(character))
+                cells.append((firstRow + index, row.starts[offset], row.starts[offset] + row.widths[offset] - 1))
             }
         }
-        var from = line.startIndex
-        var fromOffset = 0
-        while from < line.endIndex, found.count < limit,
-              let range = line.range(of: query, options: .caseInsensitive, range: from..<line.endIndex) {
-            let lower = fromOffset + line.distance(from: from, to: range.lowerBound)
-            let upper = lower + line.distance(from: range.lowerBound, to: range.upperBound)
-            from = range.upperBound
-            fromOffset = upper
-            guard lower < upper, upper <= cells.count else { continue }
+        guard characters.count >= needle.count else { return [] }
+        var found: [Match] = []
+        var lower = 0
+        while lower + needle.count <= characters.count {
+            var hit = true
+            for (k, want) in needle.enumerated() where characters[lower + k] != want {
+                hit = false
+                break
+            }
+            guard hit else {
+                lower += 1
+                continue
+            }
             var segments: [TerminalLink.Segment] = []
-            for cell in cells[lower..<upper] {
+            for cell in cells[lower..<(lower + needle.count)] {
                 if var last = segments.last, last.row == cell.row {
                     last.end = cell.end
                     segments[segments.count - 1] = last
@@ -144,6 +166,8 @@ public struct TerminalFindResults: Equatable, Sendable {
                 }
             }
             found.append(Match(segments: segments))
+            lower += needle.count
         }
+        return found
     }
 }

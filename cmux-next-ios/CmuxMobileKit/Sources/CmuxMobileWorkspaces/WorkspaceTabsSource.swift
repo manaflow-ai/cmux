@@ -709,7 +709,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
     /// beside the terminal on the Mac, shown here once the Mac lists it.
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
-        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        // No Mac to open it on (the workspace went away): Safari, never nothing.
+        guard let workspace, let creator, let tab = workspaceTab(id) else {
+            await UIApplication.shared.open(url)
+            return
+        }
         if let pending = pendingTabTitle {
             show("Still opening \(pending). Try again once it's open.")
             return

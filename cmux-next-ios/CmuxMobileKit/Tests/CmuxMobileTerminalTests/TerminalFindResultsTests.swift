@@ -48,4 +48,19 @@ import Testing
         #expect(find.selectedMatch?.row == 1)
         #expect(find.matches(in: 2..<5).map { $0.index } == [1])
     }
+
+    @Test func pastTheLimitTheNewestMatchesAreKept() {
+        let rows = Array(repeating: "x", count: TerminalFindResults.limit + 50)
+        let find = TerminalFindResults(rows: rows, wraps: Array(repeating: false, count: rows.count), firstRow: 0, columns: 80, query: "x")
+        #expect(find.matches.count == TerminalFindResults.limit)
+        #expect(find.matches.first?.row == 50)
+        #expect(find.selectedMatch?.row == rows.count - 1)
+    }
+
+    @Test func aWideCharacterBeforeAMatchShiftsItsCellsAndOddQueriesEnd() {
+        let find = TerminalFindResults(rows: ["日本 tag"], wraps: [false], firstRow: 0, columns: 80, query: "TAG")
+        #expect(find.matches.map(\.segments) == [[TerminalLink.Segment(row: 0, start: 5, end: 7)]])
+        // A query of an invisible character finds nothing and ends.
+        #expect(TerminalFindResults(rows: ["abc"], wraps: [false], firstRow: 0, columns: 80, query: "\u{200B}").matches.isEmpty)
+    }
 }

@@ -314,10 +314,10 @@ public final class TerminalModel {
         keyBar(.chord(letter))
     }
 
-    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached and
-    /// on its shell (the Mac's clear leaves a full-screen app as it is), else as Ctrl-L.
+    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached
+    /// (as on the Mac, a full-screen app is left as it is), else as Ctrl-L.
     public var canClearScreenAndScrollback: Bool {
-        session.clearsHistory ? connectionState.isAttached && !isTUI : true
+        session.clearsHistory ? connectionState.isAttached : true
     }
 
     /// The Mac's Clear Screen and Scrollback (Cmd-K): the Mac's daemon clears the terminal,
@@ -330,7 +330,10 @@ public final class TerminalModel {
             do {
                 try await session.clearHistory()
             } catch {
+                // Nothing changed on the Mac (an inline program's input reaches into the
+                // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
         }
     }

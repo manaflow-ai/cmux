@@ -66,41 +66,75 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
 
     // MARK: Searching
 
-    fileprivate func search(_ query: String, revealing: Bool = true) {
-        guard let source = readRows() else {
+    /// The rows as last read: one whole-screen read when the bar opens (and again after
+    /// new output, the next time the query changes or the rows are replaced), never one
+    /// per keystroke. Ghostty's reads take the terminal's lock.
+    private var snapshot: TerminalFindRows?
+    /// Output arrived since `snapshot` was read.
+    private var snapshotStale = false
+    /// The search running off the main thread, superseded by the next.
+    private var searchTask: Task<Void, Never>?
+    private var searchGeneration = 0
+    /// The query the bar asked for last (the results may still be for an older one).
+    private var query = ""
+
+    /// New output while the bar is up: the next search reads the rows again.
+    func outputArrived() {
+        if isActive { snapshotStale = true }
+    }
+
+    fileprivate func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
+        if snapshot == nil || snapshotStale, let source = readRows() {
+            snapshot = TerminalFindRows(rows: source.rows, wraps: source.wraps, firstRow: source.firstRow, columns: source.columns)
+            snapshotStale = false
+        }
+        self.query = query
+        searchTask?.cancel()
+        searchGeneration += 1
+        let generation = searchGeneration
+        guard let rows = snapshot, !query.isEmpty else {
             results = TerminalFindResults()
+            interaction?.updateResultCount()
             redraw()
             return
         }
-        results = TerminalFindResults(rows: source.rows, wraps: source.wraps, firstRow: source.firstRow,
-                                      columns: source.columns, query: query)
-        findLog.notice("find: \(self.results.matches.count, privacy: .public) matches in \(source.rows.count, privacy: .public) rows")
-        if revealing, let match = results.selectedMatch { reveal(match) }
-        redraw()
+        // The scan runs off the main thread on a copy of the rows; the newest search wins.
+        searchTask = Task { [weak self] in
+            let found = await Task.detached(priority: .userInitiated) {
+                TerminalFindResults(rows: rows.rows, wraps: rows.wraps, firstRow: rows.firstRow, columns: rows.columns, query: query)
+            }.value
+            guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
+            self.results = found
+            if let nearRow { self.results.select(nearestRow: nearRow) }
+            findLog.notice("find: \(found.matches.count, privacy: .public) matches in \(rows.rows.count, privacy: .public) rows")
+            if revealing, let match = self.results.selectedMatch { self.reveal(match) }
+            self.interaction?.updateResultCount()
+            self.redraw()
+        }
     }
 
     fileprivate func highlightNext(forward: Bool) {
         results.step(forward: forward)
         if let match = results.selectedMatch { reveal(match) }
+        interaction?.updateResultCount()
         redraw()
     }
 
     fileprivate func invalidate() {
+        searchTask?.cancel()
+        searchGeneration += 1
         results = TerminalFindResults()
+        query = ""
+        snapshot = nil
         redraw()
     }
 
-    /// The rows under the find changed wholesale (a full-screen app started or ended,
-    /// the mirror was reset and replayed): search the new rows, near the same place.
+    /// The rows under the find changed wholesale (a full-screen app started or ended or
+    /// was resized, the mirror was reset and replayed): search the new rows, near the same place.
     func rowsReplaced() {
-        guard isActive, !results.query.isEmpty else { return }
-        let row = results.selectedMatch?.row
-        search(results.query, revealing: false)
-        if let row {
-            results.select(nearestRow: row)
-            redraw()
-        }
-        interaction?.updateResultCount()
+        guard isActive, !query.isEmpty else { return }
+        snapshot = nil
+        search(query, revealing: false, nearRow: results.selectedMatch?.row)
     }
 
     /// Ghostty dropped its oldest rows: the matches keep their text.
@@ -180,6 +214,14 @@ private final class TerminalFindSession: UIFindSession {
     override func invalidateFoundResults() {
         owner?.invalidate()
     }
+}
+
+/// The rows a find searches, copied once from Ghostty.
+struct TerminalFindRows: Sendable {
+    var rows: [String]
+    var wraps: [Bool]
+    var firstRow: Int
+    var columns: Int
 }
 
 /// Every match's cells tinted; the selected match brighter, with an outline.

@@ -162,6 +162,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         guard let host, var current = selection else { return }
         if pan.state == .began {
             menu?.dismissMenu()
+            // The selection leaves the word the press found: no more Open Link.
+            pressedLink = nil
             dragging = pan.view === startHandle ? .start : .end
         }
         // Every report moves the handle, the first and last included (a
@@ -273,14 +275,14 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         let all = UIAction(title: String(localized: "Select All"), image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in
             self?.selectAll()
         }
-        guard let link = pressedLink, let openLink else { return UIMenu(children: [copy, all]) }
+        guard let link = pressedLink, openLink != nil else { return UIMenu(children: [copy, all]) }
         let open = UIAction(title: String(localized: "Open Link"), image: UIImage(systemName: "globe")) { [weak self] _ in
             self?.clear()
-            openLink(link, false)
+            self?.openLink?(link, false)
         }
         let safari = UIAction(title: String(localized: "Open in Safari"), image: UIImage(systemName: "safari")) { [weak self] _ in
             self?.clear()
-            openLink(link, true)
+            self?.openLink?(link, true)
         }
         return UIMenu(children: [open, safari, copy, all])
     }
@@ -298,6 +300,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     func selectAll() {
         let rows = documentRows()
         guard !rows.isEmpty else { return }
+        pressedLink = nil
         selection = TerminalTextSelection.all(originRow: rows.lowerBound, endRow: rows.upperBound, columns: columns())
         showMenu()
     }
