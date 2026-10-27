@@ -6,7 +6,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { INLINE_AUDIO_BYTES_LIMIT, audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
+import {
+  INLINE_AUDIO_BYTES_LIMIT,
+  audioAttachment,
+  promptBlocks,
+  takesAudio,
+} from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
 
 const scope = globalThis as Record<string, unknown>;

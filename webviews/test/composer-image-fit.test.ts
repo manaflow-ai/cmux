@@ -43,7 +43,8 @@ afterEach(() => {
   delete g.OffscreenCanvas;
 });
 
-const big = (name: string, type = "image/png") => new File([new Uint8Array(IMAGE_PREVIEW_BYTES_LIMIT + 1)], name, { type });
+const big = (name: string, type = "image/png") =>
+  new File([new Uint8Array(IMAGE_PREVIEW_BYTES_LIMIT + 1)], name, { type });
 
 describe("an image over the per-image limit", () => {
   test("attaches scaled to the longest side as PNG when that fits", async () => {
