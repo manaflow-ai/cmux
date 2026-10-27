@@ -77,6 +77,8 @@ command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; 
 export APPLE_CERTIFICATE_PASSWORD
 APP_ENTITLEMENTS="$(realpath "$2")"
 HELPER_ENTITLEMENTS="$(realpath "$HELPER_ENTITLEMENTS")"
+# The notary key (helper-first) stays in this shell only: no child inherits it.
+p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
 
 secrets="" work=""
 trap 'rm -rf ${secrets:+"$secrets"} ${work:+"$work"}' EXIT
@@ -116,11 +118,11 @@ fi
 echo "==> signing as $cn"
 if [[ "$MODE" == helper-first ]]; then
   # No child of this script sees the notary key in its environment.
-  p8="$ASC_API_KEY_P8_BASE64"; unset ASC_API_KEY_P8_BASE64
   (umask 077 && printf '%s' "$p8" | base64 -d > "$secrets/AuthKey.p8") 2>/dev/null ||
     { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
+  [[ -s "$secrets/AuthKey.p8" ]] || { echo "error: ASC_API_KEY_P8_BASE64 decoded to nothing" >&2; exit 1; }
   p8=""
-  (umask 077 && "$R" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
+  (umask 077 && run_signer "$R" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
     "$ASC_API_ISSUER_ID" "$ASC_API_KEY_ID" "$secrets/AuthKey.p8" >/dev/null)
   rm -f "$secrets/AuthKey.p8"
 fi
@@ -250,7 +252,7 @@ if [[ "$MODE" == helper-first ]]; then
   verify_helper() { # <helper.app>: every Mach-O in it
     local rel
     for rel in "${cu_machos[@]}"; do
-      "$R" verify --config-file /dev/null "$1/${rel#"$cu_rel/"}" > "$work/log" 2>&1 ||
+      run_signer "$R" verify --config-file /dev/null "$1/${rel#"$cu_rel/"}" > "$work/log" 2>&1 ||
         { tail -5 "$work/log" >&2; echo "error: signature check failed for $rel" >&2; exit 1; }
     done
   }
@@ -259,14 +261,14 @@ if [[ "$MODE" == helper-first ]]; then
   cu_args=(--code-signature-flags runtime --entitlements-xml-file "$HELPER_ENTITLEMENTS")
   for rel in "${cu_machos[@]}"; do cu_args+=(--code-signature-flags "${rel#"$cu_rel/"}:runtime"); done
   echo "==> signing nested helper ${computer_use##*/}"
-  "$R" sign "${identity_args[@]}" "${cu_args[@]}" "$computer_use" > "$work/log" 2>&1 ||
+  run_signer "$R" sign "${identity_args[@]}" "${cu_args[@]}" "$computer_use" > "$work/log" 2>&1 ||
     { tail -40 "$work/log" >&2; echo "error: signing the Computer Use helper failed" >&2; exit 1; }
   verify_helper "$computer_use"
   submitted_cdhash="$(slice_cdhashes "$computer_use" | paste -sd ',' -)"
   [[ -n "$submitted_cdhash" ]] || { echo "error: could not resolve the Computer Use helper CDHash" >&2; exit 1; }
   echo "==> notarizing the Computer Use helper ($submitted_cdhash)"
   notary_status=0
-  "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+  run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
     --wait --max-wait-seconds "$helper_wait" "$computer_use" > "$work/notary.log" 2>&1 || notary_status=$?
   cat "$work/notary.log"
   submission="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$work/notary.log" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
@@ -279,7 +281,7 @@ if [[ "$MODE" == helper-first ]]; then
   # Apple can answer Accepted before the ticket log is ready: a few bounded
   # tries, then 75 (accepted, nothing signed after it), as the Mac script.
   for attempt in 1 2 3 4; do
-    python3 "$SCRIPTS_DIR/ci/run_with_timeout.py" --timeout-seconds 120 -- "$R" notary-log --config-file /dev/null \
+    run_signer python3 "$SCRIPTS_DIR/ci/run_with_timeout.py" --timeout-seconds 120 -- "$R" notary-log --config-file /dev/null \
       --api-key-file "$secrets/api-key.json" "$submission" > "$work/notary-log.json" 2> "$work/log" &&
       python3 -I -c 'import json, sys; json.load(open(sys.argv[1]))' "$work/notary-log.json" 2>/dev/null && break
     tail -5 "$work/log" >&2
@@ -288,7 +290,7 @@ if [[ "$MODE" == helper-first ]]; then
   done
   cat "$work/notary-log.json"
   verify_ticket_contents_cover_slices "$work/notary-log.json" "$computer_use"
-  "$R" staple --config-file /dev/null "$computer_use" > "$work/log" 2>&1 ||
+  run_signer "$R" staple --config-file /dev/null "$computer_use" > "$work/log" 2>&1 ||
     { tail -20 "$work/log" >&2; echo "error: stapling the Computer Use helper failed" >&2; exit 1; }
   # The shipped ticket must be readable by every user.
   chmod 0644 "$computer_use/Contents/CodeResources"

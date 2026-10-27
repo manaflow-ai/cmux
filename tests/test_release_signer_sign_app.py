@@ -248,10 +248,10 @@ class SignAppTest(unittest.TestCase):
         # (signer-env.sh), which keeps every RCODESIGN_* name from it.
         for script in sorted((ROOT / "scripts/ci/release-signer").glob("*.sh")):
             text = re.sub(r"#.*", "", script.read_text())
-            calls = re.findall(r'(?:(\S*run_signer) )?"\$R" [a-z]', text)
+            calls = [line for line in text.splitlines() if re.search(r'"\$R" [a-z]', line)]
             if calls:
                 self.assertIn("signer-env.sh", text, script.name)
-                self.assertNotIn("", {c.rsplit("(", 1)[-1] for c in calls}, script.name)
+                self.assertEqual([c for c in calls if "run_signer " not in c], [], script.name)
 
     def test_needs_the_signer_variable(self) -> None:
         self.env.pop("CMUX_SIGNER")
