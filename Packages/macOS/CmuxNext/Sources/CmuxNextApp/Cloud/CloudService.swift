@@ -295,6 +295,10 @@ final class CloudService {
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
+        // Fence Codex broker requests synchronously with the policy flip. The
+        // adapter tears down holders asynchronously and retains their private
+        // homes for a later confirmed run after policy is restored.
+        codexBroker.setAvailable(!disabled)
         if disabled {
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
