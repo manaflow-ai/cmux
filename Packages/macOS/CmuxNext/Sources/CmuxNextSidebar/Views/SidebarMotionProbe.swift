@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
 import AppKit
 import CmuxNextWakeups
@@ -83,3 +84,4 @@ final class SidebarMotionProbe {
                       width: shown.bounds.width, height: shown.bounds.height)
     }
 }
+#endif

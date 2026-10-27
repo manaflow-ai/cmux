@@ -107,6 +107,8 @@ use test_pty::FdMasterPty;
 use test_pty::{
     StartupChild, StartupChildState, TestChildKiller, TestMasterPty, TestMasterPtyControl,
 };
+#[cfg(test)]
+pub(crate) use test_spawn::PtyInputCapture;
 #[cfg(any(unix, windows))]
 mod clipboard_read;
 #[cfg(any(unix, windows))]
@@ -765,7 +767,7 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
-        let pty_surface = PtySurface {
+        let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
@@ -884,8 +886,10 @@ impl Surface {
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
         };
-        let terminal = Arc::clone(&pty_surface.terminal);
-        let surface = Arc::new(Surface::Pty(pty_surface));
+        // The terminal runtime, held apart from the surface so the
+        // registrations below need no `as_pty` lookup.
+        let terminal = pty.terminal.clone();
+        let surface = Arc::new(Surface::Pty(pty));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface)?;
@@ -928,9 +932,7 @@ impl Surface {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
         if let Err(error) = kitty_registration {
-            if let Some(pty) = surface.as_pty()
-                && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
-            {
+            if let PtyRuntime::Hosted(host) = &mut *terminal.runtime.lock().recover_poison() {
                 if terminate_on_error {
                     let _ = host.terminate();
                 }
@@ -940,8 +942,7 @@ impl Surface {
         }
         let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
         if terminate_on_error
-            && let Some(pty) = surface.as_pty()
-            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
+            && let PtyRuntime::Hosted(host) = &mut *terminal.runtime.lock().recover_poison()
         {
             if !defer_launch_activation && let Err(error) = host.activate_launched_host() {
                 let _ = host.terminate();

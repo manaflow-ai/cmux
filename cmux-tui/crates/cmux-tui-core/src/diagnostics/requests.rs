@@ -50,6 +50,15 @@ impl RequestStats {
         }
     }
 
+    /// The latency histogram of `class` (a larger one is `other`).
+    pub(super) fn latency(&self, class: usize) -> &LogLinearHistogram {
+        &self.latency_us[class.min(REQUEST_CLASSES.len() - 1)]
+    }
+
+    pub(super) fn dispatch_queue(&self) -> &LogLinearHistogram {
+        &self.dispatch_queue_us
+    }
+
     /// The per-method histograms.
     pub fn methods(&self) -> &MethodLatencyStats {
         &self.methods

@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 
 /// The Tabs rows of the General section (its own type: the schema type's line budget is per type).

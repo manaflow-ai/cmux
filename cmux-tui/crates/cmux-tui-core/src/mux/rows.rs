@@ -11,6 +11,7 @@
 use super::*;
 use crate::Actor;
 use crate::model::{LayoutMutationKey, LayoutResizeOwner, ROW_HEIGHT_PERMILLE};
+use crate::panic_free::RecoverPoison;
 use cmux_layout_reducer::{LayoutOp, LayoutOpKind, Reject};
 
 /// Internal journal operation name, reachable only through the JSON-lines
@@ -141,12 +142,19 @@ pub(super) fn validate_row_height_field(
 }
 
 /// The screen and index of the column `column`.
-fn column_location(state: &State, column: SplitId) -> Option<(usize, usize, usize)> {
-    state.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
-        workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
-            let index = screen.layout_columns.iter().position(|item| item.id == column)?;
-            Some((workspace_index, screen_index, index))
-        })
+/// The screen holding `column` and the column's index in its `layout_columns`.
+fn column_screen(state: &State, column: SplitId) -> Option<(&Screen, usize)> {
+    state.workspaces.iter().flat_map(|workspace| &workspace.screens).find_map(|screen| {
+        let index = screen.layout_columns.iter().position(|item| item.id == column)?;
+        Some((screen, index))
+    })
+}
+
+/// [`column_screen`] for a change.
+fn column_screen_mut(state: &mut State, column: SplitId) -> Option<(&mut Screen, usize)> {
+    state.workspaces.iter_mut().flat_map(|workspace| &mut workspace.screens).find_map(|screen| {
+        let index = screen.layout_columns.iter().position(|item| item.id == column)?;
+        Some((screen, index))
     })
 }
 
@@ -166,7 +174,7 @@ impl Mux {
         transaction: Option<String>,
     ) -> anyhow::Result<Arc<Surface>> {
         let height = checked_height(height)?;
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
@@ -186,7 +194,7 @@ impl Mux {
         let surface = self.ordinary_created_surface(&commit)?;
         let screen = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(state.pane_of(surface.id)?)?;
-            Some(state.workspaces[workspace].screens[screen].id)
+            Some(state.workspaces.get(workspace)?.screens.get(screen)?.id)
         });
         if let Some(screen) = screen {
             self.emit_screen_changed_for_transaction(&[screen], transaction.map(Arc::from));
@@ -215,12 +223,12 @@ impl Mux {
             kind: LayoutOpKind::SetRowHeights { column, heights: heights.clone(), fit },
         };
         let unchanged = self.with_state(|state| {
-            let (workspace, screen, index) =
-                column_location(state, column).ok_or(RowsError::ColumnNotFound { column })?;
+            let (screen, index) =
+                column_screen(state, column).ok_or(RowsError::ColumnNotFound { column })?;
             cmux_layout_reducer::apply(&layout_invariants::project(state), &op)
                 .map_err(|reject| RowsError::from_reject(reject, column))?;
-            let screen = &state.workspaces[workspace].screens[screen];
-            let rows = &screen.layout_columns[index].rows;
+            let rows =
+                &screen.layout_columns.get(index).ok_or(RowsError::ColumnNotFound { column })?.rows;
             let unchanged = rows.iter().all(|row| heights.contains(&(row.id, row.height)));
             Ok::<_, RowsError>(unchanged.then_some(screen.id))
         })?;
@@ -246,16 +254,24 @@ impl Mux {
                 None,
                 None,
                 |state, registry| {
-                    let (workspace, screen, index) = column_location(state, column)
-                        .ok_or(RowsError::ColumnNotFound { column })?;
                     let mut projected = state.clone();
-                    let target = &mut projected.workspaces[workspace].screens[screen];
+                    let (target, index) = column_screen_mut(&mut projected, column)
+                        .ok_or(RowsError::ColumnNotFound { column })?;
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
-                    target.layout_columns[index].write_row_heights(&heights);
+                    target
+                        .layout_columns
+                        .get_mut(index)
+                        .ok_or(RowsError::ColumnNotFound { column })?
+                        .write_row_heights(&heights);
                     target.sync_layout_column_projection();
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = RowHeightsOutcome { screen: target.id, column, changed: true };
-                    let pane = target.layout_columns[index].root.first_visible_pane();
+                    let pane = target
+                        .layout_columns
+                        .get(index)
+                        .ok_or(RowsError::ColumnNotFound { column })?
+                        .root
+                        .first_visible_pane();
                     let pane_id = projected
                         .resource_indexes
                         .pane_ids
