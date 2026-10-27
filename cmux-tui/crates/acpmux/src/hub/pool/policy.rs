@@ -236,7 +236,7 @@ impl<T> Pool<T> {
             .map(|(i, e)| (e.hinted_at, i))
             .collect();
         // Newest first; `key` itself holds one of the harness's places.
-        others.sort_by(|a, b| b.0.cmp(&a.0));
+        others.sort_by_key(|e| std::cmp::Reverse(e.0));
         for (_, i) in others.into_iter().skip(self.hinted_per_harness - 1) {
             self.entries[i].hinted = false;
         }
@@ -414,6 +414,14 @@ impl<T> Pool<T> {
             .iter()
             .find(|e| &e.key == key && matches!(e.slot, Slot::Warming(_)))
             .map(|e| e.settled.subscribe())
+    }
+
+    /// Remove the ready session `pick` chooses; its key stays wanted but holds nothing.
+    pub fn remove_ready(&mut self, pick: impl Fn(&T) -> bool) -> Option<T> {
+        let e = self.entries.iter_mut().find(|e| matches!(&e.slot, Slot::Ready(t) if pick(t)))?;
+        let Slot::Ready(t) = std::mem::replace(&mut e.slot, Slot::Empty) else { return None };
+        e.settle();
+        Some(t)
     }
 
     /// Empty the pool (config reload, shutdown); returns every ready session.

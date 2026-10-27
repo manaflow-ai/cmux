@@ -49,8 +49,6 @@ contains(' <key> ') matches whole keys only:
   whose queue is not stalled), and the Blacksmith label of the bot's overflow
   attempt while one has a free slot, else empty (next_macos_cascade.py; the
   workflow reads it as `free_retry_runner`);
-- `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
-  that label when it takes any (next_macos_cascade.py).
 - `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
   is online and idle for this placement; an empty value keeps the Blacksmith
   overflow route.
@@ -318,8 +316,8 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
     joined the cascade, and nothing else moved it. So the label is a
     preference taken only when it is free; a busy label, unreadable runners or
-    an unset variable send the tier down the cascade (Blacksmith, hosted
-    macos-26), then the side route, like every other job.
+    an unset variable send the tier down the cascade (Blacksmith), then the
+    side route, like every other job.
     """
     label = (env.get("FAST_LABEL") or "").strip()
     if not label or runners is None:
@@ -349,6 +347,28 @@ def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | N
         return "", ()
     free = pool.live_owned_free(runners, [label])[label]
     return (label, tuple(jobs[:free])) if free > 0 else ("", ())
+
+
+def fresh_slot_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Why FRESH_LABEL took no job, for the placement summary: unread, unregistered, or its runners by state.
+
+    The slot's runners go offline while their glaeda gate holds the listener off (capacity units, disk, a
+    fleet build's host lock), which the runners API shows only as `offline`. On 2026-10-27 both slot runners
+    were offline when the DEV dailies at 04:23Z and 04:37Z were placed, and the summary said only "no idle
+    runner"; naming them tells a busy slot (it frees when its compile ends) from a held one (glaeda's).
+    """
+    if runners is None:
+        return "runners unread"
+    states: dict[str, list[str]] = {"busy": [], "offline": []}
+    for runner in runners:
+        if label not in pool.runner_labels(runner):
+            continue
+        state = "offline" if runner.get("status") != "online" else "busy" if runner.get("busy") else ""
+        if state:
+            states[state].append(str(runner.get("name") or "?"))
+    if not any(states.values()):
+        return "no runner carries it"
+    return "; ".join(f"{state}: {', '.join(sorted(names))}" for state, names in states.items() if names)
 
 
 def without_jobs(env: Mapping[str, str], jobs: Sequence[str]) -> dict[str, str]:
@@ -529,8 +549,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
         why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs
-                else f"; no idle `{env['FRESH_LABEL'].strip()}` runner, so the feed's compile is placed like the "
-                     "other jobs")
+                else f"; no idle `{env['FRESH_LABEL'].strip()}` runner "
+                     f"({fresh_slot_state(env['FRESH_LABEL'].strip(), runners)}), so the feed's compile is placed "
+                     "like the other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
@@ -566,7 +587,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
-    # queue moves, then hosted macos-26 for the jobs it can run.
+    # queue moves; the rest stay on the owned label (no GitHub-hosted overflow).
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # The dedicated nightly runner is preferred for Release compile. When it is
     # configured but busy/offline, send the compile to Blacksmith immediately

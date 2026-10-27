@@ -30,6 +30,8 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    /// SF Symbol images for Settings' harness icons (`agents.run {action: "symbol"}`).
+    @ObservationIgnored let symbols = HarnessSymbolImages()
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment

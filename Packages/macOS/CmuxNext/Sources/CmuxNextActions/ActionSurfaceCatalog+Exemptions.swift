@@ -12,6 +12,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
+        "palette.computerUse.restart",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
@@ -101,7 +102,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
-        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
+        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
@@ -167,7 +168,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleFullWidthTab", "tab.showResources", "workspace.showResources",
             "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browserPrint",
             "toggleBrowserFocusMode", "toggleBrowserDesignMode", "toggleReactGrab", "palette.browserToggleOmnibar",
-            "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions", "browserProfile.delete", "openLinkInDefaultBrowser", "filePreviewOpenWith", "filePreviewOpenExternally",
+            "importFromBrowser", "password.importCSV", "browser.importFromFiles", "session.moveFromBuild", "browser.allowAgentWithExtensions", "browserProfile.delete", "openLinkInDefaultBrowser", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
             "browser.pageInfo", "browser.pageInfo.connection", "browser.pageInfo.certificate",
             "browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.siteSettings",

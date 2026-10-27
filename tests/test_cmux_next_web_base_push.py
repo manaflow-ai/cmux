@@ -53,10 +53,16 @@ def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def route(cwd: Path, base: str) -> dict[str, str]:
+def route(cwd: Path, base: str, *, ref: str = "") -> dict[str, str]:
     with tempfile.NamedTemporaryFile("r", delete=False) as out:
         path = out.name
-    env = {**os.environ, "GITHUB_OUTPUT": path, "EVENT_NAME": "push", "WEB_SUBAREAS_BASE": base}
+    env = {
+        **os.environ,
+        "GITHUB_OUTPUT": path,
+        "EVENT_NAME": "push",
+        "GITHUB_REF": ref,
+        "WEB_SUBAREAS_BASE": base,
+    }
     subprocess.run([sys.executable, str(HELPER), "route"], cwd=cwd, env=env, check=True, capture_output=True)
     lines = Path(path).read_text().splitlines()
     os.unlink(path)
@@ -85,6 +91,24 @@ def test_a_multi_commit_push_routes_every_commit_not_only_the_last() -> None:
         assert route(repo, before)["react_apps"] == "true"
         # A push base the clone cannot resolve (a force push, a shallow fetch) runs everything.
         assert route(repo, "0" * 40)["react_apps"] == "true"
+
+
+def test_feat_cmux_next_pushes_always_run_react_apps_check() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "t")
+        (repo / "README.md").write_text("a\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "base")
+        before = git(repo, "rev-parse", "HEAD")
+        (repo / "README.md").write_text("b\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "docs change")
+
+        assert route(repo, before, ref="refs/heads/feat-cmux-next")["react_apps"] == "true"
+        assert route(repo, before, ref="refs/heads/other")["react_apps"] == "false"
 
 
 if __name__ == "__main__":
