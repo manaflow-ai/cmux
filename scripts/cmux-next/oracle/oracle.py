@@ -21,6 +21,8 @@ Chrome reference (chromium/src):
 Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
+mutant against its base through the smallest selection that catches it; it fails below 19/20.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
@@ -183,7 +185,7 @@ DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
 }
 
 
