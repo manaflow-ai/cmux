@@ -10,6 +10,8 @@
 
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
+use std::process::ExitCode;
+
 use ghostty_vt::{Callbacks, Terminal};
 
 struct Rng(u64);
@@ -25,8 +27,12 @@ impl Rng {
     fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
-    fn pick<'a>(&mut self, items: &'a [&'a [u8]]) -> &'a [u8] {
-        items[self.below(items.len() as u64) as usize]
+    /// A random item; `None` only when `items` is empty.
+    fn pick<'a>(&mut self, items: &'a [&'a [u8]]) -> Option<&'a [u8]> {
+        if items.is_empty() {
+            return None;
+        }
+        items.get(self.below(items.len() as u64) as usize).copied()
     }
 }
 
@@ -143,7 +149,8 @@ fn adversarial(seed: u64, len: usize) -> Vec<u8> {
     let mut rng = Rng(seed | 1);
     let mut out = Vec::with_capacity(len + 64);
     while out.len() < len {
-        out.extend_from_slice(rng.pick(pieces));
+        let Some(piece) = rng.pick(pieces) else { break };
+        out.extend_from_slice(piece);
         if rng.below(4) == 0 {
             // Raw noise bytes, any value.
             for _ in 0..rng.below(6) {
@@ -154,8 +161,8 @@ fn adversarial(seed: u64, len: usize) -> Vec<u8> {
     out
 }
 
-fn new_terminal() -> Terminal {
-    Terminal::new(97, 31, 2_000_000, Callbacks::default()).expect("terminal")
+fn new_terminal() -> Result<Terminal, String> {
+    Terminal::new(97, 31, 2_000_000, Callbacks::default()).map_err(|e| format!("terminal: {e}"))
 }
 
 fn observe(t: &mut Terminal) -> Vec<String> {
@@ -189,43 +196,63 @@ fn observe(t: &mut Terminal) -> Vec<String> {
     v
 }
 
-fn check(name: &str, data: &[u8], chunking: &str, sizes: &mut dyn FnMut() -> usize) -> bool {
-    let (mut fast, mut slow) = (new_terminal(), new_terminal());
+fn check(
+    name: &str,
+    data: &[u8],
+    chunking: &str,
+    sizes: &mut dyn FnMut() -> usize,
+) -> Result<bool, String> {
+    let (mut fast, mut slow) = (new_terminal()?, new_terminal()?);
     let mut at = 0;
     let mut writes = 0u64;
-    while at < data.len() {
-        let end = (at + sizes().max(1)).min(data.len());
-        let a = fast.vt_write_with_normalized(&data[at..end]).into_owned();
-        let b = slow.vt_write_with_normalized_reference(&data[at..end]).into_owned();
+    let mut rest = data;
+    while !rest.is_empty() {
+        // A size past the end takes what is left.
+        let (chunk, tail) = rest.split_at_checked(sizes().max(1)).unwrap_or((rest, &[]));
+        let a = fast.vt_write_with_normalized(chunk).into_owned();
+        let b = slow.vt_write_with_normalized_reference(chunk).into_owned();
         if a != b {
             println!(
                 "{{\"wrapcheck\":\"{name}\",\"chunking\":\"{chunking}\",\"ok\":false,\"diff\":\"normalized chunk at byte {at}\"}}"
             );
-            return false;
+            return Ok(false);
         }
         writes += 1;
-        at = end;
+        at += chunk.len();
+        rest = tail;
     }
     let (oa, ob) = (observe(&mut fast), observe(&mut slow));
-    let first = oa.iter().zip(&ob).position(|(x, y)| x != y);
+    let first = oa.iter().zip(&ob).find(|(x, y)| x != y).map(|(x, _)| x);
     let ok = first.is_none();
-    let what = first.map_or(String::new(), |i| oa[i].split('=').next().unwrap_or("").to_string());
+    let what = first.map_or(String::new(), |x| x.split('=').next().unwrap_or("").to_string());
     println!(
         "{{\"wrapcheck\":\"{name}\",\"chunking\":\"{chunking}\",\"bytes\":{},\"writes\":{writes},\"ok\":{ok},\"diff\":\"{what}\"}}",
         data.len()
     );
-    ok
+    Ok(ok)
 }
 
-fn main() {
+fn main() -> ExitCode {
+    match run() {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(why) => {
+            eprintln!("mux2-wrapcheck: {why}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// True when every case matched.
+fn run() -> Result<bool, String> {
     let mut inputs: Vec<(String, Vec<u8>)> = std::env::args()
         .skip(1)
         .map(|p| {
-            let data = std::fs::read(&p).expect("read input");
+            let data = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
             // Bound real files so the 1-byte chunking stays quick.
-            (p, data.into_iter().take(8 << 20).collect())
+            Ok((p, data.into_iter().take(8 << 20).collect()))
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
     for seed in 1..=24u64 {
         inputs.push((
             format!("adversarial-{seed}"),
@@ -235,13 +262,11 @@ fn main() {
     let mut all_ok = true;
     for (name, data) in &inputs {
         for fixed in [1usize, 2, 3, 7, 64, 4096, 16384, 1 << 20] {
-            all_ok &= check(name, data, &format!("fixed-{fixed}"), &mut || fixed);
+            all_ok &= check(name, data, &format!("fixed-{fixed}"), &mut || fixed)?;
         }
         let mut rng = Rng(0x5eed ^ data.len() as u64);
-        all_ok &= check(name, data, "random", &mut || 1 + rng.below(9000) as usize);
+        all_ok &= check(name, data, "random", &mut || 1 + rng.below(9000) as usize)?;
     }
     println!("{{\"wrapcheck_all_ok\":{all_ok}}}");
-    if !all_ok {
-        std::process::exit(1);
-    }
+    Ok(all_ok)
 }

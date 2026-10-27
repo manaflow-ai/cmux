@@ -130,8 +130,8 @@ impl Server {
             state.push(u8::from(term.pty_open));
             state.extend_from_slice(&term.bytes_in.to_le_bytes());
             let input: Vec<u8> = term.input.iter().copied().collect();
-            proto::put_bytes(&mut state, &input);
-            proto::put_bytes(&mut state, &replay);
+            proto::put_bytes(&mut state, &input)?;
+            proto::put_bytes(&mut state, &replay)?;
         }
         state.extend_from_slice(&u32::try_from(self.orphans.len()).expect("fits").to_le_bytes());
         for pid in &self.orphans {

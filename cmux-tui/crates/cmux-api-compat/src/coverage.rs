@@ -331,7 +331,7 @@ pub fn breaking_changes(old: &Surface, new: &Surface) -> Vec<Break> {
 }
 
 fn parent_of(path: &str) -> Option<&str> {
-    path.rfind('/').map(|i| &path[..i]).filter(|p| !p.is_empty())
+    path.rsplit_once('/').map(|(parent, _)| parent).filter(|p| !p.is_empty())
 }
 
 /// True when `rule` handles a break at `path` (same pointer, or an ancestor
@@ -359,8 +359,7 @@ fn rule_covers(change: &Change, path: &str) -> bool {
 fn covers_path(rule_path: &str, path: &str, whole_subtree: bool) -> bool {
     rule_path == path
         || (whole_subtree
-            && path.starts_with(rule_path)
-            && path[rule_path.len()..].starts_with('/'))
+            && path.strip_prefix(rule_path).is_some_and(|below| below.starts_with('/')))
 }
 
 /// The breaks that no change in revisions after `since` covers.

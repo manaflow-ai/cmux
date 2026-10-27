@@ -100,7 +100,7 @@ impl Node {
                 } else {
                     let token = token.to_owned();
                     if let Some(index) = self.live_member(&token) {
-                        let member = &mut self.members[index];
+                        let member = self.member_mut(index);
                         if let Some(default) = &mut member.default {
                             apply_op(default, &rest);
                         }
@@ -126,6 +126,24 @@ impl Node {
             Some(key.to_owned()),
             self.wild_clone(),
         )))
+    }
+
+    /// The member at `index`, an index taken from `by_input` or `by_output`.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: by_input and by_output hold only indexes of this node's members: push_member records len() before its push, members never shrink before finish, and finish rebuilds both maps after its retain"
+    )]
+    fn member(&self, index: usize) -> &Member {
+        &self.members[index]
+    }
+
+    /// [`Self::member`], mutable.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: by_input and by_output hold only indexes of this node's members: push_member records len() before its push, members never shrink before finish, and finish rebuilds both maps after its retain"
+    )]
+    fn member_mut(&mut self, index: usize) -> &mut Member {
+        &mut self.members[index]
     }
 
     fn wild_clone(&self) -> Node {
@@ -160,14 +178,14 @@ impl Node {
                 // The rename replaces its target: what produced `to` so far is dropped.
                 self.drop_output(to.clone());
                 if let Some(index) = source {
-                    self.members[index].output = Some(to.clone());
+                    self.member_mut(index).output = Some(to.clone());
                     self.by_output.insert(to, index);
                 }
             }
             Op::Delete { key, .. } => self.drop_output(key),
             Op::Insert { key, value, .. } => {
                 if let Some(&index) = self.by_output.get(&key) {
-                    let member = &mut self.members[index];
+                    let member = self.member_mut(index);
                     // A pure insertion is always present already; otherwise fill the gap.
                     if member.input.is_some() && member.default.is_none() {
                         member.default = Some(value);
@@ -190,7 +208,7 @@ impl Node {
     /// untouched input key of that name is deleted.
     fn drop_output(&mut self, key: String) {
         if let Some(index) = self.by_output.remove(&key) {
-            let member = &mut self.members[index];
+            let member = self.member_mut(index);
             member.output = None;
             member.default = None;
             member.node = Node::default();
@@ -246,13 +264,13 @@ impl Node {
         self.by_output = HashMap::new();
     }
 
-    /// The member for input key `key`, if any. Valid after `finish`.
+    /// The member for input key `key` and its index, if any. Valid after `finish`.
     #[inline]
-    pub(crate) fn lookup(&self, key: &str) -> Option<usize> {
+    pub(crate) fn lookup(&self, key: &str) -> Option<(usize, &Member)> {
         if self.members.len() <= LINEAR_LOOKUP_MAX {
-            self.members.iter().position(|m| m.input.as_deref() == Some(key))
+            self.members.iter().enumerate().find(|(_, m)| m.input.as_deref() == Some(key))
         } else {
-            self.by_input.get(key).copied()
+            self.by_input.get(key).map(|&index| (index, self.member(index)))
         }
     }
 
@@ -263,12 +281,18 @@ impl Node {
                 if !self.members.is_empty() || self.wild.is_some() || !self.dropped.is_empty() =>
             {
                 let old = std::mem::take(map);
-                let mut seen = vec![false; self.members.len()];
+                // A member's default fills in when its input key is absent (a pure
+                // insertion has no input key, so it always fills in).
+                let defaults: Vec<(String, Value)> = self
+                    .members
+                    .iter()
+                    .filter(|m| m.output.is_some() && m.default.is_some())
+                    .filter(|m| !m.input.as_ref().is_some_and(|input| old.contains_key(input)))
+                    .filter_map(|m| Some((m.output.clone()?, m.default.clone()?)))
+                    .collect();
                 for (key, mut inner) in old {
                     match self.lookup(&key) {
-                        Some(index) => {
-                            seen[index] = true;
-                            let member = &self.members[index];
+                        Some((_, member)) => {
                             if let Some(output) = &member.output {
                                 member.node.apply_value(&mut inner);
                                 map.insert(output.clone(), inner);
@@ -283,13 +307,7 @@ impl Node {
                         }
                     }
                 }
-                for (member, seen) in self.members.iter().zip(seen) {
-                    if !seen
-                        && let (Some(output), Some(default)) = (&member.output, &member.default)
-                    {
-                        map.insert(output.clone(), default.clone());
-                    }
-                }
+                map.extend(defaults);
             }
             Value::Array(items) => {
                 if let Some(wild) = &self.wild {

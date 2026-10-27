@@ -159,7 +159,7 @@ fn parse_formula(value: &str) -> Option<Formula> {
         return (!name.is_empty()).then_some(Formula::Same(name));
     }
     let (op, rest) = value.split_once('(')?;
-    let args = &rest[..rest.find(')')?];
+    let (args, _) = rest.split_once(')')?;
     let args: Vec<&str> = args.split(',').map(str::trim).collect();
     match (op, args.as_slice()) {
         ("alpha", [src, amount]) => Some(Formula::Alpha(parse_source(src)?, parse_amount(amount)?)),
@@ -264,7 +264,7 @@ pub(crate) mod json {
         }
 
         fn eat(&mut self, lit: &str) -> bool {
-            if self.s[self.i..].starts_with(lit.as_bytes()) {
+            if self.s.get(self.i..).is_some_and(|rest| rest.starts_with(lit.as_bytes())) {
                 self.i += lit.len();
                 true
             } else {
@@ -347,10 +347,8 @@ pub(crate) mod json {
                     }
                     self.i += 1;
                 }
-                out.push_str(
-                    std::str::from_utf8(&self.s[start..self.i])
-                        .map_err(|_| self.err("bad UTF-8"))?,
-                );
+                let run = self.s.get(start..self.i).ok_or_else(|| self.err("bad string"))?;
+                out.push_str(std::str::from_utf8(run).map_err(|_| self.err("bad UTF-8"))?);
                 match self.s.get(self.i) {
                     Some(b'"') => {
                         self.i += 1;
@@ -405,8 +403,9 @@ pub(crate) mod json {
             {
                 self.i += 1;
             }
-            std::str::from_utf8(&self.s[start..self.i])
-                .ok()
+            self.s
+                .get(start..self.i)
+                .and_then(|n| std::str::from_utf8(n).ok())
                 .and_then(|n| n.parse().ok())
                 .map(Value::Number)
                 .ok_or_else(|| self.err("bad number"))

@@ -150,7 +150,8 @@ fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
         }
     }
     let argv: Vec<&[u8]> = args[i..].iter().map(|a| a.as_bytes()).collect();
-    let reply = call(s, proto::CREATE, &proto::create_payload(cols, rows, &cwd, &argv));
+    let create = proto::create_payload(cols, rows, &cwd, &argv).unwrap_or_else(|e| die(e));
+    let reply = call(s, proto::CREATE, &create);
     u32::from_le_bytes(reply[..4].try_into().unwrap_or_else(|_| die("bad reply")))
 }
 
@@ -169,7 +170,7 @@ fn bench(s: &mut UnixStream, args: &[String]) {
     match args.first().map(String::as_str) {
         Some("create") => {
             let argv: [&[u8]; 2] = [b"/bin/sleep", b"1000000"];
-            let payload = proto::create_payload(80, 24, b"", &argv);
+            let payload = proto::create_payload(80, 24, b"", &argv).unwrap_or_else(|e| die(e));
             for _ in 0..n {
                 let t = Instant::now();
                 call(s, proto::CREATE, &payload);
@@ -178,7 +179,8 @@ fn bench(s: &mut UnixStream, args: &[String]) {
         }
         Some("rtt") => {
             let argv: [&[u8]; 1] = [b"/bin/cat"];
-            let reply = call(s, proto::CREATE, &proto::create_payload(80, 24, b"", &argv));
+            let create = proto::create_payload(80, 24, b"", &argv).unwrap_or_else(|e| die(e));
+            let reply = call(s, proto::CREATE, &create);
             let t_id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
             for i in 0..n {
                 let mark = format!("M{i:06}X");

@@ -91,7 +91,9 @@ impl BulkSender {
         let i = self.queue.iter().position(Outgoing::sendable)?;
         let mut o = self.queue.remove(i)?;
         let end = (o.sent + MAX_BULK_CHUNK as u64).min(o.credit).min(o.data.len() as u64);
-        let bytes = o.data[o.sent as usize..end as usize].to_vec();
+        // `sendable` holds `sent < end <= data.len()`: these are exactly the bytes `sent..end`.
+        let bytes: Vec<u8> =
+            o.data.iter().take(end as usize).skip(o.sent as usize).copied().collect();
         let frame = BulkFrame { transfer: o.transfer, offset: o.sent, bytes };
         o.sent = end;
         if o.sent < o.data.len() as u64 {

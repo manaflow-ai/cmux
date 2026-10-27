@@ -62,16 +62,58 @@ impl ThemeAccent {
         Self::ALL.into_iter().find(|a| a.as_str() == value)
     }
 
-    /// The ANSI slot of a named accent (its bright variant is 8 higher).
-    fn slot(self) -> Option<usize> {
+    /// The (normal, bright) ANSI pair of a named accent.
+    fn hue(self, hues: &Hues) -> Option<(Rgb, Rgb)> {
         match self {
             Self::Neutral | Self::Theme => None,
-            Self::Red => Some(1),
-            Self::Green => Some(2),
-            Self::Yellow => Some(3),
-            Self::Blue => Some(4),
-            Self::Magenta => Some(5),
-            Self::Cyan => Some(6),
+            Self::Red => Some(hues.red),
+            Self::Green => Some(hues.green),
+            Self::Yellow => Some(hues.yellow),
+            Self::Blue => Some(hues.blue),
+            Self::Magenta => Some(hues.magenta),
+            Self::Cyan => Some(hues.cyan),
+        }
+    }
+}
+
+/// The six ANSI hues of a palette, each as its (normal, bright) pair: slots
+/// 1..=6 and their bright variants 9..=14.
+struct Hues {
+    red: (Rgb, Rgb),
+    green: (Rgb, Rgb),
+    yellow: (Rgb, Rgb),
+    blue: (Rgb, Rgb),
+    magenta: (Rgb, Rgb),
+    cyan: (Rgb, Rgb),
+}
+
+impl Hues {
+    fn of(palette: &[Rgb; 16]) -> Self {
+        let [
+            _,
+            red,
+            green,
+            yellow,
+            blue,
+            magenta,
+            cyan,
+            _,
+            _,
+            bright_red,
+            bright_green,
+            bright_yellow,
+            bright_blue,
+            bright_magenta,
+            bright_cyan,
+            _,
+        ] = *palette;
+        Self {
+            red: (red, bright_red),
+            green: (green, bright_green),
+            yellow: (yellow, bright_yellow),
+            blue: (blue, bright_blue),
+            magenta: (magenta, bright_magenta),
+            cyan: (cyan, bright_cyan),
         }
     }
 }
@@ -173,6 +215,28 @@ const HUED_CHROMA: f64 = 0.05;
 const TINT_SCALES: [f64; 6] = [1.0, 0.7, 0.45, 0.25, 0.1, 0.0];
 
 use AppToken as T;
+
+// Every token has a slot in a 20-entry table: fieldless discriminants run 0.. in
+// declaration order, and `Success` is the last of the 20.
+const _: () = assert!(AppToken::ALL.len() == 20 && AppToken::Success as usize == 19);
+
+/// The table entry of `token`.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: AppToken discriminants are 0..20 (asserted at build time above) and a token table has 20 entries"
+)]
+fn slot(table: &[Rgb; 20], token: AppToken) -> &Rgb {
+    &table[token as usize]
+}
+
+/// [`slot`], mutable.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: AppToken discriminants are 0..20 (asserted at build time above) and a token table has 20 entries"
+)]
+fn slot_mut(table: &mut [Rgb; 20], token: AppToken) -> &mut Rgb {
+    &mut table[token as usize]
+}
 const PLAIN_SURFACES: [AppToken; 4] = [T::Window, T::Sidebar, T::Content, T::Elevated];
 const TEXT_SURFACES: [AppToken; 8] = [
     T::Window,
@@ -189,7 +253,7 @@ const STATUS_SURFACES: [AppToken; 5] = [T::Window, T::Sidebar, T::Content, T::El
 impl AppTheme {
     /// The token's color.
     pub fn get(&self, token: AppToken) -> Rgb {
-        self.tokens[token as usize]
+        *slot(&self.tokens, token)
     }
 
     /// Every pair the tokens are used in: (token, on, minimum) (Swift
@@ -242,24 +306,21 @@ impl AppTheme {
         let (bg, fg) = (background.with_alpha(1.0), foreground.with_alpha(1.0));
         let palette = palette.map(|c| c.with_alpha(1.0));
         let source = accent_color.map(|c| c.with_alpha(1.0));
-        let mut theme = derive_at(bg, fg, &palette, accent, source, TINT_SCALES[0]);
-        for scale in &TINT_SCALES[1..] {
+        let [first_scale, weaker_scales @ ..] = TINT_SCALES;
+        let mut theme = derive_at(bg, fg, &palette, accent, source, first_scale);
+        for scale in weaker_scales {
             if !theme.fails() {
                 break;
             }
-            theme = derive_at(bg, fg, &palette, accent, source, *scale);
+            theme = derive_at(bg, fg, &palette, accent, source, scale);
         }
         theme
     }
 }
 
 /// The more colorful of a normal and a bright slot.
-fn colorful(palette: &[Rgb; 16], normal: usize, bright: usize) -> Rgb {
-    if oklch(palette[bright]).c > oklch(palette[normal]).c + 0.02 {
-        palette[bright]
-    } else {
-        palette[normal]
-    }
+fn colorful((normal, bright): (Rgb, Rgb)) -> Rgb {
+    if oklch(bright).c > oklch(normal).c + 0.02 { bright } else { normal }
 }
 
 /// The accent's starting color (Swift `AppTheme.accentSeed`): the theme's
@@ -269,15 +330,15 @@ fn accent_seed(accent: ThemeAccent, color: Option<Rgb>, fg: Rgb, palette: &[Rgb;
         return color;
     }
     let neutral = from_oklch(Oklch { l: oklch(fg).l, c: 0.0, h: 0.0 });
-    if let Some(slot) = accent.slot() {
-        return colorful(palette, slot, slot + 8);
+    let hues = Hues::of(palette);
+    if let Some(hue) = accent.hue(&hues) {
+        return colorful(hue);
     }
     if accent != ThemeAccent::Theme {
         return neutral;
     }
-    for named in [ThemeAccent::Magenta, ThemeAccent::Blue, ThemeAccent::Cyan] {
-        let slot = named.slot().unwrap_or(0);
-        let color = colorful(palette, slot, slot + 8);
+    for hue in [hues.magenta, hues.blue, hues.cyan] {
+        let color = colorful(hue);
         if oklch(color).c >= HUED_CHROMA {
             return color;
         }
@@ -294,21 +355,22 @@ fn derive_at(
     tint: f64,
 ) -> AppTheme {
     let is_dark = luminance(bg) < luminance(fg);
+    let hues = Hues::of(palette);
     let dark = |d: f64, l: f64| if is_dark { d } else { l };
     let q = quantized;
     let mut t = [Rgb::BLACK; 20];
     let window = q(bg);
-    t[T::Window as usize] = window;
-    t[T::Content as usize] = q(bg);
-    t[T::Sidebar as usize] = q(bg.mixed(fg, dark(0.04, 0.035) * tint));
-    t[T::Elevated as usize] =
+    *slot_mut(&mut t, T::Window) = window;
+    *slot_mut(&mut t, T::Content) = q(bg);
+    *slot_mut(&mut t, T::Sidebar) = q(bg.mixed(fg, dark(0.04, 0.035) * tint));
+    *slot_mut(&mut t, T::Elevated) =
         q(if is_dark { bg.mixed(fg, 0.075 * tint) } else { bg.mixed(Rgb::WHITE, 0.7 * tint) });
-    t[T::Control as usize] = q(bg.mixed(fg, dark(0.1, 0.065) * tint));
-    t[T::Hover as usize] = q(bg.mixed(fg, dark(0.06, 0.045) * tint));
-    t[T::Pressed as usize] = q(bg.mixed(fg, dark(0.12, 0.09) * tint));
-    t[T::Separator as usize] = q(bg.mixed(fg, dark(0.13, 0.11)));
+    *slot_mut(&mut t, T::Control) = q(bg.mixed(fg, dark(0.1, 0.065) * tint));
+    *slot_mut(&mut t, T::Hover) = q(bg.mixed(fg, dark(0.06, 0.045) * tint));
+    *slot_mut(&mut t, T::Pressed) = q(bg.mixed(fg, dark(0.12, 0.09) * tint));
+    *slot_mut(&mut t, T::Separator) = q(bg.mixed(fg, dark(0.13, 0.11)));
     let on = |t: &[Rgb; 20], names: &[AppToken], minimum: f64| -> Vec<Constraint> {
-        names.iter().map(|n| Constraint { on: t[*n as usize], minimum }).collect()
+        names.iter().map(|n| Constraint { on: *slot(t, *n), minimum }).collect()
     };
     let (lighter, darker) = (Some(Direction::Lighter), Some(Direction::Darker));
     let away = if is_dark { lighter } else { darker };
@@ -317,35 +379,37 @@ fn derive_at(
     let mut accent_on = on(&t, &PLAIN_SURFACES, UI_MINIMUM);
     accent_on.push(Constraint { on: on_accent_wanted, minimum: TEXT_MINIMUM });
     let accent = fit(accent_seed(accent, accent_color, fg, palette), &accent_on, away);
-    t[T::Accent as usize] = accent;
-    t[T::FocusRing as usize] = accent;
+    *slot_mut(&mut t, T::Accent) = accent;
+    *slot_mut(&mut t, T::FocusRing) = accent;
     let on_accent_rule = [Constraint { on: accent, minimum: TEXT_MINIMUM }];
-    t[T::OnAccent as usize] = if meets(on_accent_wanted, &on_accent_rule) {
+    *slot_mut(&mut t, T::OnAccent) = if meets(on_accent_wanted, &on_accent_rule) {
         on_accent_wanted
     } else {
         fit(if is_dark { Rgb::BLACK } else { Rgb::WHITE }, &on_accent_rule, None)
     };
-    t[T::Selection as usize] = q(bg.mixed(accent, dark(0.26, 0.16) * tint));
+    *slot_mut(&mut t, T::Selection) = q(bg.mixed(accent, dark(0.26, 0.16) * tint));
 
     let text = fit(fg, &on(&t, &TEXT_SURFACES, TEXT_MINIMUM), None);
-    t[T::Text as usize] = text;
-    t[T::TextSecondary as usize] =
+    *slot_mut(&mut t, T::Text) = text;
+    *slot_mut(&mut t, T::TextSecondary) =
         fit(text.mixed(bg, 0.34), &on(&t, &TEXT_SURFACES, TEXT_MINIMUM), away);
-    t[T::Icon as usize] = fit(text.mixed(bg, 0.3), &on(&t, &TEXT_SURFACES, UI_MINIMUM), away);
-    t[T::ControlStroke as usize] = fit(
+    *slot_mut(&mut t, T::Icon) =
+        fit(text.mixed(bg, 0.3), &on(&t, &TEXT_SURFACES, UI_MINIMUM), away);
+    *slot_mut(&mut t, T::ControlStroke) = fit(
         bg.mixed(fg, 0.42),
         &on(&t, &[T::Window, T::Sidebar, T::Content, T::Elevated, T::Control], UI_MINIMUM),
         away,
     );
     let status_and_selection =
         [T::Window, T::Sidebar, T::Content, T::Elevated, T::Hover, T::Selection];
-    t[T::AccentText as usize] = fit(accent, &on(&t, &status_and_selection, TEXT_MINIMUM), away);
-    t[T::Danger as usize] =
-        fit(colorful(palette, 1, 9), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
-    t[T::Warning as usize] =
-        fit(colorful(palette, 3, 11), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
-    t[T::Success as usize] =
-        fit(colorful(palette, 2, 10), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    *slot_mut(&mut t, T::AccentText) =
+        fit(accent, &on(&t, &status_and_selection, TEXT_MINIMUM), away);
+    *slot_mut(&mut t, T::Danger) =
+        fit(colorful(hues.red), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    *slot_mut(&mut t, T::Warning) =
+        fit(colorful(hues.yellow), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    *slot_mut(&mut t, T::Success) =
+        fit(colorful(hues.green), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
     AppTheme { is_dark, tokens: t }
 }
 

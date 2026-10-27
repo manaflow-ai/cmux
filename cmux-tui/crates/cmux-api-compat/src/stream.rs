@@ -26,7 +26,7 @@ pub(crate) fn rewrite(root: &Node, input: &[u8], out: &mut Vec<u8>) -> Result<()
         return Err(CompatError::Malformed(editor.pos));
     }
     // Keep framing whitespace (a trailing newline) as it was.
-    editor.out.extend_from_slice(&input[tail..]);
+    editor.out.extend_from_slice(input.get(tail..).ok_or(CompatError::Malformed(tail))?);
     Ok(())
 }
 
@@ -42,6 +42,10 @@ const QUOTE: u8 = 1;
 const OPEN: u8 = 2;
 const CLOSE: u8 = 3;
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: const-evaluated, so an out-of-range index is a build error; each index is a byte (< 256)"
+)]
 static CLASS: [u8; 256] = {
     let mut table = [PLAIN; 256];
     table[b'"' as usize] = QUOTE;
@@ -52,12 +56,26 @@ static CLASS: [u8; 256] = {
     table
 };
 
-impl Editor<'_, '_> {
+/// The structural class of `byte`. One table load: a `match` on the byte
+/// made the raw-copy scan (rex_parity `wide-unrelated`) 1.8x slower.
+#[inline]
+#[allow(clippy::indexing_slicing, reason = "INVARIANT: a u8 is < 256, the length of CLASS")]
+fn class(byte: u8) -> u8 {
+    CLASS[usize::from(byte)]
+}
+
+impl<'a> Editor<'a, '_> {
     #[inline]
     fn ws(&mut self) {
         while let Some(b' ' | b'\n' | b'\r' | b'\t') = self.input.get(self.pos) {
             self.pos += 1;
         }
+    }
+
+    /// The input bytes `start..end`; a range past the input is malformed at `start`.
+    #[inline]
+    fn bytes(&self, start: usize, end: usize) -> Result<&'a [u8], CompatError> {
+        self.input.get(start..end).ok_or(CompatError::Malformed(start))
     }
 
     #[inline]
@@ -97,8 +115,8 @@ impl Editor<'_, '_> {
             b'{' | b'[' => {
                 let mut depth = 0usize;
                 let mut i = start;
-                while i < bytes.len() {
-                    match CLASS[bytes[i] as usize] {
+                while let Some(&byte) = bytes.get(i) {
+                    match class(byte) {
                         PLAIN => i += 1,
                         QUOTE => i = self.string_end(i)?,
                         OPEN => {
@@ -134,7 +152,7 @@ impl Editor<'_, '_> {
 
     fn copy_value(&mut self) -> Result<(), CompatError> {
         let end = self.value_end()?;
-        self.out.extend_from_slice(&self.input[self.pos..end]);
+        self.out.extend_from_slice(self.bytes(self.pos, end)?);
         self.pos = end;
         Ok(())
     }
@@ -160,7 +178,7 @@ impl Editor<'_, '_> {
 
     fn materialize(&mut self, node: &Node) -> Result<(), CompatError> {
         let end = self.value_end()?;
-        let mut value: Value = serde_json::from_slice(&self.input[self.pos..end])
+        let mut value: Value = serde_json::from_slice(self.bytes(self.pos, end)?)
             .map_err(|_| CompatError::Malformed(self.pos))?;
         node.apply_value(&mut value);
         serde_json::to_writer(&mut *self.out, &value)
@@ -214,12 +232,16 @@ impl Editor<'_, '_> {
                 }
                 let key_start = self.pos;
                 let key_end = self.string_end(key_start)?;
-                let raw_key = &self.input[key_start..key_end];
+                let raw_key = self.bytes(key_start, key_end)?;
                 self.pos = key_end;
                 self.ws();
                 self.expect_byte(b':')?;
                 self.ws();
-                let inner = &raw_key[1..raw_key.len() - 1];
+                // `string_end` ends the key on its closing quote, after the opening one.
+                let inner = raw_key
+                    .strip_prefix(b"\"")
+                    .and_then(|key| key.strip_suffix(b"\""))
+                    .ok_or(CompatError::Malformed(key_start))?;
                 let decoded;
                 let key: &str = if inner.contains(&b'\\') {
                     decoded = serde_json::from_slice::<String>(raw_key)
@@ -229,8 +251,7 @@ impl Editor<'_, '_> {
                     std::str::from_utf8(inner).map_err(|_| CompatError::Malformed(key_start))?
                 };
                 match node.lookup(key) {
-                    Some(index) => {
-                        let member = &node.members[index];
+                    Some((index, member)) => {
                         if let Some(flag) = seen.get_mut(index) {
                             *flag = true;
                         }
@@ -268,8 +289,9 @@ impl Editor<'_, '_> {
             }
         }
         if node.has_defaults {
-            for (index, member) in node.members.iter().enumerate() {
-                if seen[index] || member.output.is_none() {
+            // `seen` has one flag per member when the node has defaults.
+            for (member, &was_seen) in node.members.iter().zip(&seen) {
+                if was_seen || member.output.is_none() {
                     continue;
                 }
                 if let Some(default) = &member.default {

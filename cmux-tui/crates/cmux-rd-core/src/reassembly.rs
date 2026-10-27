@@ -156,8 +156,11 @@ impl Reassembler {
                 now_us.saturating_sub(p.first_seen_us) >= after_us && !Self::decodable(p)
             })
             .map(|(&frame, p)| {
-                let missing =
-                    (0..p.count).filter(|&i| p.shards[usize::from(i)].is_none()).collect();
+                let missing = (0..p.count)
+                    .zip(&p.shards)
+                    .filter(|(_, shard)| shard.is_none())
+                    .map(|(i, _)| i)
+                    .collect();
                 (frame, missing)
             })
             .collect()
@@ -242,7 +245,7 @@ impl Reassembler {
                 self.lose(frame);
                 continue;
             }
-            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
+            let bytes: Vec<u8> = p.shards.iter().take(count).flatten().flatten().copied().collect();
             let Ok(body) = FrameBody::decode(&bytes) else {
                 self.lose(frame);
                 continue;

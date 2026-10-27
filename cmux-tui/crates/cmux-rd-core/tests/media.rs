@@ -285,3 +285,16 @@ fn tile_frames_are_standalone_and_keep_their_video_reference() {
     let third = send(3, 910, 500, 2_000, false);
     assert_eq!(third.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![3]);
 }
+
+#[test]
+fn malformed_blocks_are_typed_errors_not_panics() {
+    // No data shard, and a data count larger than the block.
+    assert_eq!(fec::encode(&[], 2), Err(fec::FecError::BlockSize));
+    assert_eq!(fec::reconstruct(&mut [Some(vec![1]), None], 0), Err(fec::FecError::BlockSize));
+    assert_eq!(fec::reconstruct(&mut [Some(vec![1]), None], 3), Err(fec::FecError::BlockSize));
+    // A lost data shard with no parity to rebuild it from.
+    assert_eq!(fec::reconstruct(&mut [Some(vec![1]), None], 2), Err(fec::FecError::TooFewShards));
+    // Present shards of different lengths.
+    let mut shards = [None, Some(vec![1, 2]), Some(vec![3])];
+    assert_eq!(fec::reconstruct(&mut shards, 2), Err(fec::FecError::ShardLength));
+}

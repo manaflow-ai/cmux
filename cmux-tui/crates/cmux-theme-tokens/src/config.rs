@@ -407,8 +407,7 @@ pub fn load(env: &Env, appearance: Appearance) -> Loaded {
         read(&path, true, &mut entries, &mut pending, &mut diagnostics);
     }
     let mut next = 0;
-    while next < pending.len() {
-        let (path, optional) = pending[next].clone();
+    while let Some((path, optional)) = pending.get(next).cloned() {
         next += 1;
         watch.push(path.clone());
         read(&path, optional, &mut entries, &mut pending, &mut diagnostics);

@@ -314,9 +314,14 @@ impl Server {
     }
 
     fn send(&mut self, id: u32, kind: u8, payload: &[u8]) {
+        let mut frame = Vec::with_capacity(payload.len() + 5);
+        if let Err(e) = proto::put_frame(&mut frame, kind, payload) {
+            // Over MAX_FRAME: the client's read_frame would refuse it and drop the link.
+            eprintln!("mux2d: client {id}: kind {kind} frame of {} bytes: {e}", payload.len());
+            self.drop_conn(id);
+            return;
+        }
         if let Some(conn) = self.conns.get_mut(&id) {
-            let mut frame = Vec::with_capacity(payload.len() + 5);
-            proto::put_frame(&mut frame, kind, payload);
             conn.queued += frame.len();
             conn.out.push_back(frame);
             self.flush_conn(id);

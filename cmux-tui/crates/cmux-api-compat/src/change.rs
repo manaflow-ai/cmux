@@ -213,7 +213,9 @@ impl Op {
     /// The parent path a move creates when it is missing.
     fn created_parent(&self) -> Option<Vec<String>> {
         match self {
-            Self::Move { lca, to, .. } => Some([lca.as_slice(), &to[..to.len() - 1]].concat()),
+            Self::Move { lca, to, .. } => {
+                to.split_last().map(|(_, parent)| [lca.as_slice(), parent].concat())
+            }
             _ => None,
         }
     }
@@ -284,16 +286,16 @@ fn make_move(from: &str, to: &str) -> Result<Op, CompatError> {
             "move `{from}` -> `{to}` nests one end in the other"
         )));
     }
-    let lca = from_tokens[..common].to_vec();
-    let from_rel = from_tokens[common..].to_vec();
-    let to_rel = to_tokens[common..].to_vec();
+    let lca: Vec<String> = from_tokens.iter().take(common).cloned().collect();
+    let from_rel: Vec<String> = from_tokens.iter().skip(common).cloned().collect();
+    let to_rel: Vec<String> = to_tokens.iter().skip(common).cloned().collect();
     if from_rel.iter().chain(&to_rel).any(|t| t == WILDCARD) {
         return Err(CompatError::InvalidChange(format!(
             "move `{from}` -> `{to}` has `*` below the shared prefix"
         )));
     }
-    if from_rel.len() == 1 && to_rel.len() == 1 {
-        return Ok(Op::Rename { parent: lca, from: from_rel[0].clone(), to: to_rel[0].clone() });
+    if let ([from_key], [to_key]) = (from_rel.as_slice(), to_rel.as_slice()) {
+        return Ok(Op::Rename { parent: lca, from: from_key.clone(), to: to_key.clone() });
     }
     Ok(Op::Move { lca, from: from_rel, to: to_rel })
 }
@@ -432,18 +434,19 @@ fn for_each_mut(value: &mut Value, tokens: &[String], f: &mut dyn FnMut(&mut Val
 }
 
 fn move_within(value: &mut Value, from: &[String], to: &[String]) {
+    let Some((key, parent)) = to.split_last() else { return };
     // Refuse before touching the source when the destination cannot be built.
-    if !destination_buildable(value, &to[..to.len() - 1]) {
+    if !destination_buildable(value, parent) {
         return;
     }
     let Some(taken) = take_at(value, from) else { return };
     let mut cursor = value;
-    for token in &to[..to.len() - 1] {
+    for token in parent {
         let Value::Object(map) = cursor else { return };
         cursor = map.entry(token.clone()).or_insert_with(|| Value::Object(Map::new()));
     }
     if let Value::Object(map) = cursor {
-        map.insert(to[to.len() - 1].clone(), taken);
+        map.insert(key.clone(), taken);
     }
 }
 

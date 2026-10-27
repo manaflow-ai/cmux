@@ -4,15 +4,26 @@
 
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
+use std::process::ExitCode;
 use std::time::Instant;
 
 use ghostty_vt::sys;
 use ghostty_vt::{Callbacks, Terminal};
 
-fn main() {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(why) => {
+            eprintln!("mux2-parsebench: {why}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let data =
-        std::fs::read(args.first().expect("usage: mux2-parsebench FILE [CHUNK]")).expect("read");
+    let path = args.first().ok_or("usage: mux2-parsebench FILE [CHUNK]")?;
+    let data = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
     let chunk: usize = args.get(1).and_then(|c| c.parse().ok()).unwrap_or(16384);
     let mut bytes = Vec::with_capacity(data.len() + data.len() / 16);
     for &b in &data {
@@ -23,8 +34,8 @@ fn main() {
     }
     let (cols, rows, scrollback) = (200u16, 50u16, 10_000_000usize);
 
-    let mut wrapped =
-        Terminal::new(cols, rows, scrollback, Callbacks::default()).expect("terminal");
+    let mut wrapped = Terminal::new(cols, rows, scrollback, Callbacks::default())
+        .map_err(|e| format!("terminal: {e}"))?;
     let t = Instant::now();
     for c in bytes.chunks(chunk) {
         wrapped.vt_write(c);
@@ -35,7 +46,10 @@ fn main() {
     // SAFETY: creating and configuring a terminal through the C API; the
     // pointer stays valid until ghostty_terminal_free below.
     unsafe {
-        assert_eq!(sys::ghostty_terminal_new(std::ptr::null(), &mut raw, cols, rows), 0);
+        let status = sys::ghostty_terminal_new(std::ptr::null(), &mut raw, cols, rows);
+        if status != 0 {
+            return Err(format!("ghostty_terminal_new failed: {status}"));
+        }
         sys::ghostty_terminal_set(
             raw,
             sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
@@ -54,9 +68,10 @@ fn main() {
     let mb = bytes.len() as f64 / 1e6;
     println!(
         "{{\"parsebench\":\"{}\",\"chunk\":{chunk},\"mb\":{mb:.1},\"wrapper_mb_s\":{:.1},\"raw_mb_s\":{:.1},\"wrapper_overhead\":{:.2}}}",
-        args[0],
+        path,
         mb / wrapper_s,
         mb / raw_s,
         wrapper_s / raw_s
     );
+    Ok(())
 }

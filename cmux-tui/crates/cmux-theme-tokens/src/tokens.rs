@@ -265,9 +265,10 @@ impl ThemeTokens {
             .filter(|s| primary.contrast(s.composited(bg)) >= mark_minimum);
 
         let palette = input.palette;
-        let status = |i: usize| readable(palette[i], bg, mark_minimum);
+        let [_, red, green, yellow, blue, ..] = palette;
+        let status = |color: Rgb| readable(color, bg, mark_minimum);
 
-        let highlight = accent.unwrap_or_else(|| status(4));
+        let highlight = accent.unwrap_or_else(|| status(blue));
         let best = |candidates: [Rgb; 2]| {
             if candidates[1].contrast(highlight) > candidates[0].contrast(highlight) {
                 candidates[1]
@@ -305,9 +306,9 @@ impl ThemeTokens {
             glass_tint: color("glassTint"),
             shadow: color("shadow"),
             text_selection: config_selection.unwrap_or_else(|| bg.mixed(fg, 0.22)),
-            attention: status(3),
-            danger: status(1),
-            success: status(2),
+            attention: status(yellow),
+            danger: status(red),
+            success: status(green),
             highlight,
             highlight_text,
             accent: accent.unwrap_or(primary),

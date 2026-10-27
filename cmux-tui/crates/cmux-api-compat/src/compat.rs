@@ -181,6 +181,10 @@ impl Compat {
         {
             return Ok(program.clone());
         }
+        #[allow(
+            clippy::indexing_slicing,
+            reason = "INVARIANT: every step index is the changes.len() that Compat::new read just before pushing that change, and changes never shrinks"
+        )]
         let ops = steps
             .iter()
             .map(|&(index, up)| self.changes[index as usize].to_op(up))
@@ -229,11 +233,11 @@ fn chain(changes: &[(u32, u32)], from: u32, to: u32) -> Vec<Step> {
     if from < to {
         let lo = changes.partition_point(|&(rev, _)| rev <= from);
         let hi = changes.partition_point(|&(rev, _)| rev <= to);
-        changes[lo..hi].iter().map(|&(_, index)| (index, true)).collect()
+        changes.iter().take(hi).skip(lo).map(|&(_, index)| (index, true)).collect()
     } else {
         let lo = changes.partition_point(|&(rev, _)| rev <= to);
         let hi = changes.partition_point(|&(rev, _)| rev <= from);
-        changes[lo..hi].iter().rev().map(|&(_, index)| (index, false)).collect()
+        changes.iter().take(hi).skip(lo).rev().map(|&(_, index)| (index, false)).collect()
     }
 }
 

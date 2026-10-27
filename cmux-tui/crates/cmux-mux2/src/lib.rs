@@ -45,45 +45,57 @@ pub fn socket_path() -> PathBuf {
     base.join(format!("mux2-{uid}")).join("sock")
 }
 
-/// Appends one frame to `out`.
-pub fn put_frame(out: &mut Vec<u8>, kind: u8, payload: &[u8]) {
-    let len = u32::try_from(payload.len() + 1).expect("frame fits u32");
+/// Appends one frame to `out`. A payload the peer would refuse (its frame is
+/// over [`MAX_FRAME`]) is an `InvalidInput` error and appends nothing.
+pub fn put_frame(out: &mut Vec<u8>, kind: u8, payload: &[u8]) -> io::Result<()> {
+    let len = payload
+        .len()
+        .checked_add(1)
+        .filter(|&len| len <= MAX_FRAME)
+        .and_then(|len| u32::try_from(len).ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?;
     out.extend_from_slice(&len.to_le_bytes());
     out.push(kind);
     out.extend_from_slice(payload);
+    Ok(())
 }
 
 /// Splits the first complete frame off `buf`, returning `(kind, payload, consumed)`.
 pub fn take_frame(buf: &[u8]) -> io::Result<Option<(u8, &[u8], usize)>> {
-    if buf.len() < 5 {
+    let Some((head, rest)) = buf.split_first_chunk::<4>() else {
         return Ok(None);
-    }
-    let len = u32::from_le_bytes(buf[..4].try_into().expect("4 bytes")) as usize;
+    };
+    let Some((&kind, body)) = rest.split_first() else {
+        return Ok(None);
+    };
+    let len = u32::from_le_bytes(*head) as usize;
     if len == 0 || len > MAX_FRAME {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "bad frame length"));
     }
-    if buf.len() < 4 + len {
+    // `len` counts the kind byte, so the payload is `len - 1` bytes.
+    let Some(payload) = body.get(..len - 1) else {
         return Ok(None);
-    }
-    Ok(Some((buf[4], &buf[5..4 + len], 4 + len)))
+    };
+    Ok(Some((kind, payload, 4 + len)))
 }
 
 pub fn write_frame(w: &mut impl Write, kind: u8, payload: &[u8]) -> io::Result<()> {
     let mut out = Vec::with_capacity(payload.len() + 5);
-    put_frame(&mut out, kind, payload);
+    put_frame(&mut out, kind, payload)?;
     w.write_all(&out)
 }
 
 pub fn read_frame(r: &mut impl Read) -> io::Result<(u8, Vec<u8>)> {
     let mut head = [0u8; 5];
     r.read_exact(&mut head)?;
-    let len = u32::from_le_bytes(head[..4].try_into().expect("4 bytes")) as usize;
+    let [l0, l1, l2, l3, kind] = head;
+    let len = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
     if len == 0 || len > MAX_FRAME {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "bad frame length"));
     }
     let mut payload = vec![0u8; len - 1];
     r.read_exact(&mut payload)?;
-    Ok((head[4], payload))
+    Ok((kind, payload))
 }
 
 /// Little-endian cursor over a request payload.
@@ -111,22 +123,30 @@ impl Reader<'_> {
     }
 }
 
-pub fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
-    out.extend_from_slice(&u32::try_from(bytes.len()).expect("fits u32").to_le_bytes());
+/// Appends `bytes` with its `u32` length; more than `u32::MAX` bytes is an
+/// `InvalidInput` error and appends nothing.
+pub fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> io::Result<()> {
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "field over 4 GiB"))?;
+    out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(bytes);
+    Ok(())
 }
 
-/// CREATE payload: cols, rows, cwd (empty inherits), argv.
-pub fn create_payload(cols: u16, rows: u16, cwd: &[u8], argv: &[&[u8]]) -> Vec<u8> {
+/// CREATE payload: cols, rows, cwd (empty inherits), argv. More than
+/// `u16::MAX` arguments, or a field over 4 GiB, is an `InvalidInput` error.
+pub fn create_payload(cols: u16, rows: u16, cwd: &[u8], argv: &[&[u8]]) -> io::Result<Vec<u8>> {
+    let argc = u16::try_from(argv.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "more than 65535 arguments"))?;
     let mut p = Vec::new();
     p.extend_from_slice(&cols.to_le_bytes());
     p.extend_from_slice(&rows.to_le_bytes());
-    put_bytes(&mut p, cwd);
-    p.extend_from_slice(&u16::try_from(argv.len()).expect("argc fits u16").to_le_bytes());
+    put_bytes(&mut p, cwd)?;
+    p.extend_from_slice(&argc.to_le_bytes());
     for arg in argv {
-        put_bytes(&mut p, arg);
+        put_bytes(&mut p, arg)?;
     }
-    p
+    Ok(p)
 }
 
 /// Removes the queries a program sends to its terminal from a stream that a
@@ -248,10 +268,9 @@ impl QueryStripper {
 
 /// `seq` is a complete CSI sequence, `ESC [ ... final`.
 fn csi_is_query(seq: &[u8]) -> bool {
-    let fin = seq[seq.len() - 1];
-    let body = &seq[2..seq.len() - 1];
+    let [_esc, _bracket, body @ .., fin] = seq else { return false };
     let first = body.first().copied();
-    match fin {
+    match *fin {
         b'c' | b'n' | b'x' => true,         // DA1/2/3, DSR/CPR, DECREQTPARM
         b'p' => body.last() == Some(&b'$'), // DECRQM
         b'q' => first == Some(b'>'),        // XTVERSION
@@ -269,9 +288,13 @@ fn csi_is_query(seq: &[u8]) -> bool {
 
 /// `seq` is a complete string sequence, introducer through terminator.
 fn string_is_query(seq: &[u8]) -> bool {
-    let end = if seq.last() == Some(&0x07) { seq.len() - 1 } else { seq.len() - 2 };
-    let body = &seq[2..end.max(2)];
-    match seq[1] {
+    let [_esc, kind, rest @ ..] = seq else { return false };
+    // The body ends before BEL, or before the two bytes of ESC `\`.
+    let body: &[u8] = match rest {
+        [body @ .., 0x07] | [body @ .., _, _] => body,
+        _ => &[],
+    };
+    match *kind {
         b']' => body.split(|c| *c == b';').any(|field| field == b"?"), // OSC color/clipboard queries
         b'P' => body.starts_with(b"+q") || body.starts_with(b"$q"),    // XTGETTCAP, DECRQSS
         b'_' => body.first() == Some(&b'G') && body.windows(3).any(|w| w == b"a=q"), // kitty graphics query

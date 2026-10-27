@@ -88,8 +88,10 @@ fn main() {
     // at a known point. tty echo of that line is part of the expected bytes.
     let script = format!("read go; exec /bin/cat '{}'", file.replace('\'', "'\\''"));
     let argv: [&[u8]; 3] = [b"/bin/sh", b"-c", script.as_bytes()];
-    let reply = call(&mut ctl, proto::CREATE, &proto::create_payload(cols, rows, b"", &argv));
-    let id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
+    let create = proto::create_payload(cols, rows, b"", &argv).unwrap_or_else(|e| die(e));
+    let reply = call(&mut ctl, proto::CREATE, &create);
+    let Some((id, _)) = reply.split_first_chunk::<4>() else { die("CREATE reply has no id") };
+    let id = u32::from_le_bytes(*id);
     let idp = id.to_le_bytes();
 
     let mut viewer = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
@@ -141,9 +143,11 @@ fn main() {
         match k {
             proto::SNAPSHOT => {
                 snapshots += 1;
-                let c = u16::from_le_bytes([body[0], body[1]]);
-                let r = u16::from_le_bytes([body[2], body[3]]);
-                client = Some(parse(c, r, &body[4..]));
+                let Some((&[c0, c1, r0, r1], screen)) = body.split_first_chunk::<4>() else {
+                    die("SNAPSHOT shorter than its size")
+                };
+                let (c, r) = (u16::from_le_bytes([c0, c1]), u16::from_le_bytes([r0, r1]));
+                client = Some(parse(c, r, screen));
             }
             proto::OUTPUT => {
                 stream_bytes += body.len() as u64;
