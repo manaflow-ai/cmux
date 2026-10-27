@@ -399,7 +399,9 @@ extension TerminalAttachmentStreamTests {
     /// A cancelled stream is ending on the daemon, so it no longer counts as announced.
     @Test func aCancelledStreamIsNotAnnounced() throws {
         var table = AttachStreamTable()
-        let handle = try #require(table.reserve())
+        // Reserve outside #require: the macro wraps its argument in a closure, which cannot call a mutating method.
+        let reserved = table.reserve()
+        let handle = try #require(reserved)
         let bound = table.bind(handle, { _ in })
         #expect(bound)
         table.announce(handle)
