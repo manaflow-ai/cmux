@@ -26,10 +26,15 @@
 //!    connection (acpmux `hub/peer_lease.rs`), so it is never saved and a
 //!    later process on the forward's port never receives the VM's tokens.
 //!
-//! Every `RENEW_EVERY` it checks the lease. The VM daemon's peer token
+//! A granted or confirmed lease is taken as good for `LEASE_TERM`; one timer
+//! wakes `RENEW_MARGIN` before that term ends to check it, and is armed again
+//! from the check's result, never on a fixed beat. The VM daemon's peer token
 //! changes at each start, so a peer that its VM serves as `remote` (Web)
 //! instead of `peer`, or that keeps failing to connect, gets its tokens read
-//! again and the lease renewed when they changed.
+//! again and the lease renewed when they changed. A lease that cannot be had
+//! yet is tried again after a wait that doubles per failure, as Chromium's
+//! `net/base/backoff_entry.cc` does, so a Mac without acpmux or a VM still
+//! booting costs a few wakes, not one every few seconds.
 //!
 //! The peer is named `cloud-<machine name>`; two links to VMs of the same
 //! name would take the name from each other.
@@ -50,8 +55,15 @@ use serde_json::{Value, json};
 
 /// The switch; only `1` turns the bridge on.
 pub(super) const GATE: &str = "CMUX_ACPMUX_CLOUD_PEER";
-/// How often the lease is checked, and a lost one tried again.
-const RENEW_EVERY: Duration = Duration::from_secs(15);
+/// How long a granted or confirmed lease is taken as good.
+const LEASE_TERM: Duration = Duration::from_secs(20);
+/// The check runs this long before the term ends, so a slow answer still
+/// lands inside it.
+const RENEW_MARGIN: Duration = Duration::from_secs(5);
+/// The wait after the first failed lease; it doubles per failure in a row.
+const RETRY_FIRST: Duration = Duration::from_secs(15);
+/// The longest wait between two tries of a lease that keeps failing.
+const RETRY_MAX: Duration = Duration::from_secs(300);
 /// A peer this many failed connects in a row gets its tokens read again.
 const RENEW_AFTER_ATTEMPTS: u64 = 3;
 /// The budget of the status probe through the forward.
@@ -93,7 +105,8 @@ impl AcpmuxPeerBridge {
         let acpmux_socket = crate::acp::daemon_socket_path()?;
         let multiplexer = runtime.multiplexer().clone();
         let machine_socket = runtime.info().local_socket.clone();
-        let task = tokio::spawn(run(multiplexer, machine_socket, acpmux_socket));
+        let lessor = VmLessor { multiplexer, machine_socket, acpmux_socket };
+        let task = tokio::spawn(run(lessor));
         Some(Self { task })
     }
 }
@@ -120,46 +133,104 @@ impl std::fmt::Display for Failure {
     }
 }
 
-async fn run(
+/// When the bridge looks at its lease next: `RENEW_MARGIN` before the term
+/// of a lease in force ends, or after a retry wait that doubles per failure
+/// up to `RETRY_MAX` and starts over once a lease holds (Chromium
+/// `net/base/backoff_entry.cc`: `multiply_factor` 2, `maximum_backoff_ms`).
+#[derive(Debug, Default)]
+struct Renewal {
+    failures: u32,
+}
+
+impl Renewal {
+    /// The deadline after a lease was granted or confirmed at `now`.
+    fn after_lease(&mut self, now: tokio::time::Instant) -> tokio::time::Instant {
+        self.failures = 0;
+        now + (LEASE_TERM - RENEW_MARGIN)
+    }
+
+    /// The deadline after a lease could not be had at `now`.
+    fn after_failure(&mut self, now: tokio::time::Instant) -> tokio::time::Instant {
+        let wait = retry_wait(self.failures);
+        self.failures = self.failures.saturating_add(1);
+        now + wait
+    }
+}
+
+/// The wait before the next try after `failures` earlier failures in a row.
+fn retry_wait(failures: u32) -> Duration {
+    let factor = 1u32.checked_shl(failures).unwrap_or(u32::MAX);
+    RETRY_FIRST.saturating_mul(factor).min(RETRY_MAX)
+}
+
+/// Where leases come from: the VM and this Mac's acpmux in the app, a
+/// stand-in in tests.
+trait Lessor {
+    type Lease: HeldLease;
+    async fn establish(&self) -> Result<Self::Lease, Failure>;
+}
+
+/// A lease in force, as the run loop sees it.
+trait HeldLease {
+    fn name(&self) -> &str;
+    /// The lease still holds (renewed when its tokens changed).
+    async fn check(&mut self) -> Result<(), String>;
+    async fn close(self);
+}
+
+/// The app's lessor: leases the VM behind the link's multiplexer.
+struct VmLessor {
     multiplexer: Arc<ServiceMultiplexer>,
     machine_socket: PathBuf,
     acpmux_socket: PathBuf,
-) {
-    let mut tick = tokio::time::interval(RENEW_EVERY);
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut live: Option<Live> = None;
+}
+
+impl Lessor for VmLessor {
+    type Lease = Live;
+
+    async fn establish(&self) -> Result<Live, Failure> {
+        Live::establish(&self.multiplexer, &self.machine_socket, &self.acpmux_socket).await
+    }
+}
+
+async fn run<L: Lessor>(lessor: L) {
+    let mut renewal = Renewal::default();
+    let mut live: Option<L::Lease> = None;
     let mut last_retry = None;
     loop {
-        tick.tick().await;
-        if let Some(current) = live.as_mut() {
-            match current.check().await {
-                Ok(()) => continue,
-                Err(why) => {
-                    crate::client_log::warn(AREA, &format!("lease lost: {why}"));
-                    if let Some(old) = live.take() {
-                        old.close().await;
-                    }
-                }
+        if let Some(current) = live.as_mut()
+            && let Err(why) = current.check().await
+        {
+            crate::client_log::warn(AREA, &format!("lease lost: {why}"));
+            if let Some(old) = live.take() {
+                old.close().await;
             }
         }
-        match Live::establish(&multiplexer, &machine_socket, &acpmux_socket).await {
-            Ok(established) => {
-                crate::client_log::info(AREA, &format!("leased peer {}", established.name));
+        let held = if live.is_some() {
+            Ok(())
+        } else {
+            lessor.establish().await.map(|established| {
+                crate::client_log::info(AREA, &format!("leased peer {}", established.name()));
                 live = Some(established);
                 last_retry = None;
-            }
+            })
+        };
+        let next = match held {
+            Ok(()) => renewal.after_lease(tokio::time::Instant::now()),
             Err(Failure::Stop(why)) => {
                 crate::client_log::info(AREA, &format!("not leasing this machine: {why}"));
                 return;
             }
             Err(Failure::Retry(why)) => {
-                // One line per distinct reason, not one per check.
+                // One line per distinct reason, not one per try.
                 if last_retry.as_ref() != Some(&why) {
                     crate::client_log::info(AREA, &format!("cannot lease yet: {why}"));
                     last_retry = Some(why);
                 }
+                renewal.after_failure(tokio::time::Instant::now())
             }
-        }
+        };
+        tokio::time::sleep_until(next).await;
     }
 }
 
@@ -290,6 +361,12 @@ impl Live {
             .map_err(|_| format!("peer_lease: no answer in {}s", LEASE_BUDGET.as_secs()))?
             .map(drop)
             .map_err(|e| format!("peer_lease: {e:#}"))
+    }
+}
+
+impl HeldLease for Live {
+    fn name(&self) -> &str {
+        &self.name
     }
 
     /// The lease still holds, renewed with fresh tokens when its VM restarted.
@@ -517,6 +594,7 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn the_listen_address_gives_the_port_only_for_a_loopback_host() {
@@ -593,6 +671,145 @@ mod tests {
         for off in [None, Some(""), Some("0"), Some("true"), Some("yes"), Some(" 1")] {
             assert!(!gate_on(off), "{off:?}");
         }
+    }
+
+    #[test]
+    fn the_retry_wait_doubles_per_failure_up_to_the_cap() {
+        let waits: Vec<u64> = (0..7).map(|n| retry_wait(n).as_secs()).collect();
+        assert_eq!(waits, [15, 30, 60, 120, 240, 300, 300]);
+        assert_eq!(retry_wait(u32::MAX), RETRY_MAX);
+    }
+
+    /// What the stand-in lessor saw, at the paused clock's seconds since start.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Seen {
+        Establish(u64),
+        Check(u64),
+        Close(u64),
+    }
+
+    /// A lessor whose `n`th establish and check answer from fixed scripts;
+    /// past the end of a script every call succeeds.
+    struct Scripted {
+        start: tokio::time::Instant,
+        establish: Vec<Result<(), Failure>>,
+        checks: Arc<Vec<Result<(), String>>>,
+        established: AtomicUsize,
+        checked: Arc<AtomicUsize>,
+        seen: tokio::sync::mpsc::UnboundedSender<Seen>,
+    }
+
+    struct ScriptedLease {
+        start: tokio::time::Instant,
+        checks: Arc<Vec<Result<(), String>>>,
+        checked: Arc<AtomicUsize>,
+        seen: tokio::sync::mpsc::UnboundedSender<Seen>,
+    }
+
+    impl Lessor for Scripted {
+        type Lease = ScriptedLease;
+
+        async fn establish(&self) -> Result<ScriptedLease, Failure> {
+            let _ = self.seen.send(Seen::Establish(self.start.elapsed().as_secs()));
+            match self.establish.get(self.established.fetch_add(1, Ordering::Relaxed)) {
+                Some(Err(Failure::Stop(why))) => Err(Failure::Stop(why.clone())),
+                Some(Err(Failure::Retry(why))) => Err(Failure::Retry(why.clone())),
+                Some(Ok(())) | None => Ok(ScriptedLease {
+                    start: self.start,
+                    checks: self.checks.clone(),
+                    checked: self.checked.clone(),
+                    seen: self.seen.clone(),
+                }),
+            }
+        }
+    }
+
+    impl HeldLease for ScriptedLease {
+        fn name(&self) -> &str {
+            "cloud-test"
+        }
+
+        async fn check(&mut self) -> Result<(), String> {
+            let _ = self.seen.send(Seen::Check(self.start.elapsed().as_secs()));
+            let n = self.checked.fetch_add(1, Ordering::Relaxed);
+            self.checks.get(n).cloned().unwrap_or(Ok(()))
+        }
+
+        async fn close(self) {
+            let _ = self.seen.send(Seen::Close(self.start.elapsed().as_secs()));
+        }
+    }
+
+    /// Runs the loop on the scripts for `for_secs` of paused time and
+    /// returns what it did.
+    async fn run_scripted(
+        establish: Vec<Result<(), Failure>>,
+        checks: Vec<Result<(), String>>,
+        for_secs: u64,
+    ) -> Vec<Seen> {
+        let (seen, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let lessor = Scripted {
+            start: tokio::time::Instant::now(),
+            establish,
+            checks: Arc::new(checks),
+            established: AtomicUsize::new(0),
+            checked: Arc::new(AtomicUsize::new(0)),
+            seen,
+        };
+        let task = tokio::spawn(run(lessor));
+        tokio::time::sleep(Duration::from_secs(for_secs)).await;
+        task.abort();
+        let _ = task.await;
+        let mut all = Vec::new();
+        while let Ok(one) = rx.try_recv() {
+            all.push(one);
+        }
+        all
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_held_lease_is_checked_once_per_term_before_it_ends() {
+        let every = (LEASE_TERM - RENEW_MARGIN).as_secs();
+        let seen = run_scripted(Vec::new(), Vec::new(), 3 * every + every / 2).await;
+        assert_eq!(
+            seen,
+            [
+                Seen::Establish(0),
+                Seen::Check(every),
+                Seen::Check(2 * every),
+                Seen::Check(3 * every)
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failing_lease_backs_off_and_a_lost_one_is_taken_again_at_once() {
+        let retry = |why: &str| Err(Failure::Retry(why.into()));
+        let establish = vec![retry("no acpmux"), retry("no acpmux"), retry("no config")];
+        let checks = vec![Err("the peer is gone".to_owned())];
+        let seen = run_scripted(establish, checks, 150).await;
+        // Tries at 0, 15 and 45 fail; the one at 105 holds and starts the
+        // waits over. The check at 120 finds it lost: closed, leased again at once.
+        assert_eq!(
+            seen,
+            [
+                Seen::Establish(0),
+                Seen::Establish(15),
+                Seen::Establish(45),
+                Seen::Establish(105),
+                Seen::Check(120),
+                Seen::Close(120),
+                Seen::Establish(120),
+                Seen::Check(135),
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_machine_is_never_tried_again() {
+        let establish = vec![Err(Failure::Stop("it is a team VM".into()))];
+        let seen = run_scripted(establish, Vec::new(), 3600).await;
+        assert_eq!(seen, [Seen::Establish(0)]);
     }
 
     /// A stand-in VM acpmux behind a local listener: the probe connects with

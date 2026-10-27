@@ -169,6 +169,8 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true
+# Paused-clock tests (`remote_cli/acpmux_peer.rs`).
+tokio = { workspace = true, features = ["test-util"] }
 cmux-trace.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"
