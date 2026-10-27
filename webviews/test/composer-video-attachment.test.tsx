@@ -236,7 +236,9 @@ try {
         </Activity>,
       );
     });
-    expect(state?.reading).toBe(0);
+    // The interrupted chip remains pending for submission, even before its effect reconnects.
+    expect(state?.reading).toBe(1);
+    expect(calls.filter((call) => call.method === "video.info")).toHaveLength(1);
 
     await act(async () => {
       root.render(
