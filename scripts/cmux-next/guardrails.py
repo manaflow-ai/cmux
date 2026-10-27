@@ -2418,11 +2418,12 @@ RULES += SAFETY_TODO_RULES
 # (base/task/delay_policy.h: kFlexibleNoSooner) and registers observers on their owner (base/observer_list.h).
 # Six line rules judge what a push adds, per file as a count ratchet like main-async: an edit of a line that
 # already has the debt adds none. Local only, never CI (Lawrence 2026-10-23). CmuxNextWakeups holds the
-# primitives that implement the classes and is not judged. Each concern has one owner, so these rules do not
-# repeat: `DispatchQueue.main.async` (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's
-# wakeup rule) and a monitor outside CmuxNextInput (input-monitor).
+# primitives that implement the classes and is not judged, nor is CmuxNextWakeupsDisplay, its AppKit half
+# (p15-oracle task 125). Each concern has one owner, so these rules do not repeat: `DispatchQueue.main.async`
+# (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's wakeup rule) and a monitor outside
+# CmuxNextInput (input-monitor).
 # The block owns its lines from here to `RULES += MAIN_CLASS_RULES`.
-WAKEUPS = SOURCES + "CmuxNextWakeups/"
+WAKEUPS = (SOURCES + "CmuxNextWakeups/", SOURCES + "CmuxNextWakeupsDisplay/")
 main_actor_work = swift_scope.main_actor_scope  # check-main-actor-work.py: the main-actor scopes and Task predicate
 RAW_MAIN_HOP = re.compile(r"\bMainActor\.run\b|\bCFRunLoopPerformBlock\(|\bRunLoop\.main\.perform\b")
 MAIN_DELIVERY = re.compile(r"\bMainDelivery\(")
@@ -2634,7 +2635,7 @@ MAIN_CLASS_RULES = (
          R_HOP,
          "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
          scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
-                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
+                   lambda path: not path.startswith((*WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
     Rule("view-observation", "A raw observation: `ObservationStream(` or `withObservationTracking`",
          "it re-arms on every change whether or not anything shows the value, with no class or owner: hidden "
          "workspaces keep doing view work and one O(all) closure per row runs per change (p06-scheduler.md F5)",
@@ -2643,7 +2644,7 @@ MAIN_CLASS_RULES = (
          "disk); waits use StoreWaiters or PageWaiters",
          "// view-observation-allow: <why neither VisibleObservation nor ServiceObservation fits>",
          scoped_to(Matcher(VIEW_OBSERVATION, allow_marker("view-observation")),
-                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
+                   lambda path: not path.startswith((*WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
     Rule("visibility-walk", "An ad hoc visibility test: `isHiddenOrHasHiddenAncestor`, or a `viewDidHide`/"
          "`viewDidUnhide` override that does more than forward to its VisibilityNode",
          "an ancestor walk per call, and a per-view hidden flag the scheduler cannot see: hidden work is not held, "

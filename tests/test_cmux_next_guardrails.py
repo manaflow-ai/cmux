@@ -2497,6 +2497,18 @@ class MainClassRuleTests(Fixture):
         self.commit("lines other checks own")
         self.assertEqual(sorted(self.refused_ids()), ["input-monitor", "main-async"])
 
+    def test_the_wakeups_display_half_is_judged_as_the_wakeups_primitives(self):
+        # CmuxNextWakeupsDisplay is CmuxNextWakeups' AppKit half (p15-oracle task 125): its primitives' timers,
+        # hops and observations are not judged either; the same lines one folder name away are.
+        body = ("func arm() {\n    timer = DemandTimer(clock: clock) { Task { @MainActor in fire() } }\n}\n"
+                "func watch() {\n    withObservationTracking { _ = model.x } onChange: { }\n}\n")
+        self.write(f"{WAKEUPS}Display/ChatOpenTrace.swift", body)
+        self.commit("the display half")
+        self.assertEqual(self.refused_ids(), [])
+        self.write(f"{WAKEUPS}DisplayExtra/Trace.swift", body)
+        self.commit("a folder that only shares the prefix")
+        self.assertIn("timer-class", self.refused_ids())
+
     def test_an_extension_of_a_ui_subclass_in_another_file_is_main_actor(self):
         # In a target that is not main actor by default, `extension TerminalView` takes TerminalView's NSView
         # isolation from TerminalView.swift: stripping `@MainActor in` there keeps the hop, so it pays for no new one.
