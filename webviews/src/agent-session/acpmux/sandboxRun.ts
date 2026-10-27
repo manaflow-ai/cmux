@@ -195,9 +195,7 @@ export class SandboxTab {
   /// newest read answered: once one fails (``unread``), the run stays in view but no longer holds a
   /// reload, since no timer is left to end the hold.
   busy(): boolean {
-    return (
-      this.mine !== undefined || (this.receipt === undefined && !this.unread && this.host.kind === "running")
-    );
+    return this.mine !== undefined || (this.receipt === undefined && !this.unread && this.host.kind === "running");
   }
 
   setMode(mode: RunMode) {
