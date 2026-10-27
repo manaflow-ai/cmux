@@ -64,7 +64,7 @@ import Testing
 /// names them. `TimerSlackMac` stays the default-off feature `cefTimerSlack`.
 @Suite struct CEFSwitchesWakeUpAlignmentTests {
     /// Every fork API from stock CEF past the newest the app knows today.
-    static let forkAPIs = Array(Int32(0)...40)
+    nonisolated static let forkAPIs = Array(Int32(0)...40)
 
     static func arguments(forkAPIVersion: Int32, chromiumFeatures: [String] = [],
                           bundle: String = "com.cmuxterm.app.next") -> [String] {
@@ -124,6 +124,60 @@ import Testing
         #expect(Set(CEFSwitches.wakeUpAlignmentFeatures).isSubset(of: Self.enabledFeatures(hostSwitches)))
     }
     #endif
+}
+
+/// The app's `process: chromium` features (p12-perf-process-153) reach CEF as one `enable-features` and one
+/// `disable-features` entry. A feature the app turns off is only on the disable list, also when the enable
+/// list names it too or cmux names it itself: disable wins, as Chromium's FeatureList::InitFromCommandLine
+/// processes the disabled features first (base/feature_list.cc).
+@Suite struct CEFSwitchesChromiumFeatureTests {
+    private func switches(enabled: [String], disabled: [String], forkAPIVersion: Int32 = 29) -> [String] {
+        CEFSwitches.current(forkAPIVersion: forkAPIVersion, chromiumFeatures: enabled, disabledChromiumFeatures: disabled,
+                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+    }
+
+    private func features(_ arguments: [String], _ prefix: String) -> [String] {
+        arguments.filter { $0.hasPrefix(prefix) }.flatMap { $0.dropFirst(prefix.count).split(separator: ",").map(String.init) }
+    }
+
+    /// A remote off reaches the switches as an off feature: on the disable list, not on the enable list.
+    @Test func anOffFeatureIsOnlyDisabled() {
+        let arguments = switches(enabled: [], disabled: ["BackForwardCache"])
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["BackForwardCache"])
+        #expect(!features(arguments, "enable-features=").contains("BackForwardCache"))
+    }
+
+    @Test func aFeatureOnBothListsIsDisabled() {
+        let arguments = switches(enabled: ["TimerSlackMac", "BackForwardCache"], disabled: ["TimerSlackMac"])
+        let enabled = features(arguments, "enable-features=")
+        #expect(enabled.contains("BackForwardCache"))
+        #expect(!enabled.contains("TimerSlackMac"))
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["TimerSlackMac"])
+    }
+
+    /// A feature cmux turns on itself (wake-up alignment, the Chrome prompt off) also loses to an off one.
+    @Test func anOffFeatureBeatsOneCmuxNames() {
+        let arguments = switches(enabled: [], disabled: ["AlignWakeUps", "IPH_DemoMode"])
+        let enabled = features(arguments, "enable-features=")
+        #expect(!enabled.contains("AlignWakeUps"))
+        #expect(!enabled.contains(CEFSwitches.chromePromptOffFeature))
+        #expect(enabled.contains("BatterySaverModeAlignWakeUps"))
+        #expect(arguments.filter { $0.hasPrefix("enable-features=") }.count == 1)
+    }
+
+    /// With no app feature off, the one disable entry holds only the idle services cmux does not use (p13-webui-084).
+    @Test func noOffFeatureLeavesOnlyTheIdleServicesDisabled() {
+        let arguments = switches(enabled: ["TimerSlackMac"], disabled: [])
+        let idleServicesOnly = "disable-features=" + CEFSwitches.idleServiceOffFeatures.joined(separator: ",")
+        #expect(arguments.filter { $0.hasPrefix("disable-features=") } == [idleServicesOnly])
+        #expect(features(arguments, "enable-features=").contains("TimerSlackMac"))
+    }
+
+    @Test func anEntryNamesTheFeatureBeforeItsParams() {
+        #expect(CEFSwitches.featureName(of: CEFSwitches.chromePromptOffFeature) == "IPH_DemoMode")
+        #expect(CEFSwitches.featureName(of: "*Name<Study.Group:param/value") == "Name")
+        #expect(CEFSwitches.featureName(of: "TimerSlackMac") == "TimerSlackMac")
+    }
 }
 
 /// The New Tab and every agent chat are one site (`cmux-page://cmux.agent`). Chrome puts at most 2 main frames

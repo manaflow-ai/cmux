@@ -32,8 +32,9 @@ final class SidebarBridge {
     private var appSections: SidebarAppSections?
     /// The bottom-left cards (SidebarBridge+Cards).
     var cards: ServiceObservation<SidebarCardFeed.Cards>?
-    /// The Now Playing card, the Priority view and the window's top items.
+    /// The Priority view and the window's top items.
     var cardsObservation: Task<Void, Never>?
+    var nowPlayingFeed: AnyObject?  // the Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops
     /// The footer's avatar (`SidebarProfileControl.followAvatar`).
     private var profileAvatar: ServiceObservation<SidebarAvatar>?
     /// True once the sidebar shows real content: saved rows, the first
@@ -70,11 +71,12 @@ final class SidebarBridge {
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
-        container = SidebarContainerView(model: model, mainWork: services.mainWork, newRows: PendingWorkspaceRows.shared.newRows)
+        container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
+                                         newRows: PendingWorkspaceRows.shared.newRows)
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
-        // The resize edge moves the width once per frame (feature `pointerFrameDrags`).
-        container.resizeFrameInput = services.dragFrameInput
+        container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
+        container.sidebarView.scrubFrameInput = services.dragFrameInput // the Now Playing scrubber, the same
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
@@ -134,6 +136,7 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        nowPlayingFeed = nil
         cards?.cancel()
         profileAvatar?.cancel()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).

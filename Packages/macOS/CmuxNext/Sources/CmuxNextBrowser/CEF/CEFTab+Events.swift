@@ -1,7 +1,17 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
+    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
+    nonisolated static func dragPaths(_ json: String) -> [URL] {
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
+        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+    }
+
     /// Translates shim events into `BrowserNavigationEvent`s.
     ///
     /// CEF order for a navigation: OnLoadingStateChange(loading) ->
@@ -251,10 +261,12 @@ extension CEFTab {
     private func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
                       deliveringTo update: ((BrowserFindResult) -> Void)?) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        return await withCheckedContinuation { continuation in
+        // A request dropped unanswered (abandoned: the tab went away) found nothing.
+        let result = try? await withOnceContinuation { (continuation: OnceContinuation<BrowserFindResult, OnceContinuationError>) in
             let findID = findRequests.begin(answer: { continuation.resume(returning: $0) }, update: update)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
+        return result ?? BrowserFindResult.none
     }
 
     public func clearFind() {

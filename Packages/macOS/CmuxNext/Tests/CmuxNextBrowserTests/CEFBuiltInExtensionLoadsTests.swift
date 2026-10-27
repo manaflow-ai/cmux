@@ -59,14 +59,19 @@ import Testing
         #expect(loads.gate(key, contextKey: "/p/Default") == .waiting)
         #expect(loads.gate(CEFPaneKey(pane: pane, profile: .default, offTheRecord: true), contextKey: "otr:1") == .open)
         let first = loads.generation
-        #expect(!loads.answered(contextKey: "/p/Default", generation: first), "one folder still loads")
-        #expect(loads.answered(contextKey: "/p/Default", generation: first), "the profile's last folder")
+        // `answered` is mutating, so each result goes into a local: #expect's call form takes an immutable `$0`.
+        let oneFolderLeft = loads.answered(contextKey: "/p/Default", generation: first)
+        #expect(!oneFolderLeft, "one folder still loads")
+        let lastFolder = loads.answered(contextKey: "/p/Default", generation: first)
+        #expect(lastFolder, "the profile's last folder")
         #expect(loads.gate(key, contextKey: "/p/Default") == .open)
-        #expect(!loads.answered(contextKey: "/p/Default", generation: first), "a profile answers once")
+        let answeredAgain = loads.answered(contextKey: "/p/Default", generation: first)
+        #expect(!answeredAgain, "a profile answers once")
         // A new Chromium (a Chromium Host restart) has no profile loaded yet, and the old one's answers change nothing.
         loads.started(folders: [Self.folder])
         #expect(loads.gate(key, contextKey: "/p/Default") == .start([Self.folder]))
-        #expect(!loads.answered(contextKey: "/p/Default", generation: first))
+        let staleAnswer = loads.answered(contextKey: "/p/Default", generation: first)
+        #expect(!staleAnswer)
         #expect(loads.gate(key, contextKey: "/p/Default") == .waiting)
         loads.started(folders: [])
         #expect(loads.gate(key, contextKey: "/p/Other") == .open)

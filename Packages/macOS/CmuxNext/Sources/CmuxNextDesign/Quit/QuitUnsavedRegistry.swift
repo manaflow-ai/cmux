@@ -1,4 +1,7 @@
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 import os
 public import CmuxNextDesignTokens
@@ -115,7 +118,7 @@ final class QuitFlush {
     let title: String
     private let limit: any ComponentDeadline
     private var result: QuitFlushOutcome.Result?
-    private var waiter: CheckedContinuation<QuitFlushOutcome.Result, Never>?
+    private var waiter: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>?
 
     /// Starts the write of `participant` and its limit, `deadline` from now, on `limit`.
     init(_ participant: any QuitUnsavedParticipant, within deadline: Duration, limit: any ComponentDeadline) {
@@ -143,7 +146,10 @@ final class QuitFlush {
         if let answered = self.result {
             result = answered
         } else {
-            result = await withCheckedContinuation { self.waiter = $0 }
+            // A wait whose answer was dropped (neither the write nor the limit resumed it) counts as timed out.
+            result = (try? await withOnceContinuation { (continuation: OnceContinuation<QuitFlushOutcome.Result, OnceContinuationError>) in
+                self.waiter = continuation
+            }) ?? .timedOut
         }
         return QuitFlushOutcome(id: id, title: title, result: result)
     }

@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 24160,
-            "T2": 41580
+            "T1": 26380,
+            "T2": 48780
           },
           "stories": {
             "T1": [
@@ -28,6 +28,9 @@
               "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
+              "frame_pacing.fling",
+              "frame_pacing.golden",
+              "frame_pacing.instant",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
@@ -36,6 +39,8 @@
               "launch-cold",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "main-turn",
               "memory-hidden",
@@ -54,6 +59,7 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -98,6 +104,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -133,7 +140,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }
@@ -148,7 +156,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 41580
+            "T2": 48780
           },
           "stories": {
             "T2": [
@@ -175,6 +183,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -210,7 +219,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }
@@ -225,7 +235,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 11950
+            "T1": 12790
           },
           "stories": {
             "T0": [
@@ -241,9 +251,12 @@
               "burst",
               "command-pan",
               "daemon-ops",
+              "frame_pacing.fling",
+              "frame_pacing.instant",
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
               "main-turn",
               "motion",
               "new-browser-tab-webkit",
@@ -268,7 +281,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12210
+            "T1": 13590
           },
           "stories": {
             "T0": [
@@ -285,11 +298,13 @@
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
+              "frame_pacing.golden",
               "fullscreen-transition",
               "home-idle",
               "idle-tabs",
               "idle-tabs-webkit",
               "launch-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
@@ -300,6 +315,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",

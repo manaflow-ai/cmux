@@ -7,7 +7,7 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One completion shell: spawned in its own process group, its stdout read to EOF, reaped, and
-/// killed with its group at the deadline. Answers the output, or `timedOut`.
+/// killed with its group at the deadline (a ``Deadline`` race, off main). Answers the output, or `timedOut`.
 nonisolated final class CompletionProcess: Sendable {
     private struct State {
         var output = Data()
@@ -46,16 +46,28 @@ nonisolated final class CompletionProcess: Sendable {
         }
         Darwin.close(pipe[1])
         let process = CompletionProcess(pid: pid)
-        let deadline = DemandTimer(owner: "agent-pane.shell.complete")
-        // Abandoned (the process dropped its continuation) answers as the deadline does: `timedOut`.
-        let output: Data? = try? await withOnceContinuation { (continuation: OnceContinuation<Data?, OnceContinuationError>) in
-            process.state.withLock { $0.continuation = continuation }
-            process.start(reading: pipe[0])
-            deadline.schedule(after: timeout) { process.give(up: true) }
+        let reading = pipe[0]
+        let output: Data?
+        do {
+            output = try await Deadline(timeout).run("agent-pane.shell.complete", onTimeout: { process.give(up: true) }) {
+                await process.output(reading: reading)
+            }
+        } catch {
+            // The limit or the caller's cancellation won: the group is killed and the pipe let go.
+            process.give(up: true)
+            throw .timedOut
         }
-        deadline.cancel()
         guard let output else { throw .timedOut }
         return output
+    }
+
+    /// Reads the pipe until the shell exited and its output ended, or what was read when it was given up for its
+    /// length; nil when it timed out. Abandoned (the process dropped its continuation) answers as a timeout.
+    private func output(reading descriptor: Int32) async -> Data? {
+        try? await withOnceContinuation { (continuation: OnceContinuation<Data?, OnceContinuationError>) in
+            state.withLock { $0.continuation = continuation }
+            start(reading: descriptor)
+        }
     }
 
     private func start(reading descriptor: Int32) {

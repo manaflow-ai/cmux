@@ -294,10 +294,11 @@ extension DaemonCommandName {
         case 0x194469D6C9F7A767: return (284, "client-focus")
         case 0x5CDA1B5D810FE743: return (285, "subscribe")
         case 0x5B796756895133A6: return (286, "attach-surface")
-        case 0xFCF049247FE25D01: return (287, "snapshot-request")
-        case 0x48F958DB14D17514: return (288, "terminal-history")
-        case 0x6834682484AAC514: return (289, "terminal-read-range")
-        case 0x3DB044A820B4367E: return (290, "scroll-surface")
+        case 0x54CB36A671DD407A: return (287, "cancel-stream")
+        case 0xFCF049247FE25D01: return (288, "snapshot-request")
+        case 0x48F958DB14D17514: return (289, "terminal-history")
+        case 0x6834682484AAC514: return (290, "terminal-read-range")
+        case 0x3DB044A820B4367E: return (291, "scroll-surface")
         default: return nil
         }
     }

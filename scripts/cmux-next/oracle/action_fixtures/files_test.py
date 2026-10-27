@@ -228,13 +228,15 @@ def opened(app, action):
 
 class FamilyTests(unittest.TestCase):
     def test_closes_every_gap_that_needs_one_of_its_contexts(self):
+        # Holds before and after apply_gap_closures.py (p15-oracle-087) drops the closed ids from the baseline: each
+        # closed id is still listed with its context's reason or gone, and no gap left needs only this family's contexts.
         needing = {ident for ident, why in GAPS.items()
                    if why.startswith(NEEDS) and set(why[len(NEEDS):].split(", ")) <= set(files.CONTEXTS)}
-        self.assertEqual(set(files.CLOSES), needing)
+        self.assertLessEqual(needing, set(files.CLOSES))
         self.assertEqual(set(files.CLOSED_BY), set(files.CONTEXTS))
         for key, ids in files.CLOSED_BY.items():
             for ident in ids:
-                self.assertEqual(GAPS[ident], NEEDS + key, ident)
+                self.assertEqual(GAPS.get(ident, NEEDS + key), NEEDS + key, ident)
         record = json.loads((action_fixtures.GAP_CLOSURES / "files.json").read_text())
         self.assertEqual(record["family"], "files")
         self.assertEqual(sorted(record["closed"]), list(files.CLOSES))

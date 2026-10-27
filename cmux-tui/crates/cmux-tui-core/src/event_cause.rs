@@ -21,6 +21,35 @@ use std::cell::Cell;
 /// before, so strict decoders of the event schema never see the field.
 pub(crate) const CAPABILITY: &str = "event-cause-v1";
 
+/// Advertised by `identify`: a `cmux.protocol/2` request may carry
+/// `priority` ([`RequestPriority`], spec/resource-api-v2.md "Request
+/// priority").
+pub(crate) const REQUEST_PRIORITY_CAPABILITY: &str = "request-priority-v1";
+
+/// A request envelope's optional `priority` (p02-threads task 224): the
+/// caller's own word on whom the request serves. Like an `origin` claim it
+/// only narrows the cause the daemon derives from the connection, so a
+/// client can run one request as automation and never raise one above its
+/// connection. Scheduling only: authorization never reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestPriority {
+    /// The person waits on it: the derived cause stands.
+    User,
+    /// Automation: it runs at the automation class (UTILITY).
+    Automation,
+}
+
+impl RequestPriority {
+    /// The cause this priority narrows a request's derived cause by.
+    pub(crate) const fn event_cause(self) -> EventCause {
+        match self {
+            Self::User => EventCause::Frontend,
+            Self::Automation => EventCause::Automation,
+        }
+    }
+}
+
 /// Who set off an event, ordered by scheduling priority, lowest first. When
 /// a subscriber coalesces two events into one it keeps the higher cause.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -63,6 +92,18 @@ impl EventCause {
             Self::Frontend => Some(cmux_threads::ThreadQos::UserInitiated),
             Self::Automation => Some(cmux_threads::ThreadQos::Utility),
             Self::Program => None,
+        }
+    }
+
+    /// The [`cmux_threads::work::Priority`] of a work item that serves a
+    /// request with this cause, as Chrome posts a task at the priority of
+    /// what it serves (base/task/task_traits.h): the app's requests are
+    /// `UserBlocking`, the rest `UserVisible`. Both run at UserInitiated, the
+    /// class of the request thread that posts them.
+    pub(crate) const fn work_priority(self) -> cmux_threads::work::Priority {
+        match self {
+            Self::Frontend => cmux_threads::work::Priority::UserBlocking,
+            Self::Automation | Self::Program => cmux_threads::work::Priority::UserVisible,
         }
     }
 

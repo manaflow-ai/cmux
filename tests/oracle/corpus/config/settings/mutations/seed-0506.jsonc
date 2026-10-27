@@ -1,0 +1,24 @@
+{
+  "notifications": "flat",
+  "appearance": {
+    "surfaces": {
+      "browserChrome": {
+        "opacity": 0.5
+      }
+    }
+  },
+  "browser": {
+    "omnibar": {
+      "glass": "clear"
+    }
+  },
+  "sidebar": {
+    "workspaceRow": {
+      "agent": {
+        "progress": null,
+        "progress": false
+      },
+      "branch": true
+    }
+  }
+}

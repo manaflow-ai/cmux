@@ -81,7 +81,7 @@ final class OmniboxSuggestionPanel {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.hoverMoves = hoverMoves
+                row.frameInputHover = hoverMoves
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -235,7 +235,7 @@ final class SuggestionCardView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -248,6 +248,7 @@ final class SuggestionCardView: NSView {
     // input-coalesce: native (it drops the wheel; nothing runs to coalesce)
     override func scrollWheel(with event: NSEvent) {}
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

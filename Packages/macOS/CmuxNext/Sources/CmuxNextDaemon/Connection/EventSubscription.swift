@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension DaemonConnection {
     /// Another consumer of this connection's events: every later event `filter` matches, in the
@@ -123,7 +126,7 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
             var resyncs = 0
             var finished = false
             /// The consumer waiting for the next item; set only while nothing is held.
-            var waiter: CheckedContinuation<DaemonSubscriptionItem?, Never>?
+            var waiter: OnceContinuation<DaemonSubscriptionItem?, OnceContinuationError>?
 
             var held: Int { items.count - head }
 
@@ -163,7 +166,7 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
         /// waits: a full inbox drops what it holds and owes its consumer one resync.
         func offer(_ envelope: DaemonEventEnvelope) {
             guard filter.matches(envelope.event) else { return }
-            let waiter = state.withLock { state -> CheckedContinuation<DaemonSubscriptionItem?, Never>? in
+            let waiter = state.withLock { state -> OnceContinuation<DaemonSubscriptionItem?, OnceContinuationError>? in
                 guard !state.finished else { return nil }
                 if let waiter = state.waiter {
                     state.waiter = nil
@@ -196,7 +199,8 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
             case .empty: break
             }
             return await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<DaemonSubscriptionItem?, Never>) in
+                // A consumer dropped unresumed reads the inbox as ended.
+                try? await withOnceContinuation { (continuation: OnceContinuation<DaemonSubscriptionItem?, OnceContinuationError>) in
                     let ready = state.withLock { state -> Take in
                         let ready = state.take()
                         if case .empty = ready {
@@ -219,7 +223,7 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
         /// Ends the inbox: no later event; with `dropping`, the held ones go too. The waiting
         /// consumer gets nil.
         func finish(dropping: Bool = false) {
-            let waiter = state.withLock { state -> CheckedContinuation<DaemonSubscriptionItem?, Never>? in
+            let waiter = state.withLock { state -> OnceContinuation<DaemonSubscriptionItem?, OnceContinuationError>? in
                 state.finished = true
                 if dropping {
                     state.drop()

@@ -27,6 +27,9 @@ import Darwin
 ///   its events' `EventMetrics` (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`). While no
 ///   page reports (``pagesReportPresentation`` off: an in-process page, a host whose fork has no feedback), a page's
 ///   slot closes as a view's does, with its turn's commit estimate.
+/// - In DEV and bench builds a WebKit page reports, by its own clock, when the frame after its handler of an input
+///   painted (``WebPageInputTiming``, p04-input-099): ``pagePresented(_:eventNanos:at:)`` closes the page's slot with
+///   source ``InputPresentationSource/pageEstimated``.
 /// - Estimates come from ``InputPresentationEstimating`` (`PresentationClock`): resolved by the window's next real
 ///   tick, with how the vsync was found (``InputPresentationSource``) and whether the display has a variable refresh
 ///   rate. Then the slot closes, goes into the single-writer ``InputLatencyRing`` and is recorded as one
@@ -68,6 +71,8 @@ public final class InputLatencyTracker {
         let window: NSWindow?
         /// Where the input landed; ``setTarget(_:_:)`` changes it while the turn is open.
         var target: InputTarget
+        /// What the person did (a page's report names its event's kind, ``pagePresented(_:eventNanos:at:)``).
+        let kind: InputEventKind
         /// The slot carries a `key.frame` or `key.scroll_frame` interval.
         let hasFrameInterval: Bool
     }
@@ -77,6 +82,7 @@ public final class InputLatencyTracker {
         let token: InputLatencyToken
         let window: NSWindow?
         let target: InputTarget
+        let kind: InputEventKind
         /// The latest `contentSubmitted` that still counts (`CLOCK_UPTIME_RAW`).
         let deadline: UInt64
     }
@@ -170,6 +176,7 @@ public final class InputLatencyTracker {
     ///     tap or the pending-input state), or nil when unknown: the stage stays skipped, not equal to dispatchStart.
     /// - Returns: The slot's token, or nil when the table is full (counted in its `droppedCount`).
     // perf-hot: 0.5us key-dispatch
+    // perf-hot: 0.5us input-latency-mark
     public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       arrivedMain: UInt64? = nil) -> InputLatencyToken? {
         begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
@@ -189,6 +196,7 @@ public final class InputLatencyTracker {
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
+    // perf-hot: 0.5us input-latency-mark
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
                       arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
@@ -206,7 +214,7 @@ public final class InputLatencyTracker {
             frameIntervals.begin(token, frameInterval, target: target, eventTimestamp: eventTimestamp)
             hasFrameInterval = true
         }
-        pending.append(Pending(token: token, window: window, target: target, hasFrameInterval: hasFrameInterval))
+        pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
         boundary.arm()
         return token
     }
@@ -222,6 +230,7 @@ public final class InputLatencyTracker {
     ///   - nanos: `CLOCK_UPTIME_RAW` nanoseconds; now when omitted.
     /// - Returns: Whether it wrote.
     // perf-hot: 0.05us key-dispatch
+    // perf-hot: 0.05us input-latency-mark
     @discardableResult
     public nonisolated func mark(_ token: InputLatencyToken, _ stage: InputStage, at nanos: UInt64? = nil) -> Bool {
         table.mark(token, stage, at: nanos ?? now())
@@ -246,6 +255,7 @@ public final class InputLatencyTracker {
 
     /// Stamps `dispatchEnd`: the app's dispatch of `token`'s event returned. The slot closes after this turn's commit.
     // perf-hot: 0.05us key-dispatch
+    // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
     }
@@ -267,7 +277,7 @@ public final class InputLatencyTracker {
             }
             if entry.hasFrameInterval { frameIntervals?.end(entry.token, target: entry.target, outcome: outcome) }
             if waitsForLaterFrame(entry.target) {
-                waiting.append(Waiting(token: entry.token, window: entry.window, target: entry.target,
+                waiting.append(Waiting(token: entry.token, window: entry.window, target: entry.target, kind: entry.kind,
                                        deadline: commitEnd &+ Self.contentDeadlineNanos))
             } else if outcome == .committed {
                 awaitPresented(entry.token, committedAt: commitEnd, in: entry.window)
@@ -311,7 +321,7 @@ public final class InputLatencyTracker {
                 kept += 1
             }
         }
-        waiting.removeLast(waiting.count - kept)
+        if kept < waiting.count { waiting.removeLast(waiting.count - kept) }
     }
 
     /// Asks the presentation clock when content committed at `nanos` in `window` reaches the glass; the slot closes
