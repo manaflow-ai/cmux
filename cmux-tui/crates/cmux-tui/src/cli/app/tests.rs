@@ -131,7 +131,10 @@ fn machine_config_is_made_absolute() {
         .unwrap(),
     );
     let cwd = std::env::current_dir().unwrap();
-    assert_eq!(params["args"]["machineConfig"], json!(cwd.join(".cmux/machine.toml").to_string_lossy()));
+    assert_eq!(
+        params["args"]["machineConfig"],
+        json!(cwd.join(".cmux/machine.toml").to_string_lossy())
+    );
 }
 
 #[test]

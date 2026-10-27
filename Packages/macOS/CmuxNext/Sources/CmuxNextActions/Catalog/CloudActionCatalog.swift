@@ -18,7 +18,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // All optional: `cmux cloud new-machine --persistent --size medium --name lane-vm-1
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
-                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString],
+                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
+                            CatalogArgument.repoString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(

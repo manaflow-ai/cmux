@@ -169,6 +169,27 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
+    /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
+    static var repoUnrecognized: String {
+        String(localized: "cloud.cli.repoUnrecognized",
+               defaultValue: "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo` with a token or password in the URL.
+    static var repoCredentialsInURL: String {
+        String(localized: "cloud.cli.repoCredentialsInURL",
+               defaultValue: "--repo carries credentials. Remove them: the machine uses the GitHub access it already has, and no token is written to it.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME@REF` whose REF is not a plain branch, tag or commit.
+    static var repoInvalidRef: String {
+        String(localized: "cloud.cli.repoInvalidRef",
+               defaultValue: "The @REF of --repo must be a branch, tag or commit of letters, digits, dots, dashes, underscores and slashes.",
+               table: "Cloud", bundle: .module)
+    }
+
     /// `cloud set-idle-pause` with a `minutes` value the server does not take.
     static func idlePauseMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
