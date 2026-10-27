@@ -164,7 +164,7 @@ public actor DaemonConnection {
     /// of a burst of creates in parallel (8 at a time) while committing
     /// them in order, so 5 s also covers a create queued behind others.
     /// Control requests that start a terminal use this plus 1 s
-    /// (`ControlRouter.terminalStartDeadline`); not a command a `terminal-async-start-v1` daemon answers at admit.
+    /// (`ControlRouter.terminalStartDeadline`); not one that asked to be answered at admit.
     public static let defaultSpawnTimeout: Duration = .seconds(5)
 
     /// Sends one command and decodes its response. Fails with
@@ -175,11 +175,11 @@ public actor DaemonConnection {
     /// (``RequestDeadline/forSpawning(_:on:configuration:)``) from the daemon that carries it,
     /// decided after the quiet-handoff gate (a request held through a handoff goes to the next daemon).
     public nonisolated func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
-        guard let spawning = R.self as? any TerminalSpawningRequest.Type else {
+        guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
-        let repliesBeforeStart = spawning.repliesBeforeTerminalStart
-        return try await sendAdmitted(request, deadline: { .forSpawning(repliesBeforeStart, on: $0, configuration: configuration) }) { request, identity in
+        return try await sendAdmitted(request, deadline: { [configuration] in .forSpawning($0, on: $1, configuration: configuration) }) { request, identity in
+            let request = RequestDeadline.served(request, by: identity)
             guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
                   let carrier = request as? any ShellIntegrationArgumentCarrying,
                   let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
@@ -190,12 +190,12 @@ public actor DaemonConnection {
     /// Runs on the caller's executor with no actor hop (p05-ipc-091): it reads the ready connection from
     /// its `Mutex` snapshot and passes the quiet-handoff gate with atomics only.
     public nonisolated func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
-        try await sendAdmitted(request, deadline: { _ in .control(timeout) }) { request, _ in request }
+        try await sendAdmitted(request, deadline: { _, _ in .control(timeout) }) { request, _ in request }
     }
 
     /// Passes the quiet-handoff gate, then sends `request` as `forDaemon` makes it for the identity of
     /// the ready connection that carries it, within the `deadline` of that identity.
-    private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, deadline: (DaemonIdentity) -> RequestDeadline,
+    private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, deadline: (R, DaemonIdentity) -> RequestDeadline,
                                                             forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
         await handoffGate.enter(passes: Self.passesHandoffHold)
         defer { handoffGate.leave() }
@@ -204,7 +204,7 @@ public actor DaemonConnection {
         let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
-        let response = try await deadline(ready.identity).perform(request, on: ready.transport)
+        let response = try await deadline(request, ready.identity).perform(request, on: ready.transport)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

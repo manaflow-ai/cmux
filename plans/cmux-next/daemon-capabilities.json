@@ -122,7 +122,6 @@
     "tab-split-keep-focus-v1",
     "tab-split-respawn-v1",
     "tab-workspace-name-v1",
-    "terminal-async-start-v1",
     "terminal-clipboard-read-v1",
     "terminal-color-overrides-v1",
     "terminal-command-history-v1",
@@ -165,6 +164,6 @@
     "workspace-registry-v1"
   ],
   "unservedByBundledDaemon" : [
-
+    "terminal-async-start-v1"
   ]
 }

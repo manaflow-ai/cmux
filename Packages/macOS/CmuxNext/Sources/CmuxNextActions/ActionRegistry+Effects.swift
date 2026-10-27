@@ -107,6 +107,6 @@ extension ActionRegistry {
 }
 
 /// The notice for a failed remote half (Localizable.xcstrings).
-private func failedText(_ title: String, _ reason: String) -> String {
+func failedText(_ title: String, _ reason: String) -> String {
     String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .module), title, reason)
 }

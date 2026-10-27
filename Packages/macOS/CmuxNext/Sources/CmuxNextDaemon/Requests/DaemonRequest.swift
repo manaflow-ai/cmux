@@ -48,15 +48,20 @@ extension DaemonRequest {
 /// the 2 s control-plane deadline: a client that gives up first reports a
 /// failure for a tab the daemon then creates.
 public protocol TerminalSpawningRequest: DaemonRequest {
-    /// A daemon with `terminal-async-start-v1` answers this command once it admitted the terminal,
-    /// before its host is up (`starting: true`), and reports the start as `terminal-started` or
-    /// `terminal-start-failed` (``TerminalStartWatch``): the request then keeps the control deadline.
-    /// False for a command whose reply still waits for the host.
-    static var repliesBeforeTerminalStart: Bool { get }
+    /// The caller asked a `terminal-async-start-v1` daemon to answer once it admitted the terminal,
+    /// before its host is up (`async_start`; the reply says `starting: true` and the start ends in
+    /// `terminal-started` or `terminal-start-failed`). Only a caller that watches the start asks
+    /// (``TerminalStartWatch``); on a daemon with the capability the request then keeps the control
+    /// deadline. False for every other request: its reply waits for the host.
+    var asksAsyncStart: Bool { get }
+
+    /// This request without the `async_start` ask, for a daemon that does not serve it.
+    func withoutAsyncStart() -> Self
 }
 
 extension TerminalSpawningRequest {
-    public static var repliesBeforeTerminalStart: Bool { false }
+    public var asksAsyncStart: Bool { false }
+    public func withoutAsyncStart() -> Self { self }
 }
 
 /// `{}` responses.

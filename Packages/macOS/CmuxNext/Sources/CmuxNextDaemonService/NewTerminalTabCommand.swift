@@ -34,12 +34,12 @@ public struct NewTerminalTabCommand: Sendable {
         public let tab: String
         /// Its surface.
         public let surface: SurfaceID
-        /// Sends the request; returns the daemon's tab once its terminal started. Throws
-        /// ``NewTerminalTabFailure`` when the daemon refused it and ``TerminalStartFailure`` when its
-        /// terminal did not start (the stand-in is gone then, either way), and
-        /// ``NewTerminalTabCancelled`` when the person closed the tab first. With
-        /// `terminal-async-start-v1` the reply settles the stand-in before the start ends.
-        public let send: @MainActor () async throws -> SurfaceCreated
+        /// Sends the request; returns at the daemon's reply, with the daemon's tab and, when the
+        /// daemon answered before the terminal started (`terminal-async-start-v1`), the start to
+        /// follow (``StartingTerminal/outcome()``). Throws ``NewTerminalTabFailure`` when the daemon
+        /// refused it (the stand-in is gone then) and ``NewTerminalTabCancelled`` when the person
+        /// closed the stand-in first.
+        public let send: @MainActor () async throws -> StartingTerminal
     }
 
     /// Shows the provisional tab now (the store's intent log), before any await; the returned
@@ -55,26 +55,29 @@ public struct NewTerminalTabCommand: Sendable {
         var options = options
         options.terminalID = terminal
         let transaction = ClientTransactionID.generate()
+        // This caller follows the start, so it asks the daemon to answer at admit (`async_start`).
+        if daemon.supports(DaemonCapability.terminalAsyncStart.rawValue) { options.asyncStart = true }
         let pane = pane, sent = options
-        let watchesStart = daemon.supports(DaemonCapability.terminalAsyncStart.rawValue)
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
         let send = daemon.intendNow("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
-            let watch = watchesStart ? TerminalStartWatch(terminal, on: connection) : nil
-            let created = try await connection.newTab(in: pane, options: sent)
-            return StartingTerminal(created: created, watch: watch)
+            let watch = sent.asyncStart == true ? TerminalStartWatch(terminal, on: connection) : nil
+            do {
+                return StartingTerminal(created: try await connection.newTab(in: pane, options: sent), watch: watch)
+            } catch {
+                watch?.cancel()
+                throw error
+            }
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
             guard let reply = await send() else { throw NewTerminalTabFailure() }
             ProvisionalTab.created(transaction, surface: reply.created.surface, in: daemon.store)
             guard !daemon.store.creations.wasCancelled(transaction) else {
-                reply.watch?.cancel()
+                reply.cancel()
                 throw NewTerminalTabCancelled()
             }
-            // The reply settled the intent: the daemon's tab shows and its view attaches now; a start
-            // the daemon answered before ends here, and a failed one was rolled back by the daemon.
-            return try await reply.started(cancelled: NewTerminalTabCancelled())
+            return reply
         }
     }
 }

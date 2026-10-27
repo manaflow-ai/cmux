@@ -7,11 +7,16 @@ import Foundation
 public struct SplitRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let commandName: DaemonCommandName = "split"
-    public static let repliesBeforeTerminalStart = true
     public var pane: PaneID
     public var direction: SplitDirection
     public var tab: SurfaceID?
     public var options: SpawnOptions
+    public var asksAsyncStart: Bool { options.asyncStart == true }
+    public func withoutAsyncStart() -> SplitRequest {
+        var request = self
+        request.options.asyncStart = nil
+        return request
+    }
     public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions()) {
         self.pane = pane
         self.direction = direction

@@ -94,6 +94,23 @@ import Testing
         #expect(reason == "no name")
     }
 
+    /// Work that ends after the action answered (a terminal start the daemon reports after the reply,
+    /// p05-ipc-131) is not a capturing caller's to wait for, and its failure always shows.
+    @Test func workAfterTheAnswerIsNeverAwaitedAndItsFailureShows() async {
+        let world = World()
+        let registry = Self.registry(world, failing: false)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            world.onNotice = { done.resume() }
+            let work = registry.capturingWork {
+                registry.perform("test.rename")
+                ActionFollowUp(registry).run("test.rename") { "the terminal did not start" }
+            }
+            #expect(work.count == 1, "a capturing caller waits for the action's own work only")
+        }
+        #expect(world.notices.count == 1)
+        #expect(world.notices.first?.contains("the terminal did not start") == true)
+    }
+
     /// A legacy rebind of an effect-bound id is counted as legacy again.
     @Test func aLegacyRebindIsNotCountedAsAnEffect() {
         let registry = ActionRegistry(catalog: Self.catalog)

@@ -46,9 +46,8 @@ enum PaneHandlers {
     // MARK: Splits
 
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
-        for (id, direction) in splits {
-            registry.bind(id, invoke: { split(ctx, $0, direction: direction) })
+        for direction: PaneDirection in [.right, .down, .left, .up] {
+            registry.bind(splitAction(direction), invoke: { split(ctx, $0, direction: direction) })
         }
         registry.bind("newPaneAutoLayout", invoke: { invocation in
             guard let focused = ctx.paneController(invocation), focused.workspace != nil else { return }
@@ -144,15 +143,17 @@ enum PaneHandlers {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = if let intended {
+                let reply = if let intended {
                     try await intended()
                 } else {
-                    try await command.send(on: daemon)
+                    StartingTerminal(created: try await command.send(on: daemon))
                 }
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
-                if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
+                if provisional == nil { content?.expectFocus(on: reply.created.surface, generation: intent) }
                 landed = true
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
+                // The work ends at the reply; a start the daemon answered before is followed apart.
+                ctx.registry.followStart(of: reply, after: splitAction(direction))
                 return nil
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
@@ -160,6 +161,16 @@ enum PaneHandlers {
                 return "split: \(error)"
             }
         })
+    }
+
+    /// The split action of `direction`.
+    static func splitAction(_ direction: PaneDirection) -> ActionID {
+        switch direction {
+        case .right: "splitRight"
+        case .down: "splitDown"
+        case .left: "splitLeft"
+        case .up: "splitUp"
+        }
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {

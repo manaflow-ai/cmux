@@ -1,27 +1,45 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// The reply of a command that makes a terminal tab, and the watch of its terminal's start when the
-/// daemon answers before the host is up (`terminal-async-start-v1`, ``TerminalStartWatch``): the
-/// reply settles the command's intent, and ``started(cancelled:)`` carries the start's outcome to the
-/// action that made it (``NewTerminalTabCommand``, ``PaneSplitCommand``).
-struct StartingTerminal: Sendable {
+/// daemon answered before the host was up (`terminal-async-start-v1`, ``TerminalStartWatch``).
+///
+/// The reply ends the command's work: the intent settles, the daemon's tab shows, the window's keys,
+/// focus and sizing resolve. The start's outcome is a separate follow-up (``outcome()``) that only
+/// reports a failure (the daemon rolls back what the command made), as Chromium's
+/// `ChildProcessLauncher::Client::OnProcessLaunchFailed` reaches a tab that already shows.
+public struct StartingTerminal: Sendable {
     /// The command's reply.
-    let created: SurfaceCreated
-    /// The watch of its terminal's start, opened before the command went out (the start can end
-    /// right after the reply); nil when the daemon answers after the start.
+    public let created: SurfaceCreated
+    /// The watch of its terminal's start; nil when the reply came after the start.
     let watch: TerminalStartWatch?
 
-    /// Waits for the terminal's start. Returns the reply once it started (or when the connection
-    /// dropped first: the next snapshot shows the terminal or not); throws ``TerminalStartFailure``
-    /// when it did not start (the daemon rolls back what the command made) and `cancelled` when the
-    /// tab closed first.
-    ///
-    /// - Parameter cancelled: The command's own error for a tab closed before the start ended.
-    func started(cancelled: @autoclosure () -> any Error) async throws -> SurfaceCreated {
-        switch await watch?.outcome(of: created) ?? .started {
-        case .started, .unknown: return created
-        case .failed(let failure): throw failure
-        case .closed: throw cancelled()
+    /// A reply that came after its terminal started (nothing to follow).
+    public init(created: SurfaceCreated) {
+        self.init(created: created, watch: nil)
+    }
+
+    /// The reply, keeping `watch` only when the reply left the start running (`starting: true`).
+    init(created: SurfaceCreated, watch: TerminalStartWatch?) {
+        self.created = created
+        if created.starting == true {
+            self.watch = watch
+        } else {
+            watch?.cancel()
+            self.watch = nil
         }
+    }
+
+    /// Whether the start still runs after the reply.
+    public var isStarting: Bool { watch != nil }
+
+    /// How the start ended, bounded by the start deadline (``TerminalStartWatch/outcome()``);
+    /// ``TerminalStartOutcome/started`` for a reply that came after the start.
+    public func outcome() async -> TerminalStartOutcome {
+        await watch?.outcome() ?? .started
+    }
+
+    /// Stops following the start (the tab closed before the reply came).
+    func cancel() {
+        watch?.cancel()
     }
 }

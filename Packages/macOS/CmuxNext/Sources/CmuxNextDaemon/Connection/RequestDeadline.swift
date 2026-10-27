@@ -12,19 +12,34 @@ struct RequestDeadline: Sendable {
     }
 
     /// A ``TerminalSpawningRequest``'s deadline on the daemon `identity` names: the control deadline
-    /// when that daemon answers it before the start (`terminal-async-start-v1`), else the terminal
-    /// start deadline.
+    /// when the request asked that daemon to answer before the start (`async_start` on a
+    /// `terminal-async-start-v1` daemon), else the terminal start deadline.
     ///
     /// - Parameters:
-    ///   - repliesBeforeStart: ``TerminalSpawningRequest/repliesBeforeTerminalStart`` of the request.
+    ///   - asksAsyncStart: ``TerminalSpawningRequest/asksAsyncStart`` of the request.
     ///   - identity: The daemon that carries the request.
     ///   - configuration: The connection's deadlines.
-    static func forSpawning(_ repliesBeforeStart: Bool, on identity: DaemonIdentity,
+    static func forSpawning(_ asksAsyncStart: Bool, on identity: DaemonIdentity,
                             configuration: DaemonConnectionConfiguration) -> RequestDeadline {
-        if repliesBeforeStart, identity.supports(DaemonCapability.terminalAsyncStart.rawValue) {
+        if asksAsyncStart, identity.supports(DaemonCapability.terminalAsyncStart.rawValue) {
             return .control(configuration.requestTimeout)
         }
         return RequestDeadline(timeout: configuration.spawnTimeout, waitsForTerminalStart: true)
+    }
+
+    /// The deadline of `request` by whether it asks to be answered at admit (``TerminalSpawningRequest/asksAsyncStart``).
+    static func forSpawning<R: DaemonRequest>(_ request: R, on identity: DaemonIdentity,
+                                              configuration: DaemonConnectionConfiguration) -> RequestDeadline {
+        forSpawning((request as? any TerminalSpawningRequest)?.asksAsyncStart == true, on: identity, configuration: configuration)
+    }
+
+    /// `request` for the daemon `identity` names: without its `async_start` ask when that daemon does
+    /// not serve `terminal-async-start-v1` (a request held through a handoff to an older daemon).
+    static func served<R: DaemonRequest>(_ request: R, by identity: DaemonIdentity) -> R {
+        guard !identity.supports(DaemonCapability.terminalAsyncStart.rawValue),
+              let spawning = request as? any TerminalSpawningRequest, spawning.asksAsyncStart,
+              let plain = spawning.withoutAsyncStart() as? R else { return request }
+        return plain
     }
 
     /// Sends `request` on `transport` within this deadline. A missed terminal start deadline throws

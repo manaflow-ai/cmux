@@ -2,14 +2,16 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextFocusUI
 import Foundation
 import Testing
 
-/// New Terminal Tab against a daemon that answers before the terminal's host is up
-/// (`terminal-async-start-v1`, p05-ipc-131): the reply settles the stand-in (the daemon's tab
-/// takes its place and its view attaches) before `terminal-started`, and a `terminal-start-failed`
-/// fails the command with ``TerminalStartFailure`` while the daemon's rollback removes the tab,
-/// leaving the pane exactly as it was.
+/// New Terminal Tab and Split against a daemon that answers before the terminal's host is up
+/// (`terminal-async-start-v1`, p05-ipc-131): the command's work ends at the reply, before
+/// `terminal-started` (so the window's held keys, focus, sizing and a capturing caller resolve
+/// there), the reply settles the stand-in, and a `terminal-start-failed` is only the follow-up's:
+/// the daemon's rollback removes the tab, leaving the pane exactly as it was, and the refusal HUD
+/// says why.
 ///
 /// Socket boundary: the app's services on a scripted daemon (python3 through a ``DaemonBridge``)
 /// that holds each start until the test releases it.
@@ -60,7 +62,11 @@ struct NewTerminalTabCommandTests {
             tabs.append({'surface': 7, 'kind': 'pty', 'terminal_id': terminal})
             state['pending'].append(terminal)
             changed()  # admitted: its events go before the reply
-            reply(frame, {'surface': 7, 'terminal_id': terminal, 'starting': True})
+            reply(frame, {'surface': 7, 'terminal_id': terminal, 'starting': frame.get('async_start') is True})
+        elif command == 'split':
+            terminal = frame.get('terminal_id')
+            state['pending'].append(terminal)
+            reply(frame, {'surface': 9, 'terminal_id': terminal, 'starting': frame.get('async_start') is True})
         elif command == 'test-release-start':
             for terminal in state['pending']:
                 if outcome == 'started':
@@ -85,7 +91,7 @@ struct NewTerminalTabCommandTests {
     }
 
     /// The app's services connected to the scripted daemon, its first snapshot mirrored.
-    private static func withDaemon(_ outcome: String, _ body: (DaemonService, DaemonConnection) async throws -> Void) async throws {
+    private static func withDaemon(_ outcome: String, _ body: (DaemonService, DaemonConnection, AppServices) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
@@ -99,7 +105,7 @@ struct NewTerminalTabCommandTests {
         try await until("the first snapshot") { daemon.store.pane(pane)?.tabs.map(\.surface) == [SurfaceID(rawValue: 4)] }
         try await until("the capability") { daemon.supports(DaemonCapability.terminalAsyncStart.rawValue) }
         let connection = try #require(daemon.connection)
-        try await body(daemon, connection)
+        try await body(daemon, connection, services)
     }
 
     private static func surfaces(_ daemon: DaemonService) -> [SurfaceID] {
@@ -111,50 +117,64 @@ struct NewTerminalTabCommandTests {
         surfaces(daemon).contains(where: ProvisionalTab.isProvisional(surface:))
     }
 
-    @Test func theReplySettlesTheStandInBeforeTheTerminalStarted() async throws {
-        try await Self.withDaemon("started") { daemon, connection in
+    @Test func theWorkEndsAtTheReplyBeforeTheTerminalStarted() async throws {
+        try await Self.withDaemon("started") { daemon, connection, _ in
             let command = NewTerminalTabCommand(pane: Self.pane, options: SpawnOptions())
             #expect(command.isOptimistic(on: daemon))
             let pending = command.intendNow(on: daemon)
             #expect(Self.surfaces(daemon) == [SurfaceID(rawValue: 4), pending.surface], "the stand-in shows in the key's turn")
 
-            let send = Task { @MainActor in try await pending.send() }
+            // Nothing releases the start yet: the work (and the key hold behind it) must end anyway.
+            let reply = try await pending.send()
+            let state = try await connection.request(State())
+            #expect(state["started"]?.boolValue == false, "the work ended before terminal-started")
+            #expect(reply.created.surface == SurfaceID(rawValue: 7))
+            #expect(reply.isStarting)
             try await Self.until("the daemon's tab in the stand-in's place") {
                 Self.surfaces(daemon) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)] && daemon.store.pendingIntents.isEmpty
             }
-            let state = try await connection.request(State())
-            #expect(state["started"]?.boolValue == false, "the intent settled before terminal-started")
 
             _ = try await connection.request(Release())
-            let created = try await send.value
-            #expect(created.surface == SurfaceID(rawValue: 7))
-            #expect(created.starting == true)
+            #expect(await reply.outcome() == .started)
             #expect(Self.surfaces(daemon) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)])
         }
     }
 
-    @Test func aFailedStartRemovesTheStandInExactly() async throws {
-        try await Self.withDaemon("failed") { daemon, connection in
+    @Test func aSplitsWorkEndsAtTheReplyBeforeTheTerminalStarted() async throws {
+        try await Self.withDaemon("failed") { daemon, connection, _ in
+            let command = PaneSplitCommand(pane: Self.pane, direction: .right, options: SpawnOptions(), swapTowards: nil)
+            #expect(command.isOptimistic(on: daemon))
+            let reply = try await command.intendNow(on: daemon, provisional: ProvisionalPane())()
+            let state = try await connection.request(State())
+            #expect(state["started"]?.boolValue == false, "the split's work ended before its terminal's start")
+            #expect(reply.created.surface == SurfaceID(rawValue: 9))
+            #expect(reply.isStarting)
+
+            _ = try await connection.request(Release())
+            #expect(await reply.outcome().failure?.reason == "exec failed", "the start's failure is the follow-up's, not the split's")
+        }
+    }
+
+    @Test func aFailedStartRemovesTheStandInExactlyAndSaysWhy() async throws {
+        try await Self.withDaemon("failed") { daemon, connection, services in
+            AppActionContext(services: services).observeRefusals()
             let command = NewTerminalTabCommand(pane: Self.pane, options: SpawnOptions())
             let pending = command.intendNow(on: daemon)
-            let send = Task { @MainActor in try await pending.send() }
+            let reply = try await pending.send()
             try await Self.until("the reply settled the stand-in") {
                 Self.surfaces(daemon) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)] && daemon.store.pendingIntents.isEmpty
             }
+            services.registry.followStart(of: reply, after: "newSurface")
 
             _ = try await connection.request(Release())
-            do {
-                _ = try await send.value
-                Issue.record("a terminal that did not start answered as made")
-            } catch let failure as TerminalStartFailure {
-                #expect(failure.reason == "exec failed")
-            } catch {
-                Issue.record("expected TerminalStartFailure, got \(error)")
-            }
             try await Self.until("the rollback") { Self.surfaces(daemon) == [SurfaceID(rawValue: 4)] }
             #expect(!Self.showsStandIn(daemon))
             #expect(daemon.store.pendingIntents.isEmpty)
             #expect(daemon.store.mirrorViolations.isEmpty)
+            let reason = RefusalStrings.terminalDidNotStart("exec failed")
+            try await Self.until("the refusal HUD names the failed start") {
+                services.refusalHUD.history.contains { $0.contains(reason) }
+            }
         }
     }
 }

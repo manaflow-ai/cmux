@@ -32,12 +32,13 @@ public struct PaneSplitCommand: Sendable {
     /// The optimistic split (`split-client-keys-v1`, plans/cmux-next/remote-state-ownership.md
     /// S3): the store shows `provisional` beside the pane at once (its intent log), and the split
     /// goes out under the provisional pane's client-minted ids, so the daemon's pane replaces it
-    /// under the same public id. A refusal removes it exactly, and so does a terminal that did not
-    /// start after the reply (`terminal-async-start-v1`: this throws ``TerminalStartFailure``).
+    /// under the same public id. A refusal removes it exactly. It returns at the reply; when the
+    /// daemon answered before the terminal started (`terminal-async-start-v1`), the start is the
+    /// returned ``StartingTerminal``'s follow-up, and a failed one is rolled back by the daemon.
     /// A close of the provisional pane first cancels the split (``DaemonService/cancelCreation(pane:)``):
     /// the reply's surface goes to that close at once, and this throws ``PaneSplitCancelled``, so
     /// nothing focuses or sizes the split the person closed.
-    public func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> SurfaceCreated {
+    public func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> StartingTerminal {
         try await intendNow(on: daemon, provisional: provisional)()
     }
 
@@ -45,7 +46,7 @@ public struct PaneSplitCommand: Sendable {
     /// provisional pane is in the store's visible records when this returns, in the caller's
     /// turn, so the window can lay it out in the key's frame; the returned work sends the split.
     @MainActor
-    public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> SurfaceCreated {
+    public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> StartingTerminal {
         let transaction = ClientTransactionID.generate()
         var options = options
         options.paneID = provisional.paneID
@@ -53,24 +54,27 @@ public struct PaneSplitCommand: Sendable {
         options.splitID = provisional.splitID
         let terminal = TerminalID(rawValue: provisional.terminalID)
         options.terminalID = terminal
+        // This caller follows the start, so it asks the daemon to answer at admit (`async_start`).
+        if daemon.supports(DaemonCapability.terminalAsyncStart.rawValue) { options.asyncStart = true }
         let pane = pane, direction = direction, sent = options
-        let watchesStart = daemon.supports(DaemonCapability.terminalAsyncStart.rawValue)
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            let watch = watchesStart ? TerminalStartWatch(terminal, on: connection) : nil
-            let created = try await connection.split(pane, direction: direction, options: sent)
-            return StartingTerminal(created: created, watch: watch)
+            let watch = sent.asyncStart == true ? TerminalStartWatch(terminal, on: connection) : nil
+            do {
+                return StartingTerminal(created: try await connection.split(pane, direction: direction, options: sent), watch: watch)
+            } catch {
+                watch?.cancel()
+                throw error
+            }
         }
         return {
             guard let reply = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: reply.created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else {
-                reply.watch?.cancel()
+                reply.cancel()
                 throw PaneSplitCancelled()
             }
-            // The reply settled the intent: the daemon's pane shows and its view attaches now; a start
-            // the daemon answered before ends here, and a failed one was rolled back by the daemon.
-            return try await reply.started(cancelled: PaneSplitCancelled())
+            return reply
         }
     }
 

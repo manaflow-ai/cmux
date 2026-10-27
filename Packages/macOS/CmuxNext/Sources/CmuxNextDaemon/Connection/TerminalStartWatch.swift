@@ -1,59 +1,76 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The start of one terminal that a daemon with `terminal-async-start-v1` admitted before its host
-/// was up (F10, p05-ipc-130): the command's reply says `starting: true`, and the daemon reports the
-/// host's launch on the control sequence as `terminal-started`, or as `terminal-start-failed`
-/// followed by the rollback of what the command made (keyed by its `mutation_id`).
+/// was up (F10, p05-ipc-130): the command asked for it (`async_start`), its reply says
+/// `starting: true`, and the daemon reports the host's launch on the control sequence as
+/// `terminal-started`, or as `terminal-start-failed` followed by the rollback of what the command
+/// made (keyed by its `mutation_id`).
 ///
 /// Chromium shows a new tab before its renderer process runs: `ChildProcessLauncher` launches on the
 /// launcher thread and tells its client `OnProcessLaunched` or `OnProcessLaunchFailed`
-/// (content/browser/child_process_launcher.h), and the client never times the launch itself. Here
-/// the reply settles the stand-in and this watch carries the launch's answer to the action that
-/// made it. Open it before the command goes out (``init(_:on:)``): the
-/// outcome can come right after the reply.
+/// (content/browser/child_process_launcher.h). Here the reply ends the command's work and this
+/// watch carries the launch's answer to a follow-up that only reports a failure. Open it before the
+/// command goes out (``init(_:on:)``): the outcome can come right after the reply.
 public final class TerminalStartWatch: Sendable {
     /// The terminal the command names (its caller-chosen `terminal_id`).
     public let terminal: TerminalID
     private let subscription: DaemonEventSubscription
+    /// The longest the watch waits for an outcome: the start deadline a synchronous create has.
+    private let bound: Duration
+    private let clock: any Clock<Duration>
 
-    init(terminal: TerminalID, subscription: DaemonEventSubscription) {
+    init(terminal: TerminalID, subscription: DaemonEventSubscription, bound: Duration, clock: any Clock<Duration>) {
         self.terminal = terminal
         self.subscription = subscription
+        self.bound = bound
+        self.clock = clock
     }
 
     /// Opens the watch of `terminal`'s start on `connection`, before the command that names it goes
-    /// out. Its inbox holds only the events that can end a start (``mayEnd(_:)``).
+    /// out. Its inbox holds only the events about this terminal that can end its start
+    /// (``concerns(_:terminal:)``), so other terminals' events never fill it.
     ///
     /// - Parameters:
     ///   - terminal: The caller-chosen `terminal_id` the command sends.
-    ///   - connection: The connection that carries the command.
+    ///   - connection: The connection that carries the command; its start deadline bounds the watch.
     public convenience init(_ terminal: TerminalID, on connection: DaemonConnection) {
-        let filter = DaemonEventFilter { TerminalStartWatch.mayEnd($0) }
-        self.init(terminal: terminal, subscription: connection.subscribe(filter: filter, limit: 64))
+        let filter = DaemonEventFilter { TerminalStartWatch.concerns($0, terminal: terminal) }
+        self.init(terminal: terminal, subscription: connection.subscribe(filter: filter, limit: Self.inboxLimit),
+                  bound: connection.configuration.spawnTimeout, clock: connection.clock)
     }
 
     deinit {
         subscription.cancel()
     }
 
+    /// One terminal's start ends after at most a few of its own events (the outcome, its tab's,
+    /// pane's or workspace's close, a drop).
+    static let inboxLimit = 8
+
     /// The `event` names of the start's two outcomes.
     static let startedEvent = "terminal-started"
     static let failedEvent = "terminal-start-failed"
 
-    /// How the start of `created`'s terminal ended. A reply without `starting` (a daemon that answers
-    /// after the start) is ``TerminalStartOutcome/started`` at once. Ends the watch.
+    /// How the start ended, for a reply that said `starting: true`. Ends the watch.
     ///
-    /// - Parameter created: The reply of the command the watch was opened for.
-    /// - Returns: The outcome; ``TerminalStartOutcome/unknown`` when the connection dropped or ended
-    ///   first (the next snapshot shows whether the terminal is there).
-    public func outcome(of created: SurfaceCreated) async -> TerminalStartOutcome {
+    /// - Returns: The outcome; ``TerminalStartOutcome/unknown`` when the connection dropped or no
+    ///   outcome came within the start deadline (the next snapshot shows whether the terminal is there).
+    public func outcome() async -> TerminalStartOutcome {
+        let subscription = subscription, terminal = terminal, bound = bound, clock = clock
         defer { subscription.cancel() }
-        guard created.starting == true else { return .started }
-        for await item in subscription {
-            guard case .event(let envelope) = item else { return .unknown } // fell behind: the outcome is gone
-            if let outcome = Self.outcome(of: envelope.event, terminal: terminal, surface: created.surface) { return outcome }
+        return await withTaskGroup(of: TerminalStartOutcome.self) { group in
+            group.addTask { await TerminalStartWatch.firstOutcome(in: subscription, terminal: terminal) }
+            group.addTask {
+                // wakeup-allow: the start's one deadline (spawnTimeout, a flexible never-early wait); cancelled when the start ends first
+                try? await clock.sleep(for: bound, tolerance: WakeLeeway.window(delay: bound).tolerance)
+                return .unknown
+            }
+            let first = await group.next() ?? .unknown
+            group.cancelAll()
+            subscription.cancel() // ends the reading child too
+            return first
         }
-        return .unknown
     }
 
     /// Ends the watch without an outcome (the command failed, or its reply needs none).
@@ -61,32 +78,62 @@ public final class TerminalStartWatch: Sendable {
         subscription.cancel()
     }
 
-    /// Whether `event` can end a start: only these reach the watch's inbox.
-    static func mayEnd(_ event: DaemonEvent) -> Bool {
+    private static func firstOutcome(in subscription: DaemonEventSubscription, terminal: TerminalID) async -> TerminalStartOutcome {
+        for await item in subscription {
+            guard case .event(let envelope) = item else { return .unknown } // fell behind: the outcome is gone
+            if let outcome = outcome(of: envelope.event, terminal: terminal) { return outcome }
+        }
+        return .unknown
+    }
+
+    /// Whether `event` is about `terminal` and can end its start: its `terminal-started` or
+    /// `terminal-start-failed`, the close of its tab, its pane or its workspace, or a drop. Only these
+    /// reach the watch's inbox.
+    static func concerns(_ event: DaemonEvent, terminal: TerminalID) -> Bool {
+        func holds(_ tabs: [TabSnapshot]) -> Bool {
+            tabs.contains { $0.terminalID.map { same($0.rawValue, terminal) } ?? false }
+        }
         switch event {
-        case .unknown(let name, _): name == startedEvent || name == failedEvent
-        case .tabClosed, .disconnected: true
-        default: false
+        case .unknown(let name, let payload):
+            guard name == startedEvent || name == failedEvent, let named = payload["terminal_id"]?.stringValue else { return false }
+            return same(named, terminal)
+        case .tabClosed(let delta):
+            return holds([delta.entity])
+        case .paneClosed(let delta):
+            return holds(delta.entity.tabs)
+        case .workspaceClosed(let delta):
+            return delta.entity.screens.contains { $0.panes.contains { holds($0.tabs) } }
+        case .disconnected:
+            return true
+        default:
+            return false
         }
     }
 
-    /// The outcome `event` gives the start of `terminal`, shown as `surface`, or nil when it says
-    /// nothing about it.
-    static func outcome(of event: DaemonEvent, terminal: TerminalID, surface: SurfaceID) -> TerminalStartOutcome? {
+    /// The outcome an event the filter let in for `terminal` (``concerns(_:terminal:)``) gives its start.
+    static func outcome(of event: DaemonEvent, terminal: TerminalID) -> TerminalStartOutcome? {
         switch event {
         case .unknown(let name, let payload):
-            guard payload["terminal_id"]?.stringValue == terminal.rawValue else { return nil }
             if name == startedEvent { return .started }
             guard name == failedEvent else { return nil }
             return .failed(TerminalStartFailure(terminal: terminal, reason: payload["error"]?.stringValue))
-        case .tabClosed(let delta):
-            // The person closed the tab, or the daemon's rollback after a failure it reported first.
-            return delta.surface == surface ? .closed : nil
+        case .tabClosed, .paneClosed, .workspaceClosed:
+            // The person closed it, or the daemon's rollback after a failure it reported first.
+            return .closed
         case .disconnected:
             return .unknown
         default:
             return nil
         }
+    }
+
+    /// The daemon names a terminal in canonical 32-hex form; a caller id may carry dashes or capitals.
+    private static func same(_ named: String, _ terminal: TerminalID) -> Bool {
+        canonical(named) == canonical(terminal.rawValue)
+    }
+
+    private static func canonical(_ id: String) -> String {
+        id.replacingOccurrences(of: "-", with: "").lowercased()
     }
 }
 
@@ -96,10 +143,16 @@ public enum TerminalStartOutcome: Sendable, Equatable {
     case started
     /// The host did not start; the daemon removes what the command made.
     case failed(TerminalStartFailure)
-    /// The tab closed before the start ended.
+    /// The terminal's tab, pane or workspace closed before the start ended.
     case closed
-    /// The connection dropped or the watch fell behind first.
+    /// The connection dropped, or no outcome came within the start deadline.
     case unknown
+
+    /// The failure, when the start failed.
+    public var failure: TerminalStartFailure? {
+        if case .failed(let failure) = self { return failure }
+        return nil
+    }
 }
 
 /// A terminal whose host the daemon could not start after it answered the command that made it

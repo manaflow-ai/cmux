@@ -180,12 +180,12 @@ extension PaneController {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
+                let reply = try await NewTerminalTrace.shared.request(of: timing, surface: \.created.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
-                if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
-                self.workspace?.expectFocus(on: created.surface, generation: intent)
-                landed = true
-                then?(created.surface)
+                if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: reply.created.surface) }
+                self.workspace?.expectFocus(on: reply.created.surface, generation: intent)
+                landed = true // the work ends at the reply: a start answered before it is followed apart
+                then?(reply.created.surface); services.registry.followStart(of: reply, after: "newSurface")
                 return nil
             } catch is NewTerminalTabCancelled {
                 return nil // the person closed the stand-in first

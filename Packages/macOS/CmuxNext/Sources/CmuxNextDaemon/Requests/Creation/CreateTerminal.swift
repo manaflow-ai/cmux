@@ -5,9 +5,9 @@ public struct SurfaceCreated: Decodable, Sendable, Equatable {
     public var surface: SurfaceID
     public var terminalID: TerminalID?
     public var terminalIncarnation: TerminalIncarnation?
-    /// The daemon answered before the terminal's host was up (`terminal-async-start-v1`): its start
-    /// ends in `terminal-started` or `terminal-start-failed` (``TerminalStartWatch``). Nil from a
-    /// daemon that answers after the start.
+    /// The daemon answered before the terminal's host was up (`terminal-async-start-v1`, asked with
+    /// ``SpawnOptions/asyncStart``): its start ends in `terminal-started` or `terminal-start-failed`
+    /// (``TerminalStartWatch``). Nil from a daemon that answers after the start.
     public var starting: Bool?
 
     init(surface: SurfaceID, terminalID: TerminalID? = nil, terminalIncarnation: TerminalIncarnation? = nil, starting: Bool? = nil) {
@@ -51,7 +51,6 @@ public struct CreateTerminalResult: Decodable, Sendable, Equatable {
 public struct CreateTerminalRequest: TerminalSpawningRequest {
     public typealias Response = CreateTerminalResult
     public static let commandName: DaemonCommandName = "create-terminal"
-    public static let repliesBeforeTerminalStart = true
     public var workspace: WorkspaceRef
     public var argv: [String]?
     public var command: String?

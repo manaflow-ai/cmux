@@ -514,16 +514,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     public var tier: Tier {
         switch self {
         case .workspaceRegistry, .viewportSplits, .viewportColumnResize, .layoutUndo, .viewAttachmentLease,
-             .viewAttachmentDetach, .attachInitialSize:
-            return .required
+             .viewAttachmentDetach, .attachInitialSize: return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .terminalInputWhileCreating,
-             .terminalAsyncStart, .terminalReap, .resumeCommand, .terminalReaperActive, .endTerminalsKeepLayout,
-             .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty, .browserHostProvider,
+             .terminalReap, .resumeCommand, .terminalReaperActive, .endTerminalsKeepLayout, .batchClose,
+             .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty, .browserHostProvider,
              .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward, .browserRuntime,
              .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration, .launchSnapshot, .profiles,
              .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs, .dockColumns, .edgeDocks, .dockColumnRole,
@@ -546,6 +545,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .agentCLIAppProvider, .agentCLIAppInvalidation, .agentInventoryWatchAdmission, .stash, .stashWorkspaces,
              .layoutBulk, .eventCause, .energy, .energyRule, .diagnosticSites:
             return .optional
+        case .terminalAsyncStart: return .unservedByBundledDaemon // its daemon half, p05-ipc-130, is not on this branch yet
         }
     }
 

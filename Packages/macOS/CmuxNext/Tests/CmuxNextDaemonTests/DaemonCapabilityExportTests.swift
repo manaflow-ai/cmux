@@ -10,7 +10,8 @@ import Testing
 struct DaemonCapabilityExportTests {
     /// Entries in `unservedByBundledDaemon` on 2026-10-02. The list only
     /// shrinks: a new feature lands with its daemon half and goes in `optional`.
-    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1"]
+    /// `terminal-async-start-v1` (p05-ipc-131) waits for its daemon half, p05-ipc-130.
+    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1", "terminal-async-start-v1"]
 
     @Test func unservedListOnlyShrinks() {
         let added = Set(DaemonCapability.unservedByBundledDaemon).subtracting(Self.unservedCeiling)

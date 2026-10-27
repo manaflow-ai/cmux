@@ -39,6 +39,12 @@ public struct SpawnOptions: Sendable, Hashable {
     /// Client-minted public id of the split a `split` makes (`split-client-split-id-v1`); only
     /// `split` sends it. Dropped by `DaemonConnection` for a daemon without the capability.
     public var splitID: String?
+    /// `async_start` (`terminal-async-start-v1`): the daemon may answer `new-tab` or `split` once it
+    /// admitted the terminal, before its host is up (`starting: true` in the reply), and then reports
+    /// the start as `terminal-started` or `terminal-start-failed`. Only a caller that watches the
+    /// start sets it (``TerminalStartWatch``); dropped for a daemon without the capability
+    /// (``RequestDeadline/served(_:by:)``).
+    public var asyncStart: Bool?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -68,6 +74,7 @@ public struct SpawnOptions: Sendable, Hashable {
         case cwd, cols, rows, argv, command, name, env, keep, terminalID = "terminal_id"
         case shellArgs = "shell_args"
         case paneID = "pane_id", tabID = "tab_id", splitID = "split_id"
+        case asyncStart = "async_start"
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -84,15 +91,21 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(paneID, forKey: .paneID)
         try c.encodeIfPresent(splitID, forKey: .splitID)
         try c.encodeIfPresent(tabID, forKey: .tabID)
+        try c.encodeIfPresent(asyncStart, forKey: .asyncStart)
     }
 }
 
 public struct NewTabRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let commandName: DaemonCommandName = "new-tab"
-    public static let repliesBeforeTerminalStart = true
     public var pane: PaneID?
     public var options: SpawnOptions
+    public var asksAsyncStart: Bool { options.asyncStart == true }
+    public func withoutAsyncStart() -> NewTabRequest {
+        var request = self
+        request.options.asyncStart = nil
+        return request
+    }
     public init(pane: PaneID?, options: SpawnOptions = SpawnOptions()) {
         self.pane = pane
         self.options = options
