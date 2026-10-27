@@ -67,8 +67,11 @@ public final class AgentPaneView: NSView {
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
-    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
+    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values). Service observations on the
+    /// model's scheduler: each push goes to the page's own process, which applies it shown or hidden, so a page
+    /// shown later paints its first frame current (Chrome sends preference changes to every renderer,
+    /// `WebContentsImpl::OnWebPreferencesChanged`); a held token stops when it is dropped.
+    private var motionObservation: AnyObject?, sessionStatusObservation: ServiceObservation<Bool>?, iconFamilyObservation: AnyObject?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
@@ -102,7 +105,7 @@ public final class AgentPaneView: NSView {
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
-    public let loadingView = AgentPaneLoadingView()
+    public let loadingView: AgentPaneLoadingView
     public private(set) lazy var redraw = AgentPageRedraw(page: page) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The bundled page, nil when it is missing (a broken build).
@@ -139,6 +142,7 @@ public final class AgentPaneView: NSView {
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
         self.work = work
+        loadingView = AgentPaneLoadingView(deadlines: model.deadlines)
         warmup?.agentPageMade()
         let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
@@ -204,21 +208,20 @@ public final class AgentPaneView: NSView {
     }
 
     private func observeIconFamily() {
-        applyIconFamily()
-        iconFamilyObservation = Task { [weak self] in
-            for await _ in ObservationStream({ IconFamily.tunable.value }) {
-                guard let self else { return }
-                self.applyIconFamily()
-            }
+        iconFamilyObservation = ServiceObservation(.visible, owner: "AgentPaneView.iconFamily", on: model.deadlines.work) {
+            IconFamily.tunable.value
+        } apply: { [weak self] _ in
+            self?.applyIconFamily()
         }
     }
 
     private func observeMotion() {
-        motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled) }) {
-                guard let self else { return }
-                self.applyTheme()
-            }
+        AgentPaneTunables.followCodexToolRuns(on: model.deadlines.work)
+        motionObservation = ServiceObservation(.visible, owner: "AgentPaneView.motion", on: model.deadlines.work) {
+            ObservationTrigger((Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled,
+                                DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled))
+        } apply: { [weak self] _ in
+            self?.applyTheme()
         }
         observeReduceMotion()
     }
@@ -299,9 +302,7 @@ public final class AgentPaneView: NSView {
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         rateReapply?.cancel()
-        motionObservation?.cancel()
         motionObservation = nil
-        iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
         reduceMotionWatch = nil
@@ -320,11 +321,13 @@ public final class AgentPaneView: NSView {
     }
 
     /// Another tab took the pane: stop listening, keep the words.
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): the microphone stops for a chat nobody sees
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
     }
 
+    // visibility-walk-allow: the theme push goes to the page's own process, which must hold it before the chat shows (cx-8w027.12: the first frame after a change is in the new colors); applyTheme sends only a changed theme
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
