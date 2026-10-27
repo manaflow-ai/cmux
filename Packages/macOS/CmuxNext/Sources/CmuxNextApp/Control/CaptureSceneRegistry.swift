@@ -226,9 +226,9 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("auto-name scene has no daemon or window"), "scene": .string(definition.name)])
         }
         do {
-            let key = WorkspaceKey.generate()
-            _ = try await connection.createWorkspace(key: key)
-            services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
+            let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true),
+                                                                            on: services.daemon, into: windowID)
+            let key = WorkspaceKey(rawValue: workspaceID)
             guard let pane = await services.daemon.store.firstPane(mirroring: key),
                   let workspace = services.daemon.store.workspace(key: key) else {
                 return .object(["error": .string("auto-name workspace has no mirrored pane"), "scene": .string(definition.name)])
