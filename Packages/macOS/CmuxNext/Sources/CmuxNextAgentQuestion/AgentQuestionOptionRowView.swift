@@ -88,6 +88,7 @@ final class AgentQuestionOptionRowView: NSView {
         check.frame = frames.check
     }
 
+    // visibility-walk-allow: applyColors only stores layer, text and tint colors and the row's alpha, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
