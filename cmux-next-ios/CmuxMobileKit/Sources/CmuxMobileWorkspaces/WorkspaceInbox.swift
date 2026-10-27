@@ -54,21 +54,31 @@ public struct RecentSection: Hashable, Sendable, Identifiable {
     /// Nil: loose rows.
     public var group: MacWorkspaceGroup?
     public var workspaces: [Workspace]
+    /// The run's Mac and group, and which run of them it is: never its first row,
+    /// so a section keeps its identity (and its rows) when another row moves to
+    /// its top. A group can show as two runs for a moment (a row moved in before
+    /// the Mac's order arrives): the run's ordinal keeps each id unique.
+    public var id: String
 
-    public var id: String {
-        // A group can show as two runs for a moment (a row moved in before the Mac's order
-        // arrives): the first row keeps each run's id unique.
-        group.map { "group-\(macID)-\($0.id)-\(workspaces.first?.id ?? "")" } ?? "loose-\(macID)-\(workspaces.first?.id ?? "")"
+    public init(macID: String, group: MacWorkspaceGroup?, workspaces: [Workspace], ordinal: Int = 0) {
+        self.macID = macID
+        self.group = group
+        self.workspaces = workspaces
+        id = group.map { "group-\(macID)-\($0.id)-\(ordinal)" } ?? "loose-\(macID)-\(ordinal)"
     }
 
     /// Consecutive rows of one Mac and one group make one section.
     static func runs(_ rows: [Workspace]) -> [RecentSection] {
         var sections: [RecentSection] = []
+        var ordinals: [String: Int] = [:]
         for ws in rows {
             if let last = sections.last, last.macID == ws.macID, last.group?.id == ws.group?.id {
                 sections[sections.count - 1].workspaces.append(ws)
             } else {
-                sections.append(RecentSection(macID: ws.macID, group: ws.group, workspaces: [ws]))
+                let key = "\(ws.macID)\u{1F}\(ws.group?.id ?? "")"
+                let ordinal = ordinals[key, default: 0]
+                ordinals[key] = ordinal + 1
+                sections.append(RecentSection(macID: ws.macID, group: ws.group, workspaces: [ws], ordinal: ordinal))
             }
         }
         return sections
@@ -168,6 +178,24 @@ public struct WorkspaceInbox: Hashable, Sendable {
     public var stale: Set<String>
     /// Scope is All and every Mac is offline.
     public var allAsleep: Bool
+    /// Every listed row by id (rows, pinned, needs-you and folded): the row
+    /// menu finds its workspace without scanning the list.
+    var rowsByID: [String: Workspace]
+    /// The Macs with rows in Needs You, Pinned or Recent.
+    public var rowMacIDs: Set<String>
+    /// Each Mac and group's Move Up / Down run (`macOrder(of:)`): its size and ends.
+    var moveRuns: [MoveRunKey: MoveRun]
+
+    struct MoveRunKey: Hashable, Sendable {
+        var macID: String
+        var groupID: String?
+    }
+
+    struct MoveRun: Hashable, Sendable {
+        var count: Int
+        var firstID: String
+        var lastID: String
+    }
 
     public init(scope: MacScope, macs: [MacDevice], workspaces: [Workspace], query: String = "",
                 context: Context = Context()) {
@@ -213,6 +241,18 @@ public struct WorkspaceInbox: Hashable, Sendable {
         // Newest first (no Mac order known) shows no groups: its rows are not in runs.
         recentSections = isMacOrder ? RecentSection.runs(recent)
             : recent.isEmpty ? [] : [RecentSection(macID: "", group: nil, workspaces: recent)]
+        var runs: [MoveRunKey: MoveRun] = [:]
+        for ws in recent where statuses[ws.id] != .needsYou {
+            let key = MoveRunKey(macID: ws.macID, groupID: ws.group?.id)
+            if var run = runs[key] {
+                run.count += 1
+                run.lastID = ws.id
+                runs[key] = run
+            } else {
+                runs[key] = MoveRun(count: 1, firstID: ws.id, lastID: ws.id)
+            }
+        }
+        moveRuns = runs
         let online = scoped.filter(\.isOnline)
         let asleep = scope == .all && !scoped.isEmpty && online.isEmpty
         allAsleep = asleep
@@ -242,6 +282,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
         isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
         showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
         self.statuses = statuses
+        var rowIndex: [String: Workspace] = [:]
+        rowIndex.reserveCapacity(matching.count)
+        for ws in needsYou + pinned + recent { rowIndex[ws.id] = ws }
+        for fold in folds { for ws in fold.workspaces { rowIndex[ws.id] = ws } }
+        rowsByID = rowIndex
+        rowMacIDs = Set((needsYou + pinned + recent).map(\.macID))
     }
 
     /// Newest activity first. A row with no known activity time (live: no
@@ -297,6 +343,74 @@ public struct WorkspaceInbox: Hashable, Sendable {
 
     public func status(_ workspace: Workspace) -> WorkspaceStatus { statuses[workspace.id] ?? .idle }
 
+    /// A listed row by id.
+    public func workspace(_ id: String) -> Workspace? { rowsByID[id] }
+
+    /// Whether Move Workspace Up / Down apply (`macOrder(of:)` has another row
+    /// before / after it), from the precomputed runs: O(1) per row.
+    public func moves(of workspace: Workspace) -> (up: Bool, down: Bool) {
+        guard !workspace.isPinned, let run = moveRuns[MoveRunKey(macID: workspace.macID, groupID: workspace.group?.id)],
+              run.count > 1 else { return (false, false) }
+        return (run.firstID != workspace.id, run.lastID != workspace.id)
+    }
+
     /// "2 need you", for the navigation subtitle.
     public var needsYouCount: Int { needsYou.count }
+}
+
+extension WorkspaceInbox {
+    /// One inbox per change of its inputs: the list's body reads it several
+    /// times per pass (rows, subtitle, refresh state, animations), and a pass
+    /// that changed nothing it reads (a sheet, the search field) builds nothing.
+    /// The equality check is cheap when nothing changed: an unchanged array
+    /// compares by its storage.
+    public final class Memo {
+        public struct Input: Equatable {
+            public var scope: MacScope
+            public var macs: [MacDevice]
+            public var workspaces: [Workspace]
+            public var query: String
+            public var context: Context
+
+            public init(scope: MacScope, macs: [MacDevice], workspaces: [Workspace], query: String = "", context: Context = Context()) {
+                self.scope = scope
+                self.macs = macs
+                self.workspaces = workspaces
+                self.query = query
+                self.context = context
+            }
+        }
+
+        private var last: (input: Input, inbox: WorkspaceInbox)?
+        private var lastIDs: [String] = []
+        private var lastNeedsYou: [String] = []
+        /// How many inboxes this memo built (tests).
+        public private(set) var builds = 0
+        /// Changes when the store's workspace ids or their order change (rows
+        /// come or go), not when a row's content does: the list animates on it.
+        public private(set) var workspaceIDsKey = 0
+        /// Changes when the Needs You rows change.
+        public private(set) var needsYouKey = 0
+
+        public init() {}
+
+        public func inbox(_ input: Input) -> WorkspaceInbox {
+            if let last, last.input == input { return last.inbox }
+            let inbox = WorkspaceInbox(scope: input.scope, macs: input.macs, workspaces: input.workspaces, query: input.query,
+                                       context: input.context)
+            builds += 1
+            if lastIDs.count != input.workspaces.count
+                || !zip(lastIDs, input.workspaces).allSatisfy({ $0 == $1.id }) {
+                lastIDs = input.workspaces.map(\.id)
+                workspaceIDsKey &+= 1
+            }
+            let needsYou = inbox.needsYou.map(\.id)
+            if needsYou != lastNeedsYou {
+                lastNeedsYou = needsYou
+                needsYouKey &+= 1
+            }
+            last = (input, inbox)
+            return inbox
+        }
+    }
 }

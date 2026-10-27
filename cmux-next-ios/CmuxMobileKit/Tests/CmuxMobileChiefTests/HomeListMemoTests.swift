@@ -20,12 +20,14 @@ import Testing
         #expect(memo.builds == 1)
         #expect(first.pinned.map(\.id) == ["p"])
         let revision = memo.revision
-        // The search changes the inputs but not the result: no new revision.
+        // Searching: the pinned rows join the list, a new result.
         _ = memo.list(rows, query: "Name", unreadOnly: false)
         #expect(memo.builds == 2)
-        #expect(memo.revision != revision)  // "Name" matches all, but pinned rows join the list while searching
+        #expect(memo.revision != revision)
+        // Another search with the same result: built again, no new revision.
         let searching = memo.revision
         _ = memo.list(rows, query: "Name ", unreadOnly: false)
+        #expect(memo.builds == 3)
         #expect(memo.revision == searching)
         let unread = memo.list(rows, query: "", unreadOnly: true)
         #expect(unread.rows.map(\.id) == ["b"])

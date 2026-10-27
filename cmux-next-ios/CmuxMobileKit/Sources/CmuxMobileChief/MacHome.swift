@@ -123,6 +123,27 @@ public struct MacHomeList: Equatable, Sendable {
     }
 
     public var isEmpty: Bool { pinned.isEmpty && rows.isEmpty }
+
+    /// One list per change of the rows, the search or the Unread toggle: Home's
+    /// body reads it on every pass. `revision` moves only when the result does,
+    /// so the list animates on an integer, not on a comparison of every row.
+    public final class Memo {
+        private var last: (rows: [MacHomeRow], query: String, unreadOnly: Bool, list: MacHomeList)?
+        /// How many lists this memo built (tests).
+        public private(set) var builds = 0
+        public private(set) var revision = 0
+
+        public init() {}
+
+        public func list(_ rows: [MacHomeRow], query: String, unreadOnly: Bool) -> MacHomeList {
+            if let last, last.query == query, last.unreadOnly == unreadOnly, last.rows == rows { return last.list }
+            let list = MacHomeList(rows, query: query, unreadOnly: unreadOnly)
+            builds += 1
+            if last?.list != list { revision &+= 1 }
+            last = (rows, query, unreadOnly, list)
+            return list
+        }
+    }
 }
 
 /// The chosen Mac's Home list over its link: a `chief` channel of its own

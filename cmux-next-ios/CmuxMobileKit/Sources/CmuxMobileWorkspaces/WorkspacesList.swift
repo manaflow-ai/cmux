@@ -68,7 +68,9 @@ public struct WorkspacesList: View {
     /// scrolls when the first new row would open below it.
     @State private var visibleBottom: CGFloat = .infinity
     /// Each row's frame in the list (read on demand, never drawn from).
-    @State private var rowFrames = RowFrames()
+    @State fileprivate var rowFrames = RowFrames()
+    /// The inbox, built once per change of what it reads.
+    @State private var inboxMemo = WorkspaceInbox.Memo()
     /// The Macs' names and Filter rows, memoized (verify/perf-latency.md).
     @State private var macText = MacFilterMemo()
     @State private var closingFrame: CGRect = .zero
@@ -96,13 +98,13 @@ public struct WorkspacesList: View {
     /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
     private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
-    private var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
+    fileprivate var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
     private var target: MacDevice? {
         scope.newWorkspaceMac(available: creator.availableMacs, fallback: creator.targetMac)
     }
 
-    private func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
+    fileprivate func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
 
     /// Every Mac on the account (all teams): the scope of the same-name tags,
     /// as in Settings → Devices.
@@ -114,10 +116,18 @@ public struct WorkspacesList: View {
 
     private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
-    private var inbox: WorkspaceInbox {
-        WorkspaceInbox(scope: scope, macs: macs, workspaces: store.workspaces, query: query,
-                       context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
-                                                       phases: phases))
+    /// Memoized: the body reads it for the rows, the subtitle, the refresh
+    /// state and the animations, and it is built once per change.
+    fileprivate var inbox: WorkspaceInbox {
+        inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces, query: query,
+                                                  context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
+                                                                                  phases: phases)))
+    }
+
+    /// The Macs with rows on screen whose list is live, for the connect timeline.
+    private func liveRowMacs(_ inbox: WorkspaceInbox) -> Set<String> {
+        guard store.tracksMacData else { return [] }
+        return inbox.rowMacIDs.filter { store.macDataPhase($0) == .live }
     }
 
     /// Live mode: each Mac's data phase (nil in mock mode: every list is live).
@@ -259,7 +269,7 @@ public struct WorkspacesList: View {
         return "\(seen). \u{201C}\(ws.title)\u{201D} opens when the Mac is awake with cmux running."
     }
 
-    private func select(_ value: MacScope) {
+    fileprivate func select(_ value: MacScope) {
         guard let team = store.activeTeam, value != scope else { return }
         theme.haptics.selection()
         withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
@@ -283,7 +293,7 @@ public struct WorkspacesList: View {
 
     /// Opens a workspace: a needs-you one on its waiting tab, else the
     /// last tab used here (`AppStore.openingTab`). Clears its "Done".
-    private func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
+    fileprivate func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -416,72 +426,64 @@ public struct WorkspacesList: View {
         }
         .cmuxMobilePullDownSearch(text: $query)
         .modifier(OptionalRefresh(refresh: refresh))
+        // Rows coming, going or entering Needs You animate: memoized keys,
+        // not id arrays built and compared on every pass.
         .animation(theme.motion.smooth.animation, value: inbox.scope)
-        .animation(theme.motion.smooth.animation, value: inbox.needsYou.map(\.id))
-        .animation(theme.motion.smooth.animation, value: store.workspaces.map(\.id))
+        .animation(theme.motion.smooth.animation, value: inboxMemo.needsYouKey)
+        .animation(theme.motion.smooth.animation, value: inboxMemo.workspaceIDsKey)
+        // verify/fast-connect.md: a Mac's rows turn live (one check for the list, not one per row).
+        .onChange(of: liveRowMacs(inbox)) { old, new in
+            if !new.subtracting(old).isEmpty { ConnectTimeline.shared.mark("workspace_row_live") }
+        }
         .accessibilityIdentifier("workspaces.list")
     }
 
+    /// One row: its inputs as plain values (`WorkspaceRowModel`), so SwiftUI
+    /// skips every row whose values did not change; its menu is built only
+    /// when it is read (`WorkspaceRowMenu`).
     private func row(_ ws: Workspace, _ inbox: WorkspaceInbox) -> some View {
+        let model = rowModel(ws, inbox)
+        return WorkspaceListRow(model: model, host: self)
+            .equatable()
+            .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
+            .listRowBackground(theme.colors.bg.color)
+            .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
+            // Trailing only: a rightward swipe from the leading edge belongs to
+            // the team sidebar.
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if model.canManage {
+                    Button("Close", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
+                        // The app tints controls with the foreground color
+                        // (white in dark mode), which turned this into a blank
+                        // white pill. Back to the system tint: red for the role.
+                        .tint(nil)
+                        .accessibilityIdentifier("workspace.swipe.close")
+                    Button("Rename", systemImage: "pencil") { startRename(ws) }
+                        .tint(.gray)
+                        .accessibilityIdentifier("workspace.swipe.rename")
+                }
+            }
+    }
+
+    private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = mac(ws.macID).map(displayName)
         let canManage = status != .offline && creator.canManage(ws)
-        return Button {
-            openWorkspace(ws, status: status)
-        } label: {
-            WorkspaceRow(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
-                         offlineMacName: status == .offline ? macName : nil)
+        let canArrange = canManage && creator.canArrange(ws)
+        let moves = canArrange ? inbox.moves(of: ws) : (up: false, down: false)
+        return WorkspaceRowModel(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
+                                 offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
+                                 tracksMacData: store.tracksMacData, canManage: canManage, canArrange: canArrange,
+                                 canDuplicate: canManage && creator.canDuplicate(ws), canMoveUp: moves.up, canMoveDown: moves.down)
+    }
+
+    /// The row menu, read when it is shown: the row's workspace as the list has it now.
+    @ViewBuilder fileprivate func rowMenu(_ id: String) -> some View {
+        let inbox = inbox
+        if let ws = inbox.workspace(id) {
+            let status = inbox.status(ws)
+            menu(ws, status: status, canManage: status != .offline && creator.canManage(ws), inbox: inbox)
         }
-        // Not the List's cell highlight: it stuck on as a gray pill while a
-        // swipe was under way. A press fill that ends when the touch moves.
-        .buttonStyle(RowPressStyle())
-        // Last-known rows (live mode), dimmed until the Mac answers on this link.
-        .opacity(inbox.stale.contains(ws.id) ? 0.55 : 1)
-        .animation(theme.motion.smooth.animation, value: inbox.stale.contains(ws.id))
-        .onAppear {
-            // verify/fast-connect.md: when a row is first on screen, cached or live.
-            if store.tracksMacData {
-                ConnectTimeline.shared.mark(inbox.stale.contains(ws.id) ? "workspace_row_cached" : "workspace_row_live")
-            }
-        }
-        .onChange(of: store.macDataPhase(ws.macID) == .live) { _, live in
-            if live, store.tracksMacData { ConnectTimeline.shared.mark("workspace_row_live") }
-        }
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
-        .listRowBackground(theme.colors.bg.color)
-        .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
-        // Trailing only: a rightward swipe from the leading edge belongs to
-        // the team sidebar.
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if canManage {
-                Button("Close", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
-                    // The app tints controls with the foreground color
-                    // (white in dark mode), which turned this into a blank
-                    // white pill. Back to the system tint: red for the role.
-                    .tint(nil)
-                    .accessibilityIdentifier("workspace.swipe.close")
-                Button("Rename", systemImage: "pencil") { startRename(ws) }
-                    .tint(.gray)
-                    .accessibilityIdentifier("workspace.swipe.rename")
-            }
-        }
-        .contextMenu { menu(ws, status: status, canManage: canManage, inbox: inbox) }
-        // Where the row is, so the close popover can point at it.
-        .background { FrameProbe(id: ws.id) { rowFrames.rows[ws.id] = WeakProbe(view: $0) } }
-        .accessibilityActions {
-            if canManage {
-                if creator.canArrange(ws) {
-                    Button(ws.isPinned ? "Unpin Workspace" : "Pin Workspace") { creator.setPinned(ws, !ws.isPinned) }
-                    let order = inbox.macOrder(of: ws)
-                    if order.count > 1, order.first?.id != ws.id { Button("Move Workspace Up") { creator.move(ws, by: -1, among: order) } }
-                    if order.count > 1, order.last?.id != ws.id { Button("Move Workspace Down") { creator.move(ws, by: 1, among: order) } }
-                }
-                Button("Rename") { startRename(ws) }
-                if creator.canDuplicate(ws) { Button(WorkspaceCreator.duplicateTitle) { creator.duplicate(ws) } }
-                Button("Close") { confirmClose(ws) }
-            }
-        }
-        .accessibilityIdentifier("workspace.row.\(ws.id)")
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -601,7 +603,7 @@ public struct WorkspacesList: View {
     }
 
     /// Asks before closing, in a popover pointing at the row (Mail).
-    private func confirmClose(_ ws: Workspace) {
+    fileprivate func confirmClose(_ ws: Workspace) {
         let present = {
             closingFrame = rowFrames.frame(of: ws.id) ?? .zero
             closing = ws
@@ -656,7 +658,7 @@ public struct WorkspacesList: View {
             }
     }
 
-    private func startRename(_ ws: Workspace) {
+    fileprivate func startRename(_ ws: Workspace) {
         renameText = ws.title
         renaming = ws
     }
@@ -1051,6 +1053,89 @@ public struct WorkspacesList: View {
     }
 }
 
+/// A row's inputs as plain values: SwiftUI compares them and skips the row
+/// (its body, menu and accessibility actions) when none changed, so an update
+/// costs O(changed rows), not O(rows).
+struct WorkspaceRowModel: Equatable {
+    var workspace: Workspace
+    var status: WorkspaceStatus
+    /// Named on idle rows when Recent mixes several Macs.
+    var macName: String?
+    var offlineMacName: String?
+    /// A last-known (cached) row, dimmed.
+    var isStale: Bool
+    var tracksMacData: Bool
+    var canManage: Bool
+    var canArrange: Bool
+    var canDuplicate: Bool
+    var canMoveUp: Bool
+    var canMoveDown: Bool
+}
+
+/// One Workspaces row and what it carries: the tap, the press fill, the
+/// stale dimming, the menu (built when shown) and the accessibility actions.
+/// Equal models skip the body; `host` only runs actions and is not compared.
+struct WorkspaceListRow: View, Equatable {
+    let model: WorkspaceRowModel
+    let host: WorkspacesList
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
+
+    var body: some View {
+        let ws = model.workspace
+        let host = host
+        Button {
+            host.openWorkspace(ws, status: model.status)
+        } label: {
+            WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName)
+        }
+        // Not the List's cell highlight: it stuck on as a gray pill while a
+        // swipe was under way. A press fill that ends when the touch moves.
+        .buttonStyle(RowPressStyle())
+        // Last-known rows (live mode), dimmed until the Mac answers on this link.
+        .opacity(model.isStale ? 0.55 : 1)
+        .animation(theme.motion.smooth.animation, value: model.isStale)
+        .onAppear {
+            // verify/fast-connect.md: when a row is first on screen, cached or live.
+            if model.tracksMacData {
+                ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")
+            }
+        }
+        .contextMenu { WorkspaceRowMenu(id: ws.id, host: host) }
+        // Where the row is, so the close popover can point at it.
+        .background { FrameProbe(id: ws.id) { host.rowFrames.rows[ws.id] = WeakProbe(view: $0) } }
+        .accessibilityActions {
+            if model.canManage {
+                if model.canArrange {
+                    Button(ws.isPinned ? "Unpin Workspace" : "Pin Workspace") { host.creator.setPinned(ws, !ws.isPinned) }
+                    if model.canMoveUp {
+                        Button("Move Workspace Up") { host.creator.move(ws, by: -1, among: host.inbox.macOrder(of: ws)) }
+                    }
+                    if model.canMoveDown {
+                        Button("Move Workspace Down") { host.creator.move(ws, by: 1, among: host.inbox.macOrder(of: ws)) }
+                    }
+                }
+                Button("Rename") { host.startRename(ws) }
+                if model.canDuplicate { Button(WorkspaceCreator.duplicateTitle) { host.creator.duplicate(ws) } }
+                Button("Close") { host.confirmClose(ws) }
+            }
+        }
+        .accessibilityIdentifier("workspace.row.\(ws.id)")
+    }
+}
+
+/// A row's long-press menu as its own view: built from the list's current
+/// inbox when SwiftUI reads it, not on every pass over every row (it scans
+/// the Mac's rows and lists color swatches).
+struct WorkspaceRowMenu: View {
+    let id: String
+    let host: WorkspacesList
+
+    var body: some View {
+        host.rowMenu(id)
+    }
+}
+
 /// Where rows are, read when Close is tapped: each row and the anchor
 /// overlay carry a UIKit probe view, and the row's probe is converted into
 /// the overlay's space at that moment. (SwiftUI geometry callbacks inside
@@ -1218,16 +1303,32 @@ enum WorkspaceSwatch {
     }
 
     /// A menu icon: a filled circle in the color (menus draw images, not shapes).
-    static func image(_ color: WorkspaceColor) -> Image {
+    /// Drawn once per color: a menu lists nine of them.
+    @MainActor static func image(_ color: WorkspaceColor) -> Image {
+        if let image = images[color] { return Image(uiImage: image) }
         let (hue, chroma) = color.hueAndChroma
         let fill = UIColor(hue: hue / 360, saturation: 0.42 * chroma, brightness: 0.64, alpha: 1)
         let size = CGSize(width: 16, height: 16)
         let image = UIGraphicsImageRenderer(size: size).image { _ in
             fill.setFill()
             UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-        }
-        return Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+        }.withRenderingMode(.alwaysOriginal)
+        images[color] = image
+        return Image(uiImage: image)
     }
+
+    @MainActor private static var images: [WorkspaceColor: UIImage] = [:]
+
+    /// Whether the phone draws `name` as an SF Symbol (a workspace icon is a
+    /// symbol or an emoji), looked up once per name, not on every row pass.
+    @MainActor static func isSymbol(_ name: String) -> Bool {
+        if let known = symbols[name] { return known }
+        let known = UIImage(systemName: name) != nil
+        symbols[name] = known
+        return known
+    }
+
+    @MainActor private static var symbols: [String: Bool] = [:]
 }
 
 /// SPEC 11.1 workspace row, Mail anatomy: a status gutter (32 pt at Large,
@@ -1292,7 +1393,7 @@ struct WorkspaceRow: View {
         HStack(spacing: 5) {
             // The Mac's workspace icon: an SF Symbol the phone draws, else an emoji.
             if let icon = workspace.icon, !icon.isEmpty {
-                if UIImage(systemName: icon) != nil {
+                if WorkspaceSwatch.isSymbol(icon) {
                     Image(systemName: icon).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
                         .accessibilityIdentifier("workspace.icon")
                 } else if WorkspaceIcon.emoji(icon) != nil {
@@ -1418,34 +1519,117 @@ struct StatusLine: View {
 
 /// SPEC 4.5's shimmer for a row's "is working" line: `label2` at rest (never
 /// fainter than the rest of line 2), a `label` highlight sweeping across.
-/// Static `label2` with Reduce Motion.
+/// Static `label2` with Reduce Motion. The sweep is a Core Animation
+/// animation that runs on the render server: no per-frame body, layout or
+/// main-thread work while rows shimmer (it was a `TimelineView(.animation)`
+/// with a `GeometryReader` mask, a body per working row per frame).
 struct ShimmerText: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if reduceMotion {
-            Text(text).foregroundStyle(theme.colors.label2)
-        } else {
-            TimelineView(.animation) { context in
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
-                Text(text)
-                    .foregroundStyle(theme.colors.label2)
-                    .overlay {
-                        Text(text)
-                            .foregroundStyle(theme.colors.label)
-                            .mask {
-                                GeometryReader { proxy in
-                                    let width = proxy.size.width
-                                    LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
-                                        .frame(width: max(width * 0.4, 30))
-                                        .offset(x: -width * 0.4 + width * 1.4 * phase)
-                                }
-                            }
-                            .accessibilityHidden(true)
-                    }
+        Text(text)
+            .foregroundStyle(theme.colors.label2)
+            .overlay {
+                if !reduceMotion {
+                    ShimmerHighlight(text: text)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
+    }
+}
+
+/// The highlight over a `ShimmerText`: the same text in `label`, seen through
+/// a gradient band that sweeps leading to trailing every 1.6 s, every row in
+/// step (the phase comes from the clock, as the old timeline's did).
+private struct ShimmerHighlight: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> ShimmerHighlightView { ShimmerHighlightView() }
+
+    func updateUIView(_ view: ShimmerHighlightView, context: Context) {
+        let environment = context.environment
+        // The row's line 2 font (`theme.type.rowSubtitle`, `.subheadline`) at the row's Dynamic Type size.
+        let traits = UITraitCollection { traits in
+            traits.preferredContentSizeCategory = UIContentSizeCategory(environment.dynamicTypeSize)
+            traits.legibilityWeight = environment.legibilityWeight == .bold ? .bold : .regular
         }
+        view.configure(text: text, font: UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: traits),
+                       lines: environment.lineLimit ?? 0)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ShimmerHighlightView, context: Context) -> CGSize? {
+        // An overlay: exactly the text's frame.
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+}
+
+final class ShimmerHighlightView: UIView {
+    private let label = UILabel()
+    private let band = CAGradientLayer()
+    private var sweptSize: CGSize = .zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        accessibilityElementsHidden = true
+        label.textColor = theme.colors.label.uiColor
+        label.lineBreakMode = .byTruncatingTail
+        label.textAlignment = .natural
+        addSubview(label)
+        band.colors = [UIColor.clear.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
+        band.startPoint = CGPoint(x: 0, y: 0.5)
+        band.endPoint = CGPoint(x: 1, y: 0.5)
+        band.anchorPoint = .zero
+        label.layer.mask = band
+        // The system drops layer animations while the app is in the background.
+        NotificationCenter.default.addObserver(self, selector: #selector(restartSweep),
+                                               name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func configure(text: String, font: UIFont, lines: Int) {
+        if label.text != text { label.text = text }
+        if label.font != font { label.font = font }
+        if label.numberOfLines != lines { label.numberOfLines = lines }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds
+        if bounds.size != sweptSize { startSweep() }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { startSweep() }
+    }
+
+    @objc private func restartSweep() { startSweep() }
+
+    private func startSweep() {
+        let width = bounds.width
+        guard width > 0, window != nil else { return }
+        sweptSize = bounds.size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        band.bounds = CGRect(x: 0, y: 0, width: max(width * 0.4, 30), height: bounds.height)
+        band.position = CGPoint(x: -width * 0.4, y: 0)
+        CATransaction.commit()
+        // motion: allow the sweep is the shimmer itself; Reduce Motion never mounts it (ShimmerText).
+        let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.fromValue = -width * 0.4
+        sweep.toValue = width
+        sweep.duration = 1.6
+        sweep.repeatCount = .infinity
+        sweep.isRemovedOnCompletion = false
+        // Every row's band at the same place: the phase from the clock.
+        sweep.timeOffset = Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6)
+        band.add(sweep, forKey: "sweep")
     }
 }
 
