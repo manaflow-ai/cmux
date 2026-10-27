@@ -7,6 +7,7 @@
 use crate::panic_free::RecoverPoison;
 use std::borrow::Cow;
 use std::io::Write;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
 use std::sync::{Arc, TryLockError};
@@ -448,277 +449,49 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     }
 
     let command_stream = stream.try_clone()?;
-    let command_host = host.clone();
+    let frames = Arc::new(ClientFrames {
+        host: host.clone(),
+        sender: command_sender.clone(),
+        client,
+        granted_rights,
+        selected_version,
+        launch_owner_claimed,
+        smart_renderer,
+        viewer_size_acks,
+        input_flow,
+        ended: AtomicBool::new(false),
+    });
     let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
-        let mut detached = false;
+        // Ends this client however its frames end, a panic included: a
+        // frame thread that died with the client still registered left its
+        // peer waiting for a reply forever.
+        let mut end = ClientEnd { frames: frames.clone(), detached: false, armed: true };
+        let control = ClientControl::new(frames.clone());
         while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
-            // Client-to-host messages define one flag (a negotiated
-            // FLAG_INPUT_FLOW on interactive Input) and never participate
-            // in the host live-stream sequence.
-            let flags_valid = frame.flags == 0
-                || (input_flow
-                    && frame.flags == FLAG_INPUT_FLOW
-                    && frame.kind == MessageKind::Input
-                    && frame.request_id == 0);
-            if frame.version != selected_version || !flags_valid || frame.sequence != 0 {
+            if frames.ended.load(Ordering::Acquire) || !frames.frame_is_valid(&frame) {
                 break;
             }
-            match frame.kind {
-                MessageKind::Activate => {
-                    if selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
-                        || !launch_owner_claimed
-                        || frame.request_id != 0
-                        || !frame.payload.is_empty()
-                    {
-                        break;
-                    }
-                    command_host.mark_launch_owner_stream_ready();
-                }
-                MessageKind::Input => {
-                    let Some((input, flow)) = split_flow_trailer(frame.flags, &frame.payload)
-                    else {
-                        break;
-                    };
-                    if !granted_rights.contains(CapabilityRights::INPUT)
-                        || !input_request_is_supported(selected_version, frame.request_id)
-                        || !command_host.write_input(input, frame.request_id, flow, &command_sender)
-                    {
-                        break;
-                    }
-                }
-                MessageKind::Paste => {
-                    if !granted_rights.contains(CapabilityRights::INPUT) {
-                        break;
-                    }
-                    let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
-                    let mut writer = command_host.writer.lock().recover_poison();
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[200~");
-                    }
-                    let _ = writer.write_all(&frame.payload);
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[201~");
-                    }
-                    let _ = writer.flush();
-                }
-                MessageKind::ViewerSize if frame.payload.len() == 4 => {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    let field = |offset| {
-                        crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
-                    };
-                    let (cols, rows) = (field(0), field(2));
-                    let targeted_ack = viewer_size_acks
-                        .then_some((frame.request_id, &command_sender))
-                        .filter(|(request_id, _)| *request_id != 0);
-                    let acknowledge_with_replay = !smart_renderer && targeted_ack.is_none();
-                    if !matches!(
-                        command_host.set_viewer_size(
-                            client,
-                            cols,
-                            rows,
-                            acknowledge_with_replay,
-                            targeted_ack,
-                        ),
-                        Ok(true)
-                    ) {
-                        // Invalid geometry or a PTY/parser resize failure
-                        // rejects this admin stream. A failed targeted
-                        // acknowledgement closes only this renderer; the
-                        // committed canonical transition remains valid.
-                        break;
-                    }
-                }
-                MessageKind::ReleaseViewer => {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    command_host.remove_viewer_size(client);
-                }
-                MessageKind::Terminate => {
-                    if !granted_rights.contains(CapabilityRights::TERMINATE) {
-                        break;
-                    }
-                    // Integration failure-injection seam: a host whose
-                    // termination receipt reaches the daemon late. Only a
-                    // receipted request waits; bounded so an accidental
-                    // setting cannot wedge a real host.
-                    if frame.request_id != 0
-                        && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
-                        && let Ok(delay) = delay.parse::<u64>()
-                        && delay > 0
-                    {
-                        thread::sleep(Duration::from_millis(delay.min(5_000)));
-                    }
-                    if launch_owner_claimed {
-                        command_host.mark_launch_owner_stream_ready();
-                    }
-                    let receipt_queued = if frame.request_id == 0 {
-                        true
-                    } else {
-                        let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
-                        response.request_id = frame.request_id;
-                        let _broadcast = command_host.broadcast_lock.lock().recover_poison();
-                        command_sender.try_send(response)
-                    };
-                    command_host.request_termination();
-                    if !receipt_queued {
-                        break;
-                    }
-                }
-                MessageKind::Detach => {
-                    if !granted_rights.contains(CapabilityRights::TERMINATE)
-                        || frame.request_id == 0
-                    {
-                        break;
-                    }
-                    if !command_host.fence_client_detach(client, frame.request_id, &command_sender)
-                    {
-                        break;
-                    }
-                    command_sender.wake_writer();
-                    detached = true;
+            // A frame whose handler waits for the parser (a geometry,
+            // default color, cell-metric, Kitty-limit or clear-history
+            // commit) runs on the client's control thread, which may
+            // block; this thread is echo path and disallows blocking
+            // (p02-threads 210). Every frame read after one waits behind
+            // it there, so the client's frames keep their order. Any other
+            // frame with nothing queued runs here at once.
+            match control.submit(frame) {
+                FrameStep::Next => {}
+                FrameStep::Close => break,
+                FrameStep::Detached => {
+                    end.detached = true;
                     break;
                 }
-                MessageKind::SetDefaults => {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
-                        break;
-                    }
-                    let Ok(colors) = decode_default_colors_payload(&frame.payload) else {
-                        break;
-                    };
-                    command_host.set_default_colors(colors);
-                }
-                MessageKind::SetCellPixelSize
-                    if frame.request_id != 0 && frame.payload.len() == 4 =>
-                {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    let field = |offset| {
-                        crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
-                    };
-                    let (width_px, height_px) = (field(0), field(2));
-                    if !matches!(
-                        command_host.set_cell_pixel_size(
-                            width_px,
-                            height_px,
-                            frame.request_id,
-                            &command_sender,
-                        ),
-                        Ok(true)
-                    ) {
-                        break;
-                    }
-                }
-                MessageKind::SetKittyGraphicsLimits
-                    if frame.request_id != 0
-                        && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
-                {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
-                        break;
-                    }
-                    let mut decoder = PayloadDecoder::new(&frame.payload);
-                    let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
-                        break;
-                    };
-                    if decoder.finish().is_err()
-                        || !matches!(
-                            command_host.set_kitty_graphics_limits(
-                                limits,
-                                frame.request_id,
-                                &command_sender,
-                            ),
-                            Ok(true)
-                        )
-                    {
-                        break;
-                    }
-                }
-                MessageKind::ClearHistory => {
-                    if !granted_rights.contains(CapabilityRights::INPUT) || frame.request_id == 0 {
-                        break;
-                    }
-                    let Ok(fallback_key) =
-                        crate::server::decode_terminal_host_clear_history(&frame.payload)
-                    else {
-                        break;
-                    };
-                    let status = match command_host.clear_history_or_encode_key(
-                        fallback_key.as_ref(),
-                        smart_renderer.then_some((frame.request_id, &command_sender)),
-                    ) {
-                        Ok(ClearHistoryAckDisposition::Queued) => continue,
-                        Ok(ClearHistoryAckDisposition::ConnectionClosed) => break,
-                        Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
-                        Err(failure) => clear_history_ack_status(Err(failure)),
-                    };
-                    let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
-                    response.request_id = frame.request_id;
-                    let _broadcast = command_host.broadcast_lock.lock().recover_poison();
-                    if !command_sender.try_send(response) {
-                        break;
-                    }
-                }
-                MessageKind::MintCapability => {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
-                        || frame.request_id == 0
-                    {
-                        break;
-                    }
-                    let Ok(token) = mint_renderer_capability(&command_host, &frame.payload) else {
-                        break;
-                    };
-                    let mut response =
-                        Frame::new(MessageKind::Capability, token.as_bytes().to_vec());
-                    response.request_id = frame.request_id;
-                    // Targeted control responses share the socket writer
-                    // with live frames. Serialize enqueueing with coupled
-                    // Output/Resized + Colors publication so even an admin
-                    // response cannot physically split an atomic pair.
-                    let _broadcast = command_host.broadcast_lock.lock().recover_poison();
-                    if !command_sender.try_send(response) {
-                        break;
-                    }
-                }
-                MessageKind::TraceControl => {
-                    if !granted_rights.contains(CapabilityRights::ADMIN) || frame.request_id == 0 {
-                        break;
-                    }
-                    let Some(op) = super::host_trace::decode_request(&frame.payload) else {
-                        break;
-                    };
-                    if !super::host_trace::answer(
-                        command_host.clone(),
-                        command_sender.clone(),
-                        op,
-                        frame.request_id,
-                        selected_version,
-                    ) {
-                        break;
-                    }
-                }
-                MessageKind::ClipboardReadReply => {
-                    if !command_host.apply_clipboard_read_reply(
-                        client,
-                        granted_rights,
-                        &frame,
-                        selected_version,
-                    ) {
-                        break;
-                    }
-                }
-                _ => break,
             }
         }
-        // Wake a writer that is waiting on an otherwise-empty live-frame
-        // channel. The socket is shut down first, so this private wakeup
-        // frame can never be mistaken for a sequenced host transition.
-        if !detached {
-            command_sender.close_and_wake_writer();
+        // Frames queued on the control thread still run, in order; then
+        // that thread ends the client.
+        if control.finish() {
+            end.armed = false;
         }
-        command_host.remove_client(client);
     };
     let client_input = "terminal-host-client-input";
     crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
@@ -744,6 +517,438 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     });
     host.remove_client(client);
     Ok(())
+}
+
+/// What one client frame asks of its connection ([`ClientFrames::handle`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameStep {
+    /// Read the next frame.
+    Next,
+    /// End the client.
+    Close,
+    /// End the client after a fenced detach: its writer drains on its own.
+    Detached,
+}
+
+/// One accepted client's frame handling, shared by its client-input thread
+/// and its control thread ([`ClientControl`]); its frames run one at a
+/// time, in the order they were read.
+struct ClientFrames {
+    host: Arc<HostShared>,
+    sender: HostTap,
+    client: u64,
+    granted_rights: CapabilityRights,
+    selected_version: u16,
+    launch_owner_claimed: bool,
+    smart_renderer: bool,
+    viewer_size_acks: bool,
+    input_flow: bool,
+    /// The client ended ([`ClientEnd`]): no frame runs after it.
+    ended: AtomicBool,
+}
+
+impl ClientFrames {
+    /// Client-to-host messages define one flag (a negotiated
+    /// FLAG_INPUT_FLOW on interactive Input) and never participate in the
+    /// host live-stream sequence.
+    fn frame_is_valid(&self, frame: &Frame) -> bool {
+        let flags_valid = frame.flags == 0
+            || (self.input_flow
+                && frame.flags == FLAG_INPUT_FLOW
+                && frame.kind == MessageKind::Input
+                && frame.request_id == 0);
+        frame.version == self.selected_version && flags_valid && frame.sequence == 0
+    }
+
+    /// Whether `frame`'s handler waits for the host's parser.
+    fn waits_for_parser(frame: &Frame) -> bool {
+        matches!(
+            frame.kind,
+            MessageKind::ViewerSize
+                | MessageKind::ReleaseViewer
+                | MessageKind::SetDefaults
+                | MessageKind::SetCellPixelSize
+                | MessageKind::SetKittyGraphicsLimits
+                | MessageKind::ClearHistory
+        )
+    }
+
+    fn handle(&self, frame: Frame) -> FrameStep {
+        let ctx = self;
+        match frame.kind {
+            MessageKind::Activate => {
+                if ctx.selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
+                    || !ctx.launch_owner_claimed
+                    || frame.request_id != 0
+                    || !frame.payload.is_empty()
+                {
+                    return FrameStep::Close;
+                }
+                ctx.host.mark_launch_owner_stream_ready();
+            }
+            MessageKind::Input => {
+                let Some((input, flow)) = split_flow_trailer(frame.flags, &frame.payload) else {
+                    return FrameStep::Close;
+                };
+                if !ctx.granted_rights.contains(CapabilityRights::INPUT)
+                    || !input_request_is_supported(ctx.selected_version, frame.request_id)
+                    || !ctx.host.write_input(input, frame.request_id, flow, &ctx.sender)
+                {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::Paste => {
+                if !ctx.granted_rights.contains(CapabilityRights::INPUT) {
+                    return FrameStep::Close;
+                }
+                let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
+                let mut writer = ctx.host.writer.lock().recover_poison();
+                if bracketed {
+                    let _ = writer.write_all(b"\x1b[200~");
+                }
+                let _ = writer.write_all(&frame.payload);
+                if bracketed {
+                    let _ = writer.write_all(b"\x1b[201~");
+                }
+                let _ = writer.flush();
+            }
+            MessageKind::ViewerSize if frame.payload.len() == 4 => {
+                if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return FrameStep::Close;
+                }
+                let field = |offset| {
+                    crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
+                };
+                let (cols, rows) = (field(0), field(2));
+                let targeted_ack = ctx
+                    .viewer_size_acks
+                    .then_some((frame.request_id, &ctx.sender))
+                    .filter(|(request_id, _)| *request_id != 0);
+                let acknowledge_with_replay = !ctx.smart_renderer && targeted_ack.is_none();
+                if !matches!(
+                    ctx.host.set_viewer_size(
+                        ctx.client,
+                        cols,
+                        rows,
+                        acknowledge_with_replay,
+                        targeted_ack,
+                    ),
+                    Ok(true)
+                ) {
+                    // Invalid geometry or a PTY/parser resize failure
+                    // rejects this admin stream. A failed targeted
+                    // acknowledgement closes only this renderer; the
+                    // committed canonical transition remains valid.
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::ReleaseViewer => {
+                if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return FrameStep::Close;
+                }
+                ctx.host.remove_viewer_size(ctx.client);
+            }
+            MessageKind::Terminate => {
+                if !ctx.granted_rights.contains(CapabilityRights::TERMINATE) {
+                    return FrameStep::Close;
+                }
+                // Integration failure-injection seam: a host whose
+                // termination receipt reaches the daemon late. Only a
+                // receipted request waits; bounded so an accidental
+                // setting cannot wedge a real host.
+                if frame.request_id != 0
+                    && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
+                    && let Ok(delay) = delay.parse::<u64>()
+                    && delay > 0
+                {
+                    thread::sleep(Duration::from_millis(delay.min(5_000)));
+                }
+                if ctx.launch_owner_claimed {
+                    ctx.host.mark_launch_owner_stream_ready();
+                }
+                let receipt_queued = if frame.request_id == 0 {
+                    true
+                } else {
+                    let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
+                    response.request_id = frame.request_id;
+                    let _broadcast = ctx.host.broadcast_lock.lock().recover_poison();
+                    ctx.sender.try_send(response)
+                };
+                ctx.host.request_termination();
+                if !receipt_queued {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::Detach => {
+                if !ctx.granted_rights.contains(CapabilityRights::TERMINATE)
+                    || frame.request_id == 0
+                {
+                    return FrameStep::Close;
+                }
+                if !ctx.host.fence_client_detach(ctx.client, frame.request_id, &ctx.sender) {
+                    return FrameStep::Close;
+                }
+                ctx.sender.wake_writer();
+                return FrameStep::Detached;
+            }
+            MessageKind::SetDefaults => {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                    return FrameStep::Close;
+                }
+                let Ok(colors) = decode_default_colors_payload(&frame.payload) else {
+                    return FrameStep::Close;
+                };
+                ctx.host.set_default_colors(colors);
+            }
+            MessageKind::SetCellPixelSize if frame.request_id != 0 && frame.payload.len() == 4 => {
+                if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return FrameStep::Close;
+                }
+                let field = |offset| {
+                    crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
+                };
+                let (width_px, height_px) = (field(0), field(2));
+                if !matches!(
+                    ctx.host.set_cell_pixel_size(
+                        width_px,
+                        height_px,
+                        frame.request_id,
+                        &ctx.sender,
+                    ),
+                    Ok(true)
+                ) {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::SetKittyGraphicsLimits
+                if frame.request_id != 0
+                    && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
+            {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                    return FrameStep::Close;
+                }
+                let mut decoder = PayloadDecoder::new(&frame.payload);
+                let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
+                    return FrameStep::Close;
+                };
+                if decoder.finish().is_err()
+                    || !matches!(
+                        ctx.host.set_kitty_graphics_limits(limits, frame.request_id, &ctx.sender,),
+                        Ok(true)
+                    )
+                {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::ClearHistory => {
+                if !ctx.granted_rights.contains(CapabilityRights::INPUT) || frame.request_id == 0 {
+                    return FrameStep::Close;
+                }
+                let Ok(fallback_key) =
+                    crate::server::decode_terminal_host_clear_history(&frame.payload)
+                else {
+                    return FrameStep::Close;
+                };
+                let status = match ctx.host.clear_history_or_encode_key(
+                    fallback_key.as_ref(),
+                    ctx.smart_renderer.then_some((frame.request_id, &ctx.sender)),
+                ) {
+                    Ok(ClearHistoryAckDisposition::Queued) => return FrameStep::Next,
+                    Ok(ClearHistoryAckDisposition::ConnectionClosed) => return FrameStep::Close,
+                    Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
+                    Err(failure) => clear_history_ack_status(Err(failure)),
+                };
+                let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
+                response.request_id = frame.request_id;
+                let _broadcast = ctx.host.broadcast_lock.lock().recover_poison();
+                if !ctx.sender.try_send(response) {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::MintCapability => {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                    || frame.request_id == 0
+                {
+                    return FrameStep::Close;
+                }
+                let Ok(token) = mint_renderer_capability(&ctx.host, &frame.payload) else {
+                    return FrameStep::Close;
+                };
+                let mut response = Frame::new(MessageKind::Capability, token.as_bytes().to_vec());
+                response.request_id = frame.request_id;
+                // Targeted control responses share the socket writer
+                // with live frames. Serialize enqueueing with coupled
+                // Output/Resized + Colors publication so even an admin
+                // response cannot physically split an atomic pair.
+                let _broadcast = ctx.host.broadcast_lock.lock().recover_poison();
+                if !ctx.sender.try_send(response) {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::TraceControl => {
+                if !ctx.granted_rights.contains(CapabilityRights::ADMIN) || frame.request_id == 0 {
+                    return FrameStep::Close;
+                }
+                let Some(op) = super::host_trace::decode_request(&frame.payload) else {
+                    return FrameStep::Close;
+                };
+                if !super::host_trace::answer(
+                    ctx.host.clone(),
+                    ctx.sender.clone(),
+                    op,
+                    frame.request_id,
+                    ctx.selected_version,
+                ) {
+                    return FrameStep::Close;
+                }
+            }
+            MessageKind::ClipboardReadReply => {
+                if !ctx.host.apply_clipboard_read_reply(
+                    ctx.client,
+                    ctx.granted_rights,
+                    &frame,
+                    ctx.selected_version,
+                ) {
+                    return FrameStep::Close;
+                }
+            }
+            _ => return FrameStep::Close,
+        }
+
+        FrameStep::Next
+    }
+}
+
+/// Ends one client ([`ClientFrames::ended`]) once, however its frame
+/// threads end: its writer is woken (unless a fenced detach lets it drain)
+/// and its socket shut down, so its peer sees the end, and the host forgets
+/// it. Runs while unwinding too: the host's locks recover from poison.
+struct ClientEnd {
+    frames: Arc<ClientFrames>,
+    detached: bool,
+    /// Cleared when another frame thread owns the end.
+    armed: bool,
+}
+
+impl Drop for ClientEnd {
+    fn drop(&mut self) {
+        if !self.armed || self.frames.ended.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        // Wake a writer that is waiting on an otherwise-empty live-frame
+        // channel. The socket is shut down first, so this private wakeup
+        // frame can never be mistaken for a sequenced host transition.
+        if !self.detached {
+            self.frames.sender.close_and_wake_writer();
+        }
+        self.frames.host.remove_client(self.frames.client);
+    }
+}
+
+/// The client's control thread (`terminal-host-client-control`, started at
+/// the client's first frame that waits for the parser): it runs the frames
+/// client-input hands it, in order, and may block. While it has frames,
+/// every later frame queues behind them, so a key typed after a resize is
+/// written after the resize applied, as when one thread ran them all.
+/// Chromium routes an IO thread's message to the sequence that owns its
+/// work the same way (content/browser/browser_thread_impl.cc).
+struct ClientControl {
+    frames: Arc<ClientFrames>,
+    lane: Arc<ControlLane>,
+    started: std::cell::Cell<bool>,
+}
+
+#[derive(Default)]
+struct ControlLane {
+    state: cmux_threads::sync::Mutex<ControlState>,
+    changed: cmux_threads::sync::Condvar,
+}
+
+#[derive(Default)]
+struct ControlState {
+    queue: std::collections::VecDeque<Frame>,
+    /// The control thread is running a frame.
+    busy: bool,
+    /// Client-input read its last frame.
+    finished: bool,
+}
+
+impl ClientControl {
+    fn new(frames: Arc<ClientFrames>) -> Self {
+        Self { frames, lane: Arc::default(), started: std::cell::Cell::new(false) }
+    }
+
+    /// Runs `frame` now, or queues it for the control thread.
+    fn submit(&self, frame: Frame) -> FrameStep {
+        let mut state = self.lane.state.lock().recover_poison();
+        let queued = state.busy || !state.queue.is_empty();
+        if !queued && !ClientFrames::waits_for_parser(&frame) {
+            drop(state);
+            return self.frames.handle(frame);
+        }
+        state.queue.push_back(frame);
+        drop(state);
+        self.lane.changed.notify_one();
+        if self.started.get() {
+            return FrameStep::Next;
+        }
+        let frames = self.frames.clone();
+        let lane = self.lane.clone();
+        // The thread ends with the client; nothing joins it.
+        let spawned = cmux_threads::spawn(
+            "terminal-host-client-control",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || run_control(&frames, &lane),
+        );
+        match spawned {
+            Ok(_) => {
+                self.started.set(true);
+                FrameStep::Next
+            }
+            Err(_) => FrameStep::Close,
+        }
+    }
+
+    /// Client-input read its last frame. `true` when the control thread
+    /// runs what is queued and then ends the client.
+    fn finish(self) -> bool {
+        self.lane.state.lock().recover_poison().finished = true;
+        self.lane.changed.notify_one();
+        self.started.get()
+    }
+}
+
+fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
+    let mut end = ClientEnd { frames: frames.clone(), detached: false, armed: true };
+    loop {
+        let mut state = lane.state.lock().recover_poison();
+        let frame = loop {
+            if let Some(frame) = state.queue.pop_front() {
+                state.busy = true;
+                break Some(frame);
+            }
+            if state.finished || frames.ended.load(Ordering::Acquire) {
+                break None;
+            }
+            // Idle until client-input queues the client's next frame.
+            state = lane.changed.idle().wait(state).recover_poison();
+        };
+        drop(state);
+        let Some(frame) = frame else { return };
+        if frames.ended.load(Ordering::Acquire) {
+            return;
+        }
+        let step = frames.handle(frame);
+        lane.state.lock().recover_poison().busy = false;
+        match step {
+            FrameStep::Next => {}
+            FrameStep::Close => return,
+            FrameStep::Detached => {
+                end.detached = true;
+                return;
+            }
+        }
+    }
 }
 
 /// `frame` as this client may read it: an `Output` that carries a key

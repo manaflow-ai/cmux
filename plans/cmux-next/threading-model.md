@@ -322,7 +322,7 @@ Per-terminal threads must not grow. Today a terminal costs at most these threads
 |---|---|---|
 | Daemon PTY | 1 | `surface-<id>-wait`; its output reads on the owner's `mux-terminal-io` loop and `mux-terminal-read` workers (p07-memory-095), 2 threads for any number of terminals at idle |
 | Terminal host (daemon side) | 2 or 3 | `surface-<id>-host`, `surface-<id>-host-frames`, `terminal-host-reaper` |
-| Terminal host (host process, one per terminal) | 4 echo threads plus about 6 lifecycle threads | `terminal-host-pty`, `-parser`, `-client`, `-client-input`; `-child`, `-exit`, `-signals`, `-terminate`, `-clipboard`, `-record-mirror`, `-publication-sync` |
+| Terminal host (host process, one per terminal) | 4 echo threads plus about 6 lifecycle threads, and per client one `terminal-host-client-control` once it sends a frame that waits for the parser | `terminal-host-pty`, `-parser`, `-client`, `-client-input`, `-client-control` (a client's resize, default-color, cell-metric, Kitty-limit and clear-history commits wait for the parser, so they run there, in the client's frame order, never on the echo thread `-client-input`); `-child`, `-exit`, `-signals`, `-terminate`, `-clipboard`, `-record-mirror`, `-publication-sync` |
 
 Task 230 turned the per-terminal one-shots (`terminal-adopt-<id>`, `template-complete-<id>`,
 `terminal-exit-detach-<id>`, `terminal-clean-<id>`, `terminal-respawn-<id>`, `terminal-restart-<id>`,
