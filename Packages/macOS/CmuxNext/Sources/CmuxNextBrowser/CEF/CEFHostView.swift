@@ -374,7 +374,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             layoutContent()
             return
         }
-        guard BrowserResizeTunables.holdDuringDrag.value, heldPageSize == nil, window != nil, pageCanHold,
+        guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
               let tab else { return }
         let size = tab.host.hostView.frame.size
         guard size.width > 0, size.height > 0 else { return }

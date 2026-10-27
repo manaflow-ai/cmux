@@ -232,6 +232,8 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var route: String
     public var session: String
     public var trustedCarrier: Bool
+    /// Caller-relative ownership from the account API; only exact `owner` grants owner privileges.
+    public var vmKind: String?
     public var expiresAtUnix: Double?
     public var invitation: Invitation?
 }
