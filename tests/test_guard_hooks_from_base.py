@@ -51,6 +51,12 @@ printf '%s\\n' '{
   "hookSpecificOutput":  {"hookEventName":  "PreToolUse",
     "permissionDecision":    "deny",   "permissionDecisionReason":  "installed landing gate"}}'
 """
+# Claude Code versions before and after the hook-output schema change put the
+# PreToolUse decision in different places.  The launcher accepts both forms.
+GATE_TOP_LEVEL = """#!/bin/bash
+printf '%s\\n' '{"hookEventName": "PreToolUse",
+  "permissionDecision": "deny", "permissionDecisionReason": "installed landing gate"}'
+"""
 MERGE = "gh pr merge 5 -R manaflow-ai/cmux --squash"
 UPDATE = "gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch"
 
@@ -139,9 +145,10 @@ class GuardsRunFromTheBase(unittest.TestCase):
 
     def assert_refused(self, out: dict | None, *words: str) -> None:
         self.assertIsNotNone(out, "the merge was let through")
-        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        spec = out.get("hookSpecificOutput") or out
+        self.assertEqual(spec["permissionDecision"], "deny")
         for word in words:
-            self.assertIn(word, out["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertIn(word, spec["permissionDecisionReason"])
 
     def assert_let_through(self, out: dict | None, *words: str) -> None:
         """A warning the person (systemMessage) and the agent (additionalContext) both see, and no decision."""
@@ -354,6 +361,12 @@ class GuardsRunFromTheBase(unittest.TestCase):
                 code, out, err = self.hook(command)
                 self.assertEqual(code, 0, err)
                 self.assert_refused(out, "installed landing gate")
+
+    def test_a_top_level_refusal_from_a_newer_claude_code_still_refuses(self):
+        self.install_gate(text=GATE_TOP_LEVEL)
+        code, out, err = self.hook(MERGE)
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
 
     def test_a_refusal_never_waits_for_the_update_branch_warning(self):
         """Codex review of #24265 (round 3): a slow update-branch warning must not run the hook past its timeout with

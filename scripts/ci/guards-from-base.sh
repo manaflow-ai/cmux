@@ -48,7 +48,8 @@ judge() {
   [[ -n "$out" ]] || return 0
   if python3 -I -c 'import json, sys
 try:
-    spec = json.loads(sys.argv[1]).get("hookSpecificOutput") or {}
+    answer = json.loads(sys.argv[1])
+    spec = answer.get("hookSpecificOutput") or answer
 except (ValueError, AttributeError):
     sys.exit(1)
 sys.exit(0 if isinstance(spec, dict) and spec.get("permissionDecision") == "deny" else 1)' "$out"; then
@@ -116,7 +117,7 @@ shown, context = [], []
 for out in sys.argv[2:]:
     try:
         answer = json.loads(out)
-        spec = answer.get("hookSpecificOutput") or {}
+        spec = answer.get("hookSpecificOutput") or answer
     except (ValueError, AttributeError):
         answer, spec = {}, {}
     if not spec and not answer.get("systemMessage"):
