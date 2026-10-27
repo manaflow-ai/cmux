@@ -86,15 +86,16 @@ async function until(check: () => boolean, what: string, within = 10_000) {
   expect(check(), what).toBe(true);
 }
 
-for (const [remoteStart, trust, reconnectStart, decline] of [
+for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
   [true, false, false],
   [false, false, false],
   [true, true, false],
   [false, true, false],
   [false, false, true, false],
   [true, true, false, true],
+  [true, true, false, false, true],
 ])
-  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${decline ? " after Not now" : trust ? " with Trust" : reconnectStart ? " across reconnect" : ""}`, async () => {
+  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${promptTrust ? " with first-prompt Trust" : decline ? " after Not now" : trust ? " with Trust" : reconnectStart ? " across reconnect" : ""}`, async () => {
     const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
     type Answer = (method: string, params: Record<string, any>) => Promise<any>;
     const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
@@ -106,13 +107,24 @@ for (const [remoteStart, trust, reconnectStart, decline] of [
     proto.answer = async function (method, params) {
       if (method === "acp.trust.set") trusted = params.level === "trusted";
       if (method === "session/prompt") {
+        // A daemon reply is a later event, after the session selection frame committed.
+        if (promptTrust) await new Promise((done) => setTimeout(done, 0));
+        if (promptTrust && !trusted)
+          throw Object.assign(new Error("Trust the prompt folder"), {
+            data: { reason: "trust.pending", cwd: "/tmp/start-recovery-prompt-trust" },
+          });
         prompts.push(params);
         return { stopReason: "end_turn" };
       }
       if (method === "session/new") {
         starts.push(params);
         if (reconnectStart && starts.length === 1) return new Promise(() => {});
-        if (reconnectStart || (trust && trusted)) return answer.call(this, method, params);
+        if (reconnectStart || promptTrust || (trust && trusted))
+          return answer.call(
+            this,
+            method,
+            promptTrust ? { ...params, cwd: "/tmp/start-recovery-prompt-trust" } : params,
+          );
         throw Object.assign(
           new Error("devbox refused session/new: agent unavailable"),
           trust
@@ -246,8 +258,8 @@ for (const [remoteStart, trust, reconnectStart, decline] of [
       await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
       await until(() => !host.querySelector(".nt-field"), "the trusted start leaves New Tab");
       await tick();
-      expect(starts).toHaveLength(2);
-      expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+      expect(starts).toHaveLength(promptTrust ? 1 : 2);
+      expect(starts.at(-1)!._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
       expect(prompts).toHaveLength(1);
       expect(prompts[0].prompt[0].text).toBe("inspect the failed build");
       return;

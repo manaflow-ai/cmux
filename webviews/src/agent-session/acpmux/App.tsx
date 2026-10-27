@@ -8522,7 +8522,18 @@ function AcpmuxPane() {
                 rowRetry.replayAfterTrust(error, routeForSend);
               } else if (routeForSend(error, () => composerHandle.current?.send())) {
                 void heldPrompt.hold();
-                if (!inComposer) restorePrompt(text, attachments);
+                const retry =
+                  newTabRetainsDraft.current && expectedSessionId
+                    ? () =>
+                        void send(text, attachments, accepted, steer, promptId, expectedSessionId).catch(
+                          () => undefined,
+                        )
+                    : () => composerHandle.current?.send();
+                if (routeForSend(error, retry)) {
+                  void heldPrompt.hold();
+                  if (!newTabRetainsDraft.current && !inComposer) restorePrompt(text, attachments);
+                }
+
               }
             }
             throw error;
