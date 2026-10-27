@@ -178,6 +178,7 @@ impl Ticker {
         let spawned =
             std::thread::Builder::new().name("cmux-mcp-wait-progress".into()).spawn(move || {
                 loop {
+                    // wakeup-allow: bounded MCP progress during one agent wait call, ending with the call
                     match stopped.recv_timeout(PROGRESS_EVERY) {
                         Err(RecvTimeoutError::Timeout) => {}
                         Ok(()) | Err(RecvTimeoutError::Disconnected) => return,

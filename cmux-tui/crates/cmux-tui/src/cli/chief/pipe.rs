@@ -56,10 +56,12 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let mut ended_at: Option<Instant> = None;
     while !watch.done {
         let now = Instant::now();
-        let mut wait =
-            deadline.map_or(Duration::from_secs(3600), |d| d.saturating_duration_since(now));
+        // The nearest of the timeout, the not-read hint and the reply
+        // grace; with none of them the wait is for the next input alone.
+        let mut wake = deadline;
+        let mut wake_by = |at: Instant| wake = Some(wake.map_or(at, |wake| wake.min(at)));
         if !hinted && !watch.read {
-            wait = wait.min((started + NOT_READ_AFTER).saturating_duration_since(now));
+            wake_by(started + NOT_READ_AFTER);
         }
         if !watch.ended {
             // A reply to other messages undoes a typing-off (E22).
@@ -69,9 +71,9 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
             if now >= since + REPLY_GRACE {
                 break;
             }
-            wait = wait.min((since + REPLY_GRACE).saturating_duration_since(now));
+            wake_by(since + REPLY_GRACE);
         }
-        let input = match session.rx.recv_timeout(wait) {
+        let input = match session.recv_until(wake) {
             Ok(input) => input,
             Err(RecvTimeoutError::Timeout) => {
                 if deadline.is_some_and(|d| Instant::now() >= d) {

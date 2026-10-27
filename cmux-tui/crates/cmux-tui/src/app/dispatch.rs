@@ -27,7 +27,7 @@ impl App {
         terminal_pointer_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         match event {
-            AppEvent::HostInputReady => Ok(RenderAction::None),
+            AppEvent::HostInputReady | AppEvent::ShutdownRequested => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })

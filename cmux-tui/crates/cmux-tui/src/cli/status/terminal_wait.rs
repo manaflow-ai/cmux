@@ -186,6 +186,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             exit: 3,
         })
         .and_then(|stream| {
+            // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
             let route = SocketRoute { path: &socket, derived };
@@ -221,6 +222,7 @@ fn hold(
     wire::arm_signal_interrupt(events.get_ref().as_ref());
     loop {
         // `--timeout` bounds every daemon answer too, not only the event wait.
+        // wakeup-allow: cli-only `cmux terminal wait`: --timeout bounds each daemon answer
         let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
         let record = resolve::read(reader, ResourceOperation::TerminalGet, params.clone())
             .map_err(|failure| if past(deadline) { timed_out(until, timeout) } else { failure })?;
@@ -234,6 +236,7 @@ fn hold(
                 _ => return Err(timed_out(until, timeout)),
             },
         };
+        // wakeup-allow: cli-only `cmux terminal wait`: the event wait, bounded by --timeout only
         if events.get_mut().set_read_timeout(remaining).is_err() {
             return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
         }

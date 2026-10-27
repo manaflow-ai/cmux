@@ -187,6 +187,7 @@ fn request(
         // only shrinks this bound, since macOS refuses the option once the
         // daemon has answered and closed.
         stream
+            // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
             .set_read_timeout(Some(remaining_before(deadline)?))
             .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         write_before(&mut *stream, &encoded, deadline)?;

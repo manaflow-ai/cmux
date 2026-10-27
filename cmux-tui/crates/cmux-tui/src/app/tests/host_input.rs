@@ -207,7 +207,11 @@ fn terminal_paint_pacer_collapses_output_bursts_without_delaying_structural_draw
     let mut pacer = TerminalPaintPacer::after_paint(started);
 
     assert_eq!(pacer.schedule(RenderAction::Paint, started), RenderAction::None);
-    assert_eq!(pacer.wait_timeout(Duration::from_secs(1), started), TERMINAL_PAINT_CADENCE);
+    assert_eq!(
+        pacer.wake_at(Some(started + Duration::from_secs(1))),
+        Some(started + TERMINAL_PAINT_CADENCE)
+    );
+    assert_eq!(pacer.wake_at(None), Some(started + TERMINAL_PAINT_CADENCE));
     assert_eq!(
         pacer.schedule(RenderAction::Paint, started + TERMINAL_PAINT_CADENCE / 2),
         RenderAction::None

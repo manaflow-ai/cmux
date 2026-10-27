@@ -78,6 +78,7 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
 impl Link {
     pub(super) fn connect(socket: &Path, derived: bool) -> io::Result<Self> {
         let stream = cmux_tui_core::server::connect_session_socket(socket, derived)?;
+        // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
         stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
         let writer = stream.try_clone_box()?;
         Ok(Self { reader: BufReader::new(stream), writer, next_id: 1, given: !derived })

@@ -356,6 +356,7 @@ impl Upstream {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
+            // wakeup-allow: deadline one upstream request's answer deadline; a timeout returns
             let line = match conn.lines.recv_timeout(left) {
                 Ok(line) => line,
                 Err(mpsc::RecvTimeoutError::Timeout) => {

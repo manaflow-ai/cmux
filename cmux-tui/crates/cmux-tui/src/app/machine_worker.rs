@@ -4,9 +4,8 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
+use std::sync::mpsc::TrySendError as StdTrySendError;
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use cmux_tui_core::{Mux, SurfaceId};
 use crossbeam_channel::Sender as SyncSender;
@@ -120,12 +119,9 @@ impl MachineActionWorker {
             std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
                 let mut next_action_id = 1_u64;
                 let mut pending_replacement: Option<(u64, bool)> = None;
+                // `shutdown` drops the only sender, which ends this wait.
                 while !worker_stop.load(Ordering::Acquire) {
-                    let command = match receiver.recv_timeout(Duration::from_millis(50)) {
-                        Ok(command) => command,
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => break,
-                    };
+                    let Ok(command) = receiver.recv() else { break };
                     let completion = match command {
                         MachineControllerCommand::Perform { request, preparation } => {
                             if pending_replacement.is_some() {
@@ -458,8 +454,10 @@ impl MachineUpdatePump {
         let forwarder = match std::thread::Builder::new()
             .name("machine-provider-events".into())
             .spawn(move || {
+                // The provider's worker owns the sender: it ends this wait
+                // when it stops, which `stop_and_join` asks of it.
                 while !forwarder_stop.load(Ordering::Acquire) {
-                    match updates.recv_timeout(Duration::from_millis(250)) {
+                    match updates.recv() {
                         Ok(update) => {
                             if send_bounded_cancelable(
                                 &app_events,
@@ -474,8 +472,7 @@ impl MachineUpdatePump {
                                 return;
                             }
                         }
-                        Err(RecvTimeoutError::Timeout) => {}
-                        Err(RecvTimeoutError::Disconnected) => break,
+                        Err(_) => break,
                     }
                 }
             }) {

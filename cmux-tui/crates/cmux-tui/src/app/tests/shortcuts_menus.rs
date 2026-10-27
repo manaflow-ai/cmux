@@ -1355,3 +1355,62 @@ fn focused_sidebar_uses_an_accent_divider() {
         mux.close_surface(surface).unwrap();
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn raising_the_stop_kills_a_running_status_command_at_once() {
+    let stop = Arc::new(StatusWorkerStop::new());
+    let raiser_stop = stop.clone();
+    let raiser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        raiser_stop.raise();
+    });
+    let started = Instant::now();
+    let (output, stuck) = run_status_command(
+        &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
+        Duration::from_secs(60),
+        &stop,
+    );
+    raiser.join().unwrap();
+    assert_eq!(output, "early", "output before the raise survives");
+    assert!(stuck.is_none(), "the killed command is reaped");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the raise ends the capture: {:?}",
+        started.elapsed()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_status_command_that_exits_returns_on_its_exit_not_a_tick() {
+    let stop = StatusWorkerStop::new();
+    let started = Instant::now();
+    for _ in 0..20 {
+        let (output, _) = run_status_command(
+            &["/bin/echo".to_string(), "ok".to_string()],
+            Duration::from_secs(5),
+            &stop,
+        );
+        assert_eq!(output, "ok");
+    }
+    // Twenty runs on the old 25 ms poll took at least 500 ms; on the exit
+    // and output events each returns as soon as the command ends.
+    assert!(started.elapsed() < Duration::from_millis(450), "{:?}", started.elapsed());
+}
+
+#[test]
+fn a_raised_status_stop_ends_its_interval_wait_at_once() {
+    let stop = Arc::new(StatusWorkerStop::new());
+    let waiter_stop = stop.clone();
+    let waiter = std::thread::spawn(move || {
+        let started = Instant::now();
+        let raised = waiter_stop.wait_until(Instant::now() + Duration::from_secs(60));
+        (raised, started.elapsed())
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    stop.raise();
+    let (raised, waited) = waiter.join().unwrap();
+    assert!(raised);
+    assert!(waited < Duration::from_secs(5), "{waited:?}");
+}

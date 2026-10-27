@@ -210,6 +210,19 @@ impl RemoteSession {
         }
     }
 
+    /// When `tick_sidebar_doc` reads the document next: `None` while the
+    /// stream works (its items wake the app), so the app waits for nothing.
+    pub(crate) fn next_sidebar_doc_read_at(&self) -> Option<Instant> {
+        if self.sidebar_doc.stream_restarts.load(Ordering::Acquire) <= MAX_STREAM_RESTARTS
+            || !self.sidebar_doc_wanted()
+            || self.sidebar_doc.stream().is_some()
+        {
+            return None;
+        }
+        let last = *lock(&self.sidebar_doc.fallback_read_at);
+        Some(last.map_or_else(Instant::now, |last| last + FALLBACK_READ_INTERVAL))
+    }
+
     /// The app's loop tick. When the stream ended more often than the
     /// restart limit, the drawn order would stay old until the next tree
     /// refresh: read the document instead (at most once per

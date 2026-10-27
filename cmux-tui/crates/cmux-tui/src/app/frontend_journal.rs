@@ -104,6 +104,7 @@ impl FrontendJournalQueue {
                 state.pending.iter().flatten().map(|pending| pending.retry_at).min()
             {
                 let wait = retry_at.saturating_duration_since(now);
+                // wakeup-allow: deadline the earliest failed write's retry, armed only after a failure
                 (state, _) = self.changed.wait_timeout(state, wait).unwrap();
             } else {
                 state = self.changed.wait(state).unwrap();

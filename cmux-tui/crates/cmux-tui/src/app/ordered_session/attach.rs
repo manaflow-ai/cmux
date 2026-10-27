@@ -214,6 +214,17 @@ impl OrderedSession {
         }
     }
 
+    /// When a failed attach may be retried next.
+    pub(in crate::app) fn next_surface_attach_retry_at(&self) -> Option<std::time::Instant> {
+        self.surface_attach_failures
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|failure| !failure.sticky_until_reconnect)
+            .filter_map(|failure| failure.retry_after)
+            .min()
+    }
+
     pub(in crate::app) fn can_attach_surface(&self, id: SurfaceId) -> bool {
         let failure_blocks = self
             .surface_attach_failures

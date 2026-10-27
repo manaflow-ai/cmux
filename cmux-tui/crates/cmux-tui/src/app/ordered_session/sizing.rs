@@ -242,6 +242,16 @@ impl OrderedSession {
         true
     }
 
+    pub(in crate::app) fn next_surface_resize_retry_at(&self) -> Option<Instant> {
+        self.surface_resize_failures
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|failure| !failure.state.sticky_until_reconnect)
+            .filter_map(|failure| failure.state.retry_after)
+            .min()
+    }
+
     pub(in crate::app) fn surface_resize_retry_due(&self) -> bool {
         let now = Instant::now();
         self.surface_resize_failures.lock().unwrap().values().any(|failure| {

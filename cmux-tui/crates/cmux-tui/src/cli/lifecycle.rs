@@ -523,6 +523,7 @@ impl StopWait<'_> {
                 if Instant::now() >= deadline {
                     return Ok(());
                 }
+                // wakeup-allow: cli-only `cmux stop` re-asks a starting owner until its bound; the socket has no readiness event
                 std::thread::sleep(STOP_POLL_INTERVAL);
             }
             let Ok(stream) =
@@ -572,6 +573,7 @@ impl StopWait<'_> {
                 if Instant::now() >= deadline {
                     return Err(self.give_up(phase, started));
                 }
+                // wakeup-allow: cli-only `cmux stop` re-asks a starting owner until its bound; the socket has no readiness event
                 std::thread::sleep(STOP_POLL_INTERVAL);
             }
         }
@@ -922,6 +924,7 @@ fn require_time_remaining(
     }
     connection
         .get_mut()
+        // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
         .set_read_timeout(Some(remaining))
         .and_then(|()| connection.get_mut().set_write_timeout(Some(remaining)))
         .map_err(exchange_io_error)

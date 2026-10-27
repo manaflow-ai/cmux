@@ -218,6 +218,20 @@ impl RemoteSession {
         })
     }
 
+    /// When `surface_overflow_retry_due` turns true next, if it can.
+    pub fn next_surface_overflow_retry_at(&self) -> Option<Instant> {
+        if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
+            return None;
+        }
+        self.surface_overflow_recovery
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|recovery| !recovery.stopped)
+            .filter_map(|recovery| recovery.retry_after)
+            .min()
+    }
+
     pub fn surface_overflow_retry_due(&self) -> bool {
         if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
             return false;

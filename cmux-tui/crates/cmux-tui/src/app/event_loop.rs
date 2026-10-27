@@ -12,8 +12,10 @@ use crate::app::events::AppEvent;
 use crate::app::host_input::{HostInputMessage, host_event_retained_bytes};
 use crate::app::pointer::deferred::PointerRoutePhase;
 use crate::app::{
-    App, DEFERRED_INPUT_CAPACITY, MAX_DEFERRED_INPUT_BYTES, RenderAction, TerminalPaintPacer,
+    App, DEFERRED_INPUT_CAPACITY, DURABLE_NOTICE_DISPLAY_DURATION, MAX_DEFERRED_INPUT_BYTES,
+    RenderAction, TerminalPaintPacer,
 };
+use crate::config::SidebarView;
 
 impl App {
     fn host_input_is_ready(
@@ -69,6 +71,40 @@ impl App {
         Ok(action)
     }
 
+    /// The soonest future deadline of the work every loop turn checks, or
+    /// `None` when nothing is due without an event. A passed deadline is
+    /// skipped: the turn that just ran served it, or its work now waits for
+    /// an event (a reply, a completion).
+    pub(super) fn next_idle_wake(&self, now: Instant) -> Option<Instant> {
+        let durable_notice = self
+            .durable_notices
+            .front()
+            .and_then(|notice| notice.painted_at)
+            .map(|painted_at| painted_at + DURABLE_NOTICE_DISPLAY_DURATION);
+        let sidebar_files = (self.config.sidebar.plugin.is_none()
+            && self.sidebar_view == SidebarView::Files
+            && self.sidebar_visible)
+            .then(|| self.sidebar_files.next_refresh_at());
+        [
+            self.toast.as_ref().map(|toast| toast.deadline),
+            durable_notice,
+            self.sidebar_plugin_retry_at,
+            self.background_refresh_retry_at,
+            self.machine_provider_reconnect_retry_at,
+            self.durable_notice_ack_retry_at,
+            self.browser_input.next_resize_retry_at(),
+            self.session.next_surface_resize_retry_at(),
+            self.session.next_surface_attach_retry_at(),
+            self.session.next_surface_overflow_retry_at(),
+            self.session.next_sidebar_doc_read_at(),
+            sidebar_files,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|at| *at > now)
+        .min()
+    }
+
     pub(super) fn event_loop<B: Backend>(
         &mut self,
         terminal: &mut RatatuiTerminal<B>,
@@ -106,22 +142,26 @@ impl App {
             }
             let (mut action, drained_host_input) = self.drain_host_input_batch(256)?;
             // Block for the first event, then drain whatever queued so a
-            // torrent of pty output coalesces into one frame.
-            let timeout = if drained_host_input > 0 {
-                Duration::ZERO
+            // torrent of pty output coalesces into one frame. Idle, the
+            // wait has no timeout: only a running animation or a due
+            // deadline (a retry, a toast's end) wakes the loop without one.
+            let now = Instant::now();
+            let wake_at = if drained_host_input > 0 {
+                Some(now)
             } else if self.viewport_animation_active() {
-                Duration::from_millis(16)
-            } else if self.shake_frames > 0
-                || self.selection_auto_scroll_active()
-                || self.toast.is_some()
-            {
-                Duration::from_millis(30)
+                Some(now + Duration::from_millis(16))
+            } else if self.shake_frames > 0 || self.selection_auto_scroll_active() {
+                Some(now + Duration::from_millis(30))
             } else {
-                Duration::from_millis(250)
+                self.next_idle_wake(now)
             };
-            let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
             let mut toast_expired_on_timeout = false;
-            let first = match rx.recv_timeout(timeout) {
+            let received = match terminal_paints.wake_at(wake_at) {
+                // wakeup-allow: deadline one wait to the loop's soonest deadline (next_idle_wake), none while idle
+                Some(at) => rx.recv_deadline(at),
+                None => rx.recv().map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected),
+            };
+            let first = match received {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if self.shake_frames > 0 {
@@ -132,9 +172,6 @@ impl App {
                     }
                     if self.expire_toast() {
                         toast_expired_on_timeout = true;
-                        action = action.merge(RenderAction::Draw);
-                    }
-                    if self.tick_sidebar_files() {
                         action = action.merge(RenderAction::Draw);
                     }
                     None
@@ -167,10 +204,14 @@ impl App {
                     Err(_) => break,
                 }
             }
-            // Every loop turn (at least each idle wait): the sidebar
-            // document's fallback read; a changed document arrives as
-            // tree-changed.
+            // Every loop turn, so a deadline that passed under a burst of
+            // events is served (next_idle_wake skips passed ones): the
+            // sidebar document's fallback read (a changed document arrives
+            // as tree-changed) and the files view's refresh.
             self.session.tick_sidebar_doc();
+            if self.tick_sidebar_files() {
+                action = action.merge(RenderAction::Draw);
+            }
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens

@@ -95,11 +95,11 @@ impl App {
         if let Some(stop) = self.status_command_worker_stop.take() {
             stop.raise();
         }
-        // Stopped workers observe the flag at every capture poll tick, so
-        // they exit within milliseconds. Keep their handles and enforce a
-        // hard bound anyway, so even a reload storm cannot stack live
-        // worker generations; a join past the bound is bounded by that same
-        // poll tick.
+        // The raise ends every wait of the stopped workers and kills their
+        // running commands, so they exit within milliseconds. Keep their
+        // handles and enforce a hard bound anyway, so even a reload storm
+        // cannot stack live worker generations; a join past the bound waits
+        // at most for one bounded reap of a killed command.
         const MAX_RETIRING_STATUS_WORKERS: usize = 32;
         self.retiring_status_workers.append(&mut self.status_command_workers);
         self.retiring_status_workers.retain(|handle| !handle.is_finished());

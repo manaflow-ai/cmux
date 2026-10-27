@@ -160,6 +160,7 @@ pub(super) fn desktop_theme_command_output_with_lifecycle_signals(
         terminate_ghostty_helper_child(child);
         return None;
     };
+    // wakeup-allow: deadline the theme helper's run deadline; the wait is its exit event
     let status = match child.wait_timeout(timeout) {
         Ok(Some(status)) => status,
         Ok(None) | Err(_) => {
@@ -170,6 +171,7 @@ pub(super) fn desktop_theme_command_output_with_lifecycle_signals(
     if !status.success() {
         return None;
     }
+    // wakeup-allow: deadline the theme helper's output deadline, once per run
     match output_reader.recv_timeout(ghostty_duration_until(command_deadline)) {
         Ok(output) => output,
         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -178,6 +180,7 @@ pub(super) fn desktop_theme_command_output_with_lifecycle_signals(
             let reap_timeout =
                 ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_HELPER_REAP_DEADLINE);
             if !reap_timeout.is_zero()
+                // wakeup-allow: deadline one bounded reap after the group kill
                 && output_reader.recv_timeout(reap_timeout).is_ok()
                 && let Some(reaped_sender) = reaped_sender
             {

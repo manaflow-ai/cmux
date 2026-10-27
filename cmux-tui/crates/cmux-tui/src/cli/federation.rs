@@ -337,6 +337,7 @@ fn list_on(
         }
         Err(error) => return Err(error.to_string()),
     };
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
     let mut reader = BufReader::new(stream);
     let mut params: Map<String, Value> = params.as_object().cloned().unwrap_or_default();

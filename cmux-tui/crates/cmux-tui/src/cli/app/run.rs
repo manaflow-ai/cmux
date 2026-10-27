@@ -57,6 +57,7 @@ pub(in crate::cli) fn request_with_retry(
         match request(stream, method, params.clone(), timeout)? {
             Err(error) if retries < BUSY_RETRIES && busy_before_running(&error) => {
                 retries += 1;
+                // wakeup-allow: backoff the delay a busy app names, at most BUSY_RETRIES times
                 std::thread::sleep(busy_retry_delay(&error));
             }
             response => return Ok(response),

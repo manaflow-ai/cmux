@@ -299,6 +299,7 @@ pub(super) fn session_events(
     let stream = cmux_tui_core::server::connect_session_socket(socket.path, socket.derived).ok()?;
     let mut events = BufReader::new(stream);
     let remaining = deadline.checked_duration_since(Instant::now())?;
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     events.get_mut().set_read_timeout(Some(remaining)).ok()?;
     let id = random_request_id().ok()?;
     let mut params = route.clone();
@@ -324,6 +325,7 @@ fn next_event(events: &mut Reader, deadline: Instant) -> bool {
     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
         return false;
     };
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     if remaining.is_zero() || events.get_mut().set_read_timeout(Some(remaining)).is_err() {
         return false;
     }

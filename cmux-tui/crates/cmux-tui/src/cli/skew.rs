@@ -239,6 +239,7 @@ fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
     let peer_uid = cmux_tui_core::platform::unix_peer_uid(&stream).ok()?;
     let peer_pid = cmux_tui_core::platform::transport::Stream::peer_process_key(&stream)
         .and_then(|key| key.strip_prefix("token:")?.split('.').next()?.parse().ok());
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = stream.set_read_timeout(Some(IDENTIFY_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IDENTIFY_TIMEOUT));
     let mut writer = stream.try_clone().ok()?;

@@ -56,6 +56,7 @@ pub(super) fn ghostty_defaults_from_helper_command(
         terminate_ghostty_helper_child(child);
         return GhosttyHelperDefaults::Unavailable;
     };
+    // wakeup-allow: deadline the Ghostty helper's run deadline; the wait is its exit event
     let status = match child.wait_timeout(parent_deadline) {
         Ok(status) => status,
         Err(_) => {
@@ -124,6 +125,7 @@ impl GhosttyHelperOutputReader {
         &self,
         timeout: Duration,
     ) -> Result<Option<String>, mpsc::RecvTimeoutError> {
+        // wakeup-allow: deadline the Ghostty helper's output deadline, once per run
         self.receiver.recv_timeout(timeout)
     }
 }
@@ -183,6 +185,7 @@ pub(super) fn ghostty_helper_process_table_snapshot() -> Option<String> {
         terminate_ghostty_process_scan_child(child);
         return None;
     };
+    // wakeup-allow: deadline the process scan's deadline; the wait is its exit event
     let status = match child.wait_timeout(GHOSTTY_PROCESS_SCAN_DEADLINE) {
         Ok(Some(status)) => status,
         Ok(None) | Err(_) => {
@@ -218,6 +221,7 @@ pub(super) fn reap_ghostty_child_after_short_wait(
     reaper_name: &'static str,
 ) -> mpsc::Receiver<()> {
     let (reaped_sender, reaped_receiver) = mpsc::sync_channel(1);
+    // wakeup-allow: deadline one short reap after a kill; the wait is the exit event
     if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
         let _ = reaped_sender.send(());
         return reaped_receiver;

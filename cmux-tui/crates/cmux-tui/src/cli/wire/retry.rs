@@ -105,6 +105,7 @@ impl Tries {
     /// Waits before the next try and counts it.
     pub(super) fn wait_before_next(&mut self) {
         let index = self.made.get().saturating_sub(1).min(BACKOFF.len() - 1);
+        // wakeup-allow: backoff a CLI request's retry after a failure, BACKOFF steps
         std::thread::sleep(backoff(BACKOFF[index]));
         self.made.set(self.made.get() + 1);
     }

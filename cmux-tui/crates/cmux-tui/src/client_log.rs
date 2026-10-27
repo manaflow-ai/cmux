@@ -133,6 +133,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                         .is_ok();
                     let sink = if opened {
                         sink_receiver
+                            // wakeup-allow: deadline bounds the log file's open, once per process
                             .recv_timeout(std::time::Duration::from_secs(10))
                             .ok()
                             .flatten()
@@ -232,12 +233,14 @@ fn flush_with_deadline(deadline: std::time::Duration) {
                     return;
                 }
                 marker = returned;
+                // wakeup-allow: bounded exit-time flush, only while the queue is full, within the 250 ms flush deadline
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
         }
     }
     let remaining = deadline.saturating_sub(started.elapsed());
+    // wakeup-allow: deadline the exit-time flush's one bounded wait
     let _ = done.recv_timeout(remaining);
 }
 
@@ -279,6 +282,7 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
         if started.elapsed() >= deadline {
             return;
         }
+        // wakeup-allow: bounded exit-time barrier within the 250 ms deadline; ends when the pump reads the marker
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
@@ -508,6 +512,7 @@ pub(crate) fn redirect_stderr_into_log() {
                                     // backpressure to a runaway writer
                                     // instead of burning a core converting
                                     // records that will be dropped anyway.
+                                    // wakeup-allow: backoff only after a dropped record (queue full): backpressure on a runaway writer, never idle
                                     std::thread::sleep(std::time::Duration::from_millis(5));
                                 }
                                 start = end + 1;

@@ -350,6 +350,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     };
     let sent_ms = super::now_ms();
     write(&typed)?;
+    // wakeup-allow: cli-only `cmux terminal send` pauses enter_delay once before Enter
     std::thread::sleep(request.enter_delay);
     write(&engine.encode(b"\r"))?;
     let sent_at = Instant::now();
@@ -407,6 +408,7 @@ fn wait<B: Daemon + ?Sized>(
         if verdict != Verdict::Pending || now >= deadline {
             return Ok((verdict, shown));
         }
+        // wakeup-allow: cli-only `cmux terminal send --wait` samples the screen until it settles or times out; no settle event exists
         std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
 }

@@ -67,6 +67,7 @@ fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
             let _ = sender.send(cloud);
         })
         .map_err(|error| error.to_string())?;
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     receiver.recv_timeout(CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
         let messages = &crate::localization::catalog().app_control;
         Err(messages.timeout.replace("{seconds}", &CLOUD_READ_TIMEOUT.as_secs().to_string()))

@@ -430,6 +430,14 @@ impl OrderedSession {
         self.inner.invalidate_surface_size_report(id);
     }
 
+    pub(super) fn next_surface_overflow_retry_at(&self) -> Option<std::time::Instant> {
+        self.inner.next_surface_overflow_retry_at()
+    }
+
+    pub(super) fn next_sidebar_doc_read_at(&self) -> Option<std::time::Instant> {
+        self.inner.next_sidebar_doc_read_at()
+    }
+
     pub(super) fn surface_overflow_retry_due(&self) -> bool {
         self.inner.surface_overflow_retry_due()
     }

@@ -50,6 +50,7 @@ pub(super) fn request(
         {
             break;
         }
+        // wakeup-allow: backoff reconnect after a dropped control connection, RECONNECT_BACKOFF steps
         std::thread::sleep(wait);
         let Ok(fresh) = super::connect_command(global) else { break };
         *stream = fresh;
@@ -164,6 +165,7 @@ impl Progress {
             let mut next = FIRST_NOTE_AFTER;
             while next < total {
                 let left = next.saturating_sub(started.elapsed());
+                // wakeup-allow: bounded progress notes during one wait, ending with it
                 match stopped.recv_timeout(left) {
                     Err(RecvTimeoutError::Timeout) => {}
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => return,

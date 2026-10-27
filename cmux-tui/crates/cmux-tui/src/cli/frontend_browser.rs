@@ -92,6 +92,7 @@ pub(super) fn run_in_app(
     }
     let mut app = owning_app(global, daemon_socket)?;
     let key = request.get("idempotency_key").and_then(Value::as_str);
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(match open(reader, &mut app, plan, caller_route, key) {
         Ok(result) => {
@@ -152,6 +153,7 @@ pub(super) fn open_in_app(
     let caller_route = global.socket.is_none()
         && global.session.is_none()
         && named.is_none_or(|session| session == "current");
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(open(reader, &mut app, plan, caller_route, key))
 }

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_tui_core::backoff::Backoff;
 use serde_json::{Value, json};
 
 use super::super::GlobalArgs;
@@ -88,7 +89,7 @@ pub(super) fn spawn(global: GlobalArgs, output: Output) {
     let started = std::thread::Builder::new().name("cmux-mcp-actions".into()).spawn(move || {
         let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
         let mut watch = ActionWatch::default();
-        let mut delay = FIRST_RETRY;
+        let mut retry = Backoff::new(FIRST_RETRY, MAX_RETRY);
         loop {
             let _ = super::transport::watch_app_events(&global, params.clone(), |frame| {
                 if watch.frame(frame) {
@@ -96,11 +97,10 @@ pub(super) fn spawn(global: GlobalArgs, output: Output) {
                 }
             });
             if watch.lost() {
-                delay = FIRST_RETRY;
+                retry.reset();
             }
-            // Backoff after a failure or a closed stream.
-            std::thread::sleep(delay);
-            delay = (delay * 2).min(MAX_RETRY);
+            // wakeup-allow: backoff after a failed or closed stream, doubling and jittered to MAX_RETRY
+            retry.sleep();
         }
     });
     if let Err(error) = started {

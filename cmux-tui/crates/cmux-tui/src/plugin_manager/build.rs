@@ -2,8 +2,7 @@
 //! deadline that kills the whole group.
 
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
 
@@ -71,21 +70,17 @@ pub(super) fn run_plugin_build_command(
     timeout: Duration,
 ) -> anyhow::Result<()> {
     let mut child = command.spawn()?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            if !status.success() {
-                anyhow::bail!("build command failed with status {status}");
-            }
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            kill_plugin_build_process(&mut child);
-            let _ = child.wait();
-            anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
-        }
-        thread::sleep(Duration::from_millis(100));
+    // The wait is the child's exit event; `timeout` only bounds it.
+    // wakeup-allow: deadline the build's own timeout, one wait per build
+    let Some(status) = child.wait_timeout(timeout)? else {
+        kill_plugin_build_process(&mut child);
+        let _ = child.wait();
+        anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
+    };
+    if !status.success() {
+        anyhow::bail!("build command failed with status {status}");
     }
+    Ok(())
 }
 
 pub(super) fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {

@@ -3,14 +3,19 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::backoff::Backoff;
+use cmux_tui_core::wake;
 use crossbeam_channel::Sender as SyncSender;
 use ratatui::style::Color;
 
-use crate::app::events::AppEvent;
-use crate::app::status_command::{capture_status_output, strip_escape_sequences};
+use crate::app::events::{AppEvent, EventCancellation, send_bounded_cancelable};
+use crate::app::status_command::{
+    RunningStatusCommand, capture_status_output, kill_running_status_command,
+    strip_escape_sequences,
+};
 
 /// Resolved left and right status segments, in draw order.
 pub(super) type ResolvedStatusSegments = (Vec<StatusSegmentView>, Vec<StatusSegmentView>);
@@ -61,53 +66,66 @@ pub(crate) struct StatusSegmentView {
     pub(crate) bg: Option<Color>,
 }
 
-/// Shared stop signal for status workers. `raise` wakes idle waiters
-/// immediately, so retiring a worker never waits out a sleep interval, and
-/// an idle worker wakes once per interval instead of polling.
+/// Shared stop signal for status workers. `raise` ends every wait of the
+/// generation at once: the interval waits and blocked pokes see the
+/// cancellation channel close, and each running command is killed (its
+/// process group on Unix, its job on Windows), which ends its capture
+/// through the exit and end-of-output events.
 pub(super) struct StatusWorkerStop {
-    pub(super) raised: AtomicBool,
-    pub(super) lock: Mutex<()>,
-    pub(super) condvar: Condvar,
+    pub(super) cancellation: EventCancellation,
+    /// The commands running now. One stays here only while its capture owns
+    /// it (the group leader unreaped, the job handle open), so `raise` never
+    /// kills a reused id.
+    pub(super) running: Mutex<Vec<RunningStatusCommand>>,
 }
 
 impl StatusWorkerStop {
     pub(super) fn new() -> Self {
-        Self { raised: AtomicBool::new(false), lock: Mutex::new(()), condvar: Condvar::new() }
+        Self { cancellation: EventCancellation::new(), running: Mutex::new(Vec::new()) }
     }
 
     pub(super) fn raise(&self) {
-        self.raised.store(true, Ordering::Release);
-        let _guard = self.lock.lock().unwrap();
-        self.condvar.notify_all();
+        self.cancellation.cancel();
+        for command in self.running.lock().unwrap().drain(..) {
+            kill_running_status_command(command);
+        }
     }
 
     pub(super) fn is_raised(&self) -> bool {
-        self.raised.load(Ordering::Acquire)
+        self.cancellation.stop.load(Ordering::Acquire)
     }
 
-    /// Wait until raised or the duration elapses; returns whether raised.
-    pub(super) fn wait_timeout(&self, duration: Duration) -> bool {
-        let deadline = Instant::now() + duration;
-        let mut guard = self.lock.lock().unwrap();
-        while !self.is_raised() {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let (next, _) = self.condvar.wait_timeout(guard, remaining).unwrap();
-            guard = next;
+    /// Track a started command so `raise` kills it. False when the stop was
+    /// already raised: the caller kills the command itself.
+    pub(super) fn track(&self, command: RunningStatusCommand) -> bool {
+        let mut running = self.running.lock().unwrap();
+        if self.is_raised() {
+            return false;
         }
+        running.push(command);
+        true
+    }
+
+    /// Forget a command before its capture reaps or kills it.
+    pub(super) fn untrack(&self, command: RunningStatusCommand) {
+        self.running.lock().unwrap().retain(|running| *running != command);
+    }
+
+    /// Wait until raised or `deadline`; returns whether raised.
+    pub(super) fn wait_until(&self, deadline: Instant) -> bool {
+        // The channel never carries a message: `raise` closes it.
+        // wakeup-allow: deadline one wait per run, until the segment's next run on the wake grid
+        let _ = self.cancellation.receiver.recv_deadline(deadline);
         self.is_raised()
     }
 }
 
 /// Per-segment status worker: runs one command on its own interval, so one
 /// slow command never delays another segment, and publishes on change.
-/// The capture path checks the stop flag every poll tick and the idle wait
-/// is condvar-based, so a stopped worker exits within milliseconds and an
-/// idle worker never busy-polls. The shared `poke` flag coalesces redraw
-/// events: when several segments change together, only one event is sent
-/// until the event loop consumes it.
+/// Each next run is a `wake::deadline` (a whole-second grid with 10%
+/// leeway), so segments and the daemon's own deadlines share wakes. The shared
+/// `poke` flag coalesces redraw events: when several segments change
+/// together, only one event is sent until the event loop consumes it.
 pub(super) struct StatusSegmentWorker {
     pub(super) index: usize,
     pub(super) argv: Vec<String>,
@@ -119,25 +137,35 @@ pub(super) struct StatusSegmentWorker {
     pub(super) stop: Arc<StatusWorkerStop>,
 }
 
+/// The longest pause between checks of a command that survived SIGKILL.
+const STUCK_COMMAND_RECHECK_MAX: Duration = Duration::from_secs(300);
+
 pub(super) fn run_status_segment_loop(worker: StatusSegmentWorker) {
     const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
     let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
         worker;
-    let mut pending_notify = false;
     let mut unreaped: Option<cmux_process::Child> = None;
+    let mut stuck_recheck = Backoff::new(interval, STUCK_COMMAND_RECHECK_MAX.max(interval));
+    let mut next_run = Instant::now();
     while !stop.is_raised() {
         // A previous command stuck in uninterruptible kernel I/O survives
         // SIGKILL; never stack another process behind it, and reap it once
         // the kernel releases it, so stuck processes stay bounded at one
-        // per segment with no lasting zombie.
+        // per segment with no lasting zombie. Its checks back off: the
+        // kernel gives no event for the release.
         // A reaped predecessor is dropped by the reassignment below.
         if let Some(child) = unreaped.as_mut()
+            // wakeup-allow: backoff a command that survived SIGKILL; checks back off to 5 min, the kernel gives no release event
             && matches!(child.try_wait(), Ok(None))
         {
-            if stop.wait_timeout(interval) {
+            if stop.wait_until(Instant::now() + stuck_recheck.next_delay()) {
                 return;
             }
             continue;
+        }
+        stuck_recheck.reset();
+        if stop.wait_until(next_run) {
+            return;
         }
         let (output, stuck_child) = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
         unreaped = stuck_child;
@@ -155,59 +183,35 @@ pub(super) fn run_status_segment_loop(worker: StatusSegmentWorker) {
         };
         if changed {
             generation.fetch_add(1, Ordering::Release);
-            pending_notify = true;
+            send_status_poke(&poke, &events, &stop);
         }
-        try_send_status_poke(&poke, &events, &mut pending_notify);
-        // Sleep out the interval, but wake on a short cadence while a poke
-        // is still pending so a transiently full event queue delays the
-        // update by moments, not by the configured interval. The command
-        // itself never re-runs before its interval elapses.
-        let deadline = Instant::now() + interval;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let wait =
-                if pending_notify { remaining.min(Duration::from_millis(500)) } else { remaining };
-            if stop.wait_timeout(wait) {
-                return;
-            }
-            try_send_status_poke(&poke, &events, &mut pending_notify);
-        }
+        next_run = next_status_run(interval);
     }
 }
 
-/// Attempt to deliver one coalesced status redraw poke. Clears
-/// `pending_notify` when this worker's poke was delivered or another
-/// worker's poke is already in flight (that draw reads the same shared
-/// outputs); releases the poke on a full queue so the retry stays possible.
-pub(super) fn try_send_status_poke(
+/// When a segment runs again: `interval` from now, on the shared wake grid.
+pub(super) fn next_status_run(interval: Duration) -> Instant {
+    let (now, ticks) = (Instant::now(), wake::Ticks::now());
+    now + wake::deadline(ticks, interval, wake::Policy::FlexibleNoSooner).wait_from(ticks)
+}
+
+/// Deliver one coalesced status redraw poke. When another worker's poke is
+/// already queued, that draw reads the same shared outputs. A full event
+/// queue makes this wait for room (or the stop), never retry on a timer.
+pub(super) fn send_status_poke(
     poke: &AtomicBool,
     events: &SyncSender<AppEvent>,
-    pending_notify: &mut bool,
+    stop: &StatusWorkerStop,
 ) {
-    if !*pending_notify {
+    if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
         return;
     }
-    if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-        if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
-            *pending_notify = false;
-        } else {
-            poke.store(false, Ordering::Release);
-        }
-    } else {
-        *pending_notify = false;
+    if send_bounded_cancelable(events, AppEvent::StatusCommandsUpdated, &stop.cancellation).is_err()
+    {
+        poke.store(false, Ordering::Release);
     }
 }
 
-/// Run one status command with a bounded runtime and return its last
-/// nonempty stdout line, stripped of escape sequences and length-capped.
-/// The capture path uses no reader thread: on Unix the pipe is
-/// non-blocking and drained from this loop while the child runs in its own
-/// process group (a timeout or stop kills the whole tree), and on Windows
-/// stdout goes to a temporary file, which reads without blocking on
-/// writers. Setting `stop` makes the call return within one poll tick.
 /// The `USER` environment value, read once: template expansion runs on the
 /// draw path and the value cannot change within one process.
 pub(super) fn cached_status_user() -> &'static str {
@@ -217,6 +221,15 @@ pub(super) fn cached_status_user() -> &'static str {
     })
 }
 
+/// Run one status command with a bounded runtime and return its last
+/// nonempty stdout line, stripped of escape sequences and length-capped.
+/// On Unix the pipe is non-blocking and drained from the capture loop,
+/// which wakes on output, the child's exit or the deadline while the child
+/// runs in its own process group (a timeout or stop kills the whole tree);
+/// on Windows a reader thread keeps the output's tail while the capture
+/// waits for the exit, and the job kills the tree. Raising `stop` kills the
+/// command, so the call returns at once.
+///
 /// Returns the segment text plus the child when it could not be reaped
 /// (stuck in uninterruptible kernel I/O); the segment loop keeps at most
 /// one such child and never starts another command behind it.

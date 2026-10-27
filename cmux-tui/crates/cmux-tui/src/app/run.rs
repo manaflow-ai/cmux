@@ -154,6 +154,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    wake_loop_on_shutdown(&session, owner_mux.as_deref(), &tx);
     let owner_reload_worker =
         owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
@@ -567,6 +568,40 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         .map(RunOutcome::Machine)
         .unwrap_or(RunOutcome::Quit);
     Ok(outcome)
+}
+
+/// The event loop waits with no timeout while idle, so every shutdown its
+/// condition reads must wake it: a daemon shutdown request of the local or
+/// owner mux (its waker), and a termination signal (a thread that waits for
+/// the signal wake descriptor without consuming it). A remote daemon's
+/// shutdown arrives as a session event.
+fn wake_loop_on_shutdown(
+    session: &Session,
+    owner_mux: Option<&Mux>,
+    events: &crossbeam_channel::Sender<AppEvent>,
+) {
+    let local = match session {
+        Session::Local(mux) => Some(mux.as_ref()),
+        Session::Remote(_) => None,
+    };
+    for mux in local.into_iter().chain(owner_mux) {
+        let events = events.clone();
+        mux.set_daemon_shutdown_waker(move || {
+            let _ = events.try_send(AppEvent::ShutdownRequested);
+        });
+    }
+    #[cfg(unix)]
+    {
+        let events = events.clone();
+        // Detached: it lives until a signal arrives or the process ends.
+        let spawned = std::thread::Builder::new().name("app-signal-wait".into()).spawn(move || {
+            crate::wait_for_shutdown_signal_peek();
+            let _ = events.try_send(AppEvent::ShutdownRequested);
+        });
+        if let Err(error) = spawned {
+            crate::client_log::error("signal-wait", &error.to_string());
+        }
+    }
 }
 
 pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {

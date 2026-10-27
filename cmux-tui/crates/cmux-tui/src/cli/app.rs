@@ -1064,6 +1064,7 @@ fn exchange(
     let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),

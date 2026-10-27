@@ -37,6 +37,9 @@ pub(super) enum AppEvent {
         recovery_generation: u64,
     },
     HostInputReady,
+    /// A termination signal or a daemon shutdown request: wakes the loop,
+    /// whose condition reads the shutdown flags.
+    ShutdownRequested,
     HostInputFailed(String),
     Input(Event),
     NormalizedInput(TerminalInput),
@@ -218,6 +221,11 @@ pub(super) struct SessionEventWorker {
 impl SessionEventWorker {
     pub(super) fn activate(&self) {
         self.start.store(true, Ordering::Release);
+        // A paused worker parks until this store; unpark after it, so the
+        // worker's next check sees it (an early unpark is kept for its park).
+        if let Some(mux) = self.mux.as_ref() {
+            mux.thread().unpark();
+        }
     }
 
     pub(super) fn stop_and_join(&mut self) {

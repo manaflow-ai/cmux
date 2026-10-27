@@ -105,6 +105,7 @@ pub(super) fn resource(
             let message = format!("cannot connect to session socket {}: {error}", socket.display());
             fail(NotRun, "transport.unavailable", message)
         })?;
+    // wakeup-allow: deadline one MCP tool call's answer deadline
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if !prefixes.is_empty() {
@@ -157,6 +158,7 @@ pub(super) fn resource(
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
+    // wakeup-allow: deadline one MCP tool call's answer deadline
     let _ = reader.get_mut().set_read_timeout(wire::response_read_timeout(&plan, true));
     // Once sent, a mutation's outcome is unknown until it answers; a read
     // changed nothing either way.
@@ -234,6 +236,7 @@ pub(super) fn session_events(
         if left.is_zero() {
             return Ok(());
         }
+        // wakeup-allow: bounded ticks only during one wait call, ending at its deadline
         let _ = reader.get_mut().set_read_timeout(Some(left.min(tick)));
         // A read cut by the timeout keeps its bytes in `line` for the next one.
         match reader.read_until(b'\n', &mut line) {
@@ -426,6 +429,7 @@ pub(super) fn browser_host(
     let sent = if mutation { FailureKind::InProgress } else { FailureKind::NotRun };
     let lost = |message: String| CallFailure::local(sent, "transport.failed", message);
     stream.write_all(&line).map_err(|error| lost(format!("transport error: {error}")))?;
+    // wakeup-allow: deadline one MCP tool call's answer deadline
     stream.set_read_timeout(Some(timeout)).map_err(|error| lost(error.to_string()))?;
     let mut reader = BufReader::new(stream);
     loop {

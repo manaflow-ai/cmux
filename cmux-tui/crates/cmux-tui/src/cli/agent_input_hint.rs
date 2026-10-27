@@ -53,6 +53,7 @@ fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> 
         return None;
     }
     let params = plan.params.as_object()?;
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     reader.get_mut().set_read_timeout(Some(LOOKUP_TIMEOUT)).ok()?;
     let selector: Map<String, Value> = SELECTORS
         .into_iter()

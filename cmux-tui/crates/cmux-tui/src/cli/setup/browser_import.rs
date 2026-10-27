@@ -503,6 +503,7 @@ fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
         if left <= LOAD_PAUSE {
             return Err(still_loading());
         }
+        // wakeup-allow: cli-only `cmux setup browser-import` re-reads while the app loads bookmarks, at most LOAD_WAIT
         std::thread::sleep(LOAD_PAUSE);
         listed = match app_call(global, "bookmark.list", params.clone(), left - LOAD_PAUSE) {
             Ok(listed) => listed,

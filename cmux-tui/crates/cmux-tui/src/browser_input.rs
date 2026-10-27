@@ -472,6 +472,10 @@ impl BrowserInputDispatcher {
 
     /// The app event loop uses this deadline as a scheduled retry wakeup, so
     /// a failed resize does not depend on unrelated user input to run again.
+    pub fn next_resize_retry_at(&self) -> Option<Instant> {
+        self.failed_resizes.lock().unwrap().values().filter_map(|failure| failure.retry_after).min()
+    }
+
     pub fn resize_retry_due(&self) -> bool {
         let now = Instant::now();
         self.failed_resizes

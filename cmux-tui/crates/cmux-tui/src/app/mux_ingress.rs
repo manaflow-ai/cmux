@@ -4,7 +4,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use cmux_tui_core::{MuxEvent, SurfaceId};
 use crossbeam_channel::Sender as SyncSender;
@@ -216,7 +215,8 @@ pub(super) fn start_ordered_session_inner(
             while !worker_start.load(Ordering::Acquire)
                 && !worker_events.cancellation.stop.load(Ordering::Acquire)
             {
-                std::thread::park_timeout(Duration::from_millis(1));
+                // `SessionEventWorker::activate` unparks this thread.
+                std::thread::park();
             }
             if worker_events.cancellation.stop.load(Ordering::Acquire) {
                 return;

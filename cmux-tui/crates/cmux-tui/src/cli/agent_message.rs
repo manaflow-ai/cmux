@@ -172,6 +172,7 @@ impl Connection {
                     socket.display()
                 ))
             })?;
+        // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
         let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
         let mut reader = BufReader::new(stream);
         let credential = super::launch_credential::for_connection(&mut reader, &socket);
@@ -391,6 +392,7 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
         if !waiting || std::time::Instant::now() >= deadline {
             break;
         }
+        // wakeup-allow: cli-only `cmux agent message` waits at most PUMP_WAIT for queued deliveries; the daemon sends no delivery event
         std::thread::sleep(PUMP_POLL);
     }
     for recipient in acp {

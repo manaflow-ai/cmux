@@ -42,6 +42,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 3;
         }
     };
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]
     if plan.stream && !super::wire::arm_signal_interrupt(stream.as_ref()) {

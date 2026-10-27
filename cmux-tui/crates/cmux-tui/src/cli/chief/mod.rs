@@ -308,6 +308,20 @@ struct Session {
 }
 
 impl Session {
+    /// The next stream input, waiting until `deadline` when there is one and
+    /// for the input alone when there is none.
+    fn recv_until(
+        &self,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Input, std::sync::mpsc::RecvTimeoutError> {
+        let Some(deadline) = deadline else {
+            return self.rx.recv().map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected);
+        };
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        // wakeup-allow: deadline one wait per call, to the caller's nearest deadline
+        self.rx.recv_timeout(left)
+    }
+
     /// Opens the chat `target` names; its event stream starts with a
     /// snapshot of the last `tail` messages.
     fn open(

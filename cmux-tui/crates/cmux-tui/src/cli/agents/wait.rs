@@ -234,6 +234,7 @@ fn wait_for<B: Backend>(
         if left.is_zero() {
             return Ok(None);
         }
+        // wakeup-allow: bounded re-check only after the stream failed, ends at the wait's deadline
         std::thread::sleep(left.min(RECHECK));
         if let Some(found) = check(false)? {
             return Ok(Some(found));

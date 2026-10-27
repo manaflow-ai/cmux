@@ -289,6 +289,7 @@ impl Drop for DetachedChildGuard {
 /// its own `SOCKET_TIMEOUT` deadline; the OS owns its eventual orphaned
 /// lifetime after this process exits.
 fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::JoinHandle<()>) {
+    // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
     let status = child.child_mut().try_wait();
     match status {
         Ok(Some(_)) => {
@@ -536,6 +537,7 @@ fn append_once(
     // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
     // EINVAL although the answer is still readable.
     stream
+        // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
         .set_read_timeout(Some(remaining_before(deadline)?))
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
@@ -601,6 +603,7 @@ fn connect_before(
             let _ = sender.send(transport::connect(&socket));
         })
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
     let result = match receiver.recv_timeout(remaining) {
         Ok(result) => {
             let _ = connector.join();
@@ -680,6 +683,7 @@ fn read_before(
         // Shrink the bound toward the deadline. A refusal means the server
         // already closed (macOS EINVAL), so the read cannot block; the
         // timeout set before the request was written still applies.
+        // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
         let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
@@ -767,6 +771,7 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
+        // wakeup-allow: cli-only the hook binary runs once per agent hook and exits, bounded by its socket deadline
         let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
         super::settle_detached_child(child, reader);
         Ok(outcome)

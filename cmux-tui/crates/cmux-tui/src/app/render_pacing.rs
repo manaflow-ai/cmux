@@ -25,12 +25,12 @@ impl TerminalPaintPacer {
         Self { next_paint_at: now + TERMINAL_PAINT_CADENCE, pending: false }
     }
 
-    pub(super) fn wait_timeout(&self, timeout: Duration, now: Instant) -> Duration {
-        if self.pending {
-            timeout.min(self.next_paint_at.saturating_duration_since(now))
-        } else {
-            timeout
+    /// The loop's wake: `wake_at`, or the pending paint's frame when sooner.
+    pub(super) fn wake_at(&self, wake_at: Option<Instant>) -> Option<Instant> {
+        if !self.pending {
+            return wake_at;
         }
+        Some(wake_at.map_or(self.next_paint_at, |at| at.min(self.next_paint_at)))
     }
 
     pub(super) fn schedule(&mut self, action: RenderAction, now: Instant) -> RenderAction {

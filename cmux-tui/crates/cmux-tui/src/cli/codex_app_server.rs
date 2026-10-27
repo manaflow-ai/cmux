@@ -248,6 +248,7 @@ impl Client {
         self.send(&json!({"id": id, "method": method, "params": params}))?;
         loop {
             let left = self.deadline.saturating_duration_since(Instant::now());
+            // wakeup-allow: deadline one request's answer deadline; a timeout returns
             let line = match self.lines.recv_timeout(left) {
                 Ok(line) => line,
                 Err(RecvTimeoutError::Timeout) => {

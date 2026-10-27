@@ -566,17 +566,10 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
 
 /// The next stream input before `deadline`; None at the deadline.
 fn next_input(session: &Session, deadline: Option<Instant>) -> Option<Input> {
-    loop {
-        let wait = deadline
-            .map_or(Duration::from_secs(3600), |d| d.saturating_duration_since(Instant::now()));
-        match session.rx.recv_timeout(wait) {
-            Ok(input) => return Some(input),
-            Err(RecvTimeoutError::Timeout) if deadline.is_some_and(|d| Instant::now() >= d) => {
-                return None;
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return Some(Input::Closed("closed".into())),
-        }
+    match session.recv_until(deadline) {
+        Ok(input) => Some(input),
+        Err(RecvTimeoutError::Timeout) => None,
+        Err(RecvTimeoutError::Disconnected) => Some(Input::Closed("closed".into())),
     }
 }
 

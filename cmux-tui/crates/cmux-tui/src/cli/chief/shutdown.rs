@@ -80,6 +80,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(stopped.last().copied().unwrap_or(0), limit));
             }
+            // wakeup-allow: cli-only `cmux chief stop` waits for the brain to release its lock, bounded by `limit`
             std::thread::sleep(Duration::from_millis(20));
             continue;
         };
@@ -101,6 +102,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(pid, limit));
             }
+            // wakeup-allow: cli-only `cmux chief stop` waits for the brain to release its lock, bounded by `limit`
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -117,6 +119,7 @@ fn held_within(lock: &Path, grace: Duration) -> bool {
         if Instant::now() >= until {
             return false;
         }
+        // wakeup-allow: cli-only `cmux chief stop` waits for the brain to release its lock, bounded by RESTART_GRACE
         std::thread::sleep(Duration::from_millis(20));
     }
 }

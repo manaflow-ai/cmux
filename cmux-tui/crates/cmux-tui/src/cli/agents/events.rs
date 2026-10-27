@@ -351,6 +351,7 @@ impl<'a> Poll<'a> {
         // The stream did not open or ended early: read the app on a timer.
         while !self.answered(true, deadline) {
             let left = deadline.saturating_duration_since(Instant::now());
+            // wakeup-allow: bounded re-check only after the stream failed, ends at the wait's deadline
             std::thread::sleep(left.min(RECHECK));
             self.check_app(backend, session, None);
         }

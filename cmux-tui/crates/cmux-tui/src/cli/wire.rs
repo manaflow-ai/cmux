@@ -105,6 +105,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             return print_local_error(&error, global.output, 3);
         }
     };
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if let Some(capability) = required_server_capability(&plan) {
@@ -166,6 +167,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     let interrupt_handled = !plan.stream || stream_interrupt(reader.get_ref().as_ref());
     #[cfg(not(unix))]
     let interrupt_handled = !plan.stream;
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, interrupt_handled));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
@@ -725,6 +727,7 @@ fn refused_at_connect(
     ) {
         return false;
     }
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = reader.get_mut().set_read_timeout(Some(Duration::from_millis(200)));
     let mut line = Vec::new();
     if reader.by_ref().take(4096).read_until(b'\n', &mut line).is_err() {

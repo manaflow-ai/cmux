@@ -1116,6 +1116,13 @@ impl Session {
         }
     }
 
+    pub fn next_surface_overflow_retry_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.next_surface_overflow_retry_at(),
+        }
+    }
+
     pub fn surface_overflow_retry_due(&self) -> bool {
         match self {
             Session::Local(_) => false,
@@ -2199,6 +2206,14 @@ impl Session {
         match self {
             Session::Local(_) => None,
             Session::Remote(remote) => remote.sidebar_workspace_container(workspace),
+        }
+    }
+
+    /// When the app loop's `tick_sidebar_doc` has work next.
+    pub(crate) fn next_sidebar_doc_read_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.next_sidebar_doc_read_at(),
         }
     }
 

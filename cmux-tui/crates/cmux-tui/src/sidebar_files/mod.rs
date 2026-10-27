@@ -139,6 +139,11 @@ impl FileBrowser {
         now.duration_since(self.last_refresh) >= REFRESH_EVERY
     }
 
+    /// When `tick` reloads next.
+    pub fn next_refresh_at(&self) -> Instant {
+        self.last_refresh + REFRESH_EVERY
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
         if !self.refresh_due(now) {
             return false;

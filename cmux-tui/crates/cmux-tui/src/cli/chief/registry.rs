@@ -369,6 +369,7 @@ fn relay_to_turn_host(request: &Request, output: OutputMode) -> Option<i32> {
             )));
         }
     };
+    // wakeup-allow: cli-only one CLI request's answer deadline; the process exits after the command
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
     if writeln!(stream, "{}", Value::Object(call)).is_err() {
         return Some(fail("this Chief's host closed the connection".into()));
