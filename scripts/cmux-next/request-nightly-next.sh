@@ -178,21 +178,30 @@ request() { # <sha>
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
 # calls this script once per commit it walks): a stamp in RUNNER_TEMP keyed by
-# the run. Never while an artifacts run on feat-cmux-next is queued or in
-# progress, and never when that cannot be read.
+# the run. Never while an artifacts run on feat-cmux-next is queued, waiting
+# or in progress (one filtered read per state, so no older active run hides
+# behind newer finished ones), and never when that cannot be read. Two jobs
+# racing past the check (the tick and an artifacts push run) start at most two
+# runs, and a dispatch's concurrency group (one per commit, never cancelled)
+# keeps one of them pending behind the other.
 backfill() { # <reason>
   local stamp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-tree-backfill-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}" active
   if [[ -e "$stamp" ]]; then
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  if ! active="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --branch feat-cmux-next --limit 30 \
-      --json status --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || [[ ! "$active" =~ ^[0-9]+$ ]]; then
-    echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
-    return 0
-  fi
+  local state count
+  active=0
+  for state in queued in_progress waiting pending requested; do
+    if ! count="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --branch feat-cmux-next --status "$state" \
+        --limit 1 --json status --jq length 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
+      echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
+      return 0
+    fi
+    active=$((active + count))
+  done
   if (( active > 0 )); then
-    echo "backfill: $active cmux-tui-artifacts run(s) on feat-cmux-next are queued or running; not dispatching ($1)"
+    echo "backfill: a cmux-tui-artifacts run on feat-cmux-next is queued or running; not dispatching ($1)"
     return 0
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
@@ -212,8 +221,14 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
   # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
   # or is running gets none: a failed build is a red to fix, not to re-run here.
-  if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]]; then
-    if tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
+  # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
+  # exit 1), never on a read failure.
+  if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
+      && tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)"; then
+    tip_verify=0
+    bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
+    if (( tip_verify == 1 )) \
+        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
         && [[ "$tip_runs" == 0 ]]; then
       backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
     fi

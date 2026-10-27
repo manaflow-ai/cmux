@@ -114,7 +114,7 @@
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
-#          manifest sha256 verifies; exit 1 not published, 3 unverifiable)
+#          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
 #        | fallback-key (fleet suites: when HEAD has the tree of its base,
 #          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
@@ -1213,7 +1213,10 @@ verify_published_key() {
 }
 
 # Prints commit=<publishing commit> for a verified published tree <key>
-# (verify_published_key); exit 1 when it is not published, 3 when unverifiable.
+# (verify_published_key). Exit 1 only when the CDN answers 404 for its sha256
+# (not published); 3 for anything else that is not a verified tree: a read
+# that is neither 200 nor 404 (a read failure, never "not published") or a
+# published tree whose manifest does not carry its sha256.
 verify_key_command() {
   local key="${1:-}" dir rc=0
   [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "error: verify-key takes a 40-hex tree key" >&2; exit 2; }
@@ -1222,7 +1225,13 @@ verify_key_command() {
   rm -rf "$dir"
   case "$rc" in
     0) echo "commit=$verified_commit" ;;
-    1) echo "tree $key: not published" >&2; exit 1 ;;
+    1)
+      local code
+      code="$(curl -sS --proto '=https' --connect-timeout 20 --max-time 60 -o /dev/null -w '%{http_code}' \
+        "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" 2>/dev/null || true)"
+      if [[ "$code" == 404 ]]; then echo "tree $key: not published" >&2; exit 1; fi
+      echo "error: tree $key: could not read $BASE/tree/$key/cmux-tui-$TARGET.sha256 (HTTP ${code:-000}); a read failure, not \"not published\"" >&2
+      exit 3 ;;
     *) echo "tree $key: published, but the manifest of ${verified_commit:-its commit} does not carry its sha256" >&2; exit 3 ;;
   esac
 }

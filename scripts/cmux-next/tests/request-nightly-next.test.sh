@@ -93,12 +93,17 @@ if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 [[ -z "\$fmt" ]] || printf 200
 STUB
 # gh: records every call; the script reads no API (candidates come from git).
-# `run list` (the backfill's active-run count) prints $TMP/gh-runs, or fails
-# when that file is missing (an unreadable list).
+# `run list` (the backfill's active-run counts, one per --status) prints
+# $TMP/gh-runs (for in_progress; 0 for the other states), or fails when that
+# file is missing (an unreadable list).
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
-if [[ "\$1 \$2" == "run list" ]]; then cat "$TMP/gh-runs" 2>/dev/null || exit 1; exit 0; fi
+if [[ "\$1 \$2" == "run list" ]]; then
+  [[ -f "$TMP/gh-runs" ]] || exit 1
+  if [[ "\$*" == *"--status in_progress"* ]]; then cat "$TMP/gh-runs"; else echo 0; fi
+  exit 0
+fi
 [[ "\$1" == api ]] || exit 0
 echo "gh stub: unexpected api call \$*" >&2; exit 1
 STUB
@@ -464,9 +469,26 @@ wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash sc
   || fail "the writer must succeed when nothing is ready:" "$wout"
 [[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
 # check: 200 naming the commit, 404, and anything else (another commit, a 500) a read failure (3).
-printf '{"commit": "%s", "key": "%s"}\n' "$head" "$okey" > "$cdn/tree-commits/$other.json"
+printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$head" "$okey" "$other" > "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 3 ]] || fail "a marker naming another commit is a read failure (exit 3), got $rc"
+for body in "{\"commit\": \"$other\", \"key\": \"$okey\"}" \
+            "{\"commit\": \"$other\", \"key\": \"$okey\", \"publishedBy\": \"x\", \"markedBy\": \"https://u\"}" \
+            "{\"commit\": \"$other\", \"key\": \"$okey\", \"publishedBy\": \"$other\"}" 'not json'; do
+  printf '%s\n' "$body" > "$cdn/tree-commits/$other.json"
+  rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
+  [[ "$rc" == 3 ]] || fail "an incomplete marker is a read failure (exit 3), got $rc for $body"
+done
+printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$other" "$okey" "$other" > "$cdn/tree-commits/$other.json"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 0 ]] || fail "a complete marker reads as ready, got $rc"
+# verify-key: a 404 is "not published" (1); any other failed read is a read failure (3).
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/pin-cmux-tui.sh verify-key "$(printf 'e%.0s' {1..40})" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 1 ]] || fail "verify-key of an unpublished tree must exit 1, got $rc"
+echo "tree/$okey/$bin.sha256" > "$cdn/FAIL"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/pin-cmux-tui.sh verify-key "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "verify-key on a failed sha256 read must exit 3 (a read failure), got $rc"
+rm -f "$cdn/FAIL"
 rm -f "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 1 ]] || fail "a missing marker is exit 1, got $rc"

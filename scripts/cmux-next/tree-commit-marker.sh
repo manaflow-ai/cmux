@@ -9,8 +9,8 @@
 #   GET https://files.cmux.com/cmux-tui/tree-commits/<sha40>.json?t=<now>
 #     (the query string bypasses a cached 404 at the CDN edge)
 #   200 with JSON {"commit": "<sha40>", "key": "<v2 tree key>",
-#     "publishedBy": "<sha40>", "markedBy": "<run url>"} and commit == <sha40>:
-#     ready. 404: not ready (not marked yet). Anything else (another status, a
+#     "publishedBy": "<sha40>", "markedBy": "<run url>"}, every field present
+#     and well formed, and commit == <sha40>: ready. 404: not ready (not marked yet). Anything else (another status, a
 #     network error, a body that does not parse or names another commit): a
 #     read failure, never "not ready"; callers fail closed and say so.
 #   Written write-once by cmux-tui-artifacts.yml (mark-tree-commits) on every
@@ -25,7 +25,8 @@
 #                                            exit 0 when the tree's daemon tests passed (or it
 #                                            predates separate daemon tests), 1 not yet, 3 read failure
 #   tree-commit-marker.sh tree-ready <key>   exit 0 published, verified and daemon-tested
-#                                            (prints publishedBy=), 1 not, 3 a daemon-tests read failure
+#                                            (prints publishedBy=), 1 not (a 404), 3 a read failure
+#                                            or an unverifiable tree
 #   tree-commit-marker.sh write [--window N] marks HEAD and its first-parent ancestors (default
 #                                            40) whose tree is ready; needs R2_ENDPOINT and the
 #                                            R2 AWS_* credentials
@@ -54,11 +55,13 @@ check() { # <sha>
     404) echo "no tree-commit marker for $sha ($url)" >&2; return 1 ;;
     *) echo "error: could not read the tree-commit marker $url (HTTP ${code:-000})" >&2; return 3 ;;
   esac
-  python3 - "$sha" "$tmp/marker.json" <<'PY' || { echo "error: the tree-commit marker $url does not name $sha with a tree key" >&2; return 3; }
+  python3 - "$sha" "$tmp/marker.json" <<'PY' || { echo "error: the tree-commit marker $url is not a marker of $sha (commit, key, publishedBy, markedBy)" >&2; return 3; }
 import json, re, sys
 data = json.load(open(sys.argv[2]))
 assert data.get("commit") == sys.argv[1]
 assert re.fullmatch(r"[0-9a-f]{40}", data.get("key") or "")
+assert re.fullmatch(r"[0-9a-f]{40}", data.get("publishedBy") or "")
+assert isinstance(data.get("markedBy"), str) and data["markedBy"].strip()
 print("key=" + data["key"])
 PY
 }
@@ -93,16 +96,20 @@ daemon_tested() { # <key>
 
 tree_ready() { # <key>
   local key="$1" out rc=0
-  # verify-key reads a failed download as not published: either way the tree
-  # is not ready, and nothing is marked or promoted.
-  out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key")" || return 1
+  local rc=0
+  out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key")" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) return 1 ;;
+    *) return 3 ;;
+  esac
   daemon_tested "$key" || rc=$?
   (( rc == 0 )) || return "$rc"
   echo "publishedBy=${out#commit=}"
 }
 
 write_markers() {
-  local window=40 rev key ready published code marked=0 skipped=0
+  local window=40 rev key ready published code rrc marked=0 skipped=0
   # One readiness check per distinct key: $tmp/keys/<key> holds "ready <publisher>" or "no".
   mkdir -p "$tmp/keys"
   while [[ $# -gt 0 ]]; do
@@ -118,11 +125,18 @@ write_markers() {
     key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$rev" 2>/dev/null)" || {
       echo "commit ${rev:0:12}: no tree key; not marked"; skipped=$((skipped + 1)); continue; }
     if [[ ! -f "$tmp/keys/$key" ]]; then
-      if ready="$(tree_ready "$key" 2>"$tmp/ready.err")"; then
+      # Not ready and unreadable both leave the commits unmarked (fail closed);
+      # the log tells them apart, and the next run or the backfill reads again.
+      rrc=0
+      ready="$(tree_ready "$key" 2>"$tmp/ready.err")" || rrc=$?
+      if (( rrc == 0 )); then
         echo "ready ${ready#publishedBy=}" > "$tmp/keys/$key"
-      else
+      elif (( rrc == 1 )); then
         echo no > "$tmp/keys/$key"
         echo "tree $key: not ready ($(tail -n 1 "$tmp/ready.err" 2>/dev/null))"
+      else
+        echo no > "$tmp/keys/$key"
+        echo "warning: tree $key: read failure, not marking its commits this run ($(tail -n 1 "$tmp/ready.err" 2>/dev/null))" >&2
       fi
     fi
     read -r ready published < "$tmp/keys/$key" || true
