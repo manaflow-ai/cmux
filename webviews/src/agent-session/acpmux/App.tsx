@@ -9881,11 +9881,13 @@ function AcpmuxPane() {
                   chatCwd: startFolder,
                   requestFolder,
                   startsHere: () => !directClient.current?.startsOnSend,
-                  startScope: () => {
+                  startScope: (allowReconnect) => {
+                    const client = directClient.current;
                     const selected = sessionSelectionToken.current;
                     return () =>
                       showsNewTabRef.current &&
                       newTabVisit.current === newTabGeneration &&
+                      (allowReconnect || directClient.current === client) &&
                       sessionSelectionToken.current === selected;
                   },
                   leave: () => {
