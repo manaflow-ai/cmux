@@ -36,7 +36,7 @@ extension PageWebView {
     }
 
     /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
-    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    /// caller that only asks where a page would show.
     ///
     /// - Parameters:
     ///   - descriptor: The page.
@@ -108,8 +108,9 @@ extension PageWebView {
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time. A browser that ends with its Chromium Host while the page
-    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``).
-    func startChromium(hosting: any PageChromiumHosting) {
+    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``). `origin` goes to the host as
+    /// the engine's tab origin, whose launch order is the only wait for a restored page.
+    func startChromium(hosting: any PageChromiumHosting, origin: PageChromiumOrigin) {
         traceMark(.chromiumStart)
         webKitPieces?.view.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: userContent)
@@ -127,7 +128,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window, origin: origin)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }
@@ -153,8 +154,8 @@ extension PageWebView {
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources) {
+            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers, documentScripts: scripts.sources,
+                                                                       channelEvent: page.pageHostEvent) {
                 _ = try await page.devTools(method, params: params)
             }
         } catch {
@@ -253,7 +254,12 @@ extension PageWebView {
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
+        case .pageHostPost(let text, let sender):
+            chromiumSession.bridge.receive(pageHostPost: text, sender: sender)
         case .committed(let url):
+            // Before the policy: the posts that follow are this document's, whichever it is. The
+            // ones it sent before this event are delivered once the view has reset for it.
+            let held = chromiumSession.bridge.documentCommitted(url)
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -264,6 +270,7 @@ extension PageWebView {
             }
             chromiumSession.bridge.rebind()
             documentCommitted()
+            chromiumSession.bridge.replay(held)
         case .finished:
             documentFinished()
         case .crashed:

@@ -162,6 +162,7 @@ extension TabStripView {
         // The frame's pending scroll and hover land first, so the press acts on the tab under its own point.
         scroller.landForInput()
         hoverMoves.flush()
+        dragMoves.began()
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
@@ -225,13 +226,11 @@ extension TabStripView {
             cells[id]?.isAudioPressed = isInAudioButton(id, point)
             return
         }
-        if drag != nil {
-            updateDrag(at: point, event: event)
-            return
-        }
-        if groups.drag != nil {
-            updateGroupDrag(at: point, event: event)
-            return
+        if drag != nil || groups.drag != nil {
+            guard isPastTearOff(point) else { return dragMoves.dragged(event) }
+            // The tear-off hands the drag to the App's session at this event's point: the frame's pending point is stale.
+            dragMoves.cancel()
+            return drag != nil ? updateDrag(at: point, event: event) : updateGroupDrag(at: point, event: event)
         }
         if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginGroupDrag(press)
@@ -245,6 +244,7 @@ extension TabStripView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
             pressedCloseID = nil

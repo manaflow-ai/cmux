@@ -106,6 +106,7 @@ final class ChiefPetMascotCell: NSButton {
             heightAnchor.constraint(equalToConstant: Self.side),
         ])
         hover.followPointer(isHoverable: { [weak self] in self?.isEnabled ?? false }, onChange: { [weak self] in self?.needsDisplay = true })
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
@@ -115,9 +116,8 @@ final class ChiefPetMascotCell: NSButton {
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityLabel() -> String? { name }
 
-    override func resetCursorRects() {
-        guard isEnabled else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
+    override func cursorUpdate(with event: NSEvent) {
+        if isEnabled { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
     }
 
     override var mouseDownCanMoveWindow: Bool { false }

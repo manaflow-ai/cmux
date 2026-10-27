@@ -244,13 +244,13 @@ import Testing
 
     /// The snapshot store keeps its budget: the least recently used picture goes first.
     @Test func theSnapshotStoreDropsTheLeastRecentlyUsedPicturePastItsBudget() async throws {
-        let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1)))
-        let size = try #require(one.data?.count)
+        let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1), allocator: .resident))
+        let size = one.byteCount
         let store = HibernationSnapshots(fullCapacityBytes: size * 5 / 2)
         store.insert(one, for: "a")
-        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2))), for: "b")
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2), allocator: .resident)), for: "b")
         _ = store.image(for: "a")  // "a" is used again: "b" is now the oldest
-        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 3))), for: "c")
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 3), allocator: .resident)), for: "c")
         #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a recently used picture was dropped")
         #expect(store.image(for: "b") == nil, "the least recently used picture stayed past the budget")
         #expect(store.totalBytes <= store.capacityBytes)
