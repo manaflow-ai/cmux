@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
+/// The most pixels a copy is made from (about 1.5 s of decoding): a PNG past it, which no screen
+/// makes, keeps only its link, so its decode never holds the prompt back. The file itself still
+/// goes whatever its size.
+const MAX_SOURCE_PIXELS: u64 = 100_000_000;
+
 /// What a harness's model takes as one inline image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -157,6 +162,11 @@ fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
     Some((reader.info().width, reader.info().height))
 }
 
+/// Whether a copy is made of a `w`x`h` image: not empty, and within [`MAX_SOURCE_PIXELS`].
+fn copyable(w: u32, h: u32) -> bool {
+    w > 0 && h > 0 && u64::from(w) * u64::from(h) <= MAX_SOURCE_PIXELS
+}
+
 /// The PNG read from `input` scaled down (never up) so its long edge is at most `max_edge`, by
 /// area averaging, a row at a time, encoded as an 8-bit PNG (RGB, or RGBA when it has alpha).
 /// None for a PNG that is not valid or is interlaced (its rows come in passes).
@@ -167,7 +177,7 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
     decoder.set_limits(png::Limits { bytes: 256 << 20 });
     let mut reader = decoder.read_info().ok()?;
     let (w, h) = (reader.info().width, reader.info().height);
-    if reader.info().interlaced || w == 0 || h == 0 {
+    if reader.info().interlaced || !copyable(w, h) {
         return None;
     }
     let (color, _) = reader.output_color_type();
@@ -272,6 +282,13 @@ mod tests {
         assert_eq!(&px[..3], &[255, 0, 0]);
         let last = px.len() - 3;
         assert_eq!(&px[last..], &[0, 0, 255]);
+    }
+
+    #[test]
+    fn a_png_too_large_to_decode_quickly_gets_no_copy() {
+        assert!(copyable(8000, 8000) && copyable(10_000, 10_000));
+        assert!(!copyable(20_000, 10_000) && !copyable(100_000, 100_000));
+        assert!(!copyable(0, 10) && !copyable(10, 0));
     }
 
     #[test]
