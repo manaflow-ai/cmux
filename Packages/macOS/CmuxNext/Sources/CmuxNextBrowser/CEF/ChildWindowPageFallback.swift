@@ -26,7 +26,7 @@ nonisolated enum ChildWindowPageFallback {
     /// page hosted in the layer tree (`isHosted`, a seam for tests), or outside a pane.
     @MainActor
     static func cutouts(around view: NSView,
-                        isHosted: @MainActor (CEFHostView) -> Bool = { $0.layerHosting.page != nil }) -> [CGRect] {
+                        isHosted: @MainActor (CEFHostView) -> Bool = { $0.layerHosting.drawsWithViews }) -> [CGRect] {
         if let host = view as? CEFHostView, isHosted(host) { return [] }
         var ancestor = view.superview
         while let current = ancestor {
@@ -40,10 +40,11 @@ nonisolated enum ChildWindowPageFallback {
     }
 }
 
-/// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`), and again
+/// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`) or the
+/// shown tab's Chromium view is attached in the host view (`CEFLayerHosting.attachedPages`), and again
 /// while a widget orders its page window in (`CEFPageWindowWidgets`).
 extension CEFHostView: ChildWindowContent {
-    var drawsInChildWindow: Bool { layerHosting.page == nil || pageWindowWidgets.isShowingPageWindow }
+    var drawsInChildWindow: Bool { !layerHosting.drawsWithViews || pageWindowWidgets.isShowingPageWindow }
 }
 
 /// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on a Chromium

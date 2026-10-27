@@ -131,6 +131,17 @@ pub fn thread_lock_wait_nanos() -> u64 {
     THREAD_WAITED_NANOS.try_with(Cell::get).unwrap_or(0)
 }
 
+/// A contended wait of a lock without a [`LockHolder`] (the daemon's ranked
+/// locks), timed by the lock after its failed try: a wait of
+/// [`LOCK_WAIT_BUDGET`] or more on a thread that disallows blocking records
+/// a [`BlockingKind::LockWait`] site at `site`, and never panics.
+#[inline]
+pub fn note_timed_lock_wait(waited: Duration, site: &'static Location<'static>) {
+    if waited >= LOCK_WAIT_BUDGET {
+        crate::blocking::note_long_lock_wait(site);
+    }
+}
+
 /// The calling thread's name, read from std once per thread. An unnamed
 /// thread is named by its `ThreadId`.
 fn current_name() -> NameBytes {
@@ -565,6 +576,36 @@ mod tests {
             .expect("waiter");
         holder.join().expect("holder");
         result
+    }
+
+    /// A timed wait at the budget on a disallowed thread is one `lock-wait`
+    /// site, even in panic mode; a shorter wait, or the same wait on a
+    /// thread that may block, records nothing.
+    #[test]
+    fn a_timed_wait_past_the_budget_records_only_on_a_disallowed_thread() {
+        let (long, short) = std::thread::Builder::new()
+            .name("timed-lock-wait".into())
+            .spawn(|| {
+                let allowed = here();
+                note_timed_lock_wait(LOCK_WAIT_BUDGET, allowed);
+                disallow_blocking();
+                crate::blocking::with_mode(BlockingMode::Panic, || {
+                    let long = here();
+                    note_timed_lock_wait(LOCK_WAIT_BUDGET, long);
+                    let short = here();
+                    note_timed_lock_wait(LOCK_WAIT_BUDGET - Duration::from_micros(1), short);
+                    assert!(snapshot().site(allowed.file(), allowed.line()).is_none());
+                    (long, short)
+                })
+            })
+            .expect("spawn")
+            .join()
+            .expect("no panic");
+        let sites = snapshot();
+        let site = sites.site(long.file(), long.line()).expect("long wait site");
+        assert!(site.kinds.contains(BlockingKind::LockWait));
+        assert_eq!(site.count, 1);
+        assert!(sites.site(short.file(), short.line()).is_none());
     }
 
     /// A contended wait adds to the waiter's own lock wait total, an

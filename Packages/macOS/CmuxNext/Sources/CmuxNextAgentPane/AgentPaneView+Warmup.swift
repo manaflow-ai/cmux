@@ -9,7 +9,7 @@ extension AgentPaneView {
     /// web-override watch.
     ///
     /// - Parameters:
-    ///   - chromiumChat: Whether the agent chat may run in Chromium (`AgentPaneTunables.chromium`).
+    ///   - chromiumChat: Whether the agent chat may run in Chromium (feature `agentChromium`).
     ///   - hosting: The app's Chromium page maker (`AppServices.webUI.chromium`); nil for WebKit only.
     /// - Returns: True when a new agent page opens in WebKit.
     public static func newPagesShowInWebKit(chromiumChat: Bool, hosting: (any PageChromiumHosting)?) -> Bool {
@@ -33,11 +33,12 @@ extension AgentPaneView {
 /// before a later agent page loads. The view is made in the pool and data store
 /// of the agent pages' process groups (``WebUIHost/groupedWebKitConfiguration()``),
 /// so the first agent page can use its web content process. The app posts
-/// ``start(webUI:)`` once the launch's restore finished: at afterFirstFrame when a
-/// visible pane shows an agent chat that opens in WebKit
-/// (``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)``),
-/// else at afterStartup. It used to run before NSApplication.run, where it held
-/// the main thread 80-350 ms ahead of the first frame.
+/// ``start(webUI:)`` at afterStartup (p08-startup-042): before startup
+/// completes, the only WebKit views are those of the agent tabs the launch
+/// shows, each made in its own afterFirstFrame post once its picture drew
+/// (`LaunchViewQueue`), and the first of them starts WebKit itself, so the
+/// warm-up then makes nothing. It used to run before NSApplication.run, where
+/// it held the main thread 80-350 ms ahead of the first frame.
 ///
 /// It makes nothing when new agent pages open in Chromium (p13-webui-046): the
 /// page host's engine decision for the agent page
@@ -83,18 +84,17 @@ public final class AgentPageWarmup {
     private let chromiumChat: @MainActor () -> Bool
 
     /// - Parameter chromiumChat: Whether the agent chat may run in Chromium (the app passes
-    ///   `AgentPaneTunables.chromium`'s value). Every engine decision of the warm-up and of its
-    ///   post (``agentPagesShowInWebKit(webUI:)``) reads this one seam.
+    ///   feature `agentChromium`, `AppServices.agentChromiumChat`). Every engine decision of the warm-up
+    ///   (each ``start(webUI:)``) reads this one seam.
     public init(chromiumChat: @escaping @MainActor () -> Bool) {
         self.chromiumChat = chromiumChat
     }
 
-    /// Whether a new agent page opens in WebKit now: the one decision that places the warm-up's post
-    /// (afterFirstFrame for a visible WebKit agent chat) and lets the warm-up make its page.
+    /// Whether a new agent page opens in WebKit now: the decision that lets the warm-up make its page.
     ///
     /// - Parameter webUI: The app's page host (`AppServices.webUI`), whose Chromium page maker decides.
     /// - Returns: ``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)`` with this warm-up's seam.
-    public func agentPagesShowInWebKit(webUI: WebUIHost) -> Bool {
+    private func agentPagesShowInWebKit(webUI: WebUIHost) -> Bool {
         AgentPaneView.newPagesShowInWebKit(chromiumChat: chromiumChat(), hosting: webUI.chromium)
     }
 

@@ -1415,6 +1415,11 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Change: At launch, read each earlier launch's file as its own report section with its own profile, and
   delete it after the upload succeeds. The run marker stores `kern.bootsessionuuid`. An unclean exit with a
   different boot session counts as system_shutdown, not as a crash.
+- Done in 053: `MetricsLaunchFold` and `MetricsLaunchFileReader` (S/CmuxNextMetrics/MetricsLaunchFileReader.swift),
+  which maps a 052 file read-only and gives its profile, delta and a section id from the header (role, pid,
+  start time, boot session; never the file name, because pids are reused). 063 owns the launch-time call:
+  it runs the fold with `MetricsLaunchFileReader(role: .app)` off main and sends each section with its
+  report upload.
 - Acceptance: A crashed launch's file is folded once and kept under its own version. The fold is
   idempotent. A boot-change test passes.
 - Test phase: fleet: `swift test --filter MetricsLaunchFoldTests`.
@@ -1496,7 +1501,9 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - `histograms[]`: name (catalog only), unit, buckets as `[index,count]`, count, sum, max. At most 32
     histograms × 24 buckets, deltas only.
   - `stability{}` from 109.
-  - Per-launch sections with profiles.
+  - Per-launch sections with profiles: at launch, run 053's `MetricsLaunchFold` with
+    `MetricsLaunchFileReader(role: .app)` off main, send each section under its id, and delete its file
+    only after the upload succeeded.
   - `blackbox[]`: up to 512 events taken at a hang >= 1 s or a key.frame > 50 ms, merged from the app,
     daemon and involved host rings with a process field. Key and per-key PTY records are filtered out
     (128).
@@ -1558,7 +1565,9 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - Overdue slots are marked block-on-capture, then captured (068).
 - Acceptance:
   - 0 wakes over 10 s idle.
-  - <= 1 wake/s under a synthetic burst pattern.
+  - <= 1 wake/s under a synthetic burst pattern at a 1 s minimum deadline (section E), plus the first
+    open's wake. The app's slot table keeps a 100 ms minimum deadline (p02-threads RUN-8 must see a 150 ms
+    stall on a 100 ms budget), so there a burst makes about 10 wakes/s.
   - Detection within deadline + minimum deadline + 50 ms.
   - A late watcher blames nobody.
 - Test phase: fleet: `swift test --filter 'HangWatch|MainThreadWatchdog'`; bench-idle.sh.
@@ -1815,6 +1824,10 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   acpmux, agent_host, app_host, browser_host). cmux-app-host opens its ring before it enters the sandbox.
   Cleanup removes dead-pid rings older than 3 days and keeps the directory under 16 MiB, once at daemon
   start (no timer). The holder uses a holder-lifetime directory.
+- Folders (agreed with 063, whose hang reports merge these rings; `HangReportFieldSources.RingFolders`): every
+  process but the holder writes into the app's trace folder, `~/Library/Logs/<bundle id>/trace`, which the app
+  hands the daemon at launch and the daemon hands its hosts. The holder keeps `<socket>.trace` beside its socket
+  in `/tmp/cmux-hd-<uid>`. 063 already reads both, and the daemon's `CMUX_TRACE_FLOWS` folder.
 - Acceptance:
   - `rg init_blackbox` hits all 7 mains.
   - The app-host call comes before the sandbox call.

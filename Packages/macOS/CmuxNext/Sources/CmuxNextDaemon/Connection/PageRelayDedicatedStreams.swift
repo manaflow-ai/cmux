@@ -20,6 +20,9 @@ public final class PageRelayDedicatedStreams: PageRelayStreamOpening {
             clientName: clientName, requiredCapabilities: [], retryWake: retryWake,
             terminalEnvironment: nil, role: .pageRelay, relayIdentity: relayIdentity)
         let connection = DaemonConnection(configuration: configuration, endpointProvider: endpointProvider)
+        // A dedicated stream sends requests only: its page's events are dropped as they come, so they
+        // neither buffer nor fill the event stream's byte bound, past which the reader would wait.
+        connection.discardEvents()
         let reached: DaemonIdentity
         do {
             reached = try await connection.start()
@@ -55,10 +58,6 @@ public final class PageRelayDedicatedStreams: PageRelayStreamOpening {
                       epoch.serves(pid: identity.pid, generation: identity.generation) else { return false }
                 return relayIdentity.connectionID == epoch.connectionID
             }
-        }
-
-        var confirmationBinding: [String: JSONValue] {
-            ["relay_connection_id": .string(epoch.connectionID)]
         }
 
         func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,

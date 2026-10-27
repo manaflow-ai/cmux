@@ -49,12 +49,34 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "pane-close-ok.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "pane": "$step:fx-workspace#/value/pane_id"
+        "pane": "$step:fx-split#/value/pane_id"
       },
       "args": {
         "method": "pane.close",
@@ -69,7 +91,50 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "closing the split's second pane leaves the first as the screen's root leaf"
+    },
+    {
+      "id": "one-leaf",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/kind",
+        "equals": "leaf",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "sibling-takes-root",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-split#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.close",
+        "params": {},
+        "idempotencyKey": "pane-close-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

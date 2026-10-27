@@ -54,7 +54,7 @@ import Testing
     /// The registry the menu, palette, CLI (`settings check-for-updates`) and a Ghostty keybind run.
     static func registry(_ updater: UpdaterService) -> ActionRegistry {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: updater)
+        UpdateHandlers.bind(into: registry, updater: updater, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         return registry
     }
 
@@ -118,6 +118,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: Metrics.sidebarWidth, height: 640), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible }) // never ordered in: the sidebar draws only while shown
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 640)
         defer { window.close() }

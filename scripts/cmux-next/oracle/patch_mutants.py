@@ -12,6 +12,7 @@ Stdlib only, Python 3.9+, safe under `python3 -I`:
 
     patch_mutants.py list [--product P] [--json]
     patch_mutants.py check [--ref REF] [--root DIR]     every patch is well formed and applies at REF (default HEAD)
+    patch_mutants.py check --task [--ref REF]           the same for the task mutants, with no count
     patch_mutants.py validate PATCH [--product P] [--json]
                                                         one patch's header and scope; prints product/name (or
                                                         its parsed record, the one receipts store)
@@ -30,6 +31,11 @@ MAX_CHANGED_LINES changed lines, an added line that names the oracle (the fault 
 patches with the same change, a patch that does not apply at REF, a product without EXPECTED_PER_PRODUCT patches,
 and fault hooks in the sources at REF (`git grep OracleFaults -- Packages`, likewise in cmux-tui/crates).
 Exit: 0 clean, 1 errors, 2 bad usage.
+
+Task mutants (tests/oracle/task-mutants/<product>/<name>.patch, TASK_ROOT) have the same format and the same
+checks but the count: each is the fault one task's test phase must catch (p15-oracle-206's double create), kept
+out of the smoke set of ten per product that `selftest --mutants` scores. `linux_run.sh --mutant` applies them
+the same way.
 
 Chrome reference: a try bot applies the CL's patch to its own checkout before it compiles
 (depot_tools recipes/recipe_modules/bot_update/resources/bot_update.py) and reruns failures "(without patch)"
@@ -59,6 +65,7 @@ if str(HERE) not in sys.path:
 import baselines  # noqa: E402  (SUITE_CLASSES: the suite names)
 
 DEFAULT_ROOT = REPO / "tests" / "oracle" / "mutants"
+TASK_ROOT = REPO / "tests" / "oracle" / "task-mutants"
 PRODUCTS = ("app", "daemon")
 EXPECTED_PER_PRODUCT = 10
 # A seeded fault is one small change: an operator, a constant, a branch or one line removed.
@@ -242,11 +249,13 @@ def hook_errors(ref: str, repo: Path = REPO) -> List[str]:
     return [f"fault hook in the sources: {line}" for line in proc.stdout.splitlines()]
 
 
-def check(root: Path = DEFAULT_ROOT, ref: str = "HEAD", repo: Path = REPO) -> Tuple[List[Mutant], List[str]]:
+def check(root: Path = DEFAULT_ROOT, ref: str = "HEAD", repo: Path = REPO,
+          counted: bool = True) -> Tuple[List[Mutant], List[str]]:
+    """Every patch under `root` at REF; `counted` (the smoke set) also holds each product at EXPECTED_PER_PRODUCT."""
     mutants, errors = load(root)
     for product in PRODUCTS:
         count = sum(m.product == product for m in mutants)
-        if count != EXPECTED_PER_PRODUCT:
+        if counted and count != EXPECTED_PER_PRODUCT:
             errors.append(f"{root / product}: {count} mutants; the smoke set has {EXPECTED_PER_PRODUCT} per product")
     seen: Dict[str, str] = {}
     for mutant in mutants:
@@ -270,6 +279,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     checking = sub.add_parser("check", help="every patch is well formed and applies at --ref")
     checking.add_argument("--ref", default="HEAD")
     checking.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    checking.add_argument("--task", action="store_true", help=f"check {TASK_ROOT} (no count) instead of --root")
     validating = sub.add_parser("validate", help="one patch's header and scope; prints product/name")
     validating.add_argument("patch", type=Path)
     validating.add_argument("--product", choices=PRODUCTS, help="the product the build is for")
@@ -288,7 +298,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     print(f"error: {error}", file=sys.stderr)
             return 1 if errors else 0
         if args.command == "check":
-            mutants, errors = check(args.root, args.ref)
+            mutants, errors = check(TASK_ROOT, args.ref, counted=False) if args.task else check(args.root, args.ref)
             for error in errors:
                 print(f"error: {error}", file=sys.stderr)
             counts = ", ".join(f"{sum(m.product == p for m in mutants)} {p}" for p in PRODUCTS)

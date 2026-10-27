@@ -347,7 +347,9 @@ def case_doc(catalog: ops.Catalog, synth: ops.Synth, case: Case) -> Dict[str, An
                  [h for call in case.steps for h in handles(call.target) + handles(call.params)]))]
     connections = sorted({call.connection for call in case.steps} - {MAIN})
     if case.sidebar_plugin:
-        steps.extend(ops.before_step(case_id, spec, catalog) for spec in sidebar_plugin_setup())
+        # The `before` of sidebar_view.ensure's success tuning: tuned_step reads its request only for a replay.
+        owner = ops.Request("sidebar_view.ensure")
+        steps.extend(ops.tuned_step(case_id, spec, catalog, owner) for spec in sidebar_plugin_setup())
     for call in case.steps:
         steps.append(call_step(catalog, synth, case_id, call, ["before", "settled"] if call.id == "call" else None))
     steps.append({"id": "settle", "op": "settle", "note": "the last cut: I8 folds every open log up to it"})

@@ -573,10 +573,36 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 061-070 | Daemon-op families | M | 18-48 | 060 | MQ-daemon-ops |
 | 237 | Driver user connection (install-key hello) | M | 20-36 | 023, 200, 070 | MQ-daemon-ops |
 | 238 | Driver loopback pairing step | S | 20-36 | 023, 200, 070 | MQ-daemon-ops |
-| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061 | MQ-daemon-ops |
+| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061, 067 | MQ-daemon-ops |
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
+| 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
+| 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
+| 270 | Action cases: sidebar, item and group targets | M | 20-36 | 047, 071, 075 | MQ-actions |
+| 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
+| 272 | Facet: the top band's items | S | 20-28 | 036, 075 | |
+| 273 | Pin Chat with no target refuses | S | 20-28 | 075, 270 | |
+| 290 | Open Conversation refuses an unknown id | S | 20-28 | 076 | |
+| 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
+| 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
+| 293 | TOGGLES matches whole words | S | 18-24 | 071, 076 | |
+| 300 | NEIGHBOR_STEPS start from the far pane | S | 20-28 | 071, 080 | MQ-actions |
+| 301 | Right sidebar in the reset snapshot and the windows facet | M | 20-36 | 189, 080 | |
+| 330 | Action cases: generated setup runs with focus | M | 20-36 | 071, 072, 077 | MQ-actions |
+| 331 | Facet: screen and screen group metadata | S | 20-28 | 035, 077 | |
+| 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
+| 333 | No silent no-op for column and workspace moves | S | 20-28 | 077 | |
+| 334 | Reopen Saved Screen Group refuses an unknown id | S | 18-24 | 077 | |
+| 350 | Live: pointer step and menu rows | M | 20-36 | 047, 012, 225 | MQ-live |
+| 351 | Live: app restart step | M | 20-36 | 047, 189, 225 | MQ-live |
+| 352 | Live: https, basic auth and PDF in the web fixture | S | 18-28 | 222, 225 | MQ-live |
+| 353 | Live: stand-ins or retirements for scripts outside reach | S | 18-28 | 225 | |
+| 354 | Live: the app's Chief over mock_chief.py | M | 20-36 | 047, 200, 240, 225 | MQ-live |
+| 355 | Live: per-case launch environment and config | M | 20-36 | 047, 200, 225 | MQ-live |
+| 356 | Live: facets for the scripts' debug.* reads | L | 24-48 | 030, 225 | MQ-live |
+| 357 | Live: chrome:// and cmux:// pages are local | S | 18-24 | 012, 225 | MQ-live |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -901,11 +927,13 @@ The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairi
 (`server/websocket_listener.rs` begin_pairing) and waits until the facet lists the pairing request; the
 pairing_request.resolve success case rejects it by a `$step:` reference. Test: VM, the case green twice, no pairing left.
 
-**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`. driver_app.py runs a
+**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`, `tab/_tuning.json`.
+Depends on 067 (the tab tuning). driver_app.py runs a
 `requires: chromium` case's resource.call steps on the app's own daemon, whose browser host is the cmux-browser provider,
-in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 9 engine success
-cases (browser.activate/back/forward/reload/navigate, browser.input.key/text/mouse/wheel) lose their gaps; mouse and wheel
-also need a presented frame token from a stream step (204). Test: fleet, the 9 cases green twice.
+in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 10 chromium
+success cases lose their gaps: the 9 engine ops (browser.activate/back/forward/reload/navigate,
+browser.input.key/text/mouse/wheel) and tab.create_browser (a daemon-rendered browser tab in the fixture pane); mouse and
+wheel also need a presented frame token from a stream step (204). Test: fleet, the 10 cases green twice.
 
 **240 Driver: errorDetails, mock agent, chief connections.** Files: `driver_daemon.py`, `mock_chief.py`,
 `chief/_tuning.json`. (1) A resource.call step's `expect.errorDetails` is checked with
@@ -949,6 +977,294 @@ success cannot run. Give a case with a generated repository a checkout outside t
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
 
+**245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
+`mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
+`shutdown-daemon end_terminals` ends every terminal but leaves the holder running until its idle exit (IDLE_EXIT, 30 s):
+the holder model has no frame that ends the holder, so driver_daemon.py's I6 teardown (10 s) reports it left behind on
+every holder-arm case. Change: when the daemon ends its last holder terminal for shutdown, it tells the holder to exit
+(or the holder exits when its owner leaves and it holds no terminal), and the daemon waits for that exit before it
+answers. terminal/_tuning.json then drops its `expectations` entry (the 18 `[ new ] ... [ Failure ]` lines). Test: the
+cmux-holder and holder_runtime tests of the exit; VM, the 18 terminal cases green twice on the holder arm with the stock
+driver.
+
+**246 Facet: a terminal's view scroll offset.** Files: `oracle_state.rs`, `snapshot-v1.schema.json`, `terminal/_tuning.json`.
+terminal.viewport.scroll moves only the compatibility view's anchor (Surface::view_scroll_delta), which no read and no
+facet field returns: terminal.copy and terminal.screen.read read the terminal's own viewport. Change: the daemon facet
+reports each terminal's view scrollbar {offset, total, len} (Surface::view_scrollbar), and the scroll success case
+settles on offset = total - len - 5 after the call; its gap goes away. Test: VM, the scroll success case green twice on
+both holder arms, and red when the handler scrolls 0 rows or the other way (negative control).
+
+**247 Driver: a call that ends the daemon, expect.result references.** Files: `driver_daemon.py`,
+`driver_daemon_test.py`, `case_values.py`, `case_checks.py`, `case-v1.schema.json`, `case-v1-mutations.json`. Found by
+063 (session.shutdown and the graceful restart). (1) case-v1 step `ends: daemon` (a mutating resource.call only):
+after an ok reply the runner waits for the daemon's exit in that step, records it as the step's exit and checks it
+against allow_crashes (I17), and fails the step unless the exit is a normal termination (exit 0;
+`base/process/kill.h` TERMINATION_STATUS_NORMAL_TERMINATION). A later restart finds no running daemon, so it starts
+one and never sends shutdown-daemon to a daemon that is exiting; case_checks.py counts the step as one that ends a
+daemon. (2) `expect.result` resolves its `$step:` references before the comparison (case-v1 stepRef: the runner
+substitutes it), so `"$step:<id>#"` holds a reply equal to an earlier one, compared with JSON types (a bool never
+equals a number). (3) `expect.resultExcept`: JSON pointers, `*` for every item or member, removed from both values
+first (case_values.without_pointers), for what a new daemon generation changes. Implemented with 063's fixer, which
+needs all three: without (1) session-shutdown-ok races the exiting daemon at the restart (a Crash). Test:
+driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
+and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
+VM, the 22 session cases green twice.
+
+The sidebar and workspaceGroup action cases (075, `tests/oracle/corpus/actions/sidebar/_tuning.json`) make a group of
+the shown workspace before each group action, since no case can name a group, section or item. Two follow-ups close
+what the cases cannot check yet.
+
+**270 Action cases: sidebar, item and group targets.** Files: `case-v1.schema.json`, `driver_app.py`,
+`driver_app_test.py`, `gen_actions.py`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. case-v1 `target` has no
+`workspaceGroup`, `sidebarSection` or `sidebarItem` kind, so action.run cannot name `sidebar-section:sec_top`,
+`sidebar-item:itm_home` or a group (ActionTargetKind's CLI prefixes), and gen_actions.py takes no tuned target. Add
+the three kinds (a fixed id, or a `$step:` value such as make-group's created group), map them in
+`driver_app.action_target` to `workspace-group:`, `sidebar-section:` and `sidebar-item:`, and add `target` to the
+generator's tuning keys. The 13 section and 3 item cases that now expect the noSuchSection or noSuchItem
+refusal, and the 5 toggles blocked below, run their success path on `sec_top` and `itm_home`
+(sidebar.chat.togglePin also needs a history chat, 086), and workspaceGroup.collapseOthers folds a second group.
+workspaceGroup.moveToWindow (blocked `live-value`) takes its window from a newWindow setup step's created window as a
+`$step:` value. build_case adds a restore that runs a
+TOGGLES action again, also after an action step that expects an error, so a refused toggle would fail at restore-1.
+Until 270, sidebar.section.toggleTitle, toggleSpaceScope, toggleCollapsed, sidebar.item.toggleLabel and toggleArchive
+are blocked `live-value`: their tuning's `params.target` holds `<fixture sidebar-section:sec_top>` or `<fixture
+sidebar-item:itm_home>`. 270 moves that value to the action step's target, which unblocks them as success cases, and
+gen_actions.py writes no restore after an action step that expects an error (nothing changed to put back). Test:
+gen_actions.py --selftest (an error case has no restore step); driver_app_test.py (the kinds reach action.run's
+target); fleet, those cases green twice.
+
+**271 Facet: a workspace group's color, icon and archived mark.** Files: `SidebarSnapshot.swift`,
+`snapshot-v1.schema.json`, `OracleSidebarFacetTests.swift`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. The
+sidebar facet's group row has no color, icon or archived field, so workspaceGroup.setColor, clearColor, the nine
+color.* actions, setIcon, clearIcon and toggleArchive change nothing a case can wait on. Add `color` (the GroupTint
+wire token or null), `icon` (null, or `set`: an icon is user text) and `archived` to the row from SidebarModel's
+public values, as 036 reads the rest; the 14 cases gain a waitFor on the group row. Test: OracleSidebarFacetTests;
+fleet, the 14 cases green twice.
+
+**272 Facet: the top band's items.** Files: `SidebarSnapshot.swift`, `snapshot-v1.schema.json`,
+`OracleSidebarFacetTests.swift`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. SidebarDocListing.arrange draws
+each section before (and after) the machine lists as a block of items with no `.item` node, so the facet writes one
+row for sec_top and none for Home or an added item: sidebar.home.add, sidebar.home.remove and sidebar.item.add change
+no row, and their cases have no waitFor. Add one `item` row per item of those sections (its ref kind, label from the
+item or its app, as the row draws it), under the section row; the three cases gain a `changed` waitFor on
+`/sidebar/rows`. Test: OracleSidebarFacetTests (Home under sec_top, gone after its remove); fleet, the three cases
+green twice.
+
+**273 Pin Chat with no target refuses.** Files: `SidebarChatHistoryFeed.swift`, `SidebarChatPinBindingTests.swift`,
+`tests/oracle/corpus/actions/sidebar/_tuning.json`. SidebarChatHistoryFeed.bind returns with no sidebar-item target
+(or no history), so `sidebar.chat.togglePin` answers ok for nothing done, which ActionRegistry+Unavailable's "no
+handler is a silent no-op" forbids; the section and item actions refuse with noSuchItem. Throw an ActionFailure with
+the noSuchItem string, as SidebarSectionResolve.item does (Chrome: ExecuteCommandWithDisposition returns false for a
+command it did not run, chrome/browser/ui/browser_command_controller.cc). The case's tuning (divergence
+chat-pin-silent-no-target) turns to `error: control.unavailable`; it is a toggle, so it needs 270's rule of no restore
+after an error step. Test: SidebarChatPinBindingTests (no target: the run is refused, no pin changes); fleet, the
+case green twice.
+
+The workspace, home and space action cases (076, `tests/oracle/corpus/actions/workspace/_tuning.json`) found four
+divergences. Each case records today's answer and its note names the task below; the task changes the case's tuning
+in the commit that fixes the behavior, so the fix does not read as a regression. No `Expectations.d/actions.txt`
+line can list them yet: no actions case file is checked in until a live action-list.json lands (071), and
+`expectations.py lint` reports a line for a missing case as `stale` (an error). Once one is checked in before its
+task lands, the line is `<task> [ mac app ] actions/<case>/action [ Failure ]` (the action step's expect is not a
+snapshot value, so no pointer scopes it).
+
+**290 Open Conversation refuses an unknown id.** Files: `AppActions+HomeConversations.swift`,
+`HomeOpenConversationRefusalTests.swift`, `workspace/_tuning.json`. home.openConversation passes any id to
+`HomeDockView.open` or `TopHomePageView.open` and the run answers ok, though nothing opens. When the id names no
+conversation of the Home list (HomeSidebarModel's rows and pinned), refuse with `registry.refuseNotFound` (the
+socket answers `not_found`, ActionRegistry+Unavailable), as Chrome's tabs API rejects an unknown tab id
+(chrome/browser/extensions/api/tabs/tabs_api.cc, `ExtensionTabUtil::GetTabById` failing with kTabNotFoundError).
+The case's tuning turns to `error: control.not_found`. Test: HomeOpenConversationRefusalTests (an unknown id is
+not_found and opens nothing; a listed id opens it); fleet, the case green twice.
+
+**291 Select Conversation 1-9 is a focus action.** Files: `ActionCatalog+Focus.swift`,
+`AppActions+HomeConversations.swift`, `HomeSelectConversationByNumberTests.swift`, `workspace/_tuning.json`.
+home.nextConversation and home.previousConversation are in `ActionCatalog.focusActionIDs` and show Home from any
+origin; their sibling home.selectConversationByNumber is not, so a socket run is refused with homeNeedsFocus where
+the next and previous steps run. Add it to the focus set. With no conversation to pick (an empty list) the handler
+returns without a word today; refuse with RefusalStrings.homeNotReady instead (no handler is a silent no-op). The
+case's tuning expects that refusal for the fresh session (homeNotReady, not homeNeedsFocus) and gains an invariant
+that Home shows. Chrome: Select Tab 1-8 runs from any caller of the command (chrome/browser/ui/browser_commands.cc
+SelectNumberedTab). Test: HomeSelectConversationByNumberTests (a socket run shows Home and picks the nth; an empty
+list refuses); fleet, the case green twice.
+
+**292 No picker or ask for a socket run without an argument.** Files: `WorkspaceStructureHandlers.swift`,
+`RoomHandlers.swift`, `ArgumentlessSocketRunRefusalTests.swift`, `workspace/_tuning.json`. workspace.setIcon and
+space.setIcon open the icon picker when the run has no icon, whatever the origin, and space.rename asks for a name
+in the palette (ActionRegistry.ask does not read the origin): a script's run puts a popover or the palette in front
+of the person. When `ActionRunScope.viewChangeAllowed()` is false (a socket run without focus), throw
+`ActionFailure.invalidTarget` with the argument-required string (RoomStrings.iconArgumentRequired, a new localized
+name-required string for rename) instead; a person's run keeps the picker and the ask. Chrome's extension APIs
+never show UI for a missing argument: the schema validation rejects the call
+(extensions/renderer/bindings/api_signature.cc). The cases keep their argument (correct today); their `untested`
+picker and ask lines drop "once p15-oracle-292 lands". Test: ArgumentlessSocketRunRefusalTests (socket origin, no argument:
+refused, no picker or ask; palette origin: the picker or ask opens); fleet, the three cases green twice.
+
+**293 TOGGLES matches whole words.** Files: `every-action-sweep.py`, `workspace/_tuning.json`. TOGGLES
+(`pin`, `mute` anywhere in the id) takes space.color.pink for a pin toggle, so gen_actions.py adds a restore that
+sets pink again. Match `pin` and `mute` as id words (the end of the id or a capital letter after them:
+`togglePin`, `pinTab`, `muteConversation`), and check each id the change drops from the toggles against the catalog
+so no real toggle loses its restore. The space.color.pink note loses its divergence. Test: every-action-sweep.py
+`--plan-only` over a live catalog, the toggles before and after differ by the color actions only; gen_actions.py
+`--check` after regeneration; fleet, the case green twice.
+
+The terminal, find, focus, focusRing and pane action cases (080, `tests/oracle/corpus/actions/focus/_tuning.json`)
+found two problems a tuning cannot fix. focusRight and focusDown carry a `known failure (p15-oracle-300)` note, and
+focusRightSidebar is blocked (the tuning key `blocked`, kind `tuning` in coverage.json) until 301 lands.
+
+**300 NEIGHBOR_STEPS start from the far pane.** Files: `gen_actions.py`, `focus/_tuning.json`. NEIGHBOR_STEPS
+assume a split run through action.run focuses the new pane, but a socket run's split leaves focus in the launch's
+pane (FocusEvent::changes_view refuses its Expect, `cmux-tui/crates/cmux-focus-core/src/event.rs`). So neighbor-2 of
+focusRight (focusLeft) and of focusDown (focusUp) runs from a pane with no neighbor that way, PaneHandlers.bindFocus
+refuses it (control.unavailable), and both cases fail in neighbor-2 on every run. Change NEIGHBOR_STEPS to left =
+(splitRight, focusRight), right = (splitRight,), up = (splitDown, focusDown), down = (splitDown,): the moves are in
+ActionCatalog.focusActionIDs, so a socket run of them moves focus. Fix the comment above NEIGHBOR_STEPS and the
+selftest assertion in test_the_sweeps_setup_is_the_cases_setup (focus-right: splitRight, then the key
+cmd+opt+right). In the focus tuning, remove the known-failure notes of focusRight and focusDown, and the
+setup-start steps of focusLeft and focusUp (the neighbor steps now end in the far pane). Chrome:
+chrome/browser/ui/browser_focus_uitest.cc focuses a known view before each focus-traversal check. Test:
+gen_actions.py --selftest; `--check` after regeneration; fleet, focusLeft, focusRight, focusUp and focusDown green
+twice.
+
+**301 Right sidebar in the reset snapshot and the windows facet.** Files: `OracleWindowsFacet.swift`,
+`OracleWindowsFacetTests.swift`, `snapshot-v1.schema.json`, `app_reset.py`, `app_reset_test.py`,
+`focus/_tuning.json`. focusRightSidebar shows the right sidebar (RightSidebarHandlers: showRightSidebar, never a
+hide), no restore step closes it, and the reset snapshot (app_reset.projection) has no key for it, so every later
+case of the launch runs with a narrower content area (divergence right-sidebar-outlives-case). A relaunch does not
+help: RightSidebarModel keeps its visibility and mode in defaults (rightSidebar.visible, rightSidebar.mode). Add
+each window's right sidebar (`visible`, `mode`) to the windows facet from RightSidebarModel, and to the reset
+snapshot. AppReset.reset puts it back with toggleRightSidebar (visibility) and the mode's
+switchRightSidebarTo* action (mode), as it puts back the other keys. Chrome: base/test/test_suite.cc resets the
+state a test may change between tests and CheckForLeakedGlobals fails the test that leaves it changed. Then the
+focusRightSidebar tuning loses `blocked` and its divergence, and gains a waitFor on the facet's `visible`. Test:
+OracleWindowsFacetTests (visible and mode follow the model); app_reset_test.py (an open sidebar in another mode is
+put back to the fixture's); fleet, focusRightSidebar green twice and the cases after it in the same launch
+unchanged.
+
+The tab action cases (078, `tests/oracle/corpus/actions/tabs/_tuning.json`) state for every create what its turn must
+already show (I3). Creates whose handler waits for the daemon before anything shows carry a `divergence` note naming
+one of these follow-ups; invariants.py is not yet part of a run, so the cases stay green on their outcome and waitFor
+checks until it is.
+
+**320 I3 pairs a stand-in with the object that replaced it.** Files: `OracleIntentsFacet.swift`,
+`snapshot-v1.schema.json`, `invariants.py`, `OracleIntentsFacetTests.swift`. An optimistic create shows a stand-in in
+its turn (NewTerminalTabCommand.intendNow: a `pending_tab_` id, a provisional surface, no title or size; a page or
+workspace stand-in the same way) and the daemon's tab takes its place at settle (ProvisionalTab.created, echoed). I3
+compares raw ids, so it reports every optimistic create. The intents facet lists, per create intent of the window's
+store, the stand-in id and the id that replaced it (the intent log's createdSurface, mapped to the tab); invariants.py
+relabels the turn's stand-in ids by that list and leaves out, for those tabs only, the fields the daemon fills
+(surface, title, columns, rows, git_branch). Chrome makes the WebContents with its final id in the same call
+(TabStripModel::AddWebContents, chrome/browser/ui/tabs/tab_strip_model.cc), so it has no such pairing; cmux keeps the
+stand-in because the daemon owns the id. Test: invariants.py --selftest (a stand-in replaced passes, a stand-in that
+vanished or a field the stand-in claimed that changed fails); OracleIntentsFacetTests; fleet, newSurface, newTab and
+newColumn green on I3.
+
+**321 A positioned new tab is in its slot in its turn.** Files: `NewTabSlot.swift`, `NewTerminalTabCommand.swift`,
+`Intent.swift`, `NewTabPositionSlotTests.swift`. NewTabSlot makes the tab at the end and moves it into its slot
+(TabMoves.move) once the pane lists it; NewTabSuccession places it in the strip only, so the store's order, which the
+topology and every client read, has it last in the turn. Give the create intent the index (the stand-in is inserted
+there) and send it with new-tab, as Chrome inserts at the index in one call (TabStripModel::InsertWebContentsAt). Test:
+NewTabPositionSlotTests (the stand-in is at its index in the turn); fleet, newTab.atStart, afterCurrent and toRight
+green on I3.
+
+**322 Tab group writes are store intents.** Files: `TabGroupHandlers.swift`, `TabGroupHandlers+Moves.swift`,
+`Intent.swift`, `TabGroupIntentTests.swift`. TabGroupHandlers.run passes no intent except for collapse, so create,
+addTab, removeTab, newTab, rename, setColor and color.*, ungroup, close and moveLeft/Right change nothing until the
+daemon's echo. Add an intent per write, applied to the pane's tab groups in the turn and rolled back on a refusal
+(the strip's resync stays the fallback), as Chrome's TabStripModel::AddToNewGroup, AddToExistingGroup,
+RemoveFromGroup, MoveGroupTo and TabGroup::SetVisualData change the model at once. Test: TabGroupIntentTests (each
+write shows in the turn; a refusal restores it); fleet, the tab group cases green on I3.
+
+**323 Windows, workspaces and reopens show in their turn.** Files: `WindowManager+Creation.swift`,
+`WindowManager+Incognito.swift`, `WorkspaceHandlers.swift`, `PaneController+Intents.swift`,
+`DaemonClosedHistory.swift`, `TabGroupHandlers.swift`, `OptimisticCreateTests.swift`. newWindow and
+newIncognitoWindow open their window after createWorkspace returns, newBrowserWorkspace creates in createAndShow's
+unstructured Task, newTab.submit's `!` command skips the terminal stand-in (newTerminalTab's `typing`),
+reopenClosedBrowserPanel, reopenClosedWorkspace and tabGroup.reopenSaved await the daemon. Open the window with a
+workspace stand-in (as Cmd-N's startWorkspace does), give the typed terminal its stand-in and send the text after the
+daemon's tab replaces it, and show a reopened item from the closed record in the turn. Chrome: chrome::NewEmptyWindow,
+chrome::NewIncognitoWindow (chrome/browser/ui/browser_commands.cc), TabRestoreService::RestoreMostRecentEntry
+(components/sessions/core/tab_restore_service_helper.cc). Test: OptimisticCreateTests; fleet, those cases green on
+I3.
+
+**324 Tab and group moves into new containers show in their turn.** Files: `TabMoves.swift`, `TabGroupMoves.swift`,
+`TabGroupHandlers+Moves.swift`, `TabHandlers+More.swift`, `TabMoveIntentTests.swift`. TabMoves.toNewSplit,
+toNewColumn, toNewDockColumn and toNewWorkspace and the group moves await the daemon (only TabMoves.toWorkspace is an
+intent); TabGroupHandlers.moveToNewWorkspace runs in an untracked Task, so action.run answers before the move. Make
+each a store intent with a provisional pane, column or workspace, as the splits are, and track the group move.
+Chrome: TabStripModel::DetachWebContentsAtForInsertion then InsertDetachedTabAt, chrome::MoveTabsToNewWindow. Test:
+TabMoveIntentTests; fleet, the move cases green on I3.
+
+**325 Facets: tab and group icons, tab tint, saved tab groups.** Files: `ControlTopology+JSON.swift`,
+`ControlTopologyMapper.swift`, `snapshot-v1.schema.json`, CmuxNextControlTests. The topology's tab and tab group have
+no icon, a tab's own tint is in no facet and no facet lists the daemon's saved tab groups, so tab.setIcon,
+tab.clearIcon, tab.setTint, tabGroup.setIcon, clearIcon, save and unsave are checked on their ok answer only. Add
+`icon` (null, or `set`: an icon is user text) to both, the tab's own `tint`, and the saved groups (id, open group,
+name); the cases gain a waitFor. Test: CmuxNextControlTests on the JSON; fleet, the seven cases green twice.
+
+**326 A tab-group target and the groups a run made.** Files: `PublicIDTargetResolver.swift`,
+`ControlRouter+ActionRun.swift`, `case-v1.schema.json`, `driver_app.py`, `driver_app_test.py`, the tabs tuning.
+action.run's `created` lists no tab group or saved group, and case-v1 has no tab-group target kind (270 adds the
+sidebar's), so tabGroup.addTab and tabGroup.reopenSaved are blocked `live-value` and the group actions act only on the
+selected tab's group. List created tab groups and saved groups in `created`, add the `tabGroup` target kind
+(`tab-group:`), and move the two cases' placeholders to `$step:` values. Test: driver_app_test.py; fleet, the two cases
+green twice.
+
+The layout action cases (077, `tests/oracle/corpus/actions/layout/_tuning.json`: screen, screenGroup, column,
+layout, split, resize, swap and move) check structure on the layout facet (tree, ratios, column widths, docks, the
+active screen, the focused and zoomed pane), tab moves on the topology facet's panes (they list terminal tabs; the
+tabs facet lists only browser and page tabs, so a pane of terminals is not in it), workspace order on the sidebar rows
+and the two layout settings on settings.nonDefaultKeys. A socket run without focus may not move focus
+(FocusCoordinator.send refuses every changesView event), so a split or create in a case's setup leaves the launch's
+pane focused; the cases pick a pane with focusPaneByNumber, a focus action. Three cases fail at a generated setup
+step until 330, and the other four tasks are what the cases found. As for 076, the cases cannot be listed in
+`Expectations.d/actions.txt` until a live action-list.json checks the case files in; each case's note names its task.
+
+**330 Action cases: generated setup runs with focus.** Files: `gen_actions.py`, `layout/_tuning.json`. The sweep
+runs its context, neighbor and PREPARE steps through `SweepDriver.run`, which is action.run with `focus: true`;
+gen_actions.py `run_step` sends them without it. Without focus the neighbor split does not focus the new pane, so
+swapPaneRight's neighbor-2 focusLeft and swapPaneDown's focusUp run from the leftmost or top pane and are refused
+(refuseQuietly, control.unavailable), and column.moveRight's prepare-2 column.focusLeft the same. Give the generated
+setup steps `args.focus: true` (case-v1's action.run `focus`, which 072 adds with driver_app.py) and nothing else:
+the action under test keeps the caller's own permission. The cases' focus-pane-N steps keep working with either
+setup, since they pick the pane by number. Test: gen_actions.py --selftest (a generated setup step has focus, the
+action step does not); fleet, the three cases green twice.
+
+**331 Facet: screen and screen group metadata.** Files: `ControlTopology+JSON.swift`, `ControlTopologyMapper.swift`,
+`snapshot-v1.schema.json`, `OracleTopologyFacetTests.swift`, `layout/_tuning.json`. The topology facet's screen has
+id, handle, name, zoomed pane and panes; its color, icon, pin and group are in no facet, and no facet lists a
+workspace's screen groups. Add `color` (the wire token or null), `icon` (null, or `set`: an icon is user text),
+`pinned` and `group` to the screen, and `screen_groups` (id, name, color, icon as for screens, collapsed, saved) to
+the workspace, from the store's ScreenModel and ScreenGroupSnapshot, as the mapper reads the rest. The 14 screen
+look cases and the 21 screen group cases without a waitFor gain one. Test: OracleTopologyFacetTests (a colored,
+pinned, grouped screen and a collapsed saved group read back); fleet, those cases green twice.
+
+**332 Screen creates answer with the screen.** Files: `ScreenCommands.swift`, `ScreenGroupCommands.swift`,
+`ScreenCreateTrackingTests.swift`, `layout/_tuning.json`. `ScreenCommands.create` and `moveToNewWorkspace` start their
+daemon request in an untracked `Task`, so action.run (and `cmux screen new`) answers before the screen exists and
+`created` does not name it. Hand the work to the registry (`ctx.registry.track`, or the handler returns an
+ActionEffect), so the run's scope waits for the reply and lists the screen, as Chrome's `chrome.tabs.create` answers
+with the tab it made (chrome/browser/extensions/api/tabs/tabs_api.cc, TabsCreateFunction). screen.focus's case then
+targets `$step:second-screen#/created/0` for its success path, and the setup steps' layout waits become plain
+checks. Test: ScreenCreateTrackingTests (a socket screen.new answers with the new screen's id); fleet, screen.new,
+screen.focus and screen.moveToWorkspace green twice.
+
+**333 No silent no-op for column and workspace moves.** Files: `ColumnHandlers.swift`, `AppActions+Workspaces.swift`,
+`AppActions+PersonalOrder.swift`, `SilentNoOpRefusalTests.swift`, `layout/_tuning.json`. On a screen that is still one
+split tree, the column width presets, the width cycle and Center Column find no column for the implicit one
+(`LayoutModel.setColumnWidth` returns without a word) and the run answers ok for nothing done; Move Workspace Up or
+Down at the top or bottom returns the same way. Refuse with `refuseQuietly` and a localized reason (a key stays
+quiet; the CLI and the palette get the reason), or, for the presets, apply the width to the lone column as newColumn
+makes a strip. Chrome's Move Tab Left at the first tab is a no-op for the key but chrome.tabs.move with an index out
+of range is an error (chrome/browser/extensions/api/tabs/tabs_api.cc). Test: SilentNoOpRefusalTests; fleet, the
+column and moveWorkspace cases green twice, plus a refusal case for each.
+
+**334 Reopen Saved Screen Group refuses an unknown id.** Files: `ScreenGroupHandlers.swift`,
+`ScreenGroupReopenSavedTests.swift`, `layout/_tuning.json`. A saved id that names no saved group reaches the caller as
+`daemon_error` (the daemon's refusal wrapped as failed work). Check the id against the store's saved groups first and
+refuse with `refuseNotFound` (`not_found`), as 290 does for Home conversations. The case's tuning turns to
+`error: control.not_found`. Test: ScreenGroupReopenSavedTests; fleet, the case green twice.
+
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
 **204 Streams suite + I8.** Files: `gen_streams.py`, `invariants.py`, `tests/oracle/corpus/streams/`. Event log facet via
@@ -983,6 +1299,54 @@ size, title, cwd equal after restart; old arm expects the documented host-loss r
 
 **091 Tours** (23, waits become waitFor/settle). **092-097 e2e** (66 scripts in 6 batches of 11; each converted case fails on its cited
 bug's parent). **225 live** (106 scripts, `scripts/cmux-next/oracle/live-map.json`, 8 batches of 13).
+
+**Follow-ups of 225.** Every live script that 225 excludes names one of these tasks (or the suite's task that covers
+it) in `gen_live.py` EXCLUSIONS, and `gen_live.py --check` refuses an exclusion without a WORK.tsv task (rule 6).
+Each task moves its scripts from EXCLUSIONS to CONVERSIONS, regenerates `live-map.json`, and runs each new case
+twice on the fleet (`driver_app.py run-case --repeat 2`).
+
+**350 Pointer step.** Files: `case-v1.schema.json`, `driver_app.py`, `gen_live.py`. A `pointer` step (move, click,
+right-click, double-click, drag with its points in a window's or a facet row's coordinates) sent through
+`debug.mouse`, as Kombucha's MoveMouseTo, ClickMouse and DragMouseTo verbs (ui/views/interaction/
+interactive_views_test.h); an open context menu's rows in the overlays facet. Converts agent-pane-menu,
+cef-native-ui, chromium-popups, clickthrough, devtools-resize, group-editor, hovercard-delay, omnibar-pointer,
+sidebar-v2-drag, terminal-cmd-click, titlebar-double-click and the pointer halves of other cases.
+
+**351 App restart step.** Files: `driver_app.py`, `gen_live.py`. case-v1 already has `restart` with `process: app`;
+driver_app.py quits the app (TagTeardown keeps the state root), relaunches it on the same root and records the exit
+status for I17, as Chrome's PRE_ browser tests restart on the same user-data dir (content/public/test/test_launcher.cc).
+Converts browser-post-replay, browser-restore, downloads-relaunch, quit-hidden-chromium, update-card-close,
+updated-card-close and the relaunch halves of reopen-closed-history and sidebar-group-menu.
+
+**352 Web fixture: https, basic auth, PDF.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`. A second loopback
+origin over TLS with a certificate made per run (net::EmbeddedTestServer's TYPE_HTTPS with CERT_EXPIRED and
+CERT_MISMATCHED_NAME), an `/auth-basic` route (default_handlers.cc HandleAuthBasic) and an inline PDF route.
+Converts browser-challenges and pdf, and the certificate interstitial check of error-pages.
+
+**353 Scripts outside reach.** Files: `gen_live.py`, `live-map.json`. The network, host and evidence scripts (real
+services such as the Chrome Web Store, the staging Cloud API and Google Chrome over CDP; macOS services; captures)
+each get a loopback stand-in case where one can hold its check, or a written retirement agreed with the script's
+owner (OWNERS.md) that keeps it a manual live check outside the oracle.
+
+**354 Chief over mock_chief.py.** Files: `driver_app.py`, `mock_chief.py`, `gen_live.py`. `fixture.agent: chief`
+starts the app's Chief owner, Home and the ACP agent pane over mock_chief.py and the fake ACP agent (scripted
+replies, no model, no login), as 240 does for the daemon. Converts the chief-*, home-* and html-file-menu scripts
+that need a brain but not a real model.
+
+**355 Per-case launch.** Files: `case-v1.schema.json`, `hermetic_env.py`, `driver_app.py`, `gen_live.py`.
+`fixture.launch` names a launch variant from a closed list (the recording build env for external opens, extra CEF
+switches, a browser-import home, a tunables file, a seeded state root, a copied bundle); hermetic_env.py builds it and
+the bench launch applies it, as Chrome's browser tests set their command line in SetUpCommandLine. Converts the
+launch scripts.
+
+**356 Facets for debug.* reads.** Files: `snapshot-v1.schema.json`, the CmuxNextOracle and App/Oracle providers.
+Each read the no-facet scripts make through a debug.* method (downloads, permission prompts, omnibar suggestion rows,
+hover cards, toolbar and pane chrome buttons, OSC 7501 program status, the agent cursor, window layers) becomes a
+model value of a facet, with no view frames (rule 7). Converts the no-facet scripts.
+
+**357 Local schemes.** Files: `case-v1.schema.json`, `case-v1-mutations.json`, `gen_live.py`. noRemoteUrl takes
+`chrome://` internal pages and `cmux://` pages as local, as it already takes Chromium's debug URLs. Converts
+chrome-internal-pages and page-swap-visible.
 
 **098 Walks + ddmin, 099 at scale (100,000 seeds per daemon switch, both arms).** **207 Crash walks** (`crash_walks.py`): SIGKILL at
 random steps, restart on the same root, state equals last acknowledged sequence. **208 Upgrades** (`gen_upgrades.py`,

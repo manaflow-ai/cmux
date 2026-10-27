@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/perf/corpus-story-v1",
+  "title": "cmux-perf-corpus-story/v1",
+  "description": "One recorded-session corpus story of the perf lab (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.8): a layout snapshot, an input track replayed with recorded timing, PTY tracks, a Web Page Replay archive, agent transcript tracks, checkpoints and the metrics it writes. Manifests live in perf-corpus/<id>.json; large data lives in content-addressed blobs (sha256) in R2 with a local cache, as Chromium keeps a .wprgo.sha1 in git and the archive in cloud storage (tools/perf/page_sets/data/*.json, third_party/catapult/common/py_utils/py_utils/cloud_storage.py). scripts/perf-lab/corpus/manifest.py validates manifests; beyond this schema it rejects text payloads (fail closed: an action or CLI event must be declared in schemas/perf/corpus-input-vocabulary-v1.json, where a string is only a layout reference or a declared word; a typing key has no key code) and an input blob with text before any upload, requires every source of a recorded story, checks repository sources against their digest and refuses any perf-corpus file or repository source over 256 KB.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "tier",
+    "status",
+    "description",
+    "owner",
+    "duration_ms",
+    "layout",
+    "input",
+    "pty",
+    "web_archive",
+    "agents",
+    "checkpoints",
+    "metrics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cmux-perf-corpus-story/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Story id, the stem of perf-corpus/<id>.json. A lab story runs it as session corpus:<id>."
+    },
+    "tier": {
+      "enum": ["T0", "T1", "T2"],
+      "description": "The lab tier that runs the story (p12-perf-process.md section 3.3)."
+    },
+    "status": {
+      "enum": ["planned", "recorded"],
+      "description": "planned: the recorder (task 116) has not recorded it yet, so sources and checkpoint digests may be null. recorded: every source and every checkpoint digest is present."
+    },
+    "planned": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Only with status planned: what records the story and which task adds it."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "An owner from plans/cmux-next/OWNERS.md: a PL-* lane, the Performance Lead or an agent name."
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The measured window: the length of the input track. Every event and checkpoint is at or before it."
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot", "workspaces"],
+      "description": "The layout snapshot (task 111) that the player imports through the action pipeline before the input track.",
+      "properties": {
+        "snapshot": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/source"}]
+        },
+        "workspaces": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "input": {
+      "description": "The input track: inline events, or a blob of the same events as NDJSON (one event per line). An input track never carries typed text.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["events"],
+          "properties": {
+            "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["blob"],
+          "properties": {
+            "blob": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/blob"}]}
+          }
+        }
+      ]
+    },
+    "pty": {
+      "type": "array",
+      "description": "PTY tracks that pty_replay.py (task 112) writes into terminal surfaces at their recorded offsets.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "source", "speed", "loop"],
+        "properties": {
+          "surface": {"$ref": "#/$defs/ref"},
+          "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/source"}]},
+          "speed": {"type": "number", "exclusiveMinimum": 0},
+          "loop": {"type": "boolean"}
+        }
+      }
+    },
+    "web_archive": {
+      "description": "The Web Page Replay archive of the story's Chromium pages (task 113), or null when it has none. spki is the base64 sha256 of the replay certificate's public key, for --ignore-certificate-errors-spki-list.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wprgo", "spki"],
+          "properties": {
+            "wprgo": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/blob"}]},
+            "spki": {
+              "oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$"}]
+            }
+          }
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "description": "Optional: cmux-next.json settings the replay launches the bench app with (play.py sets them over bench_launch.BenchApp's default config), so a story's input reaches the same targets on every bench host. A key is a dotted setting path that schemas/defaults/cmux-next.json lists as setting.<key>, and its value has that default's type.",
+      "propertyNames": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[A-Za-z0-9]+)+$"},
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "boolean"},
+          {"type": "number"},
+          {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+        ]
+      }
+    },
+    "agents": {
+      "type": "array",
+      "description": "ACP agent tracks that the acpmux fake-agent harness streams with recorded timing (task 114). Transcripts are synthetic.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "agent", "transcript"],
+        "properties": {
+          "surface": {"$ref": "#/$defs/ref"},
+          "agent": {"$ref": "#/$defs/token"},
+          "transcript": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/blob"}]}
+        }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Points where the player compares the debug.focus and debug.surfaces digests; two replays must give equal digests.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["t_ms", "name", "focus", "surfaces"],
+        "properties": {
+          "t_ms": {"type": "integer", "minimum": 0},
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "focus": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+          "surfaces": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]}
+        }
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The result-v1 metrics the replay writes. name is a full-match regex over result-v1 metric names, as in scripts/perf-lab/stories.d.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "unit", "better"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "unit": {
+            "enum": ["ms", "us", "ns", "s", "count", "ratio", "percent", "bytes", "bytes_per_s", "mW", "J", "Hz", "fps", "per_s", "score", "unitless"]
+          },
+          "better": {"enum": ["lower", "higher"]}
+        }
+      }
+    },
+    "compose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stories", "idle_gap_ms"],
+      "description": "A soak story (task 122) that loops other corpus stories with idle gaps between them.",
+      "properties": {
+        "stories": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+        },
+        "idle_gap_ms": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^(--?)?[@A-Za-z0-9][A-Za-z0-9._:@+=-]{0,63}$",
+      "description": "An identifier, number, flag or layout reference. No spaces, no slashes: never free text."
+    },
+    "ref": {
+      "type": "string",
+      "pattern": "^@[a-z]+[0-9]+(\\.[a-z]+[0-9]+)*$",
+      "description": "An object of the layout snapshot by position, for example @w3.p0.t1 (workspace 3, pane 0, tab 1), since ids differ per replay."
+    },
+    "modifiers": {
+      "type": "array",
+      "items": {"enum": ["cmd", "shift", "option", "ctrl", "fn", "caps"]}
+    },
+    "blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "description": "A content-addressed blob in R2 (perf-lab/corpus/sha256/<sha256>), fetched into the local cache.",
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "description": "A file in the repository (for example schemas/terminal-corpus/*.vt), at most 256 KB, with its digest.",
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9._/-]+$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0, "maximum": 262144}
+      }
+    },
+    "source": {
+      "oneOf": [{"$ref": "#/$defs/blob"}, {"$ref": "#/$defs/file"}]
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t_ms", "kind", "payload"],
+          "properties": {
+            "t_ms": {"type": "number", "minimum": 0},
+            "kind": {"const": "key"},
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "class", "modifiers"],
+              "description": "The input journal's key record (InputJournalEntry.Key) without characters. A typing key (letter, digit, punctuation, space, other without cmd or ctrl) has no key_code: the player types the next character of its fixed synthetic text.",
+              "properties": {
+                "phase": {"enum": ["down", "up", "flags"]},
+                "class": {"enum": ["letter", "digit", "punctuation", "space", "named", "modifier", "other"]},
+                "key_code": {"type": "integer", "minimum": 0, "maximum": 65535},
+                "modifiers": {"$ref": "#/$defs/modifiers"},
+                "repeat": {"type": "boolean"},
+                "window": {"$ref": "#/$defs/ref"}
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t_ms", "kind", "payload"],
+          "properties": {
+            "t_ms": {"type": "number", "minimum": 0},
+            "kind": {"const": "mouse"},
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "button", "x", "y"],
+              "description": "The input journal's mouse record (InputJournalEntry.Mouse): window-local points from the top-left of the window, as debug.mouse takes them.",
+              "properties": {
+                "phase": {"enum": ["down", "up", "drag", "scroll"]},
+                "button": {"enum": [0, 1, 2]},
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "click_count": {"type": "integer", "minimum": 0},
+                "modifiers": {"$ref": "#/$defs/modifiers"},
+                "dx": {"type": "number"},
+                "dy": {"type": "number"},
+                "window": {"$ref": "#/$defs/ref"}
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t_ms", "kind", "payload"],
+          "properties": {
+            "t_ms": {"type": "number", "minimum": 0},
+            "kind": {"const": "action"},
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id"],
+              "description": "An action.run call: the action id and scalar arguments, each declared with its shape in schemas/perf/corpus-input-vocabulary-v1.json.",
+              "properties": {
+                "id": {"$ref": "#/$defs/token"},
+                "args": {
+                  "type": "object",
+                  "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+                  "additionalProperties": {
+                    "type": ["number", "boolean", "string"],
+                    "pattern": "^(--?)?[@A-Za-z0-9][A-Za-z0-9._:@+=-]{0,63}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t_ms", "kind", "payload"],
+          "properties": {
+            "t_ms": {"type": "number", "minimum": 0},
+            "kind": {"const": "cli"},
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["argv"],
+              "description": "A call of the bundled cmux CLI, argv without the program; it must match a command of schemas/perf/corpus-input-vocabulary-v1.json.",
+              "properties": {
+                "argv": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/token"}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

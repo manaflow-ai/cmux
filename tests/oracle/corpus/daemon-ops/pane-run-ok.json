@@ -60,9 +60,7 @@
         "method": "pane.run",
         "params": {
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ]
         },
         "idempotencyKey": "pane-run-ok.call"
@@ -75,7 +73,57 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the command (cat, which runs until the teardown ends it; a command that exits closes its tab) runs in a new terminal tab of the pane, which becomes the pane's active tab"
+    },
+    {
+      "id": "two-tabs",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "run-tab-active",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/active_tab_id",
+        "equals": "$step:call#/value/tab_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.run",
+        "params": {
+          "argv": [
+            "/bin/cat"
+          ]
+        },
+        "idempotencyKey": "pane-run-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

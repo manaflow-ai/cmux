@@ -36,13 +36,13 @@ import ObjectiveC
     /// waiters observe the widget's bounds and state changes (`views::test::WidgetBoundsChangeWaiter`,
     /// ui/views/test/widget_test.h).
     public static let stateChanges: [Notification.Name] = [
-        NSWindow.didMoveNotification, NSWindow.didResizeNotification,
-        NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
-        NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
-        NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-        NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
-        NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification,
-        NSApplication.didChangeScreenParametersNotification,
+        NSWindow.didMoveNotification, NSWindow.didResizeNotification, // raw-observer-allow: this adapter's own notice list
+        NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, // raw-observer-allow: this adapter's own notice list
+        NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, // raw-observer-allow: this adapter's own notice list
+        NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, // raw-observer-allow: this adapter's own notice list
+        NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification, // raw-observer-allow: this adapter's own notice list
+        NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification, // raw-observer-allow: this adapter's own notice list
+        NSApplication.didChangeScreenParametersNotification, // raw-observer-allow: this adapter's own notice list
     ]
 
     /// Observes `window`'s notifications on `center`. The app uses ``of(_:center:)``, which keeps

@@ -47,7 +47,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var channel: RTCDataChannel?
     private var remoteSet = false
     private var pending: [RTCIceCandidate] = []
-    private var drained: [CheckedContinuation<Void, Never>] = []
+    private var drained: [OnceContinuation<Void, OnceContinuationError>] = []
     private var ended = false
     private var videoTransceiver: RTCRtpTransceiver?
     /// The host's screen sender (its encoding parameters carry the quality).
@@ -210,7 +210,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     /// The SDP text of a created offer or answer (the description object is not Sendable).
     private func describe(_ body: @escaping (@escaping (RTCSessionDescription?, (any Error)?) -> Void) -> Void) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<String, any Error>) in
             body { description, error in
                 if let description { continuation.resume(returning: description.sdp) } else {
                     continuation.resume(throwing: VNCWebRTCError.peer(error?.localizedDescription ?? "no description"))
@@ -220,9 +220,9 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     private func apply(_ body: @escaping (@escaping ((any Error)?) -> Void) -> Void) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             body { error in
-                if let error { continuation.resume(throwing: VNCWebRTCError.peer(error.localizedDescription)) } else { continuation.resume() }
+                if let error { continuation.resume(throwing: VNCWebRTCError.peer(error.localizedDescription)) } else { continuation.resume(returning: ()) }
             }
         }
     }
@@ -236,13 +236,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             let end = min(offset + Self.chunk, data.count)
             guard let channel = lock.withLock({ channel }), channel.readyState == .open else { throw VNCWebRTCError.closed }
             while channel.bufferedAmount > Self.highWater {
-                await withCheckedContinuation { continuation in
+                // A dropped waiter goes on as a drained one does: the loop checks `ended` and the buffer again.
+                _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                     let resumeNow = lock.withLock { () -> Bool in
                         if ended || channel.bufferedAmount <= Self.highWater { return true }
                         drained.append(continuation)
                         return false
                     }
-                    if resumeNow { continuation.resume() }
+                    if resumeNow { continuation.resume(returning: ()) }
                 }
                 if lock.withLock({ ended }) { throw VNCWebRTCError.closed }
             }
@@ -265,7 +266,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func metrics() async -> Metrics {
         let backlog = lock.withLock { channel?.bufferedAmount ?? 0 }
-        return await withCheckedContinuation { continuation in
+        // No report (the statistics callback dropped) is the backlog alone.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Metrics, OnceContinuationError>) in
             connection.statistics { report in
                 var metrics = Metrics(backlogBytes: backlog)
                 for stats in report.statistics.values where stats.type == "candidate-pair" {
@@ -278,18 +280,18 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
                 }
                 continuation.resume(returning: metrics)
             }
-        }
+        }) ?? Metrics(backlogBytes: backlog)
     }
 
     func close() {
-        let (channel, waiters, first) = lock.withLock { () -> (RTCDataChannel?, [CheckedContinuation<Void, Never>], Bool) in
+        let (channel, waiters, first) = lock.withLock { () -> (RTCDataChannel?, [OnceContinuation<Void, OnceContinuationError>], Bool) in
             let waiters = drained
             drained.removeAll()
             defer { ended = true }
             return (self.channel, waiters, !ended)
         }
         guard first else { return }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
         channel?.close()
         connection.close()
         finish()
@@ -335,11 +337,11 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func dataChannel(_ dataChannel: RTCDataChannel, didChangeBufferedAmount amount: UInt64) {
         guard dataChannel.bufferedAmount <= Self.highWater else { return }
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+        let waiters = lock.withLock { () -> [OnceContinuation<Void, OnceContinuationError>] in
             defer { drained.removeAll() }
             return drained
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     // MARK: RTCPeerConnectionDelegate
@@ -446,8 +448,13 @@ extension VNCPeerLink {
         let selector = NSSelectorFromString("setCodecPreferences:error:")
         guard transceiver.responds(to: selector) else { return }
         typealias Setter = @convention(c) (AnyObject, Selector, NSArray, UnsafeMutablePointer<NSError?>?) -> Bool
-        let method = unsafeBitCast(transceiver.method(for: selector), to: Setter.self)
-        _ = method(transceiver, selector, codecs as NSArray, nil)
+        // SAFETY: responds(to:) above proves the IMP exists, and Setter is the C signature of
+        // -[RTCRtpTransceiver setCodecPreferences:error:] (id self, SEL, NSArray *, NSError **)
+        // returning BOOL, so the cast IMP is called with the types it was compiled for.
+        let method = unsafe unsafeBitCast(transceiver.method(for: selector), to: Setter.self)
+        // SAFETY: the IMP's own signature (above); a nil error pointer is allowed by the
+        // method and makes it write nothing back.
+        _ = unsafe method(transceiver, selector, codecs as NSArray, nil)
     }
 
     /// Receive codec names, in the factory's order (diagnostics).
@@ -458,8 +465,9 @@ extension VNCPeerLink {
 
 extension VNCPeerLink {
     /// Inbound video numbers for the viewer's overlay.
+    /// Empty stats when the statistics callback dropped without a report.
     func videoStats() async -> ScreenStreamViewer.VideoStats {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<ScreenStreamViewer.VideoStats, OnceContinuationError>) in
             connection.statistics { report in
                 var stats = ScreenStreamViewer.VideoStats()
                 var codecs: [String: String] = [:]
@@ -486,14 +494,14 @@ extension VNCPeerLink {
                 }
                 continuation.resume(returning: stats)
             }
-        }
+        }) ?? ScreenStreamViewer.VideoStats()
     }
 }
 
 extension VNCPeerLink {
     /// Outbound video, one line (host diagnostics).
     func outboundVideoSummary() async -> String {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<String, OnceContinuationError>) in
             connection.statistics { report in
                 var codecs: [String: String?] = [:]
                 for entry in report.statistics.values where entry.type == "codec" {
@@ -508,7 +516,7 @@ extension VNCPeerLink {
                 }
                 continuation.resume(returning: out)
             }
-        }
+        }) ?? "no outbound video"
     }
 }
 

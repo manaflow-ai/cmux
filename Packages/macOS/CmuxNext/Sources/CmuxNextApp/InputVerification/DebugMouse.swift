@@ -31,11 +31,20 @@ import CmuxNextSettings
 /// `hover: false` leaves the synthesized pointer as it is, so a perf
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
-/// clicks Chromium's page view instead (`DebugMouse+Page`).
+/// clicks Chromium's page view instead, or scrolls or moves the pointer over
+/// it, and in host mode clicks it with the `middle`, `back` or `forward`
+/// button, pinches it (`pinch`, `scale`) or smart-magnifies it
+/// (`smart_magnify`) (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
-            return params["action"]?.stringValue == "scroll" ? scrollPage(params, services: services) : clickPage(params, services: services)
+            switch params["action"]?.stringValue ?? "click" {
+            case "scroll": return scrollPage(params, services: services)
+            case "move": return movePage(params, services: services)
+            case "pinch", "smart_magnify": return gesturePage(params, services: services)
+            case "click" where pageButtons[params["button"]?.stringValue ?? ""] != nil: return buttonPage(params, services: services)
+            default: return clickPage(params, services: services)
+            }
         }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),

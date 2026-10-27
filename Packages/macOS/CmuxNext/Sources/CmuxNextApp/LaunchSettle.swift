@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLaunch
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -22,7 +23,7 @@ import CmuxNextWakeups
 final class LaunchSettle {
     private(set) var isSettled = false
     private var waiters: [@MainActor () -> Void] = []
-    private var unavailableWatch: Task<Void, Never>?
+    private var unavailableWatch: ServiceObservation<Bool>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
@@ -76,6 +77,32 @@ final class LaunchSettle {
         for work in waiting { work() }
     }
 
+    /// Runs `work` once, when the launch settled and no agent page waits behind its last frame (`images` clear,
+    /// as ``settled(within:images:)`` waits), with no limit: the launch's reads of the last quit's frames go then.
+    ///
+    /// - Parameters:
+    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
+    ///   - work: Runs on the main actor.
+    func whenSettledAndClear(images: LaunchImageHold, _ work: @escaping @MainActor () -> Void) {
+        whenSettled { images.whenClear(work) }
+    }
+
+    /// `memorySmallAppStores` (default off): once the launch settled and no agent pane draws its last page, the
+    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
+    ///
+    /// - Parameters:
+    ///   - frames: The last quit's terminal frames (`AppServices.terminalLaunchFrames`).
+    ///   - pages: The last quit's agent pages (`AppServices.launchImages`, the agent tabs' store).
+    ///   - features: The app's feature list.
+    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
+    func dropLaunchReads(frames: TerminalLaunchFrames, pages: AgentPaneLaunchImages, features: FeatureList, images: LaunchImageHold) {
+        guard features.isEnabled(.memorySmallAppStores) else { return }
+        whenSettledAndClear(images: images) { [weak frames, weak pages] in
+            frames?.dropLaunchRead()
+            pages?.dropLaunchRead()
+        }
+    }
+
     private func whenSettled(_ work: @escaping @MainActor () -> Void) {
         if isSettled { work() } else { waiters.append(work) }
     }
@@ -88,19 +115,22 @@ final class LaunchSettle {
     /// - Parameters:
     ///   - daemon: The local daemon.
     ///   - warmup: The agent pages' WebKit warm-up (`AppServices.agentPageWarmup`).
-    func install(daemon: DaemonService, warmup: AgentPageWarmup) {
+    ///   - mainWork: The app's main-thread scheduler: the daemon's startup state applies as a task on it.
+    func install(daemon: DaemonService, warmup: AgentPageWarmup, on mainWork: MainWorkScheduler) {
         self.warmup = warmup
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
         TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
-        // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
-        unavailableWatch = Task { [weak self] in
-            for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
-                // No region will get its data: show everything as it is.
-                self?.reveal.markAllReady()
-                self?.settle()
-                return
-            }
+        // Ends when the daemon is unavailable or the launch settled (cancelled in settle). `visible`: it reveals
+        // the window's regions.
+        let watch = ServiceObservation(.visible, owner: "LaunchSettle.daemonUnavailable", on: mainWork) {
+            daemon.startup.isUnavailable
+        } apply: { [weak self] unavailable in
+            guard unavailable, let self, !self.isSettled else { return }
+            // No region will get its data: show everything as it is.
+            self.reveal.markAllReady()
+            self.settle()
         }
+        if isSettled { watch.cancel() } else { unavailableWatch = watch }
     }
 
     /// A terminal was handed content: a content signal for the visible pane refs while they hold

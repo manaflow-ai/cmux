@@ -43,12 +43,24 @@ import Testing
         #expect(page.frame == host.hostView.bounds)
 
         // A later window of the same pane names the same page view (one token on the wire).
-        #expect(host.pageParent() == Self.token(page))
+        #expect(host.pageParent() == CEFParentView(token: page.wireToken))
         // Another pane's page view has a token of its own.
         let (other, otherTab) = Self.pane(runtime)
         other.ensureCreated(otherTab)
         let otherPage = try #require(other.hostedPageView)
         #expect(otherPage.wireToken != 0 && otherPage.wireToken != page.wireToken)
+    }
+
+    /// A tab's page is a child window only in process; in host mode it is the pane's page view, in
+    /// the view tree (task 028), so App code that reaches page windows leaves host pages alone.
+    @Test(arguments: [false, true])
+    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: hostMode)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, tab) = Self.pane(runtime)
+        host.ensureCreated(tab)
+
+        #expect(tab.presentation == (hostMode ? .inView : .childWindow))
     }
 
     /// Host mode: the window's page shows in the pane's page view, so the fork's layer hosting of a
@@ -310,8 +322,8 @@ import Testing
     /// A hosted page gets page-ownable keys first (`KeyRouter.Facts.pageReportsUnhandledKeys`) only
     /// while its page view has the keyboard and its host reports the chords the page leaves
     /// unhandled. Until the input route lands, cmux runs its actions before the page as before.
-    @Test func aHostedPageHasTheKeysOnlyWhileItsHostReportsThem() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func aHostedPageHasTheKeysOnlyWhileItsHostReportsThem() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab, window) = try Self.presentedPopupPane(runtime)
         defer { window.close() }
@@ -328,8 +340,8 @@ import Testing
 
     /// KEY_UNHANDLED for a chord: with no cmux action held for it (this tab has no key router), the
     /// held key goes to the menus, once; a report from another browser takes nothing.
-    @Test func anUnhandledChordGoesToTheMenusOnce() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func anUnhandledChordGoesToTheMenusOnce() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _, window) = try Self.presentedPopupPane(runtime)
         defer { window.close() }
@@ -347,6 +359,63 @@ import Testing
         runtime.handle(.keyUnhandledChord(browser: Self.firstBrowser, seq: 7))
         runtime.handle(.keyUnhandledChord(browser: Self.firstBrowser, seq: 7))
         #expect(seen.events.count == 1 && seen.events.first === cmdK)
+    }
+
+    // MARK: Page cursor (task 045)
+
+    /// Host mode: a CURSOR shows on the pane's page view while its tab is the shown one; a hidden
+    /// tab's cursor waits, and each tab's last cursor comes back when it shows again (a renderer
+    /// sends its cursor only when it changes).
+    @Test func hostModeShowsTheShownTabsPageCursor() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.livePane(runtime)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(first, in: container)
+        let page = try #require(host.hostedPageView)
+        #expect(page.pageCursorName == "default", "the arrow until the page sets one")
+
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(3))))
+        #expect(page.pageCursorName == "text")
+
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(second)
+        runtime.register(second, browser: Self.firstBrowser + 1)
+        host.present(second, in: container)
+        #expect(page.pageCursorName == "default", "the first tab's cursor is not the second's")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .cursor(.builtIn(18))))
+        #expect(page.pageCursorName == "col-resize")
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(2))))
+        #expect(page.pageCursorName == "col-resize", "a hidden tab's cursor does not show")
+
+        host.present(first, in: container)
+        #expect(page.pageCursorName == "pointer")
+        host.present(second, in: container)
+        #expect(page.pageCursorName == "col-resize")
+    }
+
+    /// Task 054: the shown tab's TOOLTIP shows on the page view; a hidden tab's does not.
+    @Test func hostModeShowsTheShownTabsTooltip() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.livePane(runtime)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(first, in: container)
+        let page = try #require(host.hostedPageView)
+        #expect(page.pageTooltip == nil)
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Close")))
+        #expect(page.pageTooltip == "Close")
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(second)
+        runtime.register(second, browser: Self.firstBrowser + 1)
+        host.present(second, in: container)
+        #expect(page.pageTooltip == nil, "the first tab's tooltip is not the second's")
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Hidden")))
+        #expect(page.pageTooltip == nil, "a hidden tab's tooltip does not show")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("Shown")))
+        #expect(page.pageTooltip == "Shown")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("")))
+        #expect(page.pageTooltip == nil)
     }
 
     // MARK: Fixtures

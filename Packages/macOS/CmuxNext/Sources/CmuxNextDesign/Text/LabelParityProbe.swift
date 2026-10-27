@@ -184,7 +184,7 @@ public struct LabelParityProbe {
             row["\(at).cell.stock"] = "\(celled)"
             report.checked += 1
             if !Self.placed(celled, inks.1) { note("\(name) \(at) cell ink: old label \(celled) label \(inks.1)", into: &report) }
-            label.display()
+            label.display() // sync-layout: the debug probe reads the label's rendered layer below.
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"
             report.checked += 1
@@ -208,8 +208,8 @@ public struct LabelParityProbe {
                         fills ? view.trailingAnchor.constraint(equalTo: box.trailingAnchor)
                             : view.trailingAnchor.constraint(lessThanOrEqualTo: box.trailingAnchor),
                     ])
-                    box.layoutSubtreeIfNeeded()
-                    // The second pass a wrapping label's width change asks for.
+                    box.layoutSubtreeIfNeeded() // sync-layout: the debug probe reads the laid-out frame below.
+                    // sync-layout: the second pass a wrapping label's width change asks for.
                     box.layoutSubtreeIfNeeded()
                     let frame = view.frame
                     view.removeFromSuperview()
@@ -305,9 +305,9 @@ public struct LabelParityProbe {
         let scale = view.window?.backingScaleFactor ?? 2
         let width = Int((view.bounds.width * scale).rounded(.up)), height = Int((view.bounds.height * scale).rounded(.up))
         guard width > 0, height > 0,
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Ink(box: .null, amount: 0) }
+              let ctx = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Ink(box: .null, amount: 0) }
         // Layers are flipped; Core Graphics is not (as TabSnapshotRenderer draws).
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
@@ -318,15 +318,15 @@ public struct LabelParityProbe {
 
     private static func ink(_ image: CGImage) -> Ink {
         let width = image.width, height = image.height
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = ctx.data else { return Ink(box: .null, amount: 0) }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4,
+                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { ctx in
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }) else { return Ink(box: .null, amount: 0) }
         var box = CGRect.null, amount = 0.0
         for y in 0..<height {
             for x in 0..<width {
-                let alpha = bytes[(y * width + x) * 4 + 3]
+                let alpha = pixels[x, y, 3]
                 guard alpha > 24 else { continue }
                 amount += Double(alpha) / 255
                 // Row 0 of the context's memory is the top of the image.

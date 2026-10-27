@@ -21,6 +21,7 @@
 //! the hub's watch state drops, and the thread ends when the watcher drops.
 
 use super::*;
+use crate::daemon::hang_watch::{BLOCKING_ITEM, SyncThread};
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
@@ -144,7 +145,7 @@ impl Hub {
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
-            .name("acpmux-harness-watch".into())
+            .name(THREAD.into())
             .spawn(move || run(&rx, &watch, &sources, &signal));
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
@@ -330,8 +331,12 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     }
 }
 
+/// The watch thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-harness-watch";
+
 /// Ends when the watcher is dropped (the channel closes), or when the reload
-/// task is gone (the runtime stopped or the hub dropped).
+/// task is gone (the runtime stopped or the hub dropped). Each burst's
+/// refresh, not its wait, is one hang-watch item.
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<HarnessWatcher>,
@@ -351,6 +356,7 @@ fn run(
                 || event.paths.iter().any(|p| relevant(p, sources) || relevant(p, &real))
         }
     };
+    let watched = SyncThread::register(THREAD, BLOCKING_ITEM);
     while let Ok(first) = rx.recv() {
         let started = Instant::now();
         let mut changed = matters(first);
@@ -370,6 +376,7 @@ fn run(
             }
         }
         if changed {
+            let _item = watched.item();
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(sources);
             drop(watch);

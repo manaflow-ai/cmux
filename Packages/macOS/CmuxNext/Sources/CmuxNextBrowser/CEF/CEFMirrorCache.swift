@@ -51,8 +51,9 @@ final class CEFMirrorCache {
         let overriding: CEFShimLibrary
         do throws(CEFShimLibrary.LoadError) {
             // The shim holds this cache: `served` stays it while any copy of the shim is alive.
-            overriding = try source.overriding { [self] name in
-                withExtendedLifetime(self) { CEFMirrorExports.function(named: name) }
+            // SAFETY: each name resolves to the mirror's C function of that export's type, or nil (the source's).
+            overriding = try unsafe source.overriding { [self] name in
+                withExtendedLifetime(self) { unsafe CEFMirrorExports.function(named: name) }
             }
         } catch {
             throw .shim(error)
@@ -83,18 +84,22 @@ final class CEFMirrorCache {
     /// A copy of `key`'s string for a C caller, which frees it with `cmux_shim_free`; NULL when no
     /// batch pushed one.
     func handOutString(_ key: CEFMirrorKey) -> UnsafeMutablePointer<CChar>? {
-        guard case .string(let text)? = values[key], let copy = strdup(text) else { return nil }
-        handedOut.insert(UInt(bitPattern: copy))
-        return copy
+        // SAFETY: strdup makes a NUL-terminated copy the C caller owns until it frees it with `cmux_shim_free`
+        // (`free(_:)`); only its address is kept, to recognize it there.
+        guard case .string(let text)? = values[key], let copy = unsafe strdup(text) else { return nil }
+        unsafe handedOut.insert(UInt(bitPattern: copy))
+        return unsafe copy
     }
 
     /// `cmux_shim_free`: a copy ``handOutString(_:)`` made is freed here; any other string is the
     /// source shim's (the one served cache's shim made it, so it came from this `source`).
     func free(_ pointer: UnsafeMutablePointer<CChar>) {
-        if handedOut.remove(UInt(bitPattern: pointer)) != nil {
-            Darwin.free(pointer)
+        // SAFETY: a C caller frees each string it got once: a copy handOutString made goes to Darwin's free
+        // (strdup's allocator), any other came from the source shim and goes to its `cmux_shim_free`.
+        if unsafe handedOut.remove(UInt(bitPattern: pointer)) != nil {
+            unsafe Darwin.free(pointer)
         } else {
-            source.free(pointer)
+            unsafe source.free(pointer)
         }
     }
 
@@ -116,24 +121,19 @@ final class CEFMirrorCache {
         case .passwordReplaceAvailable: return .int(shim.passwordReplaceAvailable())
         case .passkeysAvailable: return .int(shim.passkeysAvailable())
         case .passwordCoreAvailable: return .int(shim.passwordCoreAvailable())
+        case .extLoadLaterSupported: return .int(shim.extLoadLaterSupported())
         case .windowID: return .int(shim.tabWindowID(id))
         case .devToolsBrowser: return .int(shim.devToolsBrowser(id))
-        case .navigationEntries: return shim.takeString(shim.tabNavigationEntries(id)).map(CEFMirrorValue.string)
-        case .navigationState: return shim.takeString(shim.tabNavigationState(id)).map(CEFMirrorValue.string)
-        case .extActions: return shim.takeString(shim.extActions(id, key.iconPixels)).map(CEFMirrorValue.string)
-        case .extList: return shim.takeString(shim.extList(id)).map(CEFMirrorValue.string)
-        case .extCommands: return shim.takeString(shim.extCommands(id)).map(CEFMirrorValue.string)
-        case .sidePanelState: return shim.takeString(shim.sidePanelState(id)).map(CEFMirrorValue.string)
-        case .omniboxKeywords: return shim.takeString(shim.omniboxKeywords(id)).map(CEFMirrorValue.string)
-        case .popupWindowBounds: return .bounds(Self.bounds(shim.popupWindowBounds, id))
-        case .devToolsInspectedBounds: return .bounds(Self.bounds(shim.devToolsInspectedBounds, id))
+        case .navigationEntries: return shim.tabNavigationEntries(id).map(CEFMirrorValue.string)
+        case .navigationState: return shim.tabNavigationState(id).map(CEFMirrorValue.string)
+        case .extActions: return shim.extActions(id, key.iconPixels).map(CEFMirrorValue.string)
+        case .extList: return shim.extList(id).map(CEFMirrorValue.string)
+        case .extCommands: return shim.extCommands(id).map(CEFMirrorValue.string)
+        case .sidePanelState: return shim.sidePanelState(id).map(CEFMirrorValue.string)
+        case .omniboxKeywords: return shim.omniboxKeywords(id).map(CEFMirrorValue.string)
+        case .popupWindowBounds: return .bounds(shim.popupWindowBounds(id))
+        case .devToolsInspectedBounds: return .bounds(shim.devToolsInspectedBounds(id))
         }
-    }
-
-    private static func bounds(_ read: CEFMirrorExports.BoundsRead, _ id: Int32) -> CEFMirrorValue.Bounds {
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        let result = read(id, &x, &y, &width, &height)
-        return CEFMirrorValue.Bounds(result: result, x: x, y: y, width: width, height: height)
     }
 }
 
@@ -158,11 +158,5 @@ nonisolated enum CEFMirrorValue: Equatable, Sendable {
     case bounds(Bounds)
 
     /// An out-parameter read's return value and outputs.
-    nonisolated struct Bounds: Equatable, Sendable {
-        var result: Int32 = 0
-        var x: Int32 = 0
-        var y: Int32 = 0
-        var width: Int32 = 0
-        var height: Int32 = 0
-    }
+    typealias Bounds = CEFShimBounds
 }

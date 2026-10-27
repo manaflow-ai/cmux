@@ -30,6 +30,10 @@ public struct ShutdownDaemonRequest: DaemonRequest {
         self.endTerminals = endTerminals
         self.keepLayout = keepLayout
     }
+
+    enum CodingKeys: String, CodingKey {
+        case pid, generation, force, endTerminals = "end_terminals", keepLayout = "keep_layout"
+    }
 }
 
 /// Keeps daemon replay colors in step with the app's Ghostty theme.

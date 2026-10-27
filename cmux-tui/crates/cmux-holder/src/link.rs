@@ -60,16 +60,18 @@ pub enum TraceForward {
 /// Watches each frame the reader thread routes, for the daemon's hang
 /// watcher (cmux-panic-log `hang`, which this std-and-libc crate does not
 /// link): `enter` gets the frame's kind before it is routed and returns a
-/// token, `exit` gets that token once the frame is done.
+/// token, `exit` gets that token once the frame is done. `hang` gets each
+/// [`Kind::Hang`] the holder reports about its own loop.
 #[derive(Clone, Copy)]
 pub struct FrameWatch {
     pub enter: fn(u16) -> u32,
     pub exit: fn(u32),
+    pub hang: fn(&wire::HangReport),
 }
 
 impl FrameWatch {
     /// Watches nothing.
-    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {} };
+    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {}, hang: |_| {} };
 }
 
 /// One watched frame: ends its watch when it drops.
@@ -172,6 +174,12 @@ pub struct HolderLink {
     spawn_timeout: Duration,
 }
 
+/// The class of the holder-link reader thread: every echoed key's output
+/// passes through it, so it is the daemon's key echo path class
+/// (`thread_qos::ThreadType::InputCritical` in cmux-tui-core, which sits
+/// above this crate and tests that the two agree).
+pub const LINK_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInteractive;
+
 /// How long a spawn waits for the holder's answer.
 pub const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -224,7 +232,7 @@ impl HolderLink {
             spawn_timeout,
         });
         let weak = Arc::downgrade(&link);
-        std::thread::Builder::new().name("holder-link".into()).spawn(move || {
+        cmux_threads::spawn("holder-link", LINK_READER_QOS, move || {
             let end = read_loop(&stream, reader, &weak, watch);
             if let Some(link) = weak.upgrade() {
                 link.lost();
@@ -671,6 +679,11 @@ fn read_loop(
                         && let Some(sink) = link.lock().sinks.get(&chan).cloned()
                     {
                         sink.gap(requested, oldest);
+                    }
+                }
+                Some(Kind::Hang) if chan == 0 => {
+                    if let Ok(report) = wire::HangReport::decode(&frame.payload) {
+                        (watch.hang)(&report);
                     }
                 }
                 Some(Kind::Exit) => {
