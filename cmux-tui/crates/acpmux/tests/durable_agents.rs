@@ -2286,7 +2286,7 @@ async fn a_turn_mdm_ended_leaves_its_chat_idle() {
     let mut rpc = daemon.rpc().await;
     let mut turn = daemon.rpc().await;
     let held = json!({"sessionId": session,
-                      "prompt": [{"type": "text", "text": "set-mode-hold: 25000 default"}]});
+                      "prompt": [{"type": "text", "text": "hang"}]});
     let prompt = tokio::spawn(async move { turn.reply("session/prompt", held).await });
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
@@ -2337,7 +2337,7 @@ async fn a_turn_mdm_ended_is_not_failed_over() {
     let mut rpc = daemon.rpc().await;
     let mut turn = daemon.rpc().await;
     let held = json!({"sessionId": session,
-                      "prompt": [{"type": "text", "text": "set-mode-hold: 25000 default"}]});
+                      "prompt": [{"type": "text", "text": "hang"}]});
     let prompt = tokio::spawn(async move { turn.reply("session/prompt", held).await });
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
