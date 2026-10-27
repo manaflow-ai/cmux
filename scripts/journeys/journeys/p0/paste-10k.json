@@ -66,7 +66,7 @@
        {"daemon_prompt": true},
        {"app_text_line": "GOT-${nonce} lines=10000 bracketed=yes order=ok sha=match"},
        {"app_prompt": true},
-       {"frame_text": "lines=10000 bracketed=yes order=ok sha=match"}
+       {"pane_frame_text": "lines=10000 bracketed=yes order=ok sha=match"}
      ]},
     {"do": "type", "text": "echo alive-${nonce}-$((6*7))", "enter": true, "mark": "after"},
     {"do": "expect", "title": "the app and the shell answer at once after the paste", "since": "after", "within": 3, "timeout": 10,
@@ -74,7 +74,7 @@
        {"daemon_line": "alive-${nonce}-42"},
        {"app_text_line": "alive-${nonce}-42"},
        {"app_pane": {"focused": true}},
-       {"frame_text": "alive-${nonce}-42"}
+       {"pane_frame_text": "alive-${nonce}-42"}
      ]}
   ]
 }

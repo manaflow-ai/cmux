@@ -54,7 +54,7 @@ LEASE_SECONDS = 540
 # Download, launch, the OCR compile (first time per mini) and its warm-up (about 60 s), before the first journey.
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
-RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2}\.png|clip/frame-\d{5}\.png)|host\.json|summary\.json)")
+RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png)|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}

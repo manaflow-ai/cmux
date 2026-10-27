@@ -1285,7 +1285,11 @@ class Journey:
             got = {"windows": len(t.get("windows", [])), "workspace": ws.get("name"), "panes": len(panes),
                    "tabs": sum(len(p.get("tabs", [])) for p in panes), "pane_tabs": len(pane.get("tabs", [])),
                    "selected": pane.get("selected_tab") == place[2].get("id")}
-            return all(got.get(k) == v for k, v in want.items()), got
+            ok = all(got.get(k) == v for k, v in want.items() if k != "bind_workspace")
+            if ok and want.get("bind_workspace"):
+                # `bind_workspace`: the workspace's name as ${NAME} (an automatic name, checked after a quit).
+                self.vars[want["bind_workspace"]] = got["workspace"]
+            return ok, got
         if name == "app_tab_pane":
             place = self.place_of(self.need_term(), topo())
             other_name = want.get("same_as") or want.get("not_same_as")
