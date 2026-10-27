@@ -846,8 +846,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(push["blacksmith_12_jobs"], "")
         self.assertEqual(push["blacksmith_6_jobs"], "")
 
-    def test_the_rescues_dev_compile_takes_the_last_resort_when_counts_are_unread(self):
-        # #25739 sends a DEV daily's compile to 6 vCPU when attempt 1 cannot read the counts; the rescue's
+    def test_the_rescues_dev_compile_leaves_the_queue_when_counts_are_unread(self):
+        # #25739/#25798 send a DEV daily's compile to hosted macos-26 when attempt 1 cannot read the counts; the rescue's
         # attempt 2 is placed afresh, so it reads FRESH_JOBS too, and a person's re-run does not.
         place = next(step for step in self.placement_job()["steps"] if step.get("id") == "place")
         fresh = place["env"]["FRESH_JOBS"]
@@ -861,16 +861,16 @@ class Rerun(unittest.TestCase):
                 self.assertEqual(evaluate(fresh, context), expected)
         values = self.rerun(JOBS="cmux-scheme-compile", FRESH_JOBS="cmux-scheme-compile")
         placed = cascade.place(values, (), None, None)
-        self.assertEqual(placed.jobs[SMALL], ("cmux-scheme-compile",))
+        self.assertEqual(placed.jobs[HOSTED], ("cmux-scheme-compile",))
         # The workflow's own JOBS, through main(): idle_placement() names the first JOBS (here skipped ones)
         # once per idle mini, so `owned` is the idle-mini count. With no idle mini the compile takes the last
-        # resort; with one, it stays on the side label, where that mini takes it.
+        # resort (hosted); with one, it stays on the side label, where that mini takes it.
         jobs = self.placement_job()["steps"]
         jobs = next(step for step in jobs if step.get("id") == "place")["env"]["JOBS"]
         self.assertTrue(jobs.startswith("fast-tier swift-canary cmux-scheme-compile"))
         idle = {"name": "side-mini", "status": "online", "busy": False,
                 "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
-        for runners, small, owned in (([], " cmux-scheme-compile ", ""),
+        for runners, hosted, owned in (([], " cmux-scheme-compile ", ""),
                                       ([idle], "", " fast-tier "),
                                       ([idle, dict(idle, name="side-mini-2")], "", " fast-tier swift-canary ")):
             with self.subTest(idle=len(runners)):
@@ -878,7 +878,8 @@ class Rerun(unittest.TestCase):
                                            FRESH_JOBS="cmux-scheme-compile", GITHUB_EVENT_NAME="workflow_dispatch",
                                            GITHUB_REF="refs/heads/feat-cmux-next")
                 self.assertEqual(lines["owned_jobs"], owned)
-                self.assertEqual(lines["blacksmith_6_jobs"], small)
+                self.assertEqual(lines["hosted_jobs"], hosted)
+                self.assertEqual(lines["blacksmith_6_jobs"], "")
 
     def test_an_older_trusted_placement_writes_nothing_on_the_rerun(self):
         # Review of #25707: the steps check out the base's script. One that predates rerun_main() would
