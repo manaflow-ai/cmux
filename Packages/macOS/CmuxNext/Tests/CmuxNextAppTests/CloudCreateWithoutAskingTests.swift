@@ -26,10 +26,22 @@ import Testing
         #expect(sent.prompts.isEmpty, "a paid-plan agent create still asked: \(sent.prompts)")
     }
 
-    @Test func theFreePlanGetsTheUpgradeCardAndSendsNothing() async throws {
+    /// An agent's create that the plan gate refuses shows no card and opens no pricing page: the agent gets the refusal as its error.
+    @Test func anAgentsCreateOnTheFreePlanShowsNoUpgradeCard() async throws {
         let sent = Sent()
         await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: false, gate: { .upgrade(.init(reason: .freePlan)) },
+                                                    confirm: { sent.prompts.append($0); return false },
+                                                    create: { sent.send() })
+        }
+        #expect(sent.count == 0, "a Free-plan create went out")
+        #expect(sent.prompts.isEmpty, "an agent's refused create showed an upgrade prompt: \(sent.prompts)")
+    }
+
+    @Test func theFreePlanGetsTheUpgradeCardAndSendsNothing() async throws {
+        let sent = Sent()
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
+            try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .upgrade(.init(reason: .freePlan)) },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { sent.send() })
         }
@@ -51,8 +63,17 @@ import Testing
         #expect(CloudMachineCreateFlow.gate(nil) == .allowed, "unknown limits must leave the server to decide")
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 5, activeVmCount: 1, planId: "pro")) == .allowed)
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 0, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
-        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: nil, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
+        // An unknown machine cap is no known limit: the server answers with its 402 if the plan really refuses.
+        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: nil, activeVmCount: 0, planId: "free")) == .allowed)
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 2, activeVmCount: 2, planId: "go")) == .upgrade(.init(reason: .atLimit(2))))
+    }
+
+    /// With no window to ask in, a refused create that no person started must not open pricing by itself.
+    @Test func aRefusedAgentCreateWithNoWindowOpensNoPricingPage() async throws {
+        var opened: [URL] = []
+        let answer = await CloudPresenter.confirmCreate(.upgrade(.init(reason: .freePlan)), in: nil, asks: nil, openPricing: { opened.append($0) })
+        #expect(opened.isEmpty, "a pricing page opened by itself: \(opened)")
+        #expect(answer == false)
     }
 
     @Test func theUpgradeCardNamesThePlanAndPriceAndUpgradeOpensPricing() async throws {
