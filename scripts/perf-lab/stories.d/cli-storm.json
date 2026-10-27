@@ -3,6 +3,7 @@
   "tier": "T2",
   "description": "CLI storm in the light session (cli-storm-session.py running bench_cli_storm.py): 32 control-socket clients send 2000 mixed reads, creates, sends, renames and closes while a terminal streams 50 MB; answered-request latency by category, error replies, the window's frame intervals and main-thread busy per frame, main-thread stalls over 50 ms, unanswered requests, leaked PTY holders, footprint after cleanup against the warm baseline and throughput.",
   "command": ["scripts/cmux-next/cli-storm-session.py", "--session", "light"],
+  "runs": ["scripts/cmux-next/bench_cli_storm.py"],
   "session": "light",
   "engine": "none",
   "config": "bench",

@@ -178,9 +178,9 @@ enum AttachmentMedia {
 
     /// Every pixel's alpha is 255 (drawn into a cleared RGBA buffer).
     private static func isOpaque(_ image: CGImage) -> Bool {
-        let width = image.width, height = image.height
-        guard width > 0, height > 0 else { return true }
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let width = image.width, height = image.height, byteCount = width * height * 4
+        guard width > 0, height > 0, byteCount > 0 else { return true }
+        var pixels = [UInt8](repeating: 0, count: byteCount)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
                                           bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
