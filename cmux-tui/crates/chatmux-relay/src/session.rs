@@ -513,9 +513,15 @@ pub async fn stay_online(
     }
 }
 
-fn save(config: &Config, config_path: &Path) {
-    if let Err(error) = save_config(config_path, config) {
-        eprintln!("Could not save the relay config: {error}");
+/// Writes the config on a blocking thread: the write ends in an fsync, which
+/// must not hold a worker while the session reads frames.
+async fn save(config: &Config, config_path: &Path) {
+    let (config, config_path) = (config.clone(), config_path.to_owned());
+    let saved = cmux_blocking::spawn_blocking(move || save_config(&config_path, &config)).await;
+    match saved {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("Could not save the relay config: {error}"),
+        Err(error) => eprintln!("Could not save the relay config: {error}"),
     }
 }
 
@@ -887,7 +893,7 @@ async fn relay_session(
                             && (configured != local_trust || local_trust == Trust::Autonomous)
                         {
                             config.pending_trust = Some(local_trust.as_str().to_owned());
-                            save(config, config_path);
+                            save(config, config_path).await;
                         }
                         if let Some(owner) = hello.owner_user_id {
                             config.owner_user_id = Some(owner);
@@ -957,7 +963,7 @@ async fn relay_session(
                         } else if !state.managed {
                             config.trust = Some(local_trust.as_str().to_owned());
                             config.pending_trust = None;
-                            save(config, config_path);
+                            save(config, config_path).await;
                         } else {
                             config.trust = Some(hello.trust.clone());
                         }
@@ -1008,7 +1014,7 @@ async fn relay_session(
                             config.pending_trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
                             clear_invalid_yolo_confirmation(config);
                             if !state.managed {
-                                save(config, config_path);
+                                save(config, config_path).await;
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
                             let _ = send_socket_text(
@@ -1031,7 +1037,7 @@ async fn relay_session(
                             config.yolo_confirmed_at = None;
                         }
                         if !state.managed {
-                            save(config, config_path);
+                            save(config, config_path).await;
                         }
                         auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
                         workspace.set_local_observe(ack == Trust::Observe);

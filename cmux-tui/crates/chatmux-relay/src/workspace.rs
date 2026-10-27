@@ -28,6 +28,7 @@ use crate::actions::{
     RootLists, ensure_scoped_file_roots_available, process_env_snapshot, scrubbed_env,
     validate_request_path as validate_action_path,
 };
+use crate::blocking_fs::{open_with, sync_all};
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
 use crate::session::OutboundSink;
@@ -224,7 +225,7 @@ fn canonical_potential_path(path: &Path) -> Result<PathBuf, Refusal> {
     let mut cursor = path.to_path_buf();
     let mut suffix: Vec<std::ffi::OsString> = Vec::new();
     loop {
-        match std::fs::canonicalize(&cursor) {
+        match cmux_blocking::fs::canonicalize(&cursor) {
             Ok(canonical) => {
                 let mut out = canonical;
                 for part in suffix.iter().rev() {
@@ -233,7 +234,7 @@ fn canonical_potential_path(path: &Path) -> Result<PathBuf, Refusal> {
                 return Ok(lexical_normalize(&out));
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if let Ok(meta) = std::fs::symlink_metadata(&cursor)
+                if let Ok(meta) = cmux_blocking::fs::symlink_metadata(&cursor)
                     && meta.file_type().is_symlink()
                 {
                     return Err(Refusal::path_forbidden(format!(
@@ -363,7 +364,7 @@ impl Scope {
         let canonical = if allow_missing {
             canonical_potential_path(&lexical)?
         } else {
-            std::fs::canonicalize(&lexical).map_err(|error| {
+            cmux_blocking::fs::canonicalize(&lexical).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     Refusal::not_found(format!("{raw} does not exist"))
                 } else {
@@ -391,7 +392,18 @@ impl Scope {
     /// The workspace root for ops without an explicit root; refuses when it
     /// does not exist on disk.
     pub fn existing_workdir(&self) -> Result<PathBuf, Refusal> {
-        if self.workdir.is_dir() {
+        self.workdir_if_directory(is_directory(&self.workdir))
+    }
+
+    /// [`Self::existing_workdir`] for async callers: tokio::fs runs the
+    /// check on a blocking thread.
+    async fn existing_workdir_async(&self) -> Result<PathBuf, Refusal> {
+        let is_dir = tokio::fs::metadata(&self.workdir).await.is_ok_and(|meta| meta.is_dir());
+        self.workdir_if_directory(is_dir)
+    }
+
+    fn workdir_if_directory(&self, is_dir: bool) -> Result<PathBuf, Refusal> {
+        if is_dir {
             Ok(self.workdir.clone())
         } else {
             Err(Refusal::not_found(format!(
@@ -429,6 +441,11 @@ impl Scope {
 // pool under the request timeout)
 // ---------------------------------------------------------------------------
 
+/// `Path::is_dir`: follows symlinks; an error is "not a directory".
+fn is_directory(path: &Path) -> bool {
+    cmux_blocking::fs::metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
 fn clamp_i64(value: i64, low: i64, high: i64) -> i64 {
     value.clamp(low, high)
 }
@@ -436,19 +453,23 @@ fn clamp_i64(value: i64, low: i64, high: i64) -> i64 {
 #[cfg(unix)]
 fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).custom_flags(libc::O_NOFOLLOW);
+    open_with(&options, path)
 }
 
 #[cfg(not(unix))]
 fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().read(true).open(path)
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    open_with(&options, path)
 }
 
 /// Read a scoped file without following a final-component symlink swapped
 /// in after the canonical check (actions.mjs readUtf8NoFollow).
 fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
-    let kind = std::fs::symlink_metadata(path)?.file_type();
+    let kind = cmux_blocking::fs::symlink_metadata(path)?.file_type();
     if !kind.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -466,7 +487,7 @@ fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8
 /// use and hashing work bounded by the response cap.
 fn read_bounded_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<(Vec<u8>, bool, u64)> {
     use std::io::Read as _;
-    let kind = std::fs::symlink_metadata(path)?.file_type();
+    let kind = cmux_blocking::fs::symlink_metadata(path)?.file_type();
     if !kind.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -494,9 +515,9 @@ fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file = options.open(path)?;
+    let mut file = open_with(&options, path)?;
     file.write_all(bytes)?;
-    file.sync_all()
+    sync_all(&file)
 }
 
 /// Create the parent directory chain without accepting a symlink in any
@@ -509,7 +530,7 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
     let mut missing = Vec::new();
     let mut cursor = parent.to_path_buf();
     loop {
-        match std::fs::symlink_metadata(&cursor) {
+        match cmux_blocking::fs::symlink_metadata(&cursor) {
             Ok(meta) => {
                 if meta.file_type().is_symlink() {
                     return Err(Refusal::path_forbidden(format!(
@@ -545,10 +566,10 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
     }
     for name in missing.iter().rev() {
         cursor.push(name);
-        match std::fs::create_dir(&cursor) {
+        match crate::blocking_fs::create_dir(&cursor) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let meta = std::fs::symlink_metadata(&cursor).map_err(|e| {
+                let meta = cmux_blocking::fs::symlink_metadata(&cursor).map_err(|e| {
                     Refusal::failed(format!("could not inspect {}: {e}", cursor.display()))
                 })?;
                 if meta.file_type().is_symlink() || !meta.is_dir() {
@@ -766,7 +787,7 @@ fn write_descriptor_bytes(scope: &Scope, path: &Path, bytes: &[u8]) -> Result<()
     let mut file =
         open_descriptor_file(scope, path, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC, true)?;
     file.write_all(bytes)
-        .and_then(|()| file.sync_all())
+        .and_then(|()| sync_all(&file))
         .map_err(|error| descriptor_io_refusal(path, error))
 }
 
@@ -1066,7 +1087,7 @@ fn run_tree(scope: &Scope, op: &wire::FsTreeOp) -> Result<wire::WorkspaceResultB
         Some(raw) => scope.resolve(raw, false)?,
         None => scope.existing_workdir()?,
     };
-    if !root.is_dir() {
+    if !is_directory(&root) {
         return Err(Refusal::not_found(format!("{} is not a directory", root.display())));
     }
     let cap = usize::try_from(clamp_i64(op.max_entries, 1, TREE_MAX_ENTRIES)).unwrap_or(1);
@@ -1197,7 +1218,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             file.set_len(0)
                 .and_then(|()| file.rewind())
                 .and_then(|()| file.write_all(op.content.as_bytes()))
-                .and_then(|()| file.sync_all())
+                .and_then(|()| sync_all(&file))
                 .map_err(|error| descriptor_io_refusal(&path, error))?;
         } else {
             // Do not read the old file for an unconditional write. This keeps
@@ -1258,7 +1279,7 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
     }
     #[cfg(not(unix))]
     {
-        let destination_exists = std::fs::symlink_metadata(&to).is_ok();
+        let destination_exists = cmux_blocking::fs::symlink_metadata(&to).is_ok();
         if destination_exists && op.overwrite != Some(true) {
             return Err(Refusal::new(
                 wire::WorkspaceErrorCode::DestinationExists,
@@ -1292,7 +1313,7 @@ pub(crate) fn run_delete(
     }
     #[cfg(not(unix))]
     {
-        let meta = std::fs::symlink_metadata(&path)
+        let meta = cmux_blocking::fs::symlink_metadata(&path)
             .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
         if meta.is_dir() {
             let populated = std::fs::read_dir(&path)
@@ -1792,7 +1813,7 @@ async fn run_git_status_with_cancel_until(
     cancellation: &CancellationToken,
     deadline: std::time::Instant,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
-    let root = scope.existing_workdir()?;
+    let root = scope.existing_workdir_async().await?;
     let mut child = git_command(
         &root,
         &["-c", "core.fsmonitor=false", "status", "--porcelain=v2", "--branch", "-z"],
@@ -1975,7 +1996,7 @@ async fn run_git_diff_with_cancel_until(
     cancellation: &CancellationToken,
     deadline: std::time::Instant,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
-    let root = scope.existing_workdir()?;
+    let root = scope.existing_workdir_async().await?;
     let base = op.base.as_deref().unwrap_or("HEAD");
     if base.is_empty() || base.starts_with('-') {
         return Err(Refusal::failed("invalid diff base"));
@@ -2524,25 +2545,43 @@ async fn run_op(
     cancellation: CancellationToken,
     deadline: std::time::Instant,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
-    let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
+    // Building the scope canonicalizes every root: it runs on the blocking
+    // thread, inside the op's own closure for the file ops.
+    let (frame_roots, local_roots) = (request.allowed_roots, runtime.local_roots.clone());
+    let scope = move || Scope::build(frame_roots.as_deref(), local_roots.as_deref());
     match request.op {
-        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope, &op), permit).await,
-        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op), permit).await,
-        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op), permit).await,
-        wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op), permit).await,
-        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op), permit).await,
-        wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope()?, &op), permit).await,
+        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope()?, &op), permit).await,
+        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope()?, &op), permit).await,
+        wire::WorkspaceOp::FsRename(op) => {
+            blocking(move || run_rename(&scope()?, &op), permit).await
+        }
+        wire::WorkspaceOp::FsDelete(op) => {
+            blocking(move || run_delete(&scope()?, &op), permit).await
+        }
+        wire::WorkspaceOp::FsSearch(op) => {
+            blocking(move || run_search(&scope()?, &op), permit).await
+        }
         wire::WorkspaceOp::GitStatus(_) => {
+            let scope = off_worker(scope).await?;
             run_git_status_with_cancel_until(&scope, &cancellation, deadline).await
         }
         wire::WorkspaceOp::GitDiff(op) => {
+            let scope = off_worker(scope).await?;
             run_git_diff_with_cancel_until(&scope, &op, &cancellation, deadline).await
         }
-        wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
-        wire::WorkspaceOp::PreviewConsoleTail(op) => runtime.preview.tail(op.max_events),
+        wire::WorkspaceOp::PreviewOpen(op) => {
+            off_worker(scope).await?;
+            runtime.preview.open(op.target_port).await
+        }
+        wire::WorkspaceOp::PreviewConsoleTail(op) => {
+            off_worker(scope).await?;
+            runtime.preview.tail(op.max_events)
+        }
     }
 }
 
+/// A file op on a blocking thread, holding its workspace slot until it ends.
 async fn blocking<F>(
     body: F,
     permit: OwnedSemaphorePermit,
@@ -2550,12 +2589,20 @@ async fn blocking<F>(
 where
     F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
-    match tokio::task::spawn_blocking(move || {
+    off_worker(move || {
         let _permit = permit;
         body()
     })
     .await
-    {
+}
+
+/// `body` on a blocking thread; a panic there refuses the op.
+async fn off_worker<T, F>(body: F) -> Result<T, Refusal>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, Refusal> + Send + 'static,
+{
+    match cmux_blocking::spawn_blocking(body).await {
         Ok(outcome) => outcome,
         Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
     }
@@ -2883,5 +2930,72 @@ mod tests {
         let refused = dispatch(&root, request_json(delete_op, "observe")).await;
         assert_eq!(refused["code"], "trust_refused");
         assert!(root.join("file.txt").exists());
+    }
+
+    /// The thread inside `cmux_blocking::runtime::block_on` runs every task
+    /// of a current_thread runtime: scope building, file ops and the git
+    /// root check run on blocking threads, never there.
+    #[test]
+    fn workspace_ops_never_block_the_thread_driving_the_runtime() {
+        let (root, _scope) = seeded_repo("off-driver");
+        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let stalled = cmux_blocking::counts().stalled;
+        let ops = [
+            serde_json::json!({"op": "fs_tree", "maxEntries": 100}),
+            serde_json::json!({"op": "fs_read", "path": "README.md", "maxBytes": 1000}),
+            serde_json::json!({"op": "git_status"}),
+            serde_json::json!({"op": "git_diff"}),
+        ];
+        for op in ops {
+            let answer = cmux_blocking::runtime::block_on(
+                &runtime,
+                dispatch(&root, request_json(op.clone(), "supervised")),
+            );
+            assert_eq!(answer["ok"], true, "{op}: {answer}");
+        }
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+    }
+
+    /// A watch classifies its events (one stat per changed path) on a
+    /// blocking thread, never on the thread that drives the runtime.
+    #[test]
+    fn a_watch_classifies_its_events_off_the_runtime_driver() {
+        let root = scratch("watch-off-driver");
+        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let stalled = cmux_blocking::counts().stalled;
+        let event = cmux_blocking::runtime::block_on(&runtime, async {
+            let roots = vec![root.to_string_lossy().into_owned()];
+            let (sink, mut critical, mut watch) = OutboundSink::channels();
+            let connection =
+                Connection::new(Arc::new(SharedRuntime::new(Some(roots.clone()))), sink);
+            connection.handle_frame(serde_json::json!({
+                "version": WORKSPACE_FRAME_VERSION,
+                "type": "fs_watch_open",
+                "watchId": "watch_1",
+                "actorId": "user_1",
+                "trust": "supervised",
+                "allowedRoots": roots,
+            }));
+            let mut opened = tokio::time::timeout(Duration::from_secs(15), critical.recv())
+                .await
+                .expect("no fs_watch_opened within 15s")
+                .expect("channel open");
+            if let Some(ack) = opened.ack.take() {
+                let _ = ack.send(());
+            }
+            let opened: Value = serde_json::from_str(&opened.text).expect("valid json frame");
+            assert_eq!(opened["type"], "fs_watch_opened", "{opened}");
+            tokio::fs::write(root.join("new.txt"), "x").await.expect("write");
+            let event = tokio::time::timeout(Duration::from_secs(15), watch.recv())
+                .await
+                .expect("no fs_watch_event within 15s")
+                .expect("channel open");
+            serde_json::from_str::<Value>(&event.text).expect("valid json frame")
+        });
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert_eq!(event["type"], "fs_watch_event", "{event}");
+        let changes = event["changes"].as_array().expect("changes");
+        assert!(changes.iter().any(|change| change["path"] == "new.txt"), "{event}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

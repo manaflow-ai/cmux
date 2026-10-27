@@ -107,6 +107,25 @@ struct DirectoryIdentity {
     ino: u64,
 }
 
+/// [`scoped_cwd`] on a blocking thread: it canonicalizes the roots and opens
+/// every directory of the cwd.
+async fn scoped_cwd_off_worker(
+    requested: Option<&str>,
+    home: &Path,
+    local_roots: Option<&[String]>,
+    server_roots: Option<&[String]>,
+) -> Result<ResolvedCwd, String> {
+    let requested = requested.map(str::to_owned);
+    let home = home.to_owned();
+    let local_roots = local_roots.map(<[String]>::to_vec);
+    let server_roots = server_roots.map(<[String]>::to_vec);
+    cmux_blocking::spawn_blocking(move || {
+        scoped_cwd(requested.as_deref(), &home, local_roots.as_deref(), server_roots.as_deref())
+    })
+    .await
+    .unwrap_or_else(|_| Err("cwd is not accessible".to_owned()))
+}
+
 /// Resolve a PTY working directory and enforce every configured root list.
 fn scoped_cwd(
     requested: Option<&str>,
@@ -147,7 +166,7 @@ fn scoped_cwd(
                         .iter()
                         .chain(server.iter())
                         .filter_map(|root| {
-                            std::fs::canonicalize(expand_path(root, home, home)).ok()
+                            cmux_blocking::fs::canonicalize(expand_path(root, home, home)).ok()
                         })
                         .collect();
                     candidates.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
@@ -155,7 +174,7 @@ fn scoped_cwd(
                         .into_iter()
                         .find(|candidate| {
                             local.iter().chain(server.iter()).all(|root| {
-                                std::fs::canonicalize(expand_path(root, home, home))
+                                cmux_blocking::fs::canonicalize(expand_path(root, home, home))
                                     .map(|root| candidate.starts_with(root))
                                     .unwrap_or(false)
                             })
@@ -173,7 +192,8 @@ fn scoped_cwd(
     if path.components().any(|component| component == std::path::Component::ParentDir) {
         return Err("cwd parent traversal is not supported".to_owned());
     }
-    let path = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+    let path =
+        cmux_blocking::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
     #[cfg(unix)]
     let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
         [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
@@ -184,7 +204,7 @@ fn scoped_cwd(
                     .iter()
                     .filter_map(|root| {
                         let canonical_root =
-                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
+                            cmux_blocking::fs::canonicalize(expand_path(root, home, home)).ok()?;
                         Some(open_pinned_directory(&canonical_root).ok()?.1)
                     })
                     .collect()
@@ -197,10 +217,12 @@ fn scoped_cwd(
         .into_iter()
         .flatten()
     {
-        let canonical =
-            std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+        let canonical = cmux_blocking::fs::canonicalize(&path)
+            .map_err(|_| "cwd is not accessible".to_owned())?;
         if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
-            std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
+            cmux_blocking::fs::canonicalize(root)
+                .map(|root| canonical.starts_with(root))
+                .unwrap_or(false)
         }) {
             return Err("cwd is outside the allowed roots".to_owned());
         }
@@ -221,7 +243,7 @@ fn scoped_cwd(
     }
     #[cfg(not(unix))]
     {
-        if !path.is_dir() {
+        if !cmux_blocking::fs::metadata(&path).is_ok_and(|metadata| metadata.is_dir()) {
             return Err("cwd is not a directory".to_owned());
         }
         Ok(ResolvedCwd { path })
@@ -261,8 +283,8 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
             continue;
         };
         expected_path.push(name);
-        let expected =
-            std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
+        let expected = cmux_blocking::fs::metadata(&expected_path)
+            .map_err(|_| "cwd is not accessible".to_owned())?;
         ancestry.push(DirectoryIdentity { dev: expected.dev(), ino: expected.ino() });
         let name = CString::new(name.as_bytes()).map_err(|_| "cwd is not accessible".to_owned())?;
         // SAFETY: `parent` is an open directory and `name` is NUL-free.
@@ -785,12 +807,14 @@ impl Inner {
             fail("bad_request", "cwd must be a string");
             return;
         }
-        let cwd = match scoped_cwd(
+        let cwd = match scoped_cwd_off_worker(
             frame.get("cwd").and_then(Value::as_str),
             &self.home,
             context.local_roots.as_deref(),
             server_roots.as_deref(),
-        ) {
+        )
+        .await
+        {
             Ok(cwd) => cwd,
             Err(message) => {
                 fail("bad_request", &message);
@@ -1176,12 +1200,13 @@ impl Inner {
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
                 }
-                if scoped_cwd(
+                if scoped_cwd_off_worker(
                     Some(actual),
                     &self.home,
                     context.local_roots.as_deref(),
                     server_roots,
                 )
+                .await
                 .is_err()
                 {
                     control.end();
@@ -1873,8 +1898,14 @@ impl Inner {
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
                 ));
             };
-            if scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)
-                .is_err()
+            if scoped_cwd_off_worker(
+                Some(actual),
+                &self.home,
+                context.local_roots.as_deref(),
+                server_roots,
+            )
+            .await
+            .is_err()
             {
                 control.end();
                 return Err((
@@ -2403,5 +2434,21 @@ mod tests {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "observe", None).await;
         assert_eq!(h.sent()[0]["code"], "trust_refused");
+    }
+
+    /// The thread inside `cmux_blocking::runtime::block_on` runs every task
+    /// of a current_thread runtime: the cwd checks (canonicalize, one open
+    /// per directory) run on a blocking thread, never there.
+    #[test]
+    fn pty_open_checks_its_cwd_off_the_runtime_driver() {
+        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let stalled = cmux_blocking::counts().stalled;
+        let sent = cmux_blocking::runtime::block_on(&runtime, async {
+            let h = harness(None, None);
+            h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+            h.sent()
+        });
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert_eq!(ty(&sent[0]), "pty_opened", "{sent:?}");
     }
 }
