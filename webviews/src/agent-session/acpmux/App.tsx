@@ -3702,12 +3702,18 @@ function AcpmuxPane() {
   const trustVisit = useCallback(() => {
     const client = directClient.current;
     const rendered = trustRenderedOwner.current;
-    return JSON.stringify([
-      rendered && rendered.client === client ? rendered.generation : undefined,
-      rendered?.sessionId ?? snapshotRef.current?.sessionId,
-      client?.trustGeneration,
-      client?.selectedSession,
-    ]);
+    // A held snapshot is actionable only while its owner is still the client's live selection.
+    // Return a fresh sentinel for a stale render so useFolderTrustAsk's sameVisit fence rejects
+    // Trust/save/refusal callbacks even when React has not painted the replacement snapshot yet.
+    if (
+      !client ||
+      !rendered ||
+      rendered.client !== client ||
+      rendered.generation !== client.trustGeneration ||
+      rendered.sessionId !== client.selectedSession
+    )
+      return Symbol("stale-trust-visit");
+    return JSON.stringify([rendered.generation, rendered.sessionId]);
   }, []);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
