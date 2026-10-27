@@ -1,10 +1,12 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 
 /// The restart notice's Report button (crash program phase 2): a prefilled
 /// GitHub issue the user reads and sends themselves. It holds the version,
 /// the bundle id, the cause (exception name and reason, or the signal) and
-/// the exception's symbol frames; never a path under the home folder, a URL,
+/// the exception's symbol frames and the crash keys (numbers and catalog
+/// names, ``CrashKeys/tags``); never a path under the home folder, a URL,
 /// a title or terminal text.
 nonisolated struct CrashIssueReport: Equatable, Sendable {
     static let newIssue = "https://github.com/manaflow-ai/cmux/issues/new"
@@ -13,7 +15,8 @@ nonisolated struct CrashIssueReport: Equatable, Sendable {
     let title: String
     let body: String
 
-    init(previous: PreviousRun, version: String, bundleID: String, osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString) {
+    init(previous: PreviousRun, version: String, bundleID: String, crashKeys: CrashKeys? = nil,
+         osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString) {
         let cause = Self.cause(of: previous)
         title = "cmux-next crash: \(cause ?? "unknown cause")"
         var lines = [
@@ -25,6 +28,7 @@ nonisolated struct CrashIssueReport: Equatable, Sendable {
             "- Cause: \(cause ?? "unknown (no signal or exception recorded)")",
             "- Restart after a restart: \(previous.recovery ? "yes" : "no")",
         ]
+        if let crashKeys, !crashKeys.tags.isEmpty { lines.append("- Crash keys: \(crashKeys.tagLine)") }
         if let frames = previous.exception?.frames, !frames.isEmpty {
             lines += ["", "Exception frames:", "```"] + frames.prefix(Self.frameLimit).map { Self.scrub($0) } + ["```"]
         }

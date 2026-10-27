@@ -2872,7 +2872,7 @@ mod tests {
         }
 
         let current_exe = std::env::current_exe().expect("resolve current test executable");
-        let mut child = std::process::Command::new(current_exe)
+        let mut child = cmux_process::Command::new(current_exe)
             .arg("panic_hook_cancellation_does_not_join_writer_waiting_on_owned_stdout")
             .arg("--nocapture")
             .env(CHILD_ENV, "1")

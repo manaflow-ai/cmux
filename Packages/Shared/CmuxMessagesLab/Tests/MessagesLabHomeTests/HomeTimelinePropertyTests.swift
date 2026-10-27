@@ -33,7 +33,8 @@ import Testing
         var done = false
     }
 
-    static let seeds: [UInt64] = Array(1...24)
+    /// Nonisolated: `@Test(arguments:)` reads it outside the main actor.
+    nonisolated static let seeds: [UInt64] = Array(1...24)
 
     @Test(arguments: seeds)
     func everyInterleavingShowsTheOwnersOrder(seed: UInt64) async throws {

@@ -26,23 +26,27 @@
 //!   installed}` once the host listens, or an error with `error_code`.
 //! - `browser-runtime-stop {id, runtime}` answers `{stopped: true}`.
 
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use cmux_process::{Child, Command, Stdio};
+use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
+use cmux_threads::checked::{fs as files, sync as waits};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use wait_timeout::ChildExt;
 
-use super::{MessageWriter, Response, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
@@ -56,6 +60,11 @@ const START_TIMEOUT: Duration = Duration::from_secs(45);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 pub(crate) const MAX_RUNTIMES_PER_CLIENT: usize = 4;
 pub(crate) const MAX_RUNTIMES_TOTAL: usize = 16;
+/// Status reads queued or running, per connection and in the daemon: a
+/// connection that sends status lines back to back gets a refusal past it,
+/// so it cannot fill the files lane (as the trust calls' `CallSlot`).
+pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
+pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
 const THREAD_STACK_BYTES: usize = 256 * 1024;
@@ -74,6 +83,8 @@ struct State {
     runtimes: HashMap<u64, Runtime>,
     /// Starts in progress by connection (they count against the limits).
     starting: HashMap<u64, usize>,
+    /// Status reads queued or running, by connection ([`StatusRead`]).
+    status_reads: HashMap<u64, usize>,
 }
 
 impl State {
@@ -124,11 +135,12 @@ impl BrowserRuntimes {
     }
 
     /// The installed host: its version (the name of the directory that
-    /// `current` names) and its executable.
+    /// `current` names) and its executable. It reads the disk: work items
+    /// and the start thread call it, never the reader thread.
     fn installed(&self) -> Option<(String, PathBuf)> {
-        let version = std::fs::canonicalize(self.root()?.join("current")).ok()?;
+        let version = files::canonicalize(self.root()?.join("current")).ok()?;
         let executable = executable_in(&version);
-        if !executable.is_file() {
+        if !files::metadata(&executable).is_ok_and(|metadata| metadata.is_file()) {
             return None;
         }
         Some((version.file_name()?.to_string_lossy().into_owned(), executable))
@@ -208,18 +220,21 @@ enum RuntimeCommand {
     Stop { runtime: u64 },
 }
 
-/// Handles a `browser-runtime-*` message on the connection's reader thread.
-/// A start runs on its own thread and answers when the host listens.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"browser-runtime-") {
-        return None;
-    }
-    let RuntimeRequest { id, command } = serde_json::from_str(message).ok()?;
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("browser-runtime-")],
+    stage: FrameStage::BrowserRuntime,
+    entry: handle,
+}];
+
+/// The route's typed handler for a `browser-runtime-*` line, on the
+/// connection's reader thread: the line's `cmd` named this family, so it
+/// decodes the line once into its [`RuntimeCommand`] and answers it. A start
+/// runs on its own thread and answers when the host listens. A line that is
+/// none of the three commands is left to the `Command` parse (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let RuntimeRequest { id, command } = crate::line_parses::parse(message).ok()?;
     let runtimes = &mux.control_clients.browser_runtimes;
     if !(mux.control_clients.is_unix(client)
         && mux.control_clients.supports_capability(client, BROWSER_RUNTIME_CAPABILITY))
@@ -232,25 +247,7 @@ pub(super) fn try_handle(
         ));
     }
     match command {
-        RuntimeCommand::Status => {
-            let installed = runtimes.installed().map(|(version, _)| version);
-            let state = runtimes.lock();
-            let mut own: Vec<(u64, u16)> = state
-                .runtimes
-                .iter()
-                .filter(|(_, runtime)| runtime.owner == client)
-                .map(|(id, runtime)| (*id, runtime.port))
-                .collect();
-            drop(state);
-            own.sort_unstable();
-            let rows: Vec<Value> =
-                own.into_iter().map(|(id, port)| json!({"runtime": id, "port": port})).collect();
-            Some(ok(
-                writer,
-                id,
-                json!({"installed": installed, "platform": platform(), "runtimes": rows}),
-            ))
-        }
+        RuntimeCommand::Status => Some(status(mux, client, id, writer)),
         RuntimeCommand::Stop { runtime } => {
             let removed = {
                 let mut state = runtimes.lock();
@@ -276,6 +273,74 @@ pub(super) fn try_handle(
     }
 }
 
+/// A status read queued or running for `client`; its drop (the item ran,
+/// or shutdown dropped it unrun) frees the slot.
+struct StatusRead {
+    mux: Arc<Mux>,
+    client: u64,
+}
+
+impl StatusRead {
+    /// A slot, or `None` past the per-connection or daemon-wide bound.
+    fn take(mux: &Arc<Mux>, client: u64) -> Option<Self> {
+        let mut state = mux.control_clients.browser_runtimes.lock();
+        let own = state.status_reads.get(&client).copied().unwrap_or(0);
+        let total: usize = state.status_reads.values().sum();
+        if own >= MAX_STATUS_READS_PER_CLIENT || total >= MAX_STATUS_READS_TOTAL {
+            return None;
+        }
+        state.status_reads.insert(client, own + 1);
+        Some(Self { mux: mux.clone(), client })
+    }
+}
+
+impl Drop for StatusRead {
+    fn drop(&mut self) {
+        let mut state = self.mux.control_clients.browser_runtimes.lock();
+        if let Some(count) = state.status_reads.get_mut(&self.client) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                state.status_reads.remove(&self.client);
+            }
+        }
+    }
+}
+
+/// `browser-runtime-status`: the install is on disk, so a work item reads
+/// it and answers; the reader thread goes on to the next line. At most
+/// [`MAX_STATUS_READS_PER_CLIENT`] reads per connection wait at a time.
+fn status(mux: &Arc<Mux>, client: u64, id: Option<Value>, writer: &MessageWriter) -> bool {
+    let Some(slot) = StatusRead::take(mux, client) else {
+        return fail(writer, id, "browser-runtime.limit", "too many browser runtime status reads");
+    };
+    let (worker_writer, worker_id) = (writer.clone(), id.clone());
+    let posted =
+        mux.work.post(Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown, move || {
+            let runtimes = &slot.mux.control_clients.browser_runtimes;
+            let installed = runtimes.installed().map(|(version, _)| version);
+            let state = runtimes.lock();
+            let mut own: Vec<(u64, u16)> = state
+                .runtimes
+                .iter()
+                .filter(|(_, runtime)| runtime.owner == client)
+                .map(|(id, runtime)| (*id, runtime.port))
+                .collect();
+            drop(state);
+            // Free the slot before the answer, so a client that waits for
+            // each answer never meets the bound.
+            drop(slot);
+            own.sort_unstable();
+            let rows: Vec<Value> =
+                own.into_iter().map(|(id, port)| json!({"runtime": id, "port": port})).collect();
+            ok(
+                &worker_writer,
+                worker_id,
+                json!({"installed": installed, "platform": platform(), "runtimes": rows}),
+            );
+        });
+    posted.is_ok() || fail(writer, id, "browser-runtime.unavailable", "the daemon is shutting down")
+}
+
 fn start(
     mux: &Arc<Mux>,
     client: u64,
@@ -296,14 +361,6 @@ fn start(
         }
     }
     let runtimes = &mux.control_clients.browser_runtimes;
-    let Some((version, executable)) = runtimes.installed() else {
-        return fail(
-            writer,
-            id,
-            "browser-runtime.not-installed",
-            "the browser is not installed on this machine",
-        );
-    };
     {
         let mut state = runtimes.lock();
         if state.count(client) >= MAX_RUNTIMES_PER_CLIENT || state.total() >= MAX_RUNTIMES_TOTAL {
@@ -320,6 +377,17 @@ fn start(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let runtimes = &worker_mux.control_clients.browser_runtimes;
+            // The install is on disk: read here, not on the reader thread.
+            let Some((version, executable)) = runtimes.installed() else {
+                runtimes.lock().release(client);
+                fail(
+                    &worker_writer,
+                    worker_id,
+                    "browser-runtime.not-installed",
+                    "the browser is not installed on this machine",
+                );
+                return;
+            };
             let launched = launch(runtimes, client, &executable, url.as_deref());
             runtimes.lock().release(client);
             match launched {
@@ -360,19 +428,17 @@ fn launch(
     let runtime_id = runtimes.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let root = runtimes.root().ok_or("the browser has no install directory")?;
     let logs = root.join("logs");
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&logs)
-        .map_err(|error| format!("cannot create {}: {error}", logs.display()))?;
+    scoped_blocking_call(BlockingKind::Fs, || {
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&logs)
+    })
+    .map_err(|error| format!("cannot create {}: {error}", logs.display()))?;
     let log = logs.join(format!("runtime-{}-{runtime_id}.log", std::process::id()));
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&log)
-        .map_err(|error| format!("cannot create {}: {error}", log.display()))?;
+    let log_file = files::open_with(
+        fs::File::options().create(true).write(true).truncate(true).mode(0o600),
+        &log,
+    )
+    .map_err(|error| format!("cannot create {}: {error}", log.display()))?;
+    // mq14-allow: the start thread spawns the host, never the reader thread.
     let mut command = Command::new(executable);
     command.args(["--serve", "--listen", "127.0.0.1:0", "--lifeline"]);
     if let Some(url) = url {
@@ -385,6 +451,7 @@ fn launch(
         // Its own process group: a signal to the daemon's group does not
         // reach it, and a stop can end its helper processes with it.
         .process_group(0);
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser: {error}"))?;
     let mut lifeline = child.stdin.take();
@@ -408,7 +475,7 @@ fn launch(
             })
     });
     let port = match (written, reader) {
-        (Some(Ok(())), Some(Ok(_))) => match line_rx.recv_timeout(START_TIMEOUT) {
+        (Some(Ok(())), Some(Ok(_))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {
             Ok(Some(line)) => listening_port(&line),
             Ok(None) | Err(_) => None,
         },
@@ -444,7 +511,7 @@ fn new_secret() -> Result<String, String> {
 
 /// The end of a host's log, on one line (a start failure's reason).
 fn log_tail(log: &Path) -> String {
-    let Ok(mut file) = std::fs::File::open(log) else { return String::new() };
+    let Ok(mut file) = files::open(log) else { return String::new() };
     let length = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     let _ = file.seek(SeekFrom::Start(length.saturating_sub(LOG_TAIL_BYTES)));
     let mut bytes = Vec::new();
@@ -466,7 +533,7 @@ fn stop(runtime: Runtime) {
             }
             let _ = child.wait();
         }
-        let _ = std::fs::remove_file(&log);
+        let _ = files::remove_file(&log);
     };
     // A stop thread that cannot start leaves the host to its closed
     // lifeline: it exits by itself, unreaped until the daemon ends.

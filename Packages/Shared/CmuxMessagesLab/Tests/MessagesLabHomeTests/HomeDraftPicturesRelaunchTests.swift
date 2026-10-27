@@ -62,7 +62,7 @@ import UniformTypeIdentifiers
 
     /// A small PNG, as a pasted screenshot arrives (bytes, not a file).
     private func screenshot() throws -> Data {
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 40, bitsPerSample: 8,
+        let rep = try #require(NSBitmapImageRep.owned(pixelsWide: 64, pixelsHigh: 40, bitsPerSample: 8,
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                 bytesPerRow: 0, bitsPerPixel: 0))
         return try #require(rep.representation(using: .png, properties: [:]))
@@ -114,7 +114,7 @@ import UniformTypeIdentifiers
         first.view.controller.dispatch(.setDraft("two shots"))
         first.view.projection.draftChanged()
         _ = try await paste(first)
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
+        let rep = try #require(NSBitmapImageRep.owned(pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                 bytesPerRow: 0, bitsPerPixel: 0))
         let other = try await first.store.prepareAttachment(data: try #require(rep.representation(using: .png, properties: [:])),
@@ -154,7 +154,7 @@ import UniformTypeIdentifiers
 
     /// A second, different picture.
     private func otherShot(_ launch: Launch) async throws -> LocalAttachment {
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
+        let rep = try #require(NSBitmapImageRep.owned(pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                 bytesPerRow: 0, bitsPerPixel: 0))
         let shot = try await launch.store.prepareAttachment(data: try #require(rep.representation(using: .png, properties: [:])),

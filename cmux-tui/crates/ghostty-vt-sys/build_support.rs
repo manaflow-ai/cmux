@@ -116,9 +116,93 @@ pub fn zon_version(path: &Path) -> Option<String> {
     })
 }
 
+/// `to` relative to `from`, both absolute: the `..` steps up from `from` to
+/// their common ancestor, then down to `to`.
+pub fn relative_path(from: &Path, to: &Path) -> String {
+    let from: Vec<_> = from.components().collect();
+    let to: Vec<_> = to.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - common];
+    parts.extend(to[common..].iter().map(|part| part.as_os_str().to_string_lossy().into_owned()));
+    if parts.is_empty() { ".".to_string() } else { parts.join("/") }
+}
+
+/// The build.zig.zon of the fuzzing zig project (fuzzing/build.zig), whose
+/// `ghostty` dependency is the libghostty-vt tree at `ghostty_relative`.
+/// zig checks the fingerprint against the package name; both stay fixed.
+pub fn fuzzing_zon(ghostty_relative: &str) -> String {
+    let escaped = ghostty_relative.replace('\\', "/").replace('"', "\\\"");
+    format!(
+        ".{{\n    .name = .cmux_ghostty_vt_fuzz,\n    .version = \"0.0.0\",\n    \
+         .fingerprint = 0xcbd6195d5070663f,\n    .minimum_zig_version = \"0.16.0\",\n    \
+         .dependencies = .{{ .ghostty = .{{ .path = \"{escaped}\" }} }},\n    \
+         .paths = .{{\"\"}},\n}}\n"
+    )
+}
+
+/// llvm-objcopy `--rename-section` arguments for the fuzzing libghostty-vt.a:
+/// its SanitizerCoverage counters become libFuzzer extra counters and its PC
+/// tables (Zig's one-word `__sancov_pcs1`, clang's `__sancov_pcs` from the
+/// SIMD C++ files) leave the sections libFuzzer reads.
+pub const FUZZING_SECTION_RENAMES: [&str; 3] = [
+    "__sancov_cntrs=__libfuzzer_extra_counters",
+    "__sancov_pcs=__ghostty_vt_sancov_pcs",
+    "__sancov_pcs1=__ghostty_vt_sancov_pcs1",
+];
+
+/// The library names of the `lib<name>.a` archives in `lib_dir` other than
+/// libghostty-vt.a, sorted: what fuzzing/build.zig installed for
+/// libghostty-vt to link.
+pub fn fuzzing_extra_archives(lib_dir: &Path) -> Vec<String> {
+    let entries = std::fs::read_dir(lib_dir)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", lib_dir.display()));
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| {
+            let file = entry.ok()?.file_name().into_string().ok()?;
+            let name = file.strip_prefix("lib")?.strip_suffix(".a")?;
+            (name != "ghostty-vt").then(|| name.to_string())
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fuzzing_counters_become_libfuzzer_extra_counters() {
+        assert!(FUZZING_SECTION_RENAMES.contains(&"__sancov_cntrs=__libfuzzer_extra_counters"));
+        for rename in FUZZING_SECTION_RENAMES {
+            let (from, to) = rename.split_once('=').unwrap();
+            assert!(from.starts_with("__sancov_"), "{rename}");
+            assert!(!to.starts_with("__sancov_"), "{rename}");
+        }
+    }
+
+    #[test]
+    fn fuzzing_links_every_installed_archive_after_ghostty_vt() {
+        let root = scratch_tree(
+            "fuzz-archives",
+            &["libghostty-vt.a", "libsimdutf.a", "libhighway.a", "README"],
+        );
+        assert_eq!(fuzzing_extra_archives(&root), ["highway", "simdutf"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fuzzing_project_names_ghostty_by_a_relative_path() {
+        assert_eq!(
+            relative_path(Path::new("/work/out/ghostty-vt-fuzz"), Path::new("/repo/ghostty-next")),
+            "../../../repo/ghostty-next"
+        );
+        assert_eq!(relative_path(Path::new("/a/b"), Path::new("/a/b/c")), "c");
+        assert_eq!(relative_path(Path::new("/a/b"), Path::new("/a/b")), ".");
+        let zon = fuzzing_zon("../../../repo/ghostty-next");
+        assert!(zon.contains(".ghostty = .{ .path = \"../../../repo/ghostty-next\" }"), "{zon}");
+        assert!(zon.contains(".name = .cmux_ghostty_vt_fuzz,"), "{zon}");
+    }
 
     fn scratch_tree(name: &str, files: &[&str]) -> PathBuf {
         let root =

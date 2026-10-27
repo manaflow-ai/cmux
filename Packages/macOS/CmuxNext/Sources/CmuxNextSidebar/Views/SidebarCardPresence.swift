@@ -47,6 +47,7 @@ final class SidebarCardPresence {
             } else {
                 view.isHidden = false
                 pendingEnter = true
+                // invalidate: a hidden card shows; its entrance plays at its first layout with a size.
                 view.needsLayout = true
             }
             return
@@ -59,6 +60,7 @@ final class SidebarCardPresence {
         guard laidOut, !atOnce else {
             laidOut = false
             view.isHidden = true
+            // invalidate: the card left at once; the slot it sat in closes up.
             view.superview?.needsLayout = true
             return
         }
@@ -70,6 +72,7 @@ final class SidebarCardPresence {
             self.laidOut = false
             view.isHidden = true
             self.transition.clear(view.layer)
+            // invalidate: the exit ended and the card hid; the slot it sat in closes up.
             view.superview?.needsLayout = true
         }
     }

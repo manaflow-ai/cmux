@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFocusUI
 import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
@@ -26,8 +27,8 @@ struct NewTabPageHandler {
     /// The page's style switch picked a template (`tabs.newTabTemplate`), or its edit mode removed or
     /// moved a widget (`tabs.newTabWidgets.*`) or asked to add one.
     var edit: (AgentPaneNewTabEdit) -> Void = { _ in }
-    /// The location bar picked an open tab or workspace.
-    var jump: (AgentPaneJumpTarget, String) -> Void
+    /// The location bar picked an open tab or workspace, with its click's or Return's `NSEvent.timestamp` (nil: none sent).
+    var jump: (AgentPaneJumpTarget, String, TimeInterval?) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
     /// The project picker fallback, resolved only when the user chooses Browse….
     var browseProject: () async -> String? = { nil }
@@ -200,7 +201,7 @@ enum NewTabPage {
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
-    /// (NewTabSparePool): the design and remembered choices; no tab context.
+    /// (NewTabPreload): the design and remembered choices; no tab context.
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
@@ -229,7 +230,7 @@ enum NewTabPage {
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
             edit: { [weak services] edit in if let services { self.edit(edit, services: services) } },
-            jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
+            jump: { [weak services] target, id, input in if let services { jump(target, id: id, inputTimestamp: input, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
                 guard let services, let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
@@ -251,15 +252,18 @@ enum NewTabPage {
     }
 
     /// Through the palette's switchers, the one path that reveals a tab's or
-    /// workspace's window and selects it.
-    static func jump(_ target: AgentPaneJumpTarget, id: String, services: AppServices) {
+    /// workspace's window and selects it. `inputTimestamp` is the page's click or Return that picked it: the page
+    /// dispatched it in its own process, so the switch it makes answers it (`InputDispatchContext.answering`).
+    static func jump(_ target: AgentPaneJumpTarget, id: String, inputTimestamp: TimeInterval? = nil, services: AppServices) {
         // Back returns to this page (Leo 2026-10-06).
         services.locationTrail.noteJump()
-        switch target {
-        case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
-        case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
-        case .here: break // only a split's page lists tabs to move (NewTabPage.split)
-        case .closed: NewTabClosed.reopen(id, services: services)
+        services.inputDispatch.answering(input: inputTimestamp) {
+            switch target {
+            case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id, inputTimestamp: inputTimestamp)
+            case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
+            case .here: break // only a split's page lists tabs to move (NewTabPage.split)
+            case .closed: NewTabClosed.reopen(id, services: services)
+            }
         }
     }
 
@@ -268,12 +272,19 @@ enum NewTabPage {
     /// (the widgets are settings, not store items: extensibility-DESIGN.md).
     static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
         guard let settings = services.settings else { return }
-        switch edit {
-        case .template(let template): Task { await settings.saveNewTabTemplate(template) }
-        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
-        case .show(let widget): Task { await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) } }
-        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
-        case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
+        if case .add = edit {
+            try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
+            return
+        }
+        // main-hop-allow: each edit is SettingsController's own main-actor async write (its file write runs off main); this task only starts it
+        Task {
+            switch edit {
+            case .template(let template): await settings.saveNewTabTemplate(template)
+            case .remove(let widget): await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) }
+            case .show(let widget): await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) }
+            case .order(let order): await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) }
+            case .add: break
+            }
         }
     }
 

@@ -11,8 +11,8 @@ import GhosttyNextKit
 ///   modifier change, a link filter answer (``TerminalLinkFilter``) and a
 ///   Cmd-press send the pointer again after an off-grid position that clears
 ///   Ghostty's last cell, so the first cell the pointer reached shows and opens
-///   its link. While the pointer is over this terminal, a modifier watcher
-///   (``TerminalModifierMonitor``) reaches it focused or not.
+///   its link. While the pointer is over this terminal, the terminals' modifier
+///   watch (``TerminalModifierWatch``) reaches it focused or not.
 /// - A link Ghostty found across rows the terminal wrapped: Ghostty underlines
 ///   only the pointer's row; this underlines the rest (the press stays Ghostty's).
 /// - A URL the program broke onto several rows (``TerminalWrappedLink``): every
@@ -38,19 +38,29 @@ import GhosttyNextKit
     /// keyboard are elsewhere.
     var testPointer: NSPoint?
     var testFlags: NSEvent.ModifierFlags?
+    /// How many modifier changes reached this terminal through ``modifiersChanged(_:)``, and the last one's
+    /// keys, so a test sees which terminal the modifier watch told.
+    private(set) var heardModifierChanges = 0
+    private(set) var lastHeardModifiers: NSEvent.ModifierFlags?
     #endif
 
-    /// Installed while the pointer is over the view.
-    private lazy var modifierMonitor = TerminalModifierMonitor { [weak self] flags in self?.modifiersChanged(flags) }
+    /// The terminals' one modifier watch: it tells this one while the pointer is over the view (nil: only
+    /// the focused view's own key events reach it).
+    let modifierWatch: TerminalModifierWatch?
 
-    init(view: TerminalSurfaceView) {
+    init(view: TerminalSurfaceView, modifiers: TerminalModifierWatch?) {
         self.view = view
+        modifierWatch = modifiers
     }
 
     // MARK: Modifiers
 
     /// Command went down or up: look for a link under the still pointer again.
     func modifiersChanged(_ flags: NSEvent.ModifierFlags) {
+        #if DEBUG
+        heardModifierChanges += 1
+        lastHeardModifiers = flags
+        #endif
         refresh(flags)
     }
 
@@ -64,8 +74,10 @@ import GhosttyNextKit
               view.bounds.contains(point) else { return }
         let mods = GhosttyInput.mods(view.pointerFlags(flags))
         // Off the grid first: Ghostty forgets its last cell (no report: nothing is pressed).
-        ghostty_surface_mouse_pos(surface, -1, -1, mods)
-        ghostty_surface_mouse_pos(surface, point.x, view.bounds.height - point.y, mods)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        unsafe ghostty_surface_mouse_pos(surface, -1, -1, mods)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        unsafe ghostty_surface_mouse_pos(surface, point.x, view.bounds.height - point.y, mods)
         hoverWrapped(at: point, flags: flags, force: true)
     }
 
@@ -98,7 +110,7 @@ import GhosttyNextKit
 
     /// After a move went to Ghostty.
     func moved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
-        modifierMonitor.install()
+        modifierWatch?.track(self)
         guard !buttonsDown else { return }
         hoverWrapped(at: point, flags: flags, force: false)
     }
@@ -111,7 +123,7 @@ import GhosttyNextKit
     }
 
     func exited() {
-        modifierMonitor.remove()
+        modifierWatch?.untrack(self)
         isPressing = false
         if wrappedPress != nil { swallowsRelease = true }
         wrappedPress = nil
@@ -228,20 +240,21 @@ import GhosttyNextKit
     /// The wrapped link at `point`, read from the viewport rows around it.
     func wrappedLink(at point: NSPoint, hint: String? = nil) -> TerminalWrappedLink? {
         guard let surface = view?.surface, let cell = cell(at: point) else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface) else { return nil }
         let first = max(0, cell.row - TerminalWrappedLink.reach)
         let last = min(Int(metrics.rows) - 1, cell.row + TerminalWrappedLink.reach)
         guard first <= last else { return nil }
-        let rows = (first...last).map { rowText(surface, row: $0, columns: Int(metrics.columns)) }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let rows = (first...last).map { unsafe rowText(surface, row: $0, columns: Int(metrics.columns)) }
         return TerminalWrappedLink.find(rows: rows, firstRow: first, columns: Int(metrics.columns), column: cell.column, row: cell.row, hint: hint)
     }
 
     /// The viewport cell under `point` (view coordinates), or nil off the grid.
     func cell(at point: NSPoint) -> (column: Int, row: Int)? {
         guard let view, let surface = view.surface else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cell_width > 0, metrics.cell_height > 0 else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface), metrics.cell_width > 0, metrics.cell_height > 0 else { return nil }
         let x = point.x - metrics.padding_left, y = view.bounds.height - point.y - metrics.padding_top
         guard x >= 0, y >= 0 else { return nil }
         let column = Int(x / metrics.cell_width), row = Int(y / metrics.cell_height)
@@ -251,8 +264,8 @@ import GhosttyNextKit
 
     private func cellFrame() -> CopyModeCursorFrame? {
         guard let view, let surface = view.surface else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface) else { return nil }
         return CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
                                    paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
                                    viewHeight: view.bounds.height)
@@ -265,10 +278,7 @@ import GhosttyNextKit
             bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: lastColumn, y: y),
             rectangle: false
         )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+        // SAFETY: the caller's live surface (the view's, TerminalSurfaceView.surface).
+        return unsafe GhosttyTextRead(surface, selection: selection)?.string ?? ""
     }
 }

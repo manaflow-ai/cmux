@@ -101,17 +101,16 @@ impl PrelaunchRequest {
                 frontend_shell,
             );
         }
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
-        else {
+        let Command::NewTab(params) = command else {
             return None;
         };
         Self::build(
-            *pane,
-            terminal_id.as_ref(),
-            cwd.as_ref(),
-            env.as_ref(),
-            shell_args.as_ref(),
-            optional_surface_size(*cols, *rows),
+            params.pane,
+            params.terminal_id.as_ref(),
+            params.cwd.as_ref(),
+            params.env.as_ref(),
+            params.shell_args.as_ref(),
+            optional_surface_size(params.cols, params.rows),
             frontend_shell,
         )
     }
@@ -172,7 +171,19 @@ impl ConnectionSurfaceScheduler {
             (_, true) => "pane-create",
             _ => "create",
         };
-        let trace = crate::debug_spans::Trace::start(label, Instant::now());
+        // From the line's arrival, as a resource create's trace
+        // (connection_frame.rs): the time it waited in this connection's
+        // queue counts, and `dequeued` marks where that wait ended.
+        let trace =
+            crate::debug_spans::Trace::start(label, pending.arrival.arrived).and_then(|trace| {
+                crate::debug_spans::install(Some(trace));
+                crate::debug_spans::mark("dequeued");
+                crate::debug_spans::take()
+            });
+        // The pool job is the request's: its launch, and the commits it
+        // runs (each under its own request's cause), keep the cause the
+        // dispatcher captured.
+        let cause = pending.cause;
         let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
             mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
         });
@@ -188,6 +199,7 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let _cause = job_mux.request_qos().enter(cause);
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
@@ -263,8 +275,10 @@ impl ConnectionSurfaceScheduler {
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
-                        Command::NewTab { terminal_id, .. }
-                        | Command::NewPane { terminal_id, .. } => {
+                        Command::NewTab(params) => {
+                            params.terminal_id = Some(terminal_hex.clone());
+                        }
+                        Command::NewPane { terminal_id, .. } => {
                             *terminal_id = Some(terminal_hex.clone());
                         }
                         Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),

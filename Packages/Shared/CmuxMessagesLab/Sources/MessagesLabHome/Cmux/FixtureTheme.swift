@@ -54,9 +54,9 @@ struct FixtureTheme: Equatable {
             let span = Fixture.gradientHeight * 2
             let stops = p.outgoingGradient.isEmpty ? [HomePalette.GradientStop(location: 0, color: p.caret)] : p.outgoingGradient
             gradientStops = stops.map { (span * $0.location, c($0.color)) }
-            outgoingGradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                                          colors: stops.map { $0.color.cgColor } as CFArray,
-                                          locations: stops.map(\.location))
+            outgoingGradient = CGGradient.checked(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                                                  colors: stops.map { $0.color.cgColor },
+                                                  locations: stops.map(\.location))
             let bg = p.background
             let light = 0.2126 * bg.red + 0.7152 * bg.green + 0.0722 * bg.blue > 0.5
             isLight = light

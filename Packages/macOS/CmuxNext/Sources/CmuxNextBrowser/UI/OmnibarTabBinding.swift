@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// Ties the omnibar (`AddressBarView`) to one page shown outside a browser
 /// pane: a popup window (`window.open`, OAuth, extension and sign-in windows).
@@ -11,11 +12,13 @@ public final class OmnibarTabBinding {
     /// The bar this binding drives.
     public let addressBar: AddressBarView
     private let tab: any BrowserTab
+    private let mainWork: MainWorkScheduler
     private var observation: ObservationLoop?
     /// The typed-address http fallback (`HTTPSUpgradeFallback`), as a tab's toolbar has.
     private var httpsFallback = HTTPSUpgradeFallback()
     private lazy var pageInfo: PageInfoController = {
-        let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor })
+        let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor },
+                                            mainWork: self.mainWork)
         controller.onReturnFocus = { [weak self] in self?.tab.setFocused(true) }
         return controller
     }()
@@ -25,9 +28,11 @@ public final class OmnibarTabBinding {
     /// - Parameters:
     ///   - addressBar: The omnibar to drive (usually an `OmnibarToolbarView`'s bar).
     ///   - tab: The page whose URL the bar shows and loads.
-    public init(addressBar: AddressBarView, tab: any BrowserTab) {
+    ///   - mainWork: The app's one main-thread scheduler; the bar follows the page on it.
+    public init(addressBar: AddressBarView, tab: any BrowserTab, mainWork: MainWorkScheduler) {
         self.addressBar = addressBar
         self.tab = tab
+        self.mainWork = mainWork
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         addressBar.onPageInfo = { [weak self] in self?.pageInfo.toggle() }
         addressBar.onEvent = { [weak self] event in self?.handle(event) }
@@ -36,7 +41,8 @@ public final class OmnibarTabBinding {
             httpsFallback.expect(url, current: tab.state.loadError)
         }
         addressBar.bindKeywords(of: tab)
-        observation = ObservationLoop { [weak self] in self?.render() }
+        // node-free: the popup window's own bar, in no tab; the window's occlusion stops its frames
+        observation = ObservationLoop(owner: "browser.popup.omnibar", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     /// Stops following the page and closes its page info bubble.
@@ -49,8 +55,9 @@ public final class OmnibarTabBinding {
     private func render() {
         let state = tab.state
         if let http = httpsFallback.observe(state) {
-            // task-owner: one load, after this render (never a load inside the observed render).
-            Task { @MainActor [weak self] in self?.tab.load(http) }
+            // One load, after this render (never a load inside the observed render): the rest of the person's
+            // typed navigation, as BrowserChromeView's fallback.
+            mainWork.post(.userBlocking, owner: "browser.popup.httpsFallback") { [weak self] in self?.tab.load(http) }
         }
         addressBar.update(url: BrowserChromeView.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
     }

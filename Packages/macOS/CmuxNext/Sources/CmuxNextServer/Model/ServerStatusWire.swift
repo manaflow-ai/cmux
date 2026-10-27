@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The proposed JSON of `server.status` / `cmux server status --json`, and
@@ -86,7 +87,7 @@ public nonisolated struct ServerStatusWire: Decodable, Sendable {
     public static func decode(_ data: Data) throws -> ServerSnapshot {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode(ServerStatusWire.self, from: data).snapshot()
+        return try decoder.blockingDecode(ServerStatusWire.self, from: data).snapshot()
     }
 
     public func snapshot() -> ServerSnapshot {

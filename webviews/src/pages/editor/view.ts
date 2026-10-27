@@ -758,6 +758,17 @@ export class MonacoView implements CodeView {
     };
   }
 
+  /** Monaco's own view state (cursor, selections, scroll, folds): plain JSON. */
+  saveViewState(): unknown {
+    return this.editor.saveViewState();
+  }
+
+  /** Puts back a `saveViewState` value; Monaco clamps it to the document as it is now. */
+  restoreViewState(state: unknown): void {
+    if (state && typeof state === "object" && "viewState" in state && "cursorState" in state)
+      this.editor.restoreViewState(state as monaco.editor.ICodeEditorViewState);
+  }
+
   /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
   reveal(position: RevealPosition): void {
     const model = this.model;

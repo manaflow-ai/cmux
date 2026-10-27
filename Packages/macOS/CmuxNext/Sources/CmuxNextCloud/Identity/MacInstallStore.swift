@@ -1,38 +1,42 @@
 public import CmuxInstallAuthCore
+public import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 
 /// Where the Mac app keeps its install keys and records (cx-wb5.64), one
 /// key per Stack user (two users on one Mac never share or rotate each
 /// other's key).
-/// - ``files(directory:)``: a debug build without a Team ID: software P-256
+/// - ``files(directory:work:)``: a debug build without a Team ID: software P-256
 ///   keys and the records in 0600 files in a 0700 directory, so a rebuild
 ///   never raises a Keychain prompt (the same known DEV gap as the P8
 ///   frontend key, identity.md).
-/// - ``enclave(service:directory:)``: every other build: keys in the Secure
+/// - ``enclave(service:directory:work:)``: every other build: keys in the Secure
 ///   Enclave (only the encrypted blob is stored, in the Keychain); records
 ///   (user and install ids, not secrets) in the 0600 file.
+///
+/// `work` is the app's one ``BackgroundWork``: the keys' disk, Keychain and
+/// enclave calls run on its lanes.
 public struct MacInstallStore: Sendable {
     private let makeSigner: @Sendable (String) -> any InstallSigner
     private let records: URL
     /// Whether keys live in the Secure Enclave.
     public let usesSecureEnclave: Bool
 
-    public static func files(directory: URL) -> MacInstallStore {
-        MacInstallStore(makeSigner: { account in FileInstallSigner(file: directory.appendingPathComponent(account)) },
+    public static func files(directory: URL, work: BackgroundWork) -> MacInstallStore {
+        MacInstallStore(makeSigner: { account in FileInstallSigner(file: directory.appendingPathComponent(account), work: work) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
     }
 
-    public static func enclave(service: String, directory: URL) -> MacInstallStore {
-        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account) },
+    public static func enclave(service: String, directory: URL, work: BackgroundWork) -> MacInstallStore {
+        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account, work: work) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
 
     /// The store for this process. Only a debug build with no Team ID uses
     /// files; a release build, or a build whose Team ID could not be read,
     /// uses the Secure Enclave (fails closed).
-    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool) -> MacInstallStore {
-        isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory)
+    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool, work: BackgroundWork) -> MacInstallStore {
+        isDebugBuild && team == nil ? .files(directory: directory, work: work) : .enclave(service: service, directory: directory, work: work)
     }
 
     /// The key of `user`: `install-key-<first 16 hex of SHA-256(user)>`.

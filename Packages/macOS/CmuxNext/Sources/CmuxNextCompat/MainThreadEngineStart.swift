@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+
 /// Main-thread time spent in a declared engine start step: Chromium's
 /// `CefInitialize` and its first browser window (`CEFRuntime`,
 /// `CEFPaneHost`). Chromium requires both on the main thread, and each holds
@@ -27,7 +31,7 @@ public final class MainThreadEngineStart: Sendable {
         var activeSince: ContinuousClock.Instant?
         var depth = 0
         var nextWaiter = 0
-        var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
+        var waiters: [Int: OnceContinuation<Void, OnceContinuationError>] = [:]
     }
 
     private let state = Mutex(State())
@@ -60,8 +64,9 @@ public final class MainThreadEngineStart: Sendable {
     }
 
     /// Returns when no step runs (at once when none does), at `limit`, or
-    /// when the task is cancelled.
-    public func waitUntilIdle(until limit: ContinuousClock.Instant) async {
+    /// when the task is cancelled. The `limit` wake may fire up to
+    /// `tolerance` late.
+    public func waitUntilIdle(until limit: ContinuousClock.Instant, tolerance: Duration) async {
         let id = state.withLock { state -> Int? in
             guard state.activeSince != nil else { return nil }
             state.nextWaiter += 1
@@ -69,36 +74,40 @@ public final class MainThreadEngineStart: Sendable {
         }
         guard let id else { return }
         let bound = Task { [weak self] in
-            // wakeup-allow: one-shot bound of a wait for a step's end, cancelled when the step ends
-            do { try await Task.sleep(until: limit, clock: .continuous) } catch { return }
-            self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
+            // wakeup-allow: deadline bound of a wait for a step's end, cancelled when the step ends
+            do { try await Task.sleep(until: limit, tolerance: tolerance, clock: .continuous) } catch { return }
+            self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: ())
         }
         defer { bound.cancel() }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A dropped waiter returns as the step's end does: the deadline is checked again.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 let resumeNow = state.withLock { state -> Bool in
                     // A bound that fired before this waiter was stored found nothing to resume.
                     guard state.activeSince != nil, !Task.isCancelled, ContinuousClock.now < limit else { return true }
                     state.waiters[id] = continuation
                     return false
                 }
-                if resumeNow { continuation.resume() }
+                if resumeNow { continuation.resume(returning: ()) }
             }
         } onCancel: {
-            state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
+            state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: ())
         }
     }
 
     /// Sleeps until `deadline` moved out by the step time since `mark` (a
     /// ``total`` read when the request started), at most ``maxCredit``.
-    /// Throws `CancellationError` when the task is cancelled.
-    public func waitPast(_ deadline: ContinuousClock.Instant, countingFrom mark: Duration) async throws {
+    /// Each wake may fire up to `tolerance` late: callers pass the
+    /// `WakeLeeway` of their deadline (CmuxNextWakeups, a module above this
+    /// one). Throws `CancellationError` when the task is cancelled.
+    public func waitPast(_ deadline: ContinuousClock.Instant, countingFrom mark: Duration,
+                         tolerance: Duration) async throws {
         var target = deadline
-        // wakeup-allow: each turn sleeps to a deadline or waits for a step's end; it ends at the moved deadline
+        // wakeup-allow: bounded: a turn repeats only when step time moved the deadline out, by at most maxCredit in all
         while true {
-            // wakeup-allow: one-shot request deadline, cancelled when the request answers
-            try await Task.sleep(until: target, clock: .continuous)
-            await waitUntilIdle(until: deadline + Self.maxCredit)
+            // wakeup-allow: deadline of the request, cancelled when the request answers
+            try await Task.sleep(until: target, tolerance: tolerance, clock: .continuous)
+            await waitUntilIdle(until: deadline + Self.maxCredit, tolerance: tolerance)
             try Task.checkCancellation()
             let moved = movedDeadline(deadline, countingFrom: mark)
             guard moved > .now else { return }
@@ -107,7 +116,7 @@ public final class MainThreadEngineStart: Sendable {
     }
 
     private func end() {
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             state.depth -= 1
             guard state.depth == 0, let since = state.activeSince else { return [] }
             state.finished += .now - since
@@ -115,6 +124,6 @@ public final class MainThreadEngineStart: Sendable {
             defer { state.waiters.removeAll() }
             return Array(state.waiters.values)
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }

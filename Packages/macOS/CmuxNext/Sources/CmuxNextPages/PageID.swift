@@ -25,6 +25,21 @@ public nonisolated struct PageID {
         return isFirstParty(lowered) || lowered == "cmux" || lowered.hasPrefix("cmux.")
     }
 
+    /// The host of the shared chunks (`cmux-page://cmux.shared/`, ``PageSharedChunks``): reserved, so no
+    /// app can claim it, and never a page, so no document has its origin.
+    public static let sharedHost = "cmux.shared"
+
+    /// `cmux-page://cmux.shared`, the one origin every first-party page imports its shared chunks from.
+    public static var sharedOrigin: String { PageDescriptor.scheme + "://" + sharedHost }
+
+    /// The shared chunks' folder in this module's resource bundle (`Resources/pages/_shared`, written by
+    /// the page build), nil when the build wrote none.
+    public static var sharedBundleRoot: URL? { PageSharedChunks.bundledRoot }
+
+    /// The Content Security Policy of every shared chunk response: a script or style file loads nothing
+    /// and is never framed.
+    public static let sharedChunkPolicy = "default-src 'none'; frame-ancestors 'none'"
+
     private static let registeredRoots = Mutex<[String: URL]>([:])
 
     /// Names the bundled root of a page the app ships whose files live in another module's resource
@@ -69,6 +84,7 @@ public extension PageDescriptor {
             throw .reservedNamespace(reserved)
         }
         // An app's own content decides what sits under a click that only brings the window forward.
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
+        // Its content is the app's own, so it shares a renderer with no other page.
+        return PageDescriptor(id: host, resource: resource, processGroup: .solo, namespaces: namespaces, acceptsFirstMouse: false)
     }
 }

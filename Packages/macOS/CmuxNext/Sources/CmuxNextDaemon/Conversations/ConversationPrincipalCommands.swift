@@ -7,7 +7,7 @@ import Foundation
 /// `conversation-agent-token`: mints the credential of agent `participant`.
 public struct ConversationAgentTokenRequest: DaemonRequest {
     public typealias Response = ConversationAgentToken
-    public static let command = "conversation-agent-token"
+    public static let commandName: DaemonCommandName = "conversation-agent-token"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var participant: String
     public init(participant: String) { self.participant = participant }
@@ -16,7 +16,7 @@ public struct ConversationAgentTokenRequest: DaemonRequest {
 /// `conversation-bind`: binds the connection to agent `participant`.
 public struct ConversationBindRequest: DaemonRequest {
     public typealias Response = ConversationAgentToken
-    public static let command = "conversation-bind"
+    public static let commandName: DaemonCommandName = "conversation-bind"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var participant: String
     public var token: String

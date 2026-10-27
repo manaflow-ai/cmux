@@ -18,18 +18,24 @@ nonisolated struct DarwinExtendedAttributes: ExtendedAttributeAccess {
     static let readLimit = 64 * 1024
 
     func read(_ name: String, at path: String) -> Data? {
-        let size = getxattr(path, name, nil, 0, 0, 0)
+        // SAFETY: getxattr reads the NUL-terminated copies of `path` and `name` made for the call; with a nil
+        // buffer it only returns the size, and the second call writes at most `size` bytes into the view of
+        // `data`, which is exactly `size` bytes and lives for the closure.
+        let size = unsafe getxattr(path, name, nil, 0, 0, 0)
         guard size > 0, size <= Self.readLimit else { return nil }
         var data = Data(count: size)
-        let read = data.withUnsafeMutableBytes { getxattr(path, name, $0.baseAddress, size, 0, 0) }
+        let read = unsafe data.withUnsafeMutableBytes { unsafe getxattr(path, name, $0.baseAddress, size, 0, 0) }
         return read == size ? data : nil
     }
 
     func write(_ name: String, _ value: Data, at path: String) -> Bool {
-        value.withUnsafeBytes { setxattr(path, name, $0.baseAddress, value.count, 0, 0) } == 0
+        // SAFETY: setxattr reads `value.count` bytes from the view of `value`, which has that many and lives for
+        // the closure, and the NUL-terminated copies of `path` and `name` made for the call.
+        unsafe value.withUnsafeBytes { unsafe setxattr(path, name, $0.baseAddress, value.count, 0, 0) } == 0
     }
 
     func remove(_ name: String, at path: String) -> Bool {
-        removexattr(path, name, 0) == 0 || errno == ENOATTR
+        // SAFETY: removexattr reads the NUL-terminated copies of `path` and `name` made for the call.
+        unsafe removexattr(path, name, 0) == 0 || errno == ENOATTR
     }
 }

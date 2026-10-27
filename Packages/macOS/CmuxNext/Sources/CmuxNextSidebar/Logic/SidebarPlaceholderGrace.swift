@@ -30,7 +30,7 @@ public final class SidebarPlaceholderGrace {
         guard waits[section] == nil else { return false }
         let timer = DemandTimer(owner: "sidebar-placeholder-grace", clock: clock)
         waits[section] = timer
-        timer.schedule(after: Self.delay) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: Self.delay) { [weak self] in
             guard let self, waits.removeValue(forKey: section) != nil else { return }
             ended.insert(section)
             onEnd?()

@@ -24,6 +24,9 @@ export type ChangeEvent = {
   keys: string[];
   origin?: string;
   /** The owner's revision once the change applied. */ revision?: number;
+  /** Earlier change events were dropped while the page was hidden or frozen, so `keys` names
+   * only the newest change: any key may have changed. */
+  gap?: true;
 };
 
 /** The settings scopes the page reads; today only the user's file (cmux.json and its MDM overlay). */
@@ -85,7 +88,9 @@ export function pageTransport(client: SettingsClient): SettingsTransport {
     async subscribe(listener) {
       const stops = await Promise.all([
         client
-          .subscribe<ChangeEvent>("cmux.settings.changed", (event) => listener.changed(event))
+          .subscribe<ChangeEvent>("cmux.settings.changed", (event, _seq, meta) =>
+            listener.changed(meta?.gap === true ? { ...event, gap: true } : event),
+          )
           .catch(() => () => {}),
         client
           .subscribe<{ connected: boolean }>("cmux.page.connection", (event) => listener.connection(event.connected))

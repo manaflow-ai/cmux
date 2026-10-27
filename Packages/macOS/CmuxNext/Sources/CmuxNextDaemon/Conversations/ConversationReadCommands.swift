@@ -5,7 +5,7 @@ import Foundation
 /// `conversation-list`: every conversation, newest `updated_at` first.
 public struct ListConversationsRequest: DaemonRequest {
     public typealias Response = ConversationList
-    public static let command = "conversation-list"
+    public static let commandName: DaemonCommandName = "conversation-list"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public init() {}
 }
@@ -13,7 +13,7 @@ public struct ListConversationsRequest: DaemonRequest {
 /// `conversation-snapshot`: the head and the newest `tail` messages (1...500).
 public struct ConversationSnapshotRequest: DaemonRequest {
     public typealias Response = ConversationSnapshot
-    public static let command = "conversation-snapshot"
+    public static let commandName: DaemonCommandName = "conversation-snapshot"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var tail: Int
@@ -26,7 +26,7 @@ public struct ConversationSnapshotRequest: DaemonRequest {
 /// `conversation-history`: up to `limit` (1...500) messages before `beforeSeq`, ascending.
 public struct ConversationHistoryRequest: DaemonRequest {
     public typealias Response = ConversationHistory
-    public static let command = "conversation-history"
+    public static let commandName: DaemonCommandName = "conversation-history"
     public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var beforeSeq: UInt64

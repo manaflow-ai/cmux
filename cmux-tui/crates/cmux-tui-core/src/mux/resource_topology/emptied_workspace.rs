@@ -36,6 +36,7 @@ impl Mux {
     /// Remove `workspace` from `projected` as an explicit close does:
     /// refused for the home workspace; the active workspace keeps its id or
     /// falls back to the last one. Returns whether it was active.
+    #[track_caller]
     pub(super) fn remove_workspace_for_close(
         &self,
         registry: &WorkspaceRegistry,
@@ -89,6 +90,7 @@ impl Mux {
 
     /// Close in `projected` every workspace that had a tab in `before` and
     /// has none in `projected`. None when no closable workspace emptied.
+    #[track_caller]
     pub(super) fn close_emptied_workspaces_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -101,6 +103,7 @@ impl Mux {
 
     /// The same, also closing each of `bare`, workspaces that had no tab
     /// before (a deleted space's, SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+    #[track_caller]
     pub(super) fn close_emptied_workspaces_with_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -156,6 +159,7 @@ impl Mux {
         }))
     }
 
+    #[track_caller]
     pub(super) fn close_emptied_workspaces_for_resource_close_locked(
         &self,
         registry: &WorkspaceRegistry,

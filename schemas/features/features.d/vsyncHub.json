@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "vsyncHub",
+  "owner": "Performance Lead",
+  "description": "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["motion", "home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

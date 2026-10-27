@@ -21,10 +21,10 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// This process's server: nil in Release, or without a valid ``variable``.
     public static let current = resolve(environment: ProcessInfo.processInfo.environment, allowsDevServer: allowed)
 
-    /// The pages the server serves: the React pages and the three viewers. The agent pane has its
-    /// own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an app page is never served from it.
+    /// The pages the server serves: the React pages, the three viewers and the agent pane (its
+    /// document at `/agent-pane/`). An app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.changelog", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
+        "cmux.agent", "cmux.apps", "cmux.changelog", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
         "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 

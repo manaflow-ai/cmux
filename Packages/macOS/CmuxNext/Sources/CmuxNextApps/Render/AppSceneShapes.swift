@@ -29,18 +29,27 @@ struct AppSceneShape: View {
 
 /// A TextField node: local text, `edit` on change, `submit` on Return,
 /// `cancel` on Escape. A themed field: its text, caret and placeholder are
-/// the scope's inks.
+/// the scope's inks. Its text starts as the node's where the view is made, not
+/// on appear: a gated page tab appears again on each show
+/// (`VisibilityGatedHostingView`), and a reset would lose the typed text and
+/// send the app an `edit` the person did not make.
 struct AppSceneTextField: View {
     let model: AppSceneModel
     let id: String
     let node: AppSceneNode
-    @State private var text = ""
+    @State private var text: String
+
+    init(model: AppSceneModel, id: String, node: AppSceneNode) {
+        self.model = model
+        self.id = id
+        self.node = node
+        _text = State(initialValue: node.string("text") ?? "")
+    }
 
     var body: some View {
         ThemedField(text: $text, placeholder: node.string("placeholder"), height: 18, focusOnAppear: node.flag("autofocus"),
                     boxed: false, onSubmit: { model.send(id, "submit", ["text": .string(text)]) },
                     onCancel: { model.send(id, "cancel") })
-            .onAppear { text = node.string("text") ?? "" }
             .onChange(of: node.string("text")) { _, new in if let new, new != text { text = new } }
             .onChange(of: text) { _, new in if node.flag("onEdit") { model.send(id, "edit", ["text": .string(new)]) } }
     }

@@ -1,0 +1,19 @@
+{
+  "id": "layout-loop-stress",
+  "tier": "T2",
+  "description": "Layout loop and pane ring stress (layout-loop-stress-live.py): a Chromium split, 20 splits, columns and rows, sidebar toggles, the command palette driven over the many-pane window, 50 window sizes and the interface scale walk; after each step the most layouts of one view in one window layout (LayoutPassGuard), and the run's failed checks (layout loops, planes or rings out of sync, failed actions), light session.",
+  "command": ["scripts/cmux-next/layout-loop-stress-live.py"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "layout_loop\\.max_in_one_turn", "unit": "count", "better": "lower"},
+    {"name": "layout_loop\\.failures", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.layers", "debug:debug.key", "debug:debug.window_frame", "debug:debug.app_activation",
+            "debug:debug.reduce_transparency", "debug:debug.window_snapshot"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Loops"
+}

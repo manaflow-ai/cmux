@@ -59,9 +59,11 @@ final class HomeMarkdownRenderer {
         p.makeContiguousUTF8()
         return s.utf8.withContiguousStorageIfAvailable { sb in
             p.utf8.withContiguousStorageIfAvailable { pb -> Bool in
-                guard pb.count <= sb.count else { return false }
-                guard let sa = sb.baseAddress, let pa = pb.baseAddress else { return pb.isEmpty }
-                return memcmp(sa, pa, pb.count) == 0
+                // SAFETY: sb and pb are the two strings' contiguous UTF-8, valid inside these closures only, and no
+                // pointer leaves them; memcmp reads pb.count bytes of each, which both hold (the first guard).
+                guard unsafe pb.count <= sb.count else { return false }
+                guard let sa = unsafe sb.baseAddress, let pa = unsafe pb.baseAddress else { return unsafe pb.isEmpty }
+                return unsafe memcmp(sa, pa, pb.count) == 0
             } ?? false
         } ?? false
     }

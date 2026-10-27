@@ -1,0 +1,26 @@
+{
+  "id": "idle-budget-webkit",
+  "tier": "T2",
+  "description": "The idle-budget story's rows with browser.defaultEngine webkit, no Chromium at all (idle-budget.py --sessions light-webkit, shipping measurement mode): idle wakeups, threads, energy, GPU, disk, network and log lines per process kind and their sums, and the session's failed count, light session.",
+  "command": ["scripts/cmux-next/idle-budget.py", "--sessions", "light-webkit"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "idle_budget\\.light-webkit\\..+\\.(wakeups_per_s|wakeups_max|main_wakes_per_s)", "unit": "per_s",
+     "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\..+\\.(threads|threads_max|log_lines)", "unit": "count", "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\..+\\.(energy_mw_billed|energy_mw_cpu)", "unit": "mW", "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\..+\\.gpu_ms_per_s", "unit": "ms", "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\..+\\.disk_bytes_per_s", "unit": "bytes_per_s", "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\..+\\.network_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "idle_budget\\.light-webkit\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.cef", "debug:debug.energy", "debug:debug.hangs", "debug:debug.layers",
+            "debug:debug.shipping_mode", "debug:debug.wakeups", "debug:debug.webui", "debug:debug.window_list",
+            "file:scripts/cmux-next/idle-budget.json"],
+  "owner": "Performance Lead",
+  "component": "Energy>Idle"
+}

@@ -20,18 +20,12 @@
 //! `FeatureList::AddFeaturesToCommandLine` gives a child process only the
 //! overridden features.
 
-/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"`: the index of
-/// `name` in `table`. A name the table lacks fails the build; every check is a
-/// `const` item, so none of it runs in the daemon.
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_macros,
-        reason = "the generated handles use it; the registry has no daemon feature yet"
-    )
-)]
+/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"` (with its doc
+/// comment): the index of `name` in `table`. A name the table lacks fails the
+/// build; every check is a `const` item, so none of it runs in the daemon.
 macro_rules! feature_handles {
-    ($table:path; $($handle:ident = $name:literal),* $(,)?) => {$(
+    ($table:path; $($(#[$meta:meta])* $handle:ident = $name:literal),* $(,)?) => {$(
+        $(#[$meta])*
         pub const $handle: $crate::Feature = $crate::Feature($crate::position($table, $name));
         const _: () = assert!(
             $crate::position($table, $name) < $table.len(),
@@ -41,6 +35,9 @@ macro_rules! feature_handles {
 }
 
 mod generated;
+/// The daemons' value sources (managed policy, the signed document, the channel).
+#[cfg(feature = "sources")]
+pub mod sources;
 
 pub use generated::feature;
 
@@ -260,6 +257,22 @@ impl Snapshot {
     }
 }
 
+/// Whether the [`ENABLE_ENV`] and [`DISABLE_ENV`] lists of this process turn
+/// on `name`, a daemon feature whose registry default is off on every channel.
+/// The gate of such a feature until the generated registry lists it; then
+/// [`Snapshot::is_enabled`] replaces it.
+pub fn listed_in_env(name: &str) -> bool {
+    let list = |variable: &str| std::env::var(variable).ok();
+    listed(name, list(ENABLE_ENV).as_deref(), list(DISABLE_ENV).as_deref())
+}
+
+/// Whether `enable` names `name` and `disable` does not (disable wins), split
+/// the way [`Snapshot::from_env`] splits the lists.
+pub fn listed(name: &str, enable: Option<&str>, disable: Option<&str>) -> bool {
+    let named = |list: Option<&str>| names(list).any(|listed| listed == name);
+    named(enable) && !named(disable)
+}
+
 /// The names in one comma-separated list; empty entries are skipped.
 fn names(list: Option<&str>) -> impl Iterator<Item = &str> {
     list.into_iter().flat_map(|text| text.split(',')).map(str::trim).filter(|name| !name.is_empty())
@@ -285,6 +298,16 @@ mod tests {
 
     fn values(snapshot: &Snapshot) -> Vec<(bool, Source)> {
         snapshot.iter().map(|(_, enabled, source)| (enabled, source)).collect()
+    }
+
+    #[test]
+    fn listed_reads_the_lists_like_a_snapshot() {
+        assert!(!listed("daemonOnly", None, None));
+        assert!(!listed("daemonOnly", Some("terminalHolder"), None));
+        assert!(listed("daemonOnly", Some("a,, daemonOnly ,"), None));
+        assert!(!listed("daemonOnly", Some("daemononly"), None), "names are case-sensitive");
+        assert!(!listed("daemonOnly", Some("daemonOnly"), Some(" daemonOnly")), "disable wins");
+        assert!(listed("daemonOnly", Some("daemonOnly"), Some("terminalHolder")));
     }
 
     #[test]

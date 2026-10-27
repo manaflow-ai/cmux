@@ -3,6 +3,7 @@
 //! re-verifies before it publishes), and the untracked and ignored paths.
 //! Every read uses the read runner; nothing here writes.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -41,7 +42,7 @@ impl Layout {
             return Err(failed(operation, "git_failed", "git did not name its directories"));
         };
         let canonical = |path: &str| {
-            fs::canonicalize(path)
+            files::canonicalize(path)
                 .map_err(|error| failed(operation, "git_failed", error.to_string()))
         };
         Ok(Self { git_dir: canonical(own)?, common_dir: canonical(common)? })
@@ -232,7 +233,7 @@ pub(super) fn ignored(
 /// absent, or the error that kept it from being read.
 pub(super) fn inspect(root: &Path, relative: &[u8]) -> io::Result<Option<Kind>> {
     let path = join(root, relative);
-    let metadata = match fs::symlink_metadata(&path) {
+    let metadata = match files::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
@@ -259,7 +260,7 @@ pub(super) fn behind_a_link(root: &Path, relative: &[u8], folders: &mut HashSet<
         end += offset;
         let prefix = &relative[..end];
         if !folders.contains(prefix) {
-            let real = fs::symlink_metadata(join(root, prefix))
+            let real = files::symlink_metadata(join(root, prefix))
                 .is_ok_and(|metadata| metadata.file_type().is_dir());
             if !real {
                 return true;
@@ -310,7 +311,7 @@ pub(super) fn join(root: &Path, relative: &[u8]) -> PathBuf {
 }
 
 pub(super) fn link_target(path: &Path) -> io::Result<Vec<u8>> {
-    let target = fs::read_link(path)?;
+    let target = files::read_link(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;

@@ -122,4 +122,12 @@ extension DaemonEvent {
         default: false
         }
     }
+
+    /// A connection lifecycle fact: the store's connection epoch changes when it applies.
+    var changesConnection: Bool {
+        switch self {
+        case .connected, .disconnected, .daemonShutdown: true
+        default: false
+        }
+    }
 }

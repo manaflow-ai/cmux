@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct FloatingGlassStyleTests {
     private static func reduceTransparency(_ on: Bool) -> ReduceTransparency {
-        ReduceTransparency(system: { on }, changes: NotificationCenter())
+        ReduceTransparency(system: { on })
     }
 
     private static func surface(of view: NSView) throws -> OverlaySurfaceView {

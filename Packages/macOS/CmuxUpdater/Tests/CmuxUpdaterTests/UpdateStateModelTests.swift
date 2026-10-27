@@ -1,12 +1,11 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 @MainActor
 @Suite struct UpdateStateModelTests {
-    private func makeItem(_ version: String) -> SUAppcastItem {
-        SUAppcastItem(dictionary: [
+    private func makeItem(_ version: String) -> UpdateAppcastItem {
+        UpdateAppcastItem(dictionary: [
             "title": "cmux \(version)",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -15,7 +14,7 @@ import Testing
                 "sparkle:version": version,
                 "sparkle:shortVersionString": version,
             ],
-        ]) ?? SUAppcastItem.empty()
+        ]) ?? UpdateAppcastItem.empty()
     }
 
     /// Regression for #8368: `updaterDidNotFindUpdate` is shared by background probes and
@@ -38,7 +37,7 @@ import Testing
             MainActor.assumeIsolated { reply.choice = choice }
         })))
 
-        driver.handleDidNotFindUpdate(NSError(domain: SUSparkleErrorDomain, code: 1001))
+        driver.handleDidNotFindUpdate(NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 1001))
 
         #expect(model.detectedUpdateItem == nil)
         #expect(model.detectedUpdateVersion == nil)
@@ -145,8 +144,9 @@ import Testing
     // MARK: - Installer / launchd-agent failure (SUInstallationError 4005, SUAgentInvalidationError 4010)
     //
     // Domain literal "SUSparkleErrorDomain" matches the value of Sparkle's `SUSparkleErrorDomain`
-    // constant, so tests don't need to import Sparkle. Title/message assertions check English
-    // substrings because `String(localized:)` falls back to its `defaultValue` under the test bundle.
+    // constant (`UpdateStateModel.sparkleErrorDomain`), so tests need no Sparkle import. Title/message
+    // assertions check English substrings because `String(localized:)` falls back
+    // to its `defaultValue` under the test bundle.
 
     /// Regression for #9660: a 4005 installation error wrapping an agent-connection timeout must
     /// explain that endpoint security can delay the helper and direct the user to the one-time

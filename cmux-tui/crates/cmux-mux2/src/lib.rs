@@ -5,6 +5,8 @@
 //! Terminal output travels as raw bytes in [`OUTPUT`] frames: no base64,
 //! no JSON, no copy beyond the socket write.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 

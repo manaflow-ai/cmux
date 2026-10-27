@@ -57,9 +57,10 @@ extension LayoutRootView {
         let radius = tunedRadius >= 0 ? tunedRadius
             : style.hasPaneChrome && paneZone ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
         let inset = paneZone ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
-        if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
-                          inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
-                          animated: canAnimate, companions: hit.companions.map { convert($0, from: view) }) { driver.start() }
+        let springs = highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
+                                   inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
+                                   animated: canAnimate, companions: hit.companions.map { convert($0, from: view) })
+        highlightChanged(needsFrames: springs)
         return hit.target
     }
 
@@ -80,8 +81,9 @@ extension LayoutRootView {
         tabDragRefusedTarget = nil
         let height = min(20, slot.height)
         let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
-        if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
-                          pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
+        let springs = highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
+                                   pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false)
+        highlightChanged(needsFrames: springs)
     }
 
     /// Previews a pane drag's target `pane` (a swap) with the fill a tab dropped in that pane's
@@ -98,8 +100,9 @@ extension LayoutRootView {
         let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
         let radius = tunedRadius >= 0 ? tunedRadius
             : context.style.hasPaneChrome ? PaneChromeGeometry.cornerRadius(for: rect, style: context.style) : context.style.panelCornerRadius
-        if highlight.show(rect, region: convert(join.region, from: view), zone: .center, text: "", inset: 0, cornerRadius: radius,
-                          pointer: convert(locationInWindow, from: nil), animated: canAnimate) { driver.start() }
+        let springs = highlight.show(rect, region: convert(join.region, from: view), zone: .center, text: "", inset: 0, cornerRadius: radius,
+                                   pointer: convert(locationInWindow, from: nil), animated: canAnimate)
+        highlightChanged(needsFrames: springs)
     }
 
     /// Hides the drop highlight `updateTabDrag` showed, for a zone the App
@@ -108,7 +111,7 @@ extension LayoutRootView {
     public func hideTabDragHighlight() {
         tabDragRefusedTarget = tabDragShownTarget
         tabDragHighlightOnScreen = nil
-        if highlight.hide(animated: false) { driver.start() }
+        highlightChanged(needsFrames: highlight.hide(animated: false))
     }
 
     /// Labels the current drop preview with why a drop there is refused
@@ -147,7 +150,7 @@ extension LayoutRootView {
         tabDragEdge = nil
         tabDragDwellDeadline = nil
         // Classic hides the overlay at once on a drop, a cancel or an exit.
-        if highlight.hide(animated: false) { driver.start() }
+        highlightChanged(needsFrames: highlight.hide(animated: false))
     }
 
     // MARK: NSDraggingDestination

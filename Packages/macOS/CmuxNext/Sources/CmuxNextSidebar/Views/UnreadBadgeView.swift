@@ -22,10 +22,12 @@ final class UnreadBadgeView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         layer?.cornerCurve = .continuous
         label.font = SidebarStyle.badgeFont
         label.alignment = .center
         addSubview(label)
+        isHidden = true // `.none` until configured
     }
 
     @available(*, unavailable)
@@ -33,7 +35,9 @@ final class UnreadBadgeView: NSView {
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// A row configures its badge on every content change: the same state (and font) asks for no paint or layout.
     func configure(_ state: UnreadState) {
+        guard state != self.state || label.font != SidebarStyle.badgeFont else { return }
         self.state = state
         label.setFont(SidebarStyle.badgeFont)
         isHidden = !state.isUnread
@@ -43,8 +47,8 @@ final class UnreadBadgeView: NSView {
         } else {
             label.isHidden = true
         }
-        needsDisplay = true
-        needsLayout = true
+        // invalidate: a new state or font (the guard above) paints another look at another width and radius.
+        needsDisplay = true; needsLayout = true
     }
 
     /// Width of a count badge for `count` (without a view).
@@ -63,26 +67,9 @@ final class UnreadBadgeView: NSView {
         }
     }
 
-    /// Reads the look and repaints once when Debug Settings changes it (no polling).
-    private func observedLook() -> NotificationBadgeLook {
-        guard !observesLook else { return NotificationBadgeLook.tunable.value }
-        observesLook = true
-        return withObservationTracking {
-            NotificationBadgeLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesLook = false
-                self?.needsDisplay = true
-            }
-        }
-    }
-
-    /// One observation of the look is registered at a time.
-    private var observesLook = false
-
     override func updateLayer() {
         guard let layer else { return }
-        look = fixedLook ?? observedLook()
+        look = fixedLook ?? NotificationBadgeLook.tunable.value
         performWithTheme {
             var colors = self.paint(look, dot: state == .dot)
             if notificationDot, state == .dot { colors = Paint(fill: Palette.statusUnread, text: Palette.statusUnread) }
@@ -91,7 +78,6 @@ final class UnreadBadgeView: NSView {
             layer.borderColor = colors.border?.cgColor
             layer.borderWidth = colors.border == nil ? 0 : colors.borderWidth
         }
-        layer.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
     }
 
     /// One look's colors, from this view's Ghostty theme scope.
@@ -123,6 +109,20 @@ final class UnreadBadgeView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let y = (((bounds.height - font.capHeight) / 2 + font.descender) * scale).rounded() / scale
         label.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
-        needsDisplay = true
+        layer?.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true }
+    }
+}
+
+/// The sidebar's look watch repaints the badge when Debug Settings changes its look (no polling).
+extension UnreadBadgeView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        // invalidate: the look watch calls this on a changed look only; a fixed look did not change.
+        if fixedLook == nil { needsDisplay = true }
     }
 }

@@ -9,7 +9,7 @@ enum BrowserRuntimeRequest {
 
 struct BrowserRuntimeStatusRequest: DaemonRequest {
     typealias Response = BrowserRuntimeStatus
-    static let command = "browser-runtime-status"
+    static let commandName: DaemonCommandName = "browser-runtime-status"
     static let requiredCapability: String? = BrowserRuntimeRequest.capability
 }
 
@@ -28,7 +28,7 @@ public struct BrowserRuntimeStatus: Decodable, Sendable, Equatable {
 
 struct BrowserRuntimeStartRequest: DaemonRequest {
     typealias Response = BrowserRuntime
-    static let command = "browser-runtime-start"
+    static let commandName: DaemonCommandName = "browser-runtime-start"
     static let requiredCapability: String? = BrowserRuntimeRequest.capability
     var url: String?
 }
@@ -44,7 +44,7 @@ public struct BrowserRuntime: Decodable, Sendable {
 
 struct BrowserRuntimeStopRequest: DaemonRequest {
     typealias Response = BrowserRuntimeStopped
-    static let command = "browser-runtime-stop"
+    static let commandName: DaemonCommandName = "browser-runtime-stop"
     static let requiredCapability: String? = BrowserRuntimeRequest.capability
     var runtime: UInt64
 }

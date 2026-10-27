@@ -4,13 +4,22 @@
 Starts one ephemeral headless cmux-tui, makes a workspace with a split and a
 second column, then sends N `set-split-ratio` and N `set-viewport-pane-width`
 requests one at a time (one in flight, like the app's coalescer) and prints the
-round-trip p50/p95/max and the sustained rate. A second connection subscribes
-to events, as the app does, so the daemon's per-change fan-out is in the cost.
+round-trip p50/p95/p99/max (scripts/perf-lab/perf_stats.py percentiles) and the
+sustained rate. A second connection subscribes to events, as the app does, so
+the daemon's per-change fan-out is in the cost.
 
-Usage: perf-10x-drag-daemon.py --bin PATH [--n 360]
+With --app (the measured bundle: its Contents/Resources/bin/cmux-tui is the
+daemon, and it names the build) and --out DIR, the raw samples are also written
+as cmux-perf-result/v1 in story drag-daemon (session light, engine none):
+drag_daemon.<cmd>.rtt (ms, every request), drag_daemon.<cmd>.rate (per_s) and
+drag_daemon.<cmd>.errors (count), for cmd set-split-ratio and
+set-viewport-pane-width.
+
+Usage: perf-10x-drag-daemon.py (--bin PATH | --app APP) [--n 360] [--out DIR]
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import socket
@@ -18,6 +27,16 @@ import subprocess
 import tempfile
 import threading
 import time
+
+_spec = importlib.util.spec_from_file_location(
+    "perf_import", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-lab", "perf_import.py"))
+perf_import = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(perf_import)
+perf_stats = perf_import.load("perf_stats")
+
+STORY = "drag-daemon"
+SESSION = "light"  # a headless daemon: the only session of story drag-daemon
+CASES = ("set-split-ratio", "set-viewport-pane-width")
 
 
 class Conn:
@@ -72,11 +91,6 @@ def layout(conn):
     return panes, splits
 
 
-def pct(values, p):
-    s = sorted(values)
-    return s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-
-
 def drain(path, stop):
     try:
         c = Conn(path)
@@ -91,12 +105,52 @@ def drain(path, stop):
         pass
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--bin", required=True)
+def drag_line(name, times, total, errors):
+    """The DRAG-DAEMON report line of one case: `times` are round trips in seconds, `total` the case's wall time."""
+    ms = lambda v: f"{v * 1000:.3f}"
+    return (f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(perf_stats.pct(times, 0.5))}"
+            f" rtt_p95_ms={ms(perf_stats.pct(times, 0.95))} rtt_p99_ms={ms(perf_stats.pct(times, 0.99))}"
+            f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
+
+
+def drag_series(name, times, total, errors):
+    """The result-v1 series of one case: every round trip in ms, the sustained rate and the error count."""
+    prefix = f"drag_daemon.{name}"
+    return [perf_import.Series(f"{prefix}.rtt", "ms", "lower", [t * 1000 for t in times]),
+            perf_import.Series(f"{prefix}.rate", "per_s", "higher", [len(times) / total]),
+            perf_import.Series(f"{prefix}.errors", "count", "lower", [errors])]
+
+
+def parse(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
+    ap.add_argument("--app", help="the measured app bundle: its cmux-tui is the daemon, and it names the build")
+    ap.add_argument("--tag", help="the lab story runner passes it; the bundle carries the tag")
+    ap.add_argument("--session", choices=[SESSION], help="the lab story runner passes it; only light")
+    ap.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it")
     ap.add_argument("--n", type=int, default=360)
-    args = ap.parse_args()
-    root = tempfile.mkdtemp(prefix="pdrag.", dir="/private/tmp")
+    ap.add_argument("--out", help="write cmux-perf-result/v1 into this folder (needs --app)")
+    args = ap.parse_args(argv)
+    if args.n < 1:
+        ap.error("--n must be at least 1")
+    if not args.bin:
+        if not args.app:
+            ap.error("name the daemon binary (--bin), or --app")
+        args.bin = os.path.join(os.path.realpath(args.app), "Contents/Resources/bin/cmux-tui")
+    if args.out and not args.app:
+        ap.error("--out needs --app: a result names the build it measured")
+    return args
+
+
+def main(argv=None):
+    args = parse(argv)
+    try:
+        measured = perf_import.measured_build(args.app, args.build_config) if args.out else None  # before any run
+    except perf_import.bench_launch().RecordError as error:
+        raise SystemExit(f"perf-10x-drag-daemon: no result-v1 can name this run: {error}") from None
+    # A short socket path: macOS's $TMPDIR is too long for a Unix socket name.
+    root = tempfile.mkdtemp(prefix="pdrag.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
     sock = os.path.join(root, "s.sock")
     home = os.path.join(root, "home")
     os.makedirs(home)
@@ -106,6 +160,7 @@ def main():
     daemon = subprocess.Popen([args.bin, "--headless", "--session", "pdrag", "--socket", sock, "--ephemeral"],
                               stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
     stop = threading.Event()
+    series = []
     try:
         deadline = time.time() + 30
         while not os.path.exists(sock):
@@ -129,26 +184,27 @@ def main():
         panes, splits = layout(c)
         threading.Thread(target=drain, args=(sock, stop), daemon=True).start()
         time.sleep(0.3)
-        cases = [("set-split-ratio", lambda i: {"split": splits[0], "ratio": 0.3 + 0.4 * (i % 50) / 50, "transaction": 7001})]
-        cases.append(("set-viewport-pane-width",
-                      lambda i: {"pane": panes[-1], "width": 0.4 + 0.4 * (i % 50) / 50, "transaction": 7002}))
-        for name, params in cases:
+        params = {
+            "set-split-ratio": lambda i: {"split": splits[0], "ratio": 0.3 + 0.4 * (i % 50) / 50, "transaction": 7001},
+            "set-viewport-pane-width":
+                lambda i: {"pane": panes[-1], "width": 0.4 + 0.4 * (i % 50) / 50, "transaction": 7002},
+        }
+        for name in CASES:
             times = []
             errors = 0
             start = time.perf_counter()
             for i in range(args.n):
                 t0 = time.perf_counter()
                 try:
-                    c.call(name, **params(i))
+                    c.call(name, **params[name](i))
                 except RuntimeError as error:
                     errors += 1
                     if errors == 1:
                         print(f"DRAG-DAEMON {name} error: {error}")
                 times.append(time.perf_counter() - t0)
             total = time.perf_counter() - start
-            ms = lambda v: f"{v * 1000:.3f}"
-            print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
-                  f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
+            print(drag_line(name, times, total, errors))
+            series += drag_series(name, times, total, errors)
     finally:
         stop.set()
         daemon.terminate()
@@ -156,6 +212,9 @@ def main():
             daemon.wait(10)
         except subprocess.TimeoutExpired:
             daemon.kill()
+    if measured:
+        path = perf_import.write_series(args.out, STORY, SESSION, "none", series, *measured)
+        print(f"DRAG-DAEMON wrote result-v1 {path} ({len(series)} series)")
 
 
 if __name__ == "__main__":

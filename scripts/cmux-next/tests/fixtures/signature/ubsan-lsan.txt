@@ -1,0 +1,21 @@
+cmux-tui/crates/ghostty-vt/src/c/parser.c:212:17: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'
+    #0 0x55d1a2b3c4d5 in vt_parser_csi_param parser.c:212
+    #1 0x55d1a2b3d000 in vt_parser_feed parser.c:340
+    #2 0x55d1a2b40000 in ghostty_vt::parser::Parser::advance::h0a0a0a0a0a0a0a0a lib.rs:77
+
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior parser.c:212:17
+
+=================================================================
+==9999==ERROR: LeakSanitizer: detected memory leaks
+
+Direct leak of 64 byte(s) in 1 object(s) allocated from:
+    #0 0x7f0000001000 in malloc (/usr/lib/llvm-18/lib/clang/18/lib/linux/libclang_rt.asan-x86_64.so+0xd1000)
+    #1 0x55d1a2b50000 in alloc::alloc::alloc::h1111aaaa1111aaaa alloc.rs:98
+    #2 0x55d1a2b51000 in cmux_holder::session::Session::spawn_reader::h2222bbbb2222bbbb session.rs:310
+    #3 0x55d1a2b52000 in cmux_holder::session::Session::start::h3333cccc3333cccc session.rs:120
+
+Indirect leak of 32 byte(s) in 1 object(s) allocated from:
+    #0 0x7f0000001000 in malloc (/usr/lib/llvm-18/lib/clang/18/lib/linux/libclang_rt.asan-x86_64.so+0xd1000)
+    #1 0x55d1a2b53000 in cmux_holder::session::Buffer::new::h4444dddd4444dddd session.rs:40
+
+SUMMARY: AddressSanitizer: 96 byte(s) leaked in 2 allocation(s).

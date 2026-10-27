@@ -116,3 +116,28 @@ extension AnimatedFrame {
         height.velocity = (height.target - height.value) * rate
     }
 }
+
+extension SplitMotion {
+    /// One pane's or divider's move in a split or a close on the render server (`ScreenContentView+RenderMotion`):
+    /// where it shows when the change's turn ends and where it rests, in the screen's coordinates, with its
+    /// alpha, and the velocity it shows with then (points per second), which its springs start from.
+    struct RenderMove: Equatable, Sendable {
+        var from: CGRect
+        var to: CGRect
+        var fromAlpha: CGFloat
+        var toAlpha: CGFloat
+        var velocity: RectComponents = .zero
+    }
+
+    /// The moves of the frames a change left off their rest, each placed in the screen by `place` (the
+    /// strip camera, scroll areas, rows and the pixel grid), at each frame's velocity; a frame at rest moves
+    /// nothing and is absent.
+    static func renderMoves<Key: Hashable>(_ frames: [Key: AnimatedFrame], place: (Key, CGRect) -> CGRect) -> [Key: RenderMove] {
+        var moves: [Key: RenderMove] = [:]
+        for (key, frame) in frames where frame.rect != frame.targetRect || frame.alpha.value != frame.alpha.target {
+            moves[key] = RenderMove(from: place(key, frame.rect), to: place(key, frame.targetRect),
+                                    fromAlpha: frame.alpha.value, toAlpha: frame.alpha.target, velocity: RectComponents(velocityOf: frame))
+        }
+        return moves
+    }
+}

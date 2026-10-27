@@ -84,6 +84,17 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     /// not flash.
     public static let shortestFlashCycle: TimeInterval = 0.5
 
+    /// The loop runs on its own while nobody interacts (a spinner, a pulse, a breath, a sweep), so
+    /// Energy Saver holds it still (``MotionPolicy/animatesLoops``). The flash (it ends on its own)
+    /// and edit mode's wiggle (the mode the person entered) follow the person and keep running
+    /// under the saver (``MotionPolicy/animatesBlinks``).
+    public var isAmbient: Bool {
+        switch self {
+        case .spinner, .pulse, .sweep, .breath: true
+        case .flash, .wiggle: false
+        }
+    }
+
     /// The shortest period `loop` may take.
     public var minimumPeriod: TimeInterval {
         switch self {

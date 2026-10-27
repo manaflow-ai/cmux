@@ -15,7 +15,8 @@ import Testing
         await withCheckedContinuation { continuation in
             // concurrency-allow: the test needs a main-thread block outside any Swift task, as AppKit runs one
             DispatchQueue.main.async {
-                #expect(!withUnsafeCurrentTask { $0 != nil })
+                // SAFETY: the task handle is only tested for nil inside the closure, never kept.
+                #expect(!withUnsafeCurrentTask { unsafe $0 != nil })
                 continuation.resume(returning: MainActor.assumeIsolated(body))
             }
         }
@@ -23,7 +24,7 @@ import Testing
 
     @Test func aScopeOnTheMainThreadOutsideATaskBindsNoTaskLocal() async {
         let (scale, bound) = await onMainOutsideATask { () -> (CGFloat, CGFloat?) in
-            Fixture.withRenderScale(3) { (Fixture.renderScale, RenderScaleScope.$scoped.get()) }
+            Fixture.withRenderScale(3) { (Fixture.renderScale, RenderScaleScope.$scoped.get()?.scale) }
         }
         #expect(scale == 3)
         #expect(bound == nil)

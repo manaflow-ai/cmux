@@ -8,7 +8,7 @@ public struct SetTabPinnedRequest: DaemonRequest {
         public var index: Int
         public var changed: Bool
     }
-    public static let command = "set-tab-pinned"
+    public static let commandName: DaemonCommandName = "set-tab-pinned"
     public static let requiredCapability: String? = DaemonCapability.tabMetadata.rawValue
     public var surface: SurfaceID
     public var pinned: Bool

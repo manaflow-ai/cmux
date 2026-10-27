@@ -13,43 +13,62 @@ import CmuxNextWakeups
 final class UpdateHarnessProbe {
     private static var shared: UpdateHarnessProbe?
     private let harness: UpdateHarness
-    private var observation: Task<Void, Never>?
+    /// Follows the card until it first says Installing.
+    private var installing: ServiceObservation<Bool>?
+    private var sawInstalling = false
     private var frames: FrameClient?
     private var ticks = 0
-    private var observers: [any NSObjectProtocol] = []
-    private var closes: Task<Void, Never>?
+    private var terminate: EventSubscription?
+    private var closes: MainActorObservation?
 
     private init(harness: UpdateHarness) {
         self.harness = harness
     }
 
     /// Starts the probe when this build is a harness copy; no-op otherwise.
-    static func install(updater: UpdaterService) {
+    ///
+    /// - Parameters:
+    ///   - updater: The app's updater, whose card the probe follows.
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - appEvents: The app's ``AppEvents`` on the default center.
+    static func install(updater: UpdaterService, mainWork: MainWorkScheduler, appEvents: AppEvents) {
         guard shared == nil, let harness = UpdateHarness.current else { return }
         let probe = UpdateHarnessProbe(harness: harness)
         shared = probe
-        probe.start(updater)
+        probe.start(updater, mainWork: mainWork, appEvents: appEvents)
     }
 
-    private func start(_ updater: UpdaterService) {
-        // task-owner: the probe, which lives for the process (static shared).
-        observation = Task { [weak self, weak updater] in
-            for await installing in ObservationStream({ updater?.readyCard?.isInstalling == true || updater?.card == .installing }) where installing {
-                self?.feedbackState()
-                return
-            }
+    /// Follows `isInstalling` as the probe follows the card: a `visible` service observation. The person's Install
+    /// click is the change: its flush runs in that click's input response, before the commit. The updater's own move
+    /// to Installing flushes on the next frame, never held behind the person's response as automation is.
+    ///
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - isInstalling: Whether the card says Installing; read on the main actor with tracking.
+    ///   - apply: Each new value, the first one before this returns.
+    static func followInstalling(on mainWork: MainWorkScheduler, _ isInstalling: @escaping @MainActor () -> Bool,
+                                 apply: @escaping @MainActor (Bool) -> Void) -> ServiceObservation<Bool> {
+        ServiceObservation(.visible, owner: "UpdateHarnessProbe.installing", on: mainWork, read: isInstalling, apply: apply)
+    }
+
+    private func start(_ updater: UpdaterService, mainWork: MainWorkScheduler, appEvents: AppEvents) {
+        installing = Self.followInstalling(on: mainWork) { [weak updater] in
+            updater?.readyCard?.isInstalling == true || updater?.card == .installing
+        } apply: { [weak self] isInstalling in
+            guard isInstalling, let self, !self.sawInstalling else { return }
+            self.sawInstalling = true
+            self.installing?.cancel()
+            self.feedbackState()
         }
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [harness] _ in
+        // raw-observer-allow: the name opens a subscription on the app's one AppEvents (recipe R-notif)
+        terminate = appEvents.subscribe(NSApplication.willTerminateNotification, owner: "UpdateHarnessProbe.terminate") { [harness] in
             harness.mark("will_terminate")
-        })
-        // task-owner: the probe, which lives for the process (static shared).
-        closes = Task { [harness] in
-            for await note in NotificationCenter.default.notifications(named: NSWindow.willCloseNotification) {
-                guard let closing = note.object as? NSWindow, closing.canBecomeMain else { continue }
-                let others = NSApp.windows.filter { $0 !== closing && $0.isVisible && $0.canBecomeMain }
-                harness.mark("main_window_closed.remaining_\(others.count)")
-            }
+        }
+        // raw-observer-allow: the mark needs the closing window, the notice's sender; AppEvents hands no sender
+        closes = MainActorObservation(NSWindow.willCloseNotification, read: { $0.object as? NSWindow }) { [harness] closing in
+            guard let closing, closing.canBecomeMain else { return }
+            let others = NSApp.windows.filter { $0 !== closing && $0.isVisible && $0.canBecomeMain }
+            harness.mark("main_window_closed.remaining_\(others.count)")
         }
     }
 

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -61,10 +62,15 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
         try JSONDecoder().decode(BrowserSourceRegistry.self, from: data)
     }
 
-    /// The checked-in registry. A missing or broken resource leaves an empty
-    /// registry (nothing is detected) and logs once; the validation test
-    /// keeps the checked-in file decodable.
-    public static let shared: BrowserSourceRegistry = {
+    /// The checked-in registry, from ``BrowserSourceRegistryInstall/shared``: loaded on the files lane at
+    /// launch (``BrowserSourceRegistryInstall/load(on:)``), so a read finds it in memory.
+    public static var shared: BrowserSourceRegistry { BrowserSourceRegistryInstall.shared.registry }
+
+    /// Reads and decodes the checked-in `browser-sources.json`. A missing or broken resource gives an empty
+    /// registry (nothing is detected) and logs; the validation test keeps the file decodable. A file read:
+    /// call it on a lane (``BrowserSourceRegistryInstall/load(on:)``), never in a static initializer
+    /// (p02-threads-122).
+    public static func loadBundled() -> BrowserSourceRegistry {
         let empty = BrowserSourceRegistry(schemaVersion: 1, engines: [:], browsers: [])
         #if CMUX_NO_BROWSER_DATA_IMPORT
         // The cx-f58x notary test build ships an empty registry and detects no browser.
@@ -75,14 +81,14 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
             return empty
         }
         do {
-            return try decode(Data(contentsOf: url))
+            return try decode(Data(blockingContentsOf: url))
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
                 .error("browser-sources.json: \(String(describing: error), privacy: .public)")
             return empty
         }
         #endif
-    }()
+    }
 
     public func row(_ id: String) -> BrowserSourceRow? {
         index[id].map { browsers[$0] }

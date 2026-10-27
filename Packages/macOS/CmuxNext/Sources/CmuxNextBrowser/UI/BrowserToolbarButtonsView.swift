@@ -2,15 +2,20 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
 /// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
-/// key handling: shortcuts go through the action registry.
-public final class BrowserToolbarButtonsView: NSStackView {
+/// key handling: shortcuts go through the action registry. The shown buttons
+/// sit in a line by frame layout (`ButtonLineLayout`), leading first.
+public final class BrowserToolbarButtonsView: NSView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
+    /// The node the toolbar's re-read on show waits on (R-hide): its tab's, set by the chrome, or a root that
+    /// stays visible for a toolbar in no tab, whose re-read runs at once.
+    var visibilityNode = VisibilityNode(root: "browser.toolbarButtons.standalone", own: .visible)
     /// The display text of an action's shortcut, for the tooltips.
     public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
     /// The tab's browser profile name, for the profile button's tooltip.
@@ -49,25 +54,27 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
+    /// The buttons in toolbar order (`BrowserToolbarButton.allCases`).
+    private var ordered: [ChromeIconButton] = []
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
+    /// The scheduler and the tab's node of the last ``bind(_:on:node:)`` (nil: node-free).
+    private var binding: (work: MainWorkScheduler, node: VisibilityNode?)?
     private var pageURL: URL?
     /// The last facts rendered: zoom and Downloads show only on some.
     private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
 
     public init() {
         super.init(frame: .zero)
-        orientation = .horizontal
-        translatesAutoresizingMaskIntoConstraints = false
-        setHuggingPriority(.required, for: .horizontal)
         for button in BrowserToolbarButton.allCases {
             let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
             view.setAccessibilityIdentifier(button.identifier)
             view.rightClickPresses = button.opensMenu
             view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
             buttons[button] = view
-            addArrangedSubview(view)
+            ordered.append(view)
+            addSubview(view)
         }
         render()
         applyVisibility()
@@ -76,23 +83,24 @@ public final class BrowserToolbarButtonsView: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
-    /// swapped) gets the chosen color scheme and starts with design mode off.
-    func bind(_ tab: any BrowserTab) {
+    /// Shows `tab`'s states, at the frames of `work` while `node` shows. A new page (another tab, or
+    /// the chrome's tab swapped) gets the chosen color scheme and starts with design mode off.
+    func bind(_ tab: any BrowserTab, on work: MainWorkScheduler, node: VisibilityNode?) {
         observation?.cancel()
+        binding = (work, node)
         if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url
             modes.designMode = false
             if modes.colorScheme != .system { (tab as? any BrowserColorSchemeApplying)?.applyColorScheme(modes.colorScheme) }
         }
-        observation = ObservationLoop { [weak self] in self?.render() }
+        observation = ObservationLoop(owner: "browser.toolbar.buttons", delivery: .visible(node), on: work) { [weak self] in self?.render() }
     }
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
-        guard let tab else { return render() }
-        bind(tab)
+        guard let tab, let binding else { return render() }
+        bind(tab, on: binding.work, node: binding.node)
     }
 
     /// Reads the states again, WebKit's inspector visibility included
@@ -112,15 +120,24 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// moved): a popup open under one of its buttons closes. Set by the popup.
     public var onDetach: (() -> Void)?
 
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): a popup open under a button closes with the parked toolbar
     public override func viewDidHide() {
         super.viewDidHide()
         onDetach?()
     }
 
-    /// Shown again after its pane parked it (another tab showed).
+    /// Shown again after its pane parked it (another tab showed): the states are read again once its node shows.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if window != nil { refresh() }
+        visibilityNode.deferUntilVisible(key: Self.shownKey) { [weak self] in self?.refreshShown() }
+    }
+
+    /// The ``visibilityNode`` key of the re-read on show.
+    static let shownKey = "BrowserToolbarButtonsView.shown"
+
+    private func refreshShown() {
+        guard window != nil, !isHidden else { return }
+        refresh()
     }
 
     /// Shows `menu` at a point of a view and returns when it closes (`NSMenu.popUp`). Tests
@@ -165,6 +182,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public func setPopupOpen(_ open: Bool, anchor: NSView) { (anchor as? ChromeIconButton)?.isMenuOpen = open }
 
     func anchor(for button: BrowserToolbarButton) -> NSView? {
+        // visibility-walk-allow: hit test, the menu anchors at the button AppKit shows (a collapsed button is hidden in a shown toolbar)
         let shown = [button, .overflow].compactMap { buttons[$0] }.first { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
         return shown ?? superview
     }
@@ -177,13 +195,48 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func applyVisibility() {
-        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, facts, pinned: pinned) }
+        var changed = false
+        for (button, view) in buttons {
+            let hidden = !button.isShown(at: collapse, facts, pinned: pinned)
+            guard view.isHidden != hidden else { continue }
+            view.isHidden = hidden
+            changed = true
+        }
+        guard changed else { return }
+        // The line and its width changed: this view places its buttons again, the toolbar row this view.
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        superview?.needsLayout = true
     }
 
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        return Self.lineLayout(count: count, height: OmnibarStyle.buttonSize).width
+    }
+
+    /// The width of the buttons shown now (the toolbar row's trailing group).
+    var shownWidth: CGFloat { Self.lineLayout(count: ordered.filter { !$0.isHidden }.count, height: OmnibarStyle.buttonSize).width }
+
+    private static func lineLayout(count: Int, height: CGFloat) -> ButtonLineLayout {
+        ButtonLineLayout(count: count, button: OmnibarStyle.buttonSize, spacing: OmnibarStyle.buttonSpacing, height: height)
+    }
+
+    public override var intrinsicContentSize: NSSize { NSSize(width: shownWidth, height: OmnibarStyle.buttonSize) }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    /// The shown buttons from the leading edge, mirrored in a right-to-left layout.
+    public override func layout() {
+        super.layout()
+        let shown = ordered.filter { !$0.isHidden }
+        let frames = Self.lineLayout(count: shown.count, height: bounds.height).frames
+        let mapping = chromeFrameMapping
+        for (button, rect) in zip(shown, frames) { button.setChromeFrame(mapping.map(rect)) }
     }
 
     @objc private func pressed(_ sender: NSButton) {

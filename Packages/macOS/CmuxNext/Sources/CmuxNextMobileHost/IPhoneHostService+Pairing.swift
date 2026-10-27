@@ -23,6 +23,19 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
+    /// The phones the signed-in user allowed on this Mac. Settings > Mobile marks them; Remove (or
+    /// ``revokePhone(id:)``) forgets one.
+    var paired: MobileHostPairedDevices? {
+        get { pairing.paired }
+        set { pairing.paired = newValue }
+    }
+
+    /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
+    var prompts: MobileHostPairPrompts {
+        get { pairing.prompts }
+        set { pairing.prompts = newValue }
+    }
+
     private var pairedFile: MobileHostPairedDevicesFile? {
         dependencies.map { MobileHostPairedDevicesFile(directory: $0.stateDirectory) }
     }
@@ -44,12 +57,11 @@ extension IPhoneHostService {
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
     /// again, and its Face ID approvals stop counting at once.
     public func revokePhone(id: String) {
-        prompts.forget(id: id)
+        let listChanged = pairing.revoke(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
-        guard var list = paired else { return }
-        list.remove(id)
-        savePaired(list)
+        guard listChanged else { return }
+        savePaired()
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
@@ -68,28 +80,25 @@ extension IPhoneHostService {
     }
 
     private func ask(_ request: MobileHostPairRequest) {
-        // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = paired else { return }
-        switch list.decision(for: request) {
-        case .trusted, .denied:
-            // hostd may hold an older list: send the current one again.
-            pushPaired()
-            return
-        case .ask:
-            break
-        }
         // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
         // pairs without the person-only prompt (IPhonePairingSeed).
-        if let seed = dependencies?.pairingSeed, seed.trusts(request), var trusted = paired, trusted.userID == account?.userID {
-            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
-            trusted.approve(request, at: Date())
-            savePaired(trusted)
+        let seed = dependencies?.pairingSeed
+        let asked = pairing.ask(request, allowed: allowed, userID: account?.userID, at: Date()) { seed?.trusts($0) ?? false }
+        switch asked {
+        case .ignored:
+            // A request hostd sent before connections were turned off asks nothing.
             return
+        case .known:
+            // hostd may hold an older list: send the current one again.
+            pushPaired()
+        case .seeded:
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
+            savePaired()
+        case let .prompted(outcome):
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
+            if outcome == .ask { announce(request) }
+            showPairDialog()
         }
-        let outcome = prompts.receive(request, at: Date())
-        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
-        if outcome == .ask { announce(request) }
-        showPairDialog()
     }
 
     /// Settings > Mobile's Allow or Don't Allow on a waiting request (the person's own gesture,
@@ -158,13 +167,10 @@ extension IPhoneHostService {
     }
 
     private func decide(_ request: MobileHostPairRequest, allow: Bool) {
-        prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
+        let listChanged = pairing.decide(request, allow: allow, userID: account?.userID, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
-        if var list = paired, list.userID == account?.userID {
-            if allow { list.approve(request, at: Date()) } else { list.deny(request) }
-            savePaired(list)
-        }
+        if listChanged { savePaired() }
         showPairDialog()
     }
 
@@ -199,8 +205,9 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    private func savePaired(_ list: MobileHostPairedDevices) {
-        paired = list
+    /// Saves the current list, then pushes it to hostd and acpmux.
+    private func savePaired() {
+        guard let list = paired else { return }
         do {
             try pairedFile?.save(list)
         } catch {

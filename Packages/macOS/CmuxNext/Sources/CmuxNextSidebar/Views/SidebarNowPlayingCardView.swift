@@ -413,7 +413,7 @@ final class SidebarNowPlayingScrubber: NSView {
         seekCount &+= 1
         if dragged != nil {
             let seek = seekCount
-            seekWait.schedule(after: Self.seekWaitDelay) { @MainActor [weak self] in
+            seekWait.scheduleOnMain(after: Self.seekWaitDelay) { [weak self] in
                 guard let self, self.seekCount == seek else { return }
                 self.dragged = nil
                 self.update()

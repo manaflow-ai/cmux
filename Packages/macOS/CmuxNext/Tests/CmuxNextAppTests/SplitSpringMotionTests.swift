@@ -4,6 +4,7 @@ import CmuxNextBridge
 import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Cmd-D and Cmd-Shift-D as one motion (Lawrence 2026-10-19: "resize all of them while adding a
@@ -33,7 +34,7 @@ struct SplitSpringMotionTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: tree.panes.first)
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on (or off): the shared settings stay untouched.
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],

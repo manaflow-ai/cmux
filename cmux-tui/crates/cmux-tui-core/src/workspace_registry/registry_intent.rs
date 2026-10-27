@@ -58,7 +58,14 @@ pub(crate) enum RegistryReceipt {
 pub(crate) trait RegistryIntentSink: Send + Sync {
     /// True when the journal writer runs and the caller is not its thread.
     fn accepts(&self) -> bool;
-    fn send(&self, intent: RegistryIntent) -> EffectSend;
+    /// Commit `intent` through the writer. `site` is the registry call that
+    /// committed it: the dyn call breaks `#[track_caller]`, so the receipt
+    /// wait is noted there (`request_path`) explicitly.
+    fn send(
+        &self,
+        intent: RegistryIntent,
+        site: &'static std::panic::Location<'static>,
+    ) -> EffectSend;
 }
 
 /// An indeterminate receipt and the state update it still owes.
@@ -206,14 +213,19 @@ impl RegistryConnection {
     ///
     /// It holds the `unsettled` mutex across the wait. Callers must hold the
     /// workspace registry (all do): the writer takes neither the registry
-    /// nor this mutex, so the wait cannot form a cycle.
+    /// nor this mutex, so the wait cannot form a cycle. Each unanswered
+    /// receipt it waits for is a `journal_wait` (`request_path`) at the
+    /// caller.
+    #[track_caller]
     pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
+        let site = std::panic::Location::caller();
         let mut unsettled =
             self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let deadline = std::time::Instant::now() + UNSETTLED_DRAIN_WAIT;
         for entry in unsettled.iter_mut().filter(|entry| entry.resolved.is_none()) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
-            entry.resolved = entry.pending.wait_take(left);
+            entry.resolved =
+                entry.pending.try_take().or_else(|| entry.pending.wait_take(left, site));
             anyhow::ensure!(
                 entry.resolved.is_some(),
                 "an earlier session journal registry commit is still indeterminate; retry"
@@ -252,6 +264,7 @@ impl WorkspaceRegistry {
     /// and this thread does not hold the connection; otherwise in its own
     /// request-side transaction. The caller holds the registry, and must not
     /// hold state unless it pinned the connection first.
+    #[track_caller]
     pub(crate) fn commit_registry_intent(
         &mut self,
         intent: RegistryIntent,
@@ -264,12 +277,14 @@ impl WorkspaceRegistry {
     /// to the writer (the caller keeps state across the receipt wait; the
     /// writer takes neither the registry nor state). `settle` is the state
     /// update to apply if the receipt is indeterminate and arrives later.
+    #[track_caller]
     pub(crate) fn commit_registry_intent_with(
         &mut self,
         intent: RegistryIntent,
         release_pin: impl FnOnce(),
         settle: Option<SettleState>,
     ) -> anyhow::Result<RegistryReceipt> {
+        let site = std::panic::Location::caller();
         // Every prepare drains earlier indeterminate commits first (bounded),
         // so `intent` is not built on a base a late commit changes; this
         // second drain covers one that went indeterminate meanwhile.
@@ -284,7 +299,7 @@ impl WorkspaceRegistry {
         if self.connection.is_held_by_current_thread() {
             return self.commit_registry_intent_locally(&intent);
         }
-        match sink.send(intent) {
+        match sink.send(intent, site) {
             EffectSend::Sent(Ok(receipt)) => Ok(receipt),
             EffectSend::Sent(Err(error)) => {
                 self.abandon_effect_commit();
@@ -313,6 +328,7 @@ impl WorkspaceRegistry {
     /// Commit an intent in its own request-side transaction and fsync: the
     /// writer is disabled, stopped, or not running, or the caller holds the
     /// connection.
+    #[track_caller]
     pub(crate) fn commit_registry_intent_locally(
         &self,
         intent: &RegistryIntent,
@@ -326,3 +342,7 @@ impl WorkspaceRegistry {
         Ok(receipt)
     }
 }
+
+#[cfg(test)]
+#[path = "registry_intent_tests.rs"]
+mod tests;

@@ -1,0 +1,45 @@
+clock_snapshot primary=5 5@0 6@5000 1@1700000000000000000
+clock_snapshot primary=5 128@37000000 5@0
+track 0 parent=3 counter name=Some("Heap.total")
+track 1 parent=4 named name=Some("create.tab")
+track 2 parent=3 counter name=Some("Heap.used")
+track 3 parent=- process pid=77 name=Some("Browser") labels=[]
+track 4 parent=- process pid=1234 name=Some("app") labels=["build 1.2.3 (45)", "black box"]
+track 5 parent=3 named name=Some("EventLatency")
+track 6 parent=3 thread pid=77 tid=5 name=Some("CrBrowserMain") description=None
+track 7 parent=4 named name=Some("create.tab")
+track 8 parent=4 thread pid=1234 tid=101 name=Some("main") description=Some("QoS: user-interactive")
+track 9 parent=4 counter name=Some("frame.sequence 4")
+track 10 parent=3 thread pid=77 tid=6 name=None description=None
+track 11 parent=14 named name=Some("mux-control-dispatch 303")
+track 12 parent=4 thread pid=1234 tid=202 name=Some("cmux-io") description=Some("QoS: user-initiated")
+track 13 parent=3 named name=Some("EventLatency")
+track 14 parent=- named name=Some("daemon 4321 on linux-lane")
+track 15 parent=- named name=Some("Global")
+event seq=2 t=1000 clock=5 type=1 track=1 name="create.tab" cat=["create"] flows=[] end_flows=[] counter=None args=[("arg0", "uint 3"), ("id", "uint 1")]
+event seq=2 t=1100 clock=5 type=1 track=7 name="create.tab" cat=["create"] flows=[] end_flows=[] counter=None args=[("arg0", "uint 4"), ("id", "uint 2")]
+event seq=2 t=1150 clock=5 type=1 track=8 name="action.perform" cat=["action"] flows=[] end_flows=[] counter=None args=[("arg0", "uint 17"), ("arg1", "uint 0")]
+event seq=2 t=1160 clock=5 type=3 track=8 name="key.flow" cat=["key"] flows=[20014547599361] end_flows=[] counter=None args=[("arg0", "uint 0")]
+event seq=2 t=1170 clock=5 type=2 track=8 name="action.perform" cat=["action"] flows=[] end_flows=[] counter=None args=[]
+event seq=2 t=1180 clock=5 type=3 track=12 name="key.flow" cat=["key"] flows=[] end_flows=[20014547599361] counter=None args=[("arg0", "uint 0")]
+event seq=2 t=1190 clock=5 type=3 track=12 name="key.flow" cat=["key"] flows=[20014547599361] end_flows=[] counter=None args=[("arg0", "uint 1")]
+event seq=2 t=1200 clock=5 type=2 track=1 name="create.tab" cat=["create"] flows=[] end_flows=[] counter=None args=[]
+event seq=2 t=1250 clock=5 type=3 track=12 name="frame.present_estimate" cat=["frame"] flows=[] end_flows=[] counter=None args=[("arg0", "uint 60"), ("arg1", "uint 0"), ("estimated", "bool 1")]
+event seq=2 t=1300 clock=5 type=2 track=7 name="create.tab" cat=["create"] flows=[] end_flows=[] counter=None args=[]
+event seq=2 t=1350 clock=5 type=4 track=9 name="" cat=[] flows=[] end_flows=[] counter=Some(-5.0) args=[]
+event seq=3 t=37001400 clock=128 type=3 track=11 name="key.flow" cat=["key"] flows=[] end_flows=[20014547599361] counter=None args=[("arg0", "uint 2")]
+event seq=3 t=37001450 clock=128 type=1 track=11 name="daemon.request" cat=["daemon"] flows=[] end_flows=[] counter=None args=[("arg0", "uint 1"), ("arg1", "uint 0")]
+event seq=3 t=37001500 clock=128 type=2 track=11 name="daemon.request" cat=["daemon"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=1500 clock=5 type=1 track=6 name="ThreadControllerImpl::RunTask" cat=["toplevel"] flows=[7593913107239149513] end_flows=[] counter=None args=[]
+event seq=4 t=1500 clock=5 type=1 track=13 name="EventLatency" cat=["latency"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=1500 clock=5 type=4 track=2 name="" cat=[] flows=[] end_flows=[] counter=Some(10.5) args=[]
+event seq=4 t=1500 clock=5 type=4 track=0 name="" cat=[] flows=[] end_flows=[] counter=Some(20.0) args=[]
+event seq=4 t=1600 clock=5 type=3 track=15 name="Mark" cat=["input"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=1700 clock=5 type=1 track=5 name="EventLatency" cat=["latency"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=2000 clock=5 type=1 track=6 name="RunTask" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[("src", "string a.cc"), ("n", "int 3")]
+event seq=4 t=2500 clock=5 type=2 track=13 name="" cat=["latency"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=3000 clock=5 type=2 track=6 name="" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=3000 clock=5 type=2 track=5 name="" cat=["latency"] flows=[] end_flows=[] counter=None args=[("nested", "json {\"a\":[1]}")]
+event seq=4 t=3500 clock=5 type=1 track=10 name="Receive" cat=["ipc"] flows=[] end_flows=[7593913107239149513] counter=None args=[]
+event seq=4 t=4000 clock=5 type=2 track=10 name="" cat=["ipc"] flows=[] end_flows=[] counter=None args=[]
+event seq=4 t=4500 clock=5 type=2 track=6 name="" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[]

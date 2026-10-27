@@ -19,10 +19,20 @@ Per run, milliseconds from the moment the client starts the session:
   first   the first answer text arrived (time to first token)
   end     the turn ended (prompt answered)
   warm_first / warm_end  a second prompt on the same session, from its send
+Each side's p50/p95/p99 come from scripts/perf-lab/perf_stats.py (agent_bench_report.py).
 
 Usage:
   acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
                            [--json OUT] [--md OUT]
+  acpmux-overhead-bench.py --app BUNDLE --out DIR ...   (the lab story acpmux-overhead)
+
+With --app the daemon is the bundle's own acpmux (Contents/Resources/bin/acpmux, unless --acpmux names
+another), and --out writes every run's raw samples as cmux-perf-result/v1 (story acpmux-overhead, engine
+none: no app runs; the bundle names the build). Per harness and side: each time, the model requests and
+the request bytes; `overhead.<time>` is acpmux minus raw of the same run; each per-run series has a
+`.missed_runs` count and each side an `errors` count. With --out, the build and host are read before any
+harness runs (exit 2 when result-v1 cannot name them), and a run that writes no result-v1 exits non-zero after
+its --json and --md reports.
 """
 
 from __future__ import annotations
@@ -33,13 +43,16 @@ import json
 import os
 import shutil
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
+import agent_bench_report as report  # noqa: E402
+import bench_launch  # noqa: E402
 
 # ---------------------------------------------------------------- stand-in model
 
@@ -450,13 +463,40 @@ def via_acpmux(daemon: Daemon, harness, cwd):
 METRICS = ["ready", "first", "end", "warm_first", "warm_end", "requests", "request_kb", "request_ktok"]
 
 
-def pct(xs, q):
-    xs = sorted(xs)
-    if not xs:
-        return None
-    k = (len(xs) - 1) * q
-    lo, hi = int(k), min(int(k) + 1, len(xs) - 1)
-    return round(xs[lo] + (xs[hi] - xs[lo]) * (k - lo), 1)
+def measured_build(app, stated):
+    """(result-v1 build, host) of the bundle on this Mac. Raises RecordError when the build cannot be named."""
+    build = report.perf_result.Build(sha=bench_launch.build_sha(app),
+                                     config=bench_launch.build_config(app, bench_launch.main_binary(app), stated),
+                                     measure_version=bench_launch.PERF_LAB_MEASURE_VERSION)
+    return build, report.perf_result.Host.from_dict(bench_launch.read_host())
+
+
+def measure_first(args, measure=measured_build):
+    """(build, host) of --app before any harness runs, so a bundle or host result-v1 cannot name fails the bench in
+    seconds (exit 2), not after the whole run with its samples lost."""
+    try:
+        return measure(args.app, args.build_config)
+    except (bench_launch.RecordError, report.perf_result.ResultError) as error:
+        reason = error
+    except SystemExit as error:  # bench_launch.main_binary: the bundle has no executable
+        reason = error.code
+    print(f"acpmux-overhead-bench: --out cannot record result-v1: {reason}", file=sys.stderr)
+    sys.exit(2)
+
+
+def record(args, paired, measured):
+    """Every harness's series into one result-v1 file in --out; returns its path, or why nothing was written.
+    `paired`: {harness: (its measured runs as {raw, acpmux} pairs, its failed runs per side)}; `measured`: the
+    (build, host) of measure_first."""
+    entries = []
+    for h, (pairs, error_counts) in paired.items():
+        entries += report.acpmux_series(h, pairs, error_counts)
+    try:
+        build, host = measured
+        return str(report.write_all(args.out, entries, build, host, session=args.session, root=bench_launch.ROOT))
+    except report.perf_result.ResultError as error:
+        print(f"result-v1: not recorded: {error}", file=sys.stderr)
+        return f"not recorded: {error}"
 
 
 def env_for(stand_url, scratch):
@@ -505,9 +545,15 @@ env_key = "BENCH_API_KEY"
     return env
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--acpmux", required=True)
+    ap.add_argument("--acpmux", help="the acpmux binary (default: the --app bundle's)")
+    ap.add_argument("--app", help="the measured bundle: its acpmux, and the build its result-v1 names")
+    ap.add_argument("--out", help="write cmux-perf-result/v1 here (needs --app)")
+    ap.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
+    ap.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    ap.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it")
     ap.add_argument("--harness", default="claude,codex,opencode")
     ap.add_argument("-n", type=int, default=20)
     ap.add_argument("--warmup", type=int, default=2)
@@ -519,7 +565,29 @@ def main():
     ap.add_argument("--no-agent-tools", action="store_true",
                     help="run the daemon with ACPMUX_AGENT_TOOLS=0: no cmux MCP servers or skills, "
                          "so the numbers are acpmux's plumbing alone")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    if args.app:
+        args.app = os.path.realpath(args.app.rstrip("/"))
+        args.acpmux = args.acpmux or os.path.join(args.app, "Contents/Resources/bin/acpmux")
+    if not args.acpmux:
+        ap.error("name the acpmux binary with --acpmux, or the bundle with --app")
+    if args.out and not args.app:
+        ap.error("--out needs --app: a result names the build it measured")
+    return args
+
+
+def side_summaries(rows):
+    """Both sides' {metric: {p50, p95, p99, n}} and the acpmux-minus-raw p50 per metric."""
+    summary = {side: report.acpmux_summary(rows[side], METRICS) for side in ("raw", "acpmux")}
+    summary["delta_p50"] = {m: (round(summary["acpmux"][m]["p50"] - summary["raw"][m]["p50"], 1)
+                                if summary["raw"][m]["p50"] is not None and summary["acpmux"][m]["p50"] is not None
+                                else None) for m in METRICS}
+    return summary
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    measured = measure_first(args) if args.out else None
 
     stand = StandIn()
     threading.Thread(target=stand.serve_forever, daemon=True).start()
@@ -534,11 +602,14 @@ def main():
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
     daemon = Daemon(os.path.abspath(args.acpmux), env, home, extra)
-    results = {}
+    results, paired = {}, {}
     try:
         for h in args.harness.split(","):
             rows = {"raw": [], "acpmux": [], "errors": []}
+            # Per measured run, both sides (None: that side failed); and the failed runs per side.
+            pairs, error_counts = [], {"raw": 0, "acpmux": 0}
             for k in range(args.warmup + args.n):
+                pair = {"raw": None, "acpmux": None}
                 # Alternate the order so neither side always runs second.
                 order = [("raw", lambda: RAW[h](env, cwd)), ("acpmux", lambda: via_acpmux(daemon, h, cwd))]
                 if k % 2:
@@ -551,49 +622,53 @@ def main():
                         # Model requests and KB this run sent (the turn, and any side request
                         # such as a title, made before the run ended).
                         r["requests"], r["request_kb"] = n1 - n0, round((b1 - b0) / 1024, 1)
+                        r["request_bytes"] = b1 - b0
                         # Input tokens sent, estimated at 4 bytes per token of request JSON.
                         r["request_ktok"] = round((b1 - b0) / 4000, 1)
                     except Exception as e:  # noqa: BLE001: a bench reports and goes on
                         rows["errors"].append(f"{side} run {k}: {e}")
+                        error_counts[side] += 1
                         print(f"{h} {side} run {k}: {e}", file=sys.stderr)
                         continue
                     if k >= args.warmup:
                         rows[side].append(r)
+                        pair[side] = r
+                if k >= args.warmup:
+                    pairs.append(pair)
                 print(f"{h} run {k + 1}/{args.warmup + args.n}", file=sys.stderr, flush=True)
-            summary = {}
-            for side in ("raw", "acpmux"):
-                summary[side] = {m: {"p50": pct([r[m] for r in rows[side]], 0.5),
-                                     "p95": pct([r[m] for r in rows[side]], 0.95),
-                                     "n": len(rows[side])} for m in METRICS}
-            summary["delta_p50"] = {m: (round(summary["acpmux"][m]["p50"] - summary["raw"][m]["p50"], 1)
-                                        if summary["raw"][m]["p50"] is not None and summary["acpmux"][m]["p50"] is not None
-                                        else None) for m in METRICS}
+            summary = side_summaries(rows)
             summary["errors"] = rows["errors"]
             summary["runs"] = {"raw": rows["raw"], "acpmux": rows["acpmux"]}
-            results[h] = summary
+            results[h], paired[h] = summary, (pairs, error_counts)
     finally:
         daemon.close()
     results["_stand_in_hits"] = stand.hits
     results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n,
                         "host": socket.gethostname(), "load": os.getloadavg()}
+    if args.out:
+        results["_meta"]["result_v1"] = record(args, paired, measured)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(results, f, indent=1)
     lines = [f"### {args.label or 'run'} ({socket.gethostname()}, n={args.n}, load {os.getloadavg()[0]:.1f})", "",
-             "| harness | metric | raw p50 | raw p95 | acpmux p50 | acpmux p95 | acpmux - raw (p50) |",
-             "|---|---|---|---|---|---|---|"]
+             "| harness | metric | raw p50 | raw p95 | raw p99 | acpmux p50 | acpmux p95 | acpmux p99 "
+             "| acpmux - raw (p50) |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for h, s in results.items():
         if h.startswith("_"):
             continue
         for m in METRICS:
-            lines.append(f"| {h} | {m} | {s['raw'][m]['p50']} | {s['raw'][m]['p95']} | {s['acpmux'][m]['p50']} | "
-                         f"{s['acpmux'][m]['p95']} | {s['delta_p50'][m]} |")
+            raw, via = s["raw"][m], s["acpmux"][m]
+            lines.append(f"| {h} | {m} | {raw['p50']} | {raw['p95']} | {raw['p99']} | {via['p50']} | {via['p95']} "
+                         f"| {via['p99']} | {s['delta_p50'][m]} |")
     text = "\n".join(lines) + "\n"
     print(text)
     if args.md:
         with open(args.md, "a") as f:
             f.write(text + "\n")
     shutil.rmtree(scratch, ignore_errors=True)
+    if args.out and not report.any_written({"result_v1": results["_meta"]["result_v1"]}):
+        sys.exit(f"RESULT-V1 FAIL: {results['_meta']['result_v1']}")
 
 
 if __name__ == "__main__":

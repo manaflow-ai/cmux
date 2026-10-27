@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_fg","name":"Bash","input":{"command":"make","run_in_background":true}}]}}
+{"type":"system","subtype":"task_started","task_id":"f1","tool_use_id":"toolu_fg","description":"make"}
+{"type":"system","subtype":"task_updated","task_id":"f1","patch":{"is_backgrounded":true}}
+{"type":"control_response","response":{"subtype":"success","request_id":"stop-7","response":{}}}
+{"type":"system","subtype":"task_updated","task_id":"f1","patch":{"status":"killed"}}
+{"type":"system","subtype":"task_notification","task_id":"f1","status":"stopped","summary":"stopped"}

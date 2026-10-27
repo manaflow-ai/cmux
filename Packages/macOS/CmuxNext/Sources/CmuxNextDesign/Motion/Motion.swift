@@ -11,49 +11,45 @@ public import CmuxNextDesignTokens
 /// combines the master switch `ui.animations.enabled`, the category's
 /// `ui.animations.<category>`, `ui.animationSpeed` and the system Reduce
 /// Motion setting. Reading it inside an Observation-tracked scope registers
-/// a dependency on those settings.
+/// a dependency on those settings, Reduce Motion included (``AppearanceSignals``);
+/// an owner outside Observation subscribes to ``AppearanceSignals/Signal/motion``.
 public struct Motion {
     public init() {}
-    /// Tests set this to pin Reduce Motion; nil reads the system setting.
-    /// A change posts `reduceMotionDidChange`, so a host that caches a value
-    /// derived from `reduceMotion` (StatusIndicatorAppearance) re-reads it at
-    /// once, as it does for the system setting's notification.
+    /// Tests set this to pin Reduce Motion; nil reads the system setting. It is the app's
+    /// ``AppearanceSignals/reduceMotionOverride``: Observation readers re-read when it changes, and
+    /// a host that caches a value derived from `reduceMotion` (StatusIndicatorAppearance) follows
+    /// the signals' ``AppearanceSignals/Signal/reduceMotion``.
     public static var reduceMotionOverride: Bool? {
-        didSet {
-            guard reduceMotionOverride != oldValue else { return }
-            NotificationCenter.default.post(name: reduceMotionDidChange, object: nil)
-        }
+        get { DesignSettings.shared.signals.reduceMotionOverride }
+        set { DesignSettings.shared.signals.reduceMotionOverride = newValue }
     }
 
-    /// Posted on the main actor when `reduceMotionOverride` changes. The
-    /// system setting has its own notification
-    /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
-    public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
-
-    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`), the
-    /// master switch `ui.animations.enabled` or a category switch changes.
-    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
-
     /// System Reduce Motion (Accessibility > Display) or calm mode (`ui.calm`, ``CalmMode``), or
-    /// the test override.
-    public static var reduceMotion: Bool {
-        reduceMotionOverride ?? (NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            || DesignSettings.shared.calmMode.reducesMotion)
+    /// the test override. Observable: it reads ``AppearanceSignals``.
+    public static var reduceMotion: Bool { reduceMotion(of: .shared) }
+
+    /// ``reduceMotion`` with `design`'s calm mode.
+    public static func reduceMotion(of design: DesignSettings) -> Bool {
+        DesignSettings.shared.signals.reduceMotion(of: design)
     }
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
     /// The policy before a category is chosen: the master switch
     /// `ui.animations.enabled` (calm mode `still` turns it off), the category switches, `ui.animationSpeed`,
-    /// Reduce Motion and a live resize. Animations never read it directly:
-    /// they ask their category's gate (`Motion.sidebar.policy`), which adds
-    /// the category.
-    public static var basePolicy: MotionPolicy {
-        let design = DesignSettings.shared
-        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
-                            enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
-                            animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
-                            disabledCategories: design.disabledAnimationCategories)
+    /// Reduce Motion, a live resize and Energy Saver (ambient loops only, ``DesignSettings/energySaver``).
+    /// Animations never read it directly: they ask their category's gate (`Motion.sidebar.policy`),
+    /// which adds the category.
+    public static var basePolicy: MotionPolicy { basePolicy(of: .shared) }
+
+    /// ``basePolicy`` as `design`'s settings make it. The gates read it of `DesignSettings.shared`; a reader
+    /// that holds its own `DesignSettings` (the oracle's settings facet) reads it with the same rules.
+    public static func basePolicy(of design: DesignSettings) -> MotionPolicy {
+        MotionPolicy(speed: design.animationSpeed, reduceMotion: reduceMotion(of: design), bounce: design.animationBounce,
+                     enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
+                     animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
+                     disabledCategories: design.disabledAnimationCategories,
+                     pacesLoops: design.loopsFollowFrameRate, energySaver: design.energySaver)
     }
 
     // MARK: Gates, one per MotionCategory
@@ -102,8 +98,11 @@ extension MotionGate {
     public var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
     /// Opacity and color changes animate.
     public var animatesFades: Bool { policy.animatesFades }
-    /// Spinners and pulses run.
+    /// Ambient spinners, pulses, breaths and sweeps run (not Reduce Motion, not Energy Saver).
     public var animatesLoops: Bool { policy.animatesLoops }
+    /// Blinks a person or a notification starts, and repeats that follow the person, run (not
+    /// Reduce Motion); Energy Saver leaves them as they are.
+    public var animatesBlinks: Bool { policy.animatesBlinks }
 
     public func spring(_ token: MotionSpring) -> SpringParameters { policy.spring(token) }
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }

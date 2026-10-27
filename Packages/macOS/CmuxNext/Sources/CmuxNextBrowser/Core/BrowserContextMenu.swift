@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// One item of an engine's page context menu (Chromium's model, including
 /// `chrome.contextMenus` items that extensions add).
@@ -57,7 +58,7 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
     /// Decodes the shim's JSON (`CMUX_SHIM_CONTEXT_MENU` items), keeping
     /// only the rows Chrome would show (``visibleItems(_:)``).
     static func decodeList(_ json: String) -> [BrowserContextMenuItem] {
-        guard let data = json.data(using: .utf8), let items = try? JSONDecoder().decode([Wire].self, from: data) else {
+        guard let data = json.data(using: .utf8), let items = try? JSONDecoder().blockingDecode([Wire].self, from: data) else {
             return []
         }
         return visibleItems(items.map(\.item))
@@ -130,7 +131,7 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
     /// does not report the link's text (`CEFTab.linkText(for:)` reads it).
     public static func chromium(_ json: String) -> BrowserContextMenuTarget {
         guard let data = json.data(using: .utf8),
-              let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return BrowserContextMenuTarget() }
+              let wire = try? JSONDecoder().blockingDecode(Wire.self, from: data) else { return BrowserContextMenuTarget() }
         func url(_ text: String?) -> URL? { text.flatMap { $0.isEmpty ? nil : URL(string: $0) } }
         let source = url(wire.source_url)
         // CEF's CM_MEDIATYPE_IMAGE.

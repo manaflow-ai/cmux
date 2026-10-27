@@ -11,10 +11,16 @@ public protocol AgentActivitySource: AnyObject {
     /// Asks for the events of `session` (pushed as `.events`) while the
     /// pane shows it; `false` stops them.
     func follow(session: String, _ on: Bool)
+    /// Stops every push (the pane closed or was discarded). Default: nothing to stop.
+    func stop()
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
+}
+
+extension AgentActivitySource {
+    public func stop() {}
 }
 
 /// One machine's group in the session list.
@@ -65,6 +71,15 @@ public final class AgentActivityModel {
 
     public func start() {
         source.start { [weak self] update in self?.apply(update) }
+    }
+
+    /// Stops the pushes: unfollows every session and ends the source's subscription (the pane
+    /// closed, or its tab was discarded: the rebuilt page starts a new model).
+    public func stop() {
+        for id in followed { source.follow(session: id, false) }
+        followed = []
+        extraFollowed = []
+        source.stop()
     }
 
     // MARK: Updates from the host

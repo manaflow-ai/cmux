@@ -33,6 +33,10 @@ pub(crate) const MAX_TERMINAL_WORKERS: usize = 8;
 /// runs it inline, as before this pool existed.
 const MAX_QUEUED_TERMINAL_JOBS: usize = 1024;
 
+/// The workers' class: a person waits on a terminal start (a new tab,
+/// split or workspace).
+const TERMINAL_WORK_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
 type TerminalJob = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
@@ -44,7 +48,6 @@ struct TerminalWorkState {
 /// A bounded pool of short-lived worker threads. Workers start on demand
 /// and exit when the queue is empty, so an idle owner holds none and a
 /// dropped owner never joins a worker that holds its last reference.
-#[derive(Default)]
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
     /// The host process started ahead of the next new tab (R81, cap one).
@@ -53,6 +56,23 @@ pub(crate) struct TerminalWorkPool {
 }
 
 impl TerminalWorkPool {
+    /// The owner's pool. Its standby slot is a consumer in `memory`, the
+    /// owner's registry (`Mux::memory`).
+    #[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
+    pub(crate) fn new(memory: &Arc<crate::memory::DaemonMemory>) -> Self {
+        Self {
+            state: Arc::default(),
+            #[cfg(any(unix, windows))]
+            standby: standby_host::StandbyHostSlot::new(memory.clone()),
+        }
+    }
+
+    /// A pool whose registry no system source feeds.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        Self::new(&Arc::new(crate::memory::DaemonMemory::without_system_source()))
+    }
+
     /// Queue `job`. Returns it when the queue is full or no worker thread
     /// could start, so the caller can run it inline.
     pub(crate) fn try_submit(&self, job: TerminalJob) -> Result<(), TerminalJob> {
@@ -73,9 +93,9 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started = std::thread::Builder::new()
-            .name("mux-terminal-work".into())
-            .spawn(move || Self::work(&state));
+        let started = cmux_threads::spawn("mux-terminal-work", TERMINAL_WORK_QOS, move || {
+            Self::work(&state);
+        });
         if started.is_ok() {
             return Ok(());
         }
@@ -174,6 +194,7 @@ impl Mux {
     ///
     /// The caller must finish with [`Mux::discard_prelaunched_terminal`],
     /// which ends the host when the create did not adopt it.
+    #[track_caller]
     pub(crate) fn prelaunch_tab_terminal(
         self: &Arc<Self>,
         pane: Option<PaneId>,
@@ -366,13 +387,22 @@ fn holder_model() -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn the_owner_pools_spare_is_a_consumer_in_the_mux_memory() {
+        let mux = Mux::new_for_test("terminal-work-memory", SurfaceOptions::default());
+        let names: Vec<_> =
+            mux.memory.registry().report().into_iter().map(|line| line.name).collect();
+        assert_eq!(names, ["terminal.standby-host"], "one registry per owner, from the root");
+    }
+
     #[test]
     fn terminal_work_pool_runs_every_job_and_keeps_input_order() {
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let jobs: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..50usize)
             .map(|index| {
                 Box::new(move || {
-                    std::thread::sleep(Duration::from_millis((50 - index as u64) % 7));
+                    crate::request_path::sleep(Duration::from_millis((50 - index as u64) % 7));
                     index * 2
                 }) as Box<dyn FnOnce() -> usize + Send>
             })
@@ -386,7 +416,7 @@ mod tests {
         fn failing_job() -> usize {
             panic!("job failed")
         }
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let panicking: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..2 * MAX_TERMINAL_WORKERS)
             .map(|_| Box::new(failing_job) as Box<dyn FnOnce() -> usize + Send>)
             .collect();
@@ -406,7 +436,7 @@ mod tests {
 
     #[test]
     fn terminal_work_pool_bounds_concurrent_workers() {
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let running = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let jobs: Vec<Box<dyn FnOnce() + Send>> = (0..40)
@@ -416,7 +446,7 @@ mod tests {
                 Box::new(move || {
                     let now = running.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(5));
+                    crate::request_path::sleep(Duration::from_millis(5));
                     running.fetch_sub(1, Ordering::SeqCst);
                 }) as Box<dyn FnOnce() + Send>
             })

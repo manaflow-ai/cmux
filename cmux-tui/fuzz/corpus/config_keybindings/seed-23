@@ -1,0 +1,2 @@
+cmd++	zoomIn	
+[{"key":"cmd++","command":"zoomIn","args":{"step":1}}, {"command":"-zoomOut"}]

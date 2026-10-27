@@ -2,8 +2,9 @@
 """Tab and workspace switch benchmark for a tagged cmux-next build
 (plans/cmux-next/tab-lifecycle.md).
 
-Launches the tagged app itself (clean environment, no activation, test
-window on the last screen, scratch config), builds a workload, then drives
+Launches the tagged app through bench_launch.BenchApp (the bench env, no
+activation, test window on the last screen, scratch config, a fresh saved
+session, the tag teardown), builds a workload, then drives
 selection changes at key-repeat speed through the app's own socket
 (`debug.key` delivers Ctrl-Tab to this app only; `action.run` switches
 workspaces). No system input is synthesized.
@@ -26,10 +27,18 @@ the selected tab of every visible pane shows its content, and for a
 Chromium tab its page window is visible over the pane (`debug.surfaces`
 `content_visible` when the build has it; else `debug.cef` child windows).
 
+Each scenario's raw per-frame samples go to the out folder as
+cmux-perf-result/v1 through BenchApp.record (story --story):
+  switch_repeat.<scenario>.frame_interval  ms between displayed frames
+  switch_repeat.<scenario>.main_busy       main-thread busy ms per frame
+  switch_repeat.<scenario>.stalls          main-thread stalls (count)
+The frame percentiles (p50, p95, p99) are the app's own `debug.frames`.
+
 Usage:
   scripts/cmux-next/bench-tab-switch.sh <tag> [--app PATH] [--tabs 20]
       [--workspaces 6] [--seconds 10] [--interval 33] [--scenarios ...]
-      [--label NAME] [--out DIR] [--keep-running]
+      [--label NAME] [--out DIR] [--keep-running] [--story tab-switch-repeat]
+      [--session light]
 
 Writes artifacts/cmux-next-bench/<sha>-tabswitch-<label>.json.
 """
@@ -38,15 +47,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
-import subprocess
 import sys
 import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, usage, wait_for_socket  # noqa: E402
-from daemon_teardown import end_terminals  # noqa: E402
+from bench_frames import split_raw_frames  # noqa: E402
+from bench_launch import BenchApp, PERF_LAB, RecordError, load_by_path  # noqa: E402
+
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 
@@ -75,6 +85,7 @@ class Bench:
         self.app_pid = app_pid
         self.args = args
         self.lag_samples = 0
+        self.samples = {}  # scenario -> {series: raw samples}, for result-v1 (the report keeps the summaries)
 
     # -- workload -------------------------------------------------------
 
@@ -225,7 +236,7 @@ class Bench:
             delay = next_at - time.monotonic()
             if delay > 0:
                 time.sleep(delay)  # test script: key-repeat pacing
-        frames = result(control.call("debug.frames", {"action": "stop"}, timeout=10))
+        frames, raw = split_raw_frames(result(control.call("debug.frames", {"action": "stop", "raw": True}, timeout=10)))
         time.sleep(self.args.settle)  # test script: let the final selection settle
         violations = self.invariant()
         after = usage(self.app_pid)
@@ -249,6 +260,7 @@ class Bench:
             "lagging_samples": self.lag_samples,
             "settled_violations": violations,
         }
+        self.samples[name] = {"frame_interval": raw["intervals_ms"], "main_busy": raw["main_ms"], "stalls": [max(stalls, 0)]}
         print(f"== {name}: {changes} changes, frames p50 {frames.get('p50_ms', 0):.1f} p99 {frames.get('p99_ms', 0):.1f} "
               f"max {frames.get('max_ms', 0):.1f} ms, missed {frames.get('missed')}, stalls {stalls}, "
               f"footprint {row['footprint_mb_before']} -> {row['footprint_mb_after']} MB, "
@@ -256,6 +268,26 @@ class Bench:
         for violation in violations:
             print(f"   SETTLED {violation}")
         return row
+
+
+def record(bench_app, story, samples_by_scenario):
+    """Writes each scenario's samples (Bench.samples) as result-v1 (BenchApp.record); returns {metric: path or
+    "not recorded: why"}."""
+    units = {"frame_interval": "ms", "main_busy": "ms", "stalls": "count"}
+    written = {}
+    for name, series_samples in samples_by_scenario.items():
+        for series, samples in series_samples.items():
+            metric = f"switch_repeat.{name}.{series}"
+            if not samples:
+                written[metric] = "not recorded: no samples"
+                continue
+            try:
+                written[metric] = str(bench_app.record(story, metric, units[series], samples, better="lower",
+                                                       engine="chromium"))
+            except (RecordError, perf_result.ResultError) as error:
+                written[metric] = f"not recorded: {error}"
+            print(f"bench-tab-switch: result-v1 {metric}: {written[metric]}")
+    return written
 
 
 def main():
@@ -274,28 +306,26 @@ def main():
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--story", default="tab-switch-repeat", help="result-v1 story of the recorded series")
+    parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
     args = parser.parse_args()
 
     tag = args.tag
     bundle = args.app or os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")
-    binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
-    if not os.path.exists(binary):
+    if not os.path.isdir(bundle):
         raise SystemExit(f"bench-tab-switch: no app at {bundle}")
-    if subprocess.run(["pgrep", "-f", f"{bundle}/Contents/MacOS/cmux DEV"], capture_output=True, text=True).stdout.strip():
-        raise SystemExit(f"bench-tab-switch: {bundle} is already running; quit it first")
     scratch = tempfile.mkdtemp(prefix=f"bench-tabswitch-{tag}-")
-    env = {
-        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-    }
-    app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"bench-tab-switch: app pid {app.pid}")
-    socket_path = f"/tmp/cmux-debug-{tag}.sock"
+    out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
+    os.makedirs(out_dir, exist_ok=True)
+    # BenchApp refuses a running app of the tag (tag-in-use) and says why a launch does not come up.
+    bench_app = BenchApp(bundle, out=out_dir, config={}, window=None, screen="last",
+                         log_name=f"{args.sha}-tabswitch-{args.label}-app.log", perf_session=args.session)
     report = {"tag": tag, "sha": args.sha, "label": args.label, "args": vars(args), "scenarios": {}}
     try:
-        control = wait_for_socket(socket_path)
+        bench_app.launch(timeout=120)
+        app = bench_app.process
+        print(f"bench-tab-switch: app pid {app.pid}")
+        control = wait_for_socket(bench_app.socket)
         identity = result(control.call("system.identify"))
         app_pid = identity.get("pid", app.pid)
         bench = Bench(control, app_pid, args)
@@ -319,19 +349,11 @@ def main():
                 pass
             report["scenarios"][name] = bench.run(name, scenarios[name])
         _ = tabs
+        report["results"] = record(bench_app, args.story, bench.samples)
     finally:
         if not args.keep_running:
-            app.send_signal(signal.SIGTERM)
-            try:
-                app.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                app.kill()
-            try:
-                report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
-            except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"bench-tab-switch: daemon teardown: {error}", file=sys.stderr)
-    out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
-    os.makedirs(out_dir, exist_ok=True)
+            bench_app.stop()  # debug.quit, then the tag's daemons and terminals (tag_teardown.py)
+            report["teardown"] = "bench_launch"  # as bench_idle.py: tag_teardown logs its own counts
     out = os.path.join(out_dir, f"{args.sha}-tabswitch-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)

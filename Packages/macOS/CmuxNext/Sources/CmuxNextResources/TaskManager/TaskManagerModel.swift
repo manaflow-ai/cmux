@@ -7,6 +7,13 @@ public import Observation
 /// ``TaskManagerSampleSource``, each next sample a one-shot ``DemandTimer`` deadline armed after
 /// the previous one finished; stopped, it samples nothing.
 ///
+/// With `memorySaved` (the `taskManagerMemorySaved` feature) the snapshot also lists the items
+/// Memory Saver discarded, as the source reports them, each with the memory the discarder recorded
+/// when it discarded the item. The model keeps no number of its own: as in Chrome, where the
+/// discarder records `PreDiscardResourceUsage` on the page
+/// (chrome/browser/performance_manager/public/user_tuning/user_performance_tuning_manager.h), the
+/// page shows the same number however often it is closed and opened again.
+///
 /// Kill Process goes through `kill`, which the App wires to the
 /// `taskManager.killProcess` action (one path for the row menu, the page's
 /// button, the palette and the CLI).
@@ -26,6 +33,8 @@ public final class TaskManagerModel {
     public var isRunning: Bool { running }
 
     @ObservationIgnored public let interval: Duration
+    /// Whether the snapshot lists the discarded items and what they saved (`taskManagerMemorySaved`).
+    @ObservationIgnored public let memorySaved: Bool
     @ObservationIgnored private weak var source: (any TaskManagerSampleSource)?
     @ObservationIgnored private let timer: DemandTimer
     @ObservationIgnored private let killAction: @MainActor (ProcessKey) -> Void
@@ -40,11 +49,14 @@ public final class TaskManagerModel {
     ///   - source: Takes the samples; held weakly (the App owns it).
     ///   - interval: Time between samples while started (default one second, as Activity Monitor).
     ///   - clock: The clock the wait between samples runs on; tests pass their own.
+    ///   - memorySaved: Lists the discarded items and what they saved (`taskManagerMemorySaved`, default off).
     ///   - kill: Runs Kill Process for one process (it asks first).
     public init(source: any TaskManagerSampleSource, interval: Duration = .seconds(1),
-                clock: any Clock<Duration> = ContinuousClock(), kill: @escaping @MainActor (ProcessKey) -> Void) {
+                clock: any Clock<Duration> = ContinuousClock(), memorySaved: Bool = false,
+                kill: @escaping @MainActor (ProcessKey) -> Void) {
         self.source = source
         self.interval = interval
+        self.memorySaved = memorySaved
         self.timer = DemandTimer(owner: "TaskManager.sample", clock: clock)
         self.killAction = kill
     }
@@ -89,7 +101,9 @@ public final class TaskManagerModel {
     }
 
     private func apply(_ set: TaskManagerSampleSet) {
-        snapshot = TaskManagerSnapshot(current: set, previous: previous)
+        var next = TaskManagerSnapshot(current: set, previous: previous)
+        if memorySaved { next.setDiscarded(set.discarded) }
+        snapshot = next
         previous = set
         sampleCount += 1
         selection.formIntersection(Set(snapshot.rows.map(\.id)))

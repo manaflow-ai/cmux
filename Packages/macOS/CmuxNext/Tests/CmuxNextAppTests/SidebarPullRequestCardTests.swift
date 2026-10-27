@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -221,7 +222,7 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":1,"title":"Done","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":"2026-10-02T00:00:00Z","additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
         store.refresh([url])
         try await Self.waitUntil { store.answers[url] != nil }
         #expect(store.answers[url]?.state == "merged")
@@ -235,13 +236,13 @@ import Testing
     @Test func aFailingReadBacksOff() async throws {
         let url = "https://github.com/o/r/pull/2"
         let gh = try Self.fakeGitHub(answer: nil, status: 1)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
         #expect(store.wait(url) == .zero)
         store.refresh([url])
         try await Self.waitUntil { Self.calls(gh) == 1 }
         try await Task.sleep(for: .milliseconds(100))
         #expect(store.answers[url] == nil)
-        let slow = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .seconds(300))
+        let slow = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .seconds(300))
         slow.refresh([url])
         try await Self.waitUntil { slow.wait(url) > .seconds(300) }
         #expect(slow.wait(url) == .seconds(600))
@@ -257,7 +258,7 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Going","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .seconds(300))
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .seconds(300))
         store.refresh([folder])
         try await Self.waitUntil { Self.calls(gh) == 1 }
         try await Task.sleep(for: .milliseconds(100))
@@ -277,7 +278,7 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":3,"title":"Paused","state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
         store.refresh([url])
         try await Self.waitUntil { store.answers[url] != nil }
         #expect(store.answers[url]?.state == "closed")
@@ -306,7 +307,7 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .milliseconds(100))
         store.refresh([url])
         try await Self.waitUntil { Self.calls(gh) >= 2 }
         #expect(Self.calls(gh) >= 2)
@@ -325,7 +326,7 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":5,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .milliseconds(100))
         store.refresh([folder, url])
         try await Self.waitUntil { store.answers[url] != nil }
         store.refresh([folder, url])

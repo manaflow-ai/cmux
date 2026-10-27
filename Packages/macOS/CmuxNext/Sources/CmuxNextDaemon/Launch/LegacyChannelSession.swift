@@ -128,6 +128,7 @@ struct LegacyChannelSession: Sendable {
     }
 }
 
+// memory: fixed one Bool per Application Support folder and channel (`LegacyChannelSession.channels`, 3).
 /// `LegacyChannelSession`'s per-process answers.
 final class DecisionCache: Sendable {
     private let answers = Mutex<[String: Bool]>([:])

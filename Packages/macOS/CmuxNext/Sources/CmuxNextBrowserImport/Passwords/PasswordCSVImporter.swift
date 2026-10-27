@@ -35,7 +35,7 @@ public struct PasswordCSVImporter: Sendable {
         do {
             read = try await Task.detached { try Self.parse(bytes) }.value
         } catch Failure.noPasswordColumns {
-            guard let columns, let header = bytes.withUnsafeBytes(PasswordCSVHeader.read) else { throw Failure.noPasswordColumns }
+            guard let columns, let header = PasswordCSVHeader.read(bytes) else { throw Failure.noPasswordColumns }
             guard let match = await columns(header) else { throw Failure.cancelled }
             read = try await Task.detached { try Self.parse(bytes, columns: match) }.value
         }
@@ -49,20 +49,25 @@ public struct PasswordCSVImporter: Sendable {
 
     /// The whole file when it is at most `limit` bytes (an export archive's limit is larger).
     static func read(_ file: URL, limit: Int) throws(Failure) -> SecretBytes {
-        let descriptor = open(file.path, O_RDONLY | O_CLOEXEC)
+        // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
+        let descriptor = unsafe open(file.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw .unreadable }
         defer { close(descriptor) }
         var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .unreadable }
+        // SAFETY: fstat writes one `stat` into the local `info`, which outlives the call.
+        guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .unreadable }
         let size = Int(info.st_size)
         guard size <= limit else { throw .unreadable }
         var failed = false
         let bytes = SecretBytes(capacity: size) { out in
-            guard let base = out.baseAddress else { return 0 }  // an empty buffer reads nothing
+            // SAFETY: reads the base address of the buffer SecretBytes lends for this closure.
+            guard let base = unsafe out.baseAddress else { return 0 }  // an empty buffer reads nothing
             var done = 0
             // Each read returns at least one byte until the end, so this ends within size + 1 steps.
             for _ in 0...size where done < size && !failed {
-                let count = Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                // SAFETY: `out` holds max(size, 1) bytes (the capacity asked for) and 0 <= done < size,
+                // so read writes at most size - done bytes from base + done, inside the buffer.
+                let count = unsafe Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done
@@ -80,7 +85,7 @@ public struct PasswordCSVImporter: Sendable {
 
     static func parse(_ bytes: SecretBytes, columns: PasswordCSVColumns? = nil) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         do {
-            return try bytes.withUnsafeBytes { try PasswordCSVReader().read($0, columns: columns) }
+            return try PasswordCSVReader().read(bytes, columns: columns)
         } catch {
             throw .noPasswordColumns
         }

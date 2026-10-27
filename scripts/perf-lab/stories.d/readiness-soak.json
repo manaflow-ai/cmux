@@ -1,0 +1,23 @@
+{
+  "id": "readiness-soak",
+  "tier": "T2",
+  "description": "One hour readiness soak (readiness-soak.py) of the app's own copy with 10 fake-agent sessions taking turns, 10 printing terminals and 4 Chromium tabs, the last 15 minutes quiet: CPU under load and settled idle, memory and open-fd growth from mid-load to its end for the app, the daemon and acpmux, crash, hang, control-error and stuck-turn events, zombie children and the control round trips.",
+  "command": ["scripts/cmux-next/readiness-soak.py", "--story", "readiness-soak", "--hours", "1", "--warmup", "300",
+              "--idle", "900", "--settle", "300"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "readiness_soak\\.(app|daemon|acpmux)\\.(cpu|idle_cpu)", "unit": "percent", "better": "lower"},
+    {"name": "readiness_soak\\.(app|daemon|acpmux)\\.footprint_growth", "unit": "bytes", "better": "lower"},
+    {"name": "readiness_soak\\.(app|daemon|acpmux)\\.fd_growth", "unit": "count", "better": "lower"},
+    {"name": "readiness_soak\\.events\\.(crash|hang|control-error|stuck-turn)", "unit": "count", "better": "lower"},
+    {"name": "readiness_soak\\.zombies", "unit": "count", "better": "lower"},
+    {"name": "readiness_soak\\.control\\.(ping|snapshot)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 3900,
+  "needs": [],
+  "owner": "PL-stability",
+  "component": "Stability>Soak"
+}

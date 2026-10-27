@@ -63,7 +63,7 @@ struct TabSwitchCycleBench {
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         window.orderFrontRegardless()

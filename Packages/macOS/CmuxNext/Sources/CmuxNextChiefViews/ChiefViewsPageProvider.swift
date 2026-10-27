@@ -17,6 +17,8 @@ final class ChiefViewsPageProvider: PageProvider {
     static let prefix = "cmux.chief_views."
     static let agentsOp = prefix + "agents"
     static let agentsChanged = prefix + "agents_changed"
+    /// Each `agents_changed` event carries every row, so a frozen page needs only the newest: `.latest`.
+    static let agentsChangedFrozenDelivery: PageFrozenDelivery = .latest
     static let fleetOp = prefix + "fleet"
     static let setFleetURLOp = prefix + "set_fleet_url"
     static let landingOp = prefix + "landing"
@@ -104,7 +106,7 @@ final class ChiefViewsPageProvider: PageProvider {
                 last = rows
             }
         }
-        return PageSubscription { task.cancel() }
+        return PageSubscription(frozenDelivery: Self.agentsChangedFrozenDelivery) { task.cancel() }
     }
 
     // MARK: Fleet

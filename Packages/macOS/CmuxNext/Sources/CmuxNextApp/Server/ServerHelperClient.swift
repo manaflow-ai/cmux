@@ -1,6 +1,9 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
+import CmuxNextWakeups
 import Foundation
-import ServiceManagement
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The app side of the cmux server's privileged helper (plans/cmux-next/server.md 9.4).
 /// The helper is a LaunchDaemon the app bundle carries in
@@ -22,8 +25,6 @@ enum ServerHelperClient {
         case failed(String)
     }
 
-    private static var service: SMAppService { SMAppService.daemon(plistName: ServerHelperConstants().plistName) }
-
     static var isBundled: Bool {
         let bundle = Bundle.main.bundleURL
         let fileManager = FileManager.default
@@ -31,35 +32,13 @@ enum ServerHelperClient {
             && fileManager.isExecutableFile(atPath: bundle.appending(path: ServerHelperConstants().bundleProgram).path)
     }
 
-    /// Registers the helper. Idempotent: an enabled helper stays enabled. Call it
-    /// from an explicit user action only: it may open System Settings.
-    static func register() throws(Failure) {
-        guard isBundled else { throw .notInBuild }
-        switch service.status {
-        case .enabled:
-            return
-        case .requiresApproval:
-            SMAppService.openSystemSettingsLoginItems()
-            throw .requiresApproval
-        default:
-            do {
-                try service.register()
-            } catch {
-                throw .failed(String(describing: error))
-            }
-            if service.status == .requiresApproval {
-                SMAppService.openSystemSettingsLoginItems()
-                throw .requiresApproval
-            }
-        }
-    }
-
-    /// Applies (or reverts) one allowlisted fix through the helper, after registering it.
-    /// `willCall` runs once the app is signed and the helper is registered and
-    /// allowed, just before the request goes out (the fix ledger records there,
-    /// so a build or helper that can never run writes nothing); if it throws,
-    /// nothing is sent.
-    static func run(_ fix: ServerFix, revert: Bool = false,
+    /// Applies (or reverts) one allowlisted fix through the helper, after registering it
+    /// (`helper`'s launchd calls run on the system lane; it may open System Settings, so
+    /// call it from an explicit user action only). `willCall` runs once the app is signed
+    /// and the helper is registered and allowed, just before the request goes out (the fix
+    /// ledger records there, so a build or helper that can never run writes nothing); if it
+    /// throws, nothing is sent.
+    static func run(_ fix: ServerFix, revert: Bool = false, helper: ServerServiceRegistration,
                     willCall: @MainActor () async throws -> Void = {}) async throws(Failure) {
         // Check our own signature first: an ad hoc app must not register a root
         // daemon that can never serve it.
@@ -67,7 +46,8 @@ enum ServerHelperClient {
               let label = ServerHelperConstants().machServiceName(appBundleID: bundleID),
               let requirement = ServerHelperConstants().helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
         else { throw .unsigned }
-        try register()
+        guard isBundled else { throw .notInBuild }
+        try await helper.enable(requiresApproval: Failure.requiresApproval, failed: Failure.failed)
         do {
             try await willCall()
         } catch {
@@ -93,7 +73,8 @@ enum ServerHelperClient {
                              clock: any Clock<Duration> = ContinuousClock()) async throws -> String? {
         let connection = HelperConnection(label: label, requirement: requirement)
         defer { connection.invalidate() }
-        return try await ServerHelperDeadline().run(limit: replyLimit, clock: clock, operation: {
+        return try await ServerHelperDeadline().run(limit: replyLimit, tolerance: WakeLeeway.window(delay: replyLimit).tolerance,
+                                                    clock: clock, operation: {
             try await connection.send(fixID: fixID, revert: revert)
         }, onTimeout: {
             // Invalidation fires the proxy's error handler, which ends the call.
@@ -103,6 +84,7 @@ enum ServerHelperClient {
 }
 
 /// The privileged connection to this build's helper.
+// crash-allow: one immutable NSXPCConnection, configured and resumed in init; its proxy and invalidate calls are thread-safe.
 private final nonisolated class HelperConnection: @unchecked Sendable {
     private let connection: NSXPCConnection
 
@@ -116,39 +98,19 @@ private final nonisolated class HelperConnection: @unchecked Sendable {
     func invalidate() { connection.invalidate() }
 
     func send(fixID: String, revert: Bool) async throws -> String? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String?, any Error>) in
-            let once = ResumeOnce(continuation)
-            let proxy = connection.remoteObjectProxyWithErrorHandler { once.fail($0) }
+        // XPC may call both the reply and the error handler: the first resume wins.
+        try await withOnceThrowingContinuation { (once: OnceContinuation<String?, any Error>) in
+            let proxy = connection.remoteObjectProxyWithErrorHandler { once.resume(throwing: $0) }
             guard let helper = proxy as? any ServerHelperProtocol else {
-                once.fail(CocoaError(.featureUnsupported))
+                once.resume(throwing: CocoaError(.featureUnsupported))
                 return
             }
-            let reply: @Sendable (String?) -> Void = { once.succeed($0) }
+            let reply: @Sendable (String?) -> Void = { once.resume(returning: $0) }
             if revert {
                 helper.revert(fixID: fixID, reply: reply)
             } else {
                 helper.apply(fixID: fixID, reply: reply)
             }
-        }
-    }
-}
-
-/// Resumes a continuation once: XPC may call both the reply and the error handler.
-private final nonisolated class ResumeOnce: @unchecked Sendable {
-    private let lock = NSLock() // concurrency-allow: guards one optional swap, never held across an await or IO
-    private var continuation: CheckedContinuation<String?, any Error>?
-
-    init(_ continuation: CheckedContinuation<String?, any Error>) {
-        self.continuation = continuation
-    }
-
-    func succeed(_ value: String?) { take()?.resume(returning: value) }
-    func fail(_ error: any Error) { take()?.resume(throwing: error) }
-
-    private func take() -> CheckedContinuation<String?, any Error>? {
-        lock.withLock {
-            defer { continuation = nil }
-            return continuation
         }
     }
 }

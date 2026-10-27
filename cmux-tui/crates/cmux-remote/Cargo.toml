@@ -16,8 +16,13 @@ iroh-transport = ["dep:iroh"]
 # Dial `ws://` routes through an in-process WireGuard tunnel (cmux-wg) when
 # the target sits inside the tunnel's routes.
 wireguard-transport = ["dep:cmux-wg"]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
+cmux-blocking.workspace = true
+cmux-panic-log.workspace = true
+cmux-threads.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true

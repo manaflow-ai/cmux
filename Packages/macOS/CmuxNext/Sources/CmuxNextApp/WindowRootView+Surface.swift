@@ -13,6 +13,17 @@ extension WindowRootView {
                        tintOpacity: themeScope.backdropTintOpacity)
     }
 
+    /// Surface color plus window opacity: a translucent background
+    /// (`background-opacity`, `background-blur`, or cmux.json's
+    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`)
+    /// makes the whole window one material with the theme tint over it
+    /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
+    func themeDidChange() {
+        paintBackground()
+        updateMainPaneShade()
+        if let window { applyBackdrop(to: window) }
+    }
+
     /// An opaque window paints the solid background on this layer. Over a
     /// material the layer stays clear and the backdrop view's tint is the
     /// one sheet; a frosted window's blur is the window's CGS radius

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The update this build came from (cx-ncc.45, decision D1 2026-10-10:
@@ -70,7 +71,7 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data), record.toBuild == build else {
+        guard let record = try? decoder.blockingDecode(WhatsNewLastUpdate.self, from: data), record.toBuild == build else {
             clear()
             return nil
         }
@@ -90,7 +91,7 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
         guard let data = try? Data(contentsOf: url) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data), record.toBuild != build { return }
+        if let record = try? decoder.blockingDecode(WhatsNewLastUpdate.self, from: data), record.toBuild != build { return }
         clear()
     }
 }

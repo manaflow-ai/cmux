@@ -3,6 +3,7 @@
 //! wait on that listener or the accept waker. Moved from
 //! `serve_terminal_host_stdio` unchanged.
 
+use cmux_threads::checked::fs as files;
 use std::fs;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -19,7 +20,7 @@ impl HostListener {
     /// Bind `endpoint`, make it owner-only, and make accepts nonblocking.
     pub(crate) fn bind(endpoint: &Path) -> anyhow::Result<Self> {
         let listener = UnixListener::bind(endpoint)?;
-        fs::set_permissions(endpoint, fs::Permissions::from_mode(0o600))?;
+        files::set_permissions(endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
         Ok(Self(listener))
     }

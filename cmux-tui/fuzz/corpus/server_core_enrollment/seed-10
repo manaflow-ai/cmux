@@ -1,0 +1,1 @@
+{"kty": "EC", "crv": "P-256", "x": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "y": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8", "wg": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "env": "production", "info": {"name": "mini", "platform": "beos", "os_version": "26.1", "arch": "aarch64", "cmux_version": "1.0.0", "capabilities": ["chief"]}}

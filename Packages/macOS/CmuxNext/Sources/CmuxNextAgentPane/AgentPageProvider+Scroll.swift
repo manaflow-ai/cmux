@@ -4,12 +4,13 @@ import Foundation
 
 extension AgentPageProvider {
     /// `chat.scrollAnchor` (`sessionId`, `rowId` or null, `offset`) and `chat.scrollAnchor.get`
-    /// (`sessionId`): a chat's kept place in ``AgentPaneScrollAnchors/shared`` (cx-6bgzj). It is
-    /// the chat's, not the pane's, so the model never sees these.
-    static func scrollAnchor(_ method: String, params: JSONValue, op: String) throws -> JSONValue {
+    /// (`sessionId`): a chat's kept place in `anchors` (the provider's
+    /// ``AgentPaneChatStores/scrollAnchors``; nil keeps none, cx-6bgzj). It is the chat's, not the
+    /// pane's, so the model never sees these.
+    static func scrollAnchor(_ method: String, params: JSONValue, op: String, anchors: AgentPaneScrollAnchors?) throws -> JSONValue {
         let body = params.foundationObject as? [String: Any]
         guard let session = body?["sessionId"] as? String, !session.isEmpty else { throw PageError.invalidParams(op) }
-        guard let anchors = AgentPaneScrollAnchors.shared else { return .null }
+        guard let anchors else { return .null }
         if method == "chat.scrollAnchor.get" {
             guard let anchor = anchors.anchor(for: session) else { return .null }
             return .object(["rowId": .string(anchor.rowId), "offset": .number(anchor.offset)])

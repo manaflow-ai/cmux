@@ -1,19 +1,28 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension PageHostPool {
     var shouldBuild: Bool {
-        isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
+        isLikely && allowsSpare && (madeVisible || !policy.preloadOnMakeVisible) && spare == nil && !building
+            && target != nil && claimedHosts.count < policy.maximumHosts
     }
 
     func scheduleBuild() {
         guard shouldBuild else { return }
-        watchMemoryPressure()
         activityMark = activity()
-        timer.schedule(after: policy.idleInput) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: policy.idleInput) { [weak self] in
             self?.idleDeadline()
         }
+    }
+
+    /// Memory pressure is back to normal: build the spare again. A build still in flight started
+    /// before the pressure, which closed its spare, so it asks for the next build when it ends.
+    func refillSpare() {
+        if building { refillAfterBuild = true }
+        scheduleBuild()
     }
 
     private func idleDeadline() {
@@ -27,13 +36,19 @@ extension PageHostPool {
     }
 
     static func nextTurn() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume(returning: ()) }
         }
     }
 
     private func build() async {
-        defer { building = false }
+        defer {
+            building = false
+            if refillAfterBuild {
+                refillAfterBuild = false
+                scheduleBuild()
+            }
+        }
         guard let recipe = measure("pool.makeSpare.configure", {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
@@ -41,7 +56,7 @@ extension PageHostPool {
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
         await Self.nextTurn()
-        guard isLikely, spare == nil, let content = target?.contentView else {
+        guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
             host.close()
             return
         }
@@ -67,12 +82,5 @@ extension PageHostPool {
         if spans.count > Self.maximumRecords { spans.removeFirst(spans.count - Self.maximumRecords) }
         onSpan?(name, milliseconds)
         return value
-    }
-
-    private func watchMemoryPressure() {
-        guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] level in
-            if level != .normal { self?.dropSpare() }
-        }
     }
 }

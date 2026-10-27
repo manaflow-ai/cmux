@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -16,16 +17,32 @@ public nonisolated enum RemoteAddress: Hashable, Sendable {
     /// A dotted IPv4 or an IPv6 literal (no brackets, no zone); nil for a name.
     public init?(literal: String) {
         var v4 = in_addr()
-        if inet_pton(AF_INET, literal, &v4) == 1 {
-            self = .v4(withUnsafeBytes(of: &v4) { Array($0) })
+        // SAFETY: inet_pton reads the NUL-terminated copy of the literal made for the call and, for AF_INET, writes
+        // one in_addr into `v4`, a local live for the call.
+        if unsafe inet_pton(AF_INET, literal, &v4) == 1 {
+            self = RemoteAddress(v4)
             return
         }
         var v6 = in6_addr()
-        if !literal.contains("%"), inet_pton(AF_INET6, literal, &v6) == 1 {
-            self = .v6(withUnsafeBytes(of: &v6) { Array($0) })
+        // SAFETY: as above; for AF_INET6 it writes one in6_addr into `v6`.
+        if !literal.contains("%"), unsafe inet_pton(AF_INET6, literal, &v6) == 1 {
+            self = RemoteAddress(v6)
             return
         }
         return nil
+    }
+
+    /// An IPv4 address's four bytes, in network order.
+    init(_ address: in_addr) {
+        let value = UInt32(bigEndian: address.s_addr)
+        self = .v4([UInt8(truncatingIfNeeded: value >> 24), UInt8(truncatingIfNeeded: value >> 16),
+                    UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)])
+    }
+
+    /// An IPv6 address's sixteen bytes, in network order.
+    init(_ address: in6_addr) {
+        let b = address.__u6_addr.__u6_addr8
+        self = .v6([b.0, b.1, b.2, b.3, b.4, b.5, b.6, b.7, b.8, b.9, b.10, b.11, b.12, b.13, b.14, b.15])
     }
 
     /// Whether a fetch may connect to this address.
@@ -84,40 +101,53 @@ public protocol RemoteAddressResolving: Sendable {
     func resolve(_ host: String) async throws -> [RemoteAddress]
 }
 
-/// getaddrinfo off the caller's actor.
+/// getaddrinfo on the app's system lane (``MayBlockRunner/runHostResolution(_:shutdown:site:_:)``): never on the
+/// main thread or the cooperative pool, and at most four lookups at once, so a hung resolver never holds the
+/// slots keychain or Accessibility work needs.
 public nonisolated struct SystemRemoteResolver: RemoteAddressResolving {
-    public init() {}
+    private let runner: any MayBlockRunner
 
-    public func resolve(_ host: String) async throws -> [RemoteAddress] {
-        try await Self.lookup(host)
+    /// - Parameter runner: The app's lanes (BackgroundWork).
+    public init(runner: any MayBlockRunner) {
+        self.runner = runner
     }
 
-    @concurrent private static func lookup(_ host: String) async throws -> [RemoteAddress] {
-        var hints = addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: IPPROTO_TCP,
-                             ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+    public func resolve(_ host: String) async throws -> [RemoteAddress] {
+        // Page content is waiting for the image or the media.
+        try await runner.runHostResolution(.userVisible) { try Self.lookup(host) }
+    }
+
+    private static func lookup(_ host: String) throws -> [RemoteAddress] {
+        // SAFETY: the init only stores integers and null pointers (no name, address or next hint); nothing is
+        // dereferenced.
+        var hints = unsafe addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM,
+                                    ai_protocol: IPPROTO_TCP, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil,
+                                    ai_next: nil)
         var result: UnsafeMutablePointer<addrinfo>?
-        guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { throw URLError(.cannotFindHost) }
-        defer { freeaddrinfo(first) }
+        // SAFETY: getaddrinfo reads `hints`, a local, and the NUL-terminated copy of the host made for the call, and
+        // writes the list it allocates into `result`; that list is freed once, on return.
+        guard unsafe blockingGetaddrinfo(host, nil, &hints, &result) == 0, let first = unsafe result else {
+            throw URLError(.cannotFindHost)
+        }
+        defer { unsafe freeaddrinfo(first) }
         var addresses: [RemoteAddress] = []
-        var node: UnsafeMutablePointer<addrinfo>? = first
-        while let entry = node {
-            if let raw = entry.pointee.ai_addr {
-                switch Int32(raw.pointee.sa_family) {
-                case AF_INET:
-                    raw.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
-                        var address = pointer.pointee.sin_addr
-                        addresses.append(.v4(withUnsafeBytes(of: &address) { Array($0) }))
-                    }
-                case AF_INET6:
-                    raw.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { pointer in
-                        var address = pointer.pointee.sin6_addr
-                        addresses.append(.v6(withUnsafeBytes(of: &address) { Array($0) }))
-                    }
+        // SAFETY: every node is getaddrinfo's, live until freeaddrinfo above; a node's ai_addr points at ai_addrlen
+        // bytes, and an address is copied out (an unaligned load) only when ai_addrlen covers the whole sockaddr read.
+        var node: UnsafeMutablePointer<addrinfo>? = unsafe first
+        while let entry = unsafe node {
+            let length = unsafe Int(entry.pointee.ai_addrlen)
+            if let address = unsafe entry.pointee.ai_addr, length >= MemoryLayout<sockaddr>.size {
+                let raw = unsafe UnsafeRawPointer(address)
+                switch unsafe Int32(raw.loadUnaligned(as: sockaddr.self).sa_family) {
+                case AF_INET where length >= MemoryLayout<sockaddr_in>.size:
+                    addresses.append(RemoteAddress(unsafe raw.loadUnaligned(as: sockaddr_in.self).sin_addr))
+                case AF_INET6 where length >= MemoryLayout<sockaddr_in6>.size:
+                    addresses.append(RemoteAddress(unsafe raw.loadUnaligned(as: sockaddr_in6.self).sin6_addr))
                 default:
                     break
                 }
             }
-            node = entry.pointee.ai_next
+            node = unsafe entry.pointee.ai_next
         }
         var seen: Set<RemoteAddress> = []
         return addresses.filter { seen.insert($0).inserted }

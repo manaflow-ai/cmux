@@ -3,6 +3,8 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// Long messages (agent output: logs, code, 100k-line pastes). shared/LONG-MESSAGES.md.
 /// A long text part is cut into blocks of about 4 KB (index, width independent);
@@ -12,13 +14,15 @@ enum LongText {
     static let minBytes = 8192
     static let minLines = 120
     static let blockBytes = 4096
-    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-long-text")
+    // cmux: constants for the process (nothing sets them after launch, and the row threads read
+    // them: unsynchronized globals; p10-stability-040).
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-long-text")
     /// Long markdown in tiles (MarkdownLong.swift). Off until its e2e and benches pass;
     /// `--long-markdown` turns it on for one run.
-    static var markdownTiles = ProcessInfo.processInfo.arguments.contains("--long-markdown")
+    static let markdownTiles = ProcessInfo.processInfo.arguments.contains("--long-markdown")
     /// Streaming tail measured and its end tiles drawn off main, published together (no empty
     /// tile). Off until its benches pass; `--long-tail-off-main` turns it on for one run.
-    static var offMainTail = ProcessInfo.processInfo.arguments.contains("--long-tail-off-main")
+    static let offMainTail = ProcessInfo.processInfo.arguments.contains("--long-tail-off-main")
 
     /// O(1) above 8 KB; scans at most 8 KB below.
     static func isLong(_ t: String) -> Bool {
@@ -88,7 +92,8 @@ struct Fenwick {
 }
 
 /// Block index of one text (immutable, thread safe).
-final class LongTextIndex: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): every stored property is a let of a Sendable value.
+final class LongTextIndex: Sendable {
     let lineage: Int
     let text: String
     let count: Int
@@ -136,10 +141,13 @@ final class LongTextIndex: @unchecked Sendable {
     /// Whether a long text takes the markdown cut and layout (MarkdownLong.swift).
     static func isMarkdown(_ text: String) -> Bool { LongText.markdownTiles && Markdown.enabled && Markdown.mightContain(text) }
 
-    func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
-        if let r = text.utf8.withContiguousStorageIfAvailable(body) { return r }
+    /// cmux: `@safe` as the standard library's `withUnsafeBufferPointer`: the buffer exists only for `body`, and
+    /// each use of it inside `body` is marked where it happens (strict memory safety, p10-stability-073).
+    @safe func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
+        // SAFETY: body gets the text's contiguous UTF-8 (or a copy's), valid for the call only, and returns a value.
+        if let r = unsafe text.utf8.withContiguousStorageIfAvailable(body) { return r }
         let a = Array(text.utf8)
-        return a.withUnsafeBufferPointer(body)
+        return unsafe a.withUnsafeBufferPointer(body)
     }
 
     /// Scan `text` into blocks; with `prefix`, keep its blocks before `keep` (streaming).
@@ -162,7 +170,9 @@ final class LongTextIndex: @unchecked Sendable {
         var u16Pos = prefix.map { keep < $0.u16Starts.count ? $0.u16Starts[keep] : 0 } ?? 0
         let size = Fixture.bodyFont.pointSize
         let ascii = Float(size * 0.5), wide = Float(size), emoji = Float(size * 1.25)
-        t.utf8.withContiguousStorageIfAvailable { p in
+        // cmux: the scan reads the bytes as a generic collection (prefix, dropFirst and checked reads, each
+        // bounds-checked), so only the hand-over below touches the buffer (strict memory safety, p10-stability-073).
+        func scan<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes) where Bytes.Index == Int {
             let n = p.count
             var i = from
             while i < n {
@@ -207,6 +217,9 @@ final class LongTextIndex: @unchecked Sendable {
             }
             starts.append(n); u16.append(u16Pos); sel.append(selPos)
         }
+        // SAFETY: p is the string's contiguous UTF-8 (made contiguous above), valid for this closure; scan reads it
+        // only through bounds-checked collection operations and keeps no reference to it.
+        t.utf8.withContiguousStorageIfAvailable { p in unsafe scan(p) }
         return LongTextIndex(lineage: lineage, text: t, starts: starts, u16Starts: u16, pieces: pieces, units: units, estRef: estRef, newlines: newlines, ready: true,
                              markdown: md, carries: carries, selStarts: sel)
     }
@@ -217,8 +230,10 @@ final class LongTextIndex: @unchecked Sendable {
     func blockString(_ b: Int) -> NSString {
         guard let a = starts[checked: b], let e = starts[checked: b + 1], a <= e else { return "" } // a stale block is empty
         return withBytes { p in
-            guard let base = p.baseAddress else { return "" } // no force unwrap
-            return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
+            // SAFETY: p is the text's UTF-8, valid inside this closure; 0 <= a <= e <= p.count (the block's offsets,
+            // the last bound checked here), so NSString copies e - a bytes from inside the buffer.
+            guard let base = unsafe p.baseAddress, unsafe e <= p.count, a >= 0 else { return "" } // no force unwrap
+            return unsafe NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
         }
     }
 
@@ -248,11 +263,14 @@ final class LongTextIndex: @unchecked Sendable {
         guard !n.isEmpty, from < count else { return nil }
         return withBytes { p in
             n.withUnsafeBufferPointer { q in
-                // no force unwraps 
-                guard let base = p.baseAddress, let needle = q.baseAddress,
-                      let r = memmem(base + from, count - from, needle, q.count) else { return nil }
-                let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
-                return o..<(o + q.count)
+                // no force unwraps
+                // SAFETY: p (the text) and q (the needle) are valid inside these closures and no pointer leaves them;
+                // 0 <= from < count <= p.count (checked above and here), so memmem searches the count - from bytes from
+                // base + from, inside p, and a match it returns points into them.
+                guard let base = unsafe p.baseAddress, let needle = unsafe q.baseAddress, unsafe count <= p.count, from >= 0,
+                      let r = unsafe memmem(base + from, count - from, needle, q.count) else { return nil }
+                let o = unsafe UnsafeRawPointer(r) - UnsafeRawPointer(base)
+                return unsafe o..<(o + q.count)
             }
         }
     }
@@ -267,16 +285,21 @@ final class LongTextIndex: @unchecked Sendable {
         let a = starts[checked: lo] ?? 0
         let local = withBytes { p in
             // the slice is clamped to the buffer (an unsafe buffer does not check its range).
-            let from = min(max(0, a), p.count), to = min(max(from, o), p.count)
-            return String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
+            // SAFETY: p is the text's UTF-8 inside this closure; 0 <= from <= to <= p.count (clamped), so the rebased
+            // slice lies inside it, and String copies the bytes out.
+            let from = unsafe min(max(0, a), p.count), to = unsafe min(max(from, o), p.count)
+            return unsafe String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
         }
         return (u16Starts[checked: lo] ?? 0) + local
     }
 }
 
 /// Line breaks of one block (Core Text, the rules of `TextLayout.make`).
-final class BlockLayout: @unchecked Sendable {
-    let string: NSString
+/// cmux: checked `Sendable` (p10-stability-055): the string is a shared immutable value and the drawing
+/// attributes a checked lock's state (they were a var under an NSLock in an unchecked class).
+final class BlockLayout: Sendable {
+    var string: NSString { text.value }
+    private let text: HomeShared<NSString>
     let lines: [NSRange]
     let widths: [CGFloat]
     /// A markdown block (MarkdownLong.layout): drawn and hit-tested from this; `string` is its
@@ -284,12 +307,12 @@ final class BlockLayout: @unchecked Sendable {
     let md: MarkdownLayout?
     /// Its line count in the Fenwick tree (markdown: its height in 16 pt lines, rounded up).
     let lineCount: Int
-    private let lock = NSLock()
-    private var drawAttr: [Bool: NSAttributedString] = [:]
+    // Lock carve-out: the tile renderers read and fill two attributed strings per block; none is built under the lock.
+    private let drawAttr = Mutex([Bool: HomeShared<NSAttributedString>]())
 
     init(md: MarkdownLayout, lines n: Int) {
         self.md = md
-        string = md.plain as NSString
+        text = HomeShared(md.plain as NSString)
         lines = []; widths = []
         lineCount = n
     }
@@ -297,7 +320,7 @@ final class BlockLayout: @unchecked Sendable {
     /// `reuse`: the same block before text was appended (streaming): its lines before its last
     /// paragraph are kept and only the rest is typeset (paragraphs break independently).
     init(string: NSString, column: CGFloat, final: Bool, reuse: BlockLayout? = nil) {
-        self.string = string
+        text = HomeShared(string)
         var lines: [NSRange] = [], widths: [CGFloat] = []
         var from = 0
         if let r = reuse, r.string.length <= string.length, r.string.length > 0,
@@ -321,7 +344,7 @@ final class BlockLayout: @unchecked Sendable {
             if endsNL { range.length -= 1 }
             lines.append(NSRange(location: range.location + from, length: range.length))
             // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
-            widths.append(range.length > 0 ? CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)), nil, nil, nil)) : 0)
+            widths.append(range.length > 0 ? CGFloat(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)).typographicWidth) : 0)
             start += n
             if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
         }
@@ -334,8 +357,7 @@ final class BlockLayout: @unchecked Sendable {
 
     /// Drawing attributes (the bubble's text colour, kern, links detected in this block).
     func attributed(outgoing: Bool) -> NSAttributedString {
-        lock.lock(); defer { lock.unlock() }
-        if let a = drawAttr[outgoing] { return a }
+        if let a = drawAttr.withLock({ $0[outgoing] }) { return a.value }
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
         let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let a = NSMutableAttributedString(string: string as String,
@@ -348,42 +370,56 @@ final class BlockLayout: @unchecked Sendable {
                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
             }
         }
-        drawAttr[outgoing] = a
-        return a
+        // cmux: built outside the lock; when two renderers build the same block at once, both draw the first one stored.
+        let built = HomeShared<NSAttributedString>(a)
+        return drawAttr.withLock { cache -> HomeShared<NSAttributedString> in
+            if let first = cache[outgoing] { return first }
+            cache[outgoing] = built
+            return built
+        }.value
     }
     // optional, no try! ; without it no link is underlined.
     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 }
 
 /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
-final class BlockLayoutCache: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the map and its clock are one lock state.
+final class BlockLayoutCache: Sendable {
     static let shared = BlockLayoutCache()
     struct Key: Hashable { var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat; var md: Bool = false }
-    private var map: [Key: (BlockLayout, Int)] = [:]
-    private var tick = 0
-    private let lock = NSLock()
+    private struct State: Sendable {
+        var map: [Key: (BlockLayout, Int)] = [:]
+        var tick = 0
+    }
+    // Lock carve-out: the measure threads and main look up and insert blocks; the trim sorts at most 320 entries.
+    private let state = Mutex(State())
     static let capacity = 256
     func get(_ k: Key) -> BlockLayout? {
-        lock.lock(); defer { lock.unlock() }
-        guard let e = map[k] else { return nil }
-        tick += 1
-        map.updateValue((e.0, tick), forKey: k) // dictionary write
-        return e.0
-    }
-    func put(_ k: Key, _ v: BlockLayout) {
-        lock.lock(); defer { lock.unlock() }
-        tick += 1
-        map.updateValue((v, tick), forKey: k) // dictionary write
-        if map.count > BlockLayoutCache.capacity + 64 {
-            let keep = map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
-            map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+        state.withLock { s -> BlockLayout? in
+            guard let e = s.map[k] else { return nil }
+            s.tick += 1
+            s.map.updateValue((e.0, s.tick), forKey: k) // dictionary write
+            return e.0
         }
     }
-    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
+    func put(_ k: Key, _ v: BlockLayout) {
+        state.withLock { s in
+            s.tick += 1
+            s.map.updateValue((v, s.tick), forKey: k) // dictionary write
+            if s.map.count > BlockLayoutCache.capacity + 64 {
+                let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
+                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+            }
+        }
+    }
+    var count: Int { state.withLock { $0.map.count } }
 }
 
 /// Line counts of one index at one width: estimates until measured.
-final class LongTextLayout: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the counts, the measure bookkeeping, the tile hint, the
+/// prerendered tiles and `retired` are one lock state (they were vars under an NSLock, and `retired` a
+/// plain var the measure queues read, in an unchecked class).
+final class LongTextLayout: Sendable {
     let index: LongTextIndex
     let width: CGFloat
     let column: CGFloat
@@ -391,22 +427,35 @@ final class LongTextLayout: @unchecked Sendable {
     let markdown: Bool
     /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
     /// its tiles near the end are drawn off main, then both reach the screen in one publish.
-    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
-    var tileHint: TileHint? { get { lock.lock(); defer { lock.unlock() }; return hint } set { lock.lock(); hint = newValue; lock.unlock() } }
-    private var hint: TileHint?
-    private var pendingTiles: [(TileCache.Key, CGImage)] = []
-    private let lock = NSLock()
-    private var tree: Fenwick
-    private var exact: [Bool]
-    private var pending: [Int: Int32] = [:]
-    private var inFlight = Set<Int>()
-    private(set) var measured = 0
+    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
+    var tileHint: TileHint? {
+        get { state.withLock { $0.hint } }
+        set { state.withLock { $0.hint = newValue } }
+    }
+    /// A tile drawn off main with its block's measurement, put in the TileCache by `applyPending`.
+    private typealias PendingTile = (key: TileCache.Key, image: HomeShared<CGImage>)
+    private struct State: Sendable {
+        var hint: TileHint?
+        var pendingTiles: [PendingTile] = []
+        var tree: Fenwick
+        var exact: [Bool]
+        var pending: [Int: Int32] = [:]
+        var inFlight = Set<Int>()
+        var measured = 0
+        var retired = false
+    }
+    // Lock carve-out: the measure and tail queues report counts and main applies them; no layout under the lock.
+    private let state: Mutex<State>
+    var measured: Int { state.withLock { $0.measured } }
     /// Replaced by a newer index (streaming) or a scanned one (placeholder).
-    var retired = false
+    var retired: Bool {
+        get { state.withLock { $0.retired } }
+        set { state.withLock { $0.retired = newValue } }
+    }
     private let placeholderLines: Int
     /// Lines from the index estimate alone (deterministic per text and width: the fold
     /// decision never flips when blocks are measured).
-    private(set) var estimatedLines = 0
+    let estimatedLines: Int
 
     static let measureQueue: OperationQueue = {
         let q = OperationQueue()
@@ -431,34 +480,32 @@ final class LongTextLayout: @unchecked Sendable {
         var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
             max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
         }
+        var hint: TileHint?
         if let c = carry, c.column == column, c.markdown == self.markdown {
-            c.lock.lock()
+            // cmux: one consistent copy of the carried layout's counts (its lock was held for these reads).
+            let (cExact, cValues, cHint) = c.state.withLock { ($0.exact, $0.tree.values, $0.hint) }
             let n = min(c.index.blockCount, index.blockCount)
             // checked reads and writes.
-            for b in 0..<n where (c.exact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
+            for b in 0..<n where (cExact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
                 && c.index.starts[checked: b + 1] == index.starts[checked: b + 1]
                 && !(c.index.isFinal(b) != index.isFinal(b)) && c.index.carry(b + 1) == index.carry(b + 1) {
-                if let vs = v.checkedIndex(b), let es = ex.checkedIndex(b), let kept = c.tree.values[checked: b] { v[vs] = kept; ex[es] = true }
+                if let vs = v.checkedIndex(b), let es = ex.checkedIndex(b), let kept = cValues[checked: b] { v[vs] = kept; ex[es] = true }
             }
             if let k = keep, k >= 0, k < index.blockCount {
-                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? c.tree.values[checked: k] ?? 0 : 0 }
+                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? cValues[checked: k] ?? 0 : 0 }
                 v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
             }
-            hint = c.hint
-            c.lock.unlock()
+            hint = cHint
         }
-        tree = Fenwick(v)
         estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // Int32 widens exactly
-        exact = ex
-        measured = ex.filter { $0 }.count
+        state = Mutex(State(hint: hint, tree: Fenwick(v), exact: ex, measured: ex.filter { $0 }.count))
         placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
                                                                    in: CrashGuard.countRange)) // no trap on a zero column
         if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // a negative keep built an inverted range
     }
 
     var totalLines: Int {
-        lock.lock(); defer { lock.unlock() }
-        return index.ready ? max(1, tree.total) : placeholderLines
+        index.ready ? max(1, state.withLock { $0.tree.total }) : placeholderLines
     }
     var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
     var size: CGSize { size(scale: Fixture.renderScale) }
@@ -467,11 +514,11 @@ final class LongTextLayout: @unchecked Sendable {
         CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
     }
     var blockCount: Int { index.blockCount }
-    func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) }
-    func firstLine(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.prefix(b) }
-    func block(containingLine l: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.find(max(0, l)) }
-    func isExact(_ b: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return exact[checked: b] ?? false }
-    var exactCount: Int { lock.lock(); defer { lock.unlock() }; return measured }
+    func lines(ofBlock b: Int) -> Int { Int(truncatingIfNeeded: state.withLock { $0.tree.values[checked: b] ?? 0 }) }
+    func firstLine(ofBlock b: Int) -> Int { state.withLock { $0.tree.prefix(b) } }
+    func block(containingLine l: Int) -> Int { state.withLock { $0.tree.find(max(0, l)) } }
+    func isExact(_ b: Int) -> Bool { state.withLock { $0.exact[checked: b] ?? false } }
+    var exactCount: Int { measured }
 
     func key(_ b: Int) -> BlockLayoutCache.Key {
         // A markdown block's layout also depends on whether the next block continues it.
@@ -491,7 +538,7 @@ final class LongTextLayout: @unchecked Sendable {
         }
         let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
         BlockLayoutCache.shared.put(k, out)
-        LongTextStats.blocksMeasured += 1
+        LongTextStats.count(.blocksMeasured)
         report(b, out.lineCount)
         return out
     }
@@ -510,9 +557,7 @@ final class LongTextLayout: @unchecked Sendable {
     /// (2 screens), then publish counts and tiles together.
     func measureTail(_ blocks: Range<Int>) {
         guard !blocks.isEmpty else { return }
-        lock.lock()
-        for b in blocks { inFlight.insert(b) }
-        lock.unlock()
+        state.withLock { s in for b in blocks { s.inFlight.insert(b) } }
         LongTextLayout.tailQueue.addOperation { [weak self] in
             guard let self, !self.retired else { return }
             // Lines of the first tail block before this append: its tiles above them did not change.
@@ -547,10 +592,11 @@ final class LongTextLayout: @unchecked Sendable {
                     line += c
                 }
             }
-            self.lock.lock()
-            for (b, c) in counts { self.inFlight.remove(b); if !(self.exact[checked: b] ?? true) { self.pending.updateValue(Int32(clamping: c), forKey: b) } }
-            self.pendingTiles += tiles
-            self.lock.unlock()
+            let drawn: [PendingTile] = tiles.map { (key: $0.0, image: HomeShared($0.1)) }
+            self.state.withLock { [counts] s in
+                for (b, c) in counts { s.inFlight.remove(b); if !(s.exact[checked: b] ?? true) { s.pending.updateValue(Int32(clamping: c), forKey: b) } }
+                s.pendingTiles += drawn
+            }
             LongTextCenter.schedule(self)
         }
     }
@@ -563,7 +609,7 @@ final class LongTextLayout: @unchecked Sendable {
         }
         let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
         BlockLayoutCache.shared.put(key(b), out)
-        LongTextStats.blocksMeasured += 1
+        LongTextStats.count(.blocksMeasured)
         return out
     }
 
@@ -574,10 +620,11 @@ final class LongTextLayout: @unchecked Sendable {
         require(blocks: a..<(b + 1))
     }
     func require(blocks: Range<Int>) {
-        var todo: [Int] = []
-        lock.lock()
-        for b in blocks where !(exact[checked: b] ?? true) && !pending.keys.contains(b) && !inFlight.contains(b) { inFlight.insert(b); todo.append(b) }
-        lock.unlock()
+        let todo = state.withLock { s -> [Int] in
+            var todo: [Int] = []
+            for b in blocks where !(s.exact[checked: b] ?? true) && !s.pending.keys.contains(b) && !s.inFlight.contains(b) { s.inFlight.insert(b); todo.append(b) }
+            return todo
+        }
         guard !todo.isEmpty else { return }
         // Chunks of 8 blocks per operation (fewer queue hops).
         for i in stride(from: 0, to: todo.count, by: 8) {
@@ -596,33 +643,38 @@ final class LongTextLayout: @unchecked Sendable {
     }
 
     func report(_ b: Int, _ n: Int) {
-        lock.lock()
-        inFlight.remove(b)
-        let fresh = !(exact[checked: b] ?? true) && !pending.keys.contains(b) // checked
-        if fresh { pending.updateValue(Int32(clamping: n), forKey: b) }
-        lock.unlock()
+        let fresh = state.withLock { s -> Bool in
+            s.inFlight.remove(b)
+            let fresh = !(s.exact[checked: b] ?? true) && !s.pending.keys.contains(b) // checked
+            if fresh { s.pending.updateValue(Int32(clamping: n), forKey: b) }
+            return fresh
+        }
         if fresh { LongTextCenter.schedule(self) }
     }
 
     /// Main thread: published counts take the measured ones. Returns whether a height changed.
     @discardableResult
     func applyPending() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        var changed = false
-        for (b, n) in pending where !(exact[checked: b] ?? true) { // checked
-            if tree.values[checked: b] != n { changed = true }
-            tree.set(b, n)
-            if let slot = exact.checkedIndex(b) { exact[slot] = true }
-            measured += 1
+        let (changed, tiles) = state.withLock { s -> (Bool, [PendingTile]) in
+            var changed = false
+            for (b, n) in s.pending where !(s.exact[checked: b] ?? true) { // checked
+                if s.tree.values[checked: b] != n { changed = true }
+                s.tree.set(b, n)
+                if let slot = s.exact.checkedIndex(b) { s.exact[slot] = true }
+                s.measured += 1
+            }
+            s.pending.removeAll()
+            let tiles = s.pendingTiles
+            s.pendingTiles.removeAll()
+            return (changed, tiles)
         }
-        pending.removeAll()
         // Tiles drawn with the measurement: in the cache before the new height is laid out.
         // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
-        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
-        pendingTiles.removeAll()
+        let generation = Fixture.paletteGeneration
+        for t in tiles where t.key.palette == generation { TileCache.shared.put(t.key, t.image.value) }
         return changed
     }
-    var hasPending: Bool { lock.lock(); defer { lock.unlock() }; return !pending.isEmpty || !pendingTiles.isEmpty }
+    var hasPending: Bool { state.withLock { !$0.pending.isEmpty || !$0.pendingTiles.isEmpty } }
 
     // MARK: Anchors (text-local y: 0 at the first line's slot top)
 
@@ -722,8 +774,8 @@ final class LongTextLayout: @unchecked Sendable {
                 if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
                     let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
                     let ct = CTLineCreateWithAttributedString(attr)
-                    let x0 = CTLineGetOffsetForStringIndex(ct, max(0, s - lineRange.location), nil)
-                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
+                    let x0 = ct.offset(forStringIndex: max(0, s - lineRange.location))
+                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : ct.offset(forStringIndex: min(lr.length, e - lineRange.location))
                     out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                 }
             }
@@ -750,54 +802,97 @@ final class LongTextLayout: @unchecked Sendable {
     }
 }
 
+/// cmux: the counters live in LongTextCenter's lock (the measure threads bumped plain globals;
+/// p10-stability-040): a bump or a read from any thread.
 enum LongTextStats {
-    static var blocksMeasured = 0
-    static var publishes = 0
-    static var indexBuilds = 0
-    static var streamExtends = 0
+    enum Counter: Sendable { case blocksMeasured, publishes, indexBuilds, streamExtends }
+    struct Counts: Sendable {
+        var blocksMeasured = 0, publishes = 0, indexBuilds = 0, streamExtends = 0
+        var lastFoldMs: [String: Double] = [:]
+        mutating func count(_ counter: Counter) {
+            switch counter {
+            case .blocksMeasured: blocksMeasured += 1
+            case .publishes: publishes += 1
+            case .indexBuilds: indexBuilds += 1
+            case .streamExtends: streamExtends += 1
+            }
+        }
+    }
+    /// One more of `counter`.
+    static func count(_ counter: Counter) { LongTextCenter.lock.withLock { $0.stats.count(counter) } }
+    static var blocksMeasured: Int { LongTextCenter.lock.withLock { $0.stats.blocksMeasured } }
+    static var publishes: Int { LongTextCenter.lock.withLock { $0.stats.publishes } }
+    static var indexBuilds: Int { LongTextCenter.lock.withLock { $0.stats.indexBuilds } }
+    static var streamExtends: Int { LongTextCenter.lock.withLock { $0.stats.streamExtends } }
     /// Phases of the last fold change (ms), for the bench.
-    static var lastFoldMs: [String: Double] = [:]
+    static var lastFoldMs: [String: Double] {
+        get { LongTextCenter.lock.withLock { $0.stats.lastFoldMs } }
+        set { LongTextCenter.lock.withLock { $0.stats.lastFoldMs = newValue } }
+    }
 }
 
 /// Main-thread delivery of measured line counts, in batches. `handler(lineages, apply)`
 /// must call `apply` once (the window view keeps its anchor around it).
 enum LongTextCenter {
-    static var handler: ((Set<Int>, () -> Void) -> Void)?
-    private static let lock = NSLock()
-    private static var dirty: [ObjectIdentifier: LongTextLayout] = [:]
-    private static var replaced: [() -> Void] = []
-    private static var replacedLineages = Set<Int>()
-    private static var scheduled = false
+    typealias Handler = (Set<Int>, () -> Void) -> Void
+    /// cmux: the window view's handler as lock state (p10-stability-040). It holds the view, so it
+    /// is not Sendable; it cannot be main-actor while its setter, MessagesWindowView.init, is not.
+    // crash-allow: set on the main thread (MessagesWindowView.init) and called only by publish, which runs on main
+    fileprivate struct MainHandler: @unchecked Sendable { let call: Handler }
+    /// Set and called on the main thread only.
+    static var handler: Handler? {
+        get { lock.withLock { $0.handler }?.call }
+        set {
+            let held = newValue.map(MainHandler.init(call:))
+            lock.withLock { $0.handler = held }
+        }
+    }
+    /// cmux: the batch, the handler and the counters behind one checked lock (they were globals,
+    /// the batch under an NSLock). Lock carve-out: the measure threads add to the batch and count,
+    /// main takes the batch; none does work under the lock.
+    fileprivate struct State: Sendable {
+        var batch = Batch()
+        var handler: MainHandler?
+        var stats = LongTextStats.Counts()
+    }
+    fileprivate struct Batch: Sendable {
+        var dirty: [ObjectIdentifier: LongTextLayout] = [:]
+        var replaced: [@Sendable () -> Void] = []
+        var replacedLineages = Set<Int>()
+        var scheduled = false
+    }
+    fileprivate static let lock = OSAllocatedUnfairLock(initialState: State())
 
     static func schedule(_ l: LongTextLayout) {
-        lock.lock()
-        dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
-        let go = !scheduled
-        scheduled = true
-        lock.unlock()
+        let go = lock.withLock { s -> Bool in
+            s.batch.dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
+            defer { s.batch.scheduled = true }
+            return !s.batch.scheduled
+        }
         if go { DispatchQueue.main.async { publish() } }
     }
-    static func scheduleReplace(lineage: Int, _ apply: @escaping () -> Void) {
-        lock.lock()
-        replaced.append(apply)
-        replacedLineages.insert(lineage)
-        let go = !scheduled
-        scheduled = true
-        lock.unlock()
+    /// `apply` runs on the main thread, in the next publish.
+    static func scheduleReplace(lineage: Int, _ apply: @escaping @Sendable () -> Void) {
+        let go = lock.withLock { s -> Bool in
+            s.batch.replaced.append(apply)
+            s.batch.replacedLineages.insert(lineage)
+            defer { s.batch.scheduled = true }
+            return !s.batch.scheduled
+        }
         if go { DispatchQueue.main.async { publish() } }
     }
 
     static func publish() {
-        lock.lock()
-        let ls = Array(dirty.values).filter { !$0.retired }
-        let rs = replaced
-        var lineages = replacedLineages
-        dirty.removeAll(); replaced.removeAll(); replacedLineages.removeAll()
-        scheduled = false
-        lock.unlock()
+        let taken = lock.withLock { s -> Batch in
+            defer { s.batch = Batch() }
+            return s.batch
+        }
+        let ls = Array(taken.dirty.values).filter { !$0.retired }
+        let rs = taken.replaced
+        var lineages = taken.replacedLineages
         lineages.formUnion(ls.map(\.index.lineage))
         guard !lineages.isEmpty else { return }
-        LongTextStats.publishes += 1
+        LongTextStats.count(.publishes)
         let apply = {
             rs.forEach { $0() }
             ls.forEach { $0.applyPending() }
@@ -807,19 +902,26 @@ enum LongTextCenter {
 }
 
 /// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
-final class LongTextStore: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the maps, the clock and the lineage serial are one lock
+/// state (they were vars under an NSLock in an unchecked class, and the serial was bumped outside it);
+/// hashing, byte compares, index builds and layouts run outside the lock, and a layout is marked retired
+/// after the lock is released.
+final class LongTextStore: Sendable {
     static let shared = LongTextStore()
-    private let lock = NSLock()
     private struct Addr: Hashable { var base: UInt; var count: Int }
     private struct Print: Hashable { var count: Int; var head: Int; var tail: Int }
-    private var byAddr: [Addr: LongTextIndex] = [:]
-    private var byPrint: [Print: LongTextIndex] = [:]
-    private var byHead: [Int: LongTextIndex] = [:]
-    /// Per index: layouts by width, negative widths for markdown shown as source.
-    private var layouts: [ObjectIdentifier: [CGFloat: LongTextLayout]] = [:]
-    private var recent: [ObjectIdentifier: Int] = [:]
-    private var tick = 0
-    private var lineageSerial = 0
+    private struct State: Sendable {
+        var byAddr: [Addr: LongTextIndex] = [:]
+        var byPrint: [Print: LongTextIndex] = [:]
+        var byHead: [Int: LongTextIndex] = [:]
+        /// Per index: layouts by width, negative widths for markdown shown as source.
+        var layouts: [ObjectIdentifier: [CGFloat: LongTextLayout]] = [:]
+        var recent: [ObjectIdentifier: Int] = [:]
+        var tick = 0
+        var lineageSerial = 0
+    }
+    // Lock carve-out: rows on the loader queue and main look up and register indexes and layouts; no work under the lock.
+    private let state = Mutex(State())
     static let maxIndexes = 12
     static let syncBytes = 512 << 10
 
@@ -843,51 +945,81 @@ final class LongTextStore: @unchecked Sendable {
         let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
         let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
         let wk = md || !idx.markdown ? width : -width
-        lock.lock()
         let id = ObjectIdentifier(idx)
-        tick += 1
-        recent.updateValue(tick, forKey: id) // dictionary write
-        if let l = layouts[id]?[wk] { lock.unlock(); return l }
-        let carry = layouts[id]?.values.first { $0.markdown == md }
-        lock.unlock()
+        let (found, carry) = state.withLock { s -> (LongTextLayout?, LongTextLayout?) in
+            s.tick += 1
+            s.recent.updateValue(s.tick, forKey: id) // dictionary write
+            if let l = s.layouts[id]?[wk] { return (l, nil) }
+            return (nil, s.layouts[id]?.values.first { $0.markdown == md })
+        }
+        if let found { return found }
         let l = LongTextLayout(index: idx, width: width, carry: carry?.column == Metrics(width: width).maxTextWidth ? carry : nil, markdown: md)
-        lock.lock()
-        var per = layouts[id] ?? [:]
-        if per.count >= 3 { per.values.forEach { $0.retired = true }; per.removeAll() }
-        per.updateValue(l, forKey: wk) // dictionary write
-        layouts[id] = per
-        lock.unlock()
-        return l
+        // cmux: a thread that laid out the same width first keeps its layout (every caller gets one), and
+        // this one is retired with the layouts it would have pushed out (it was left measuring, unregistered).
+        let (kept, dropped) = state.withLock { s -> (LongTextLayout, [LongTextLayout]) in
+            var per = s.layouts[id] ?? [:]
+            if let first = per[wk] { return (first, [l]) }
+            var dropped: [LongTextLayout] = []
+            if per.count >= 3 { dropped = Array(per.values); per.removeAll() }
+            per.updateValue(l, forKey: wk) // dictionary write
+            s.layouts[id] = per
+            return (l, dropped)
+        }
+        dropped.forEach { $0.retired = true }
+        return kept
     }
+
+    /// cmux: the layouts registered for a text's index now, without registering anything (tests).
+    func registeredLayouts(_ text: String) -> [LongTextLayout] { index(for: text, create: false).map(layoutsOf) ?? [] }
 
     /// The lineage of a text if it is indexed.
     func lineage(_ text: String) -> Int? { index(for: text, create: false)?.lineage }
 
     private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
         var h = Hasher(), t = Hasher()
-        let n = p.count, k = min(n, 1024)
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // no range subscripts
-        t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
+        // SAFETY: p is the caller's buffer, valid for this call; prefix(k) and suffix(k) are clamped to it, so each
+        // rebased slice lies inside it, and the hashers copy the bytes and keep no pointer.
+        let n = unsafe p.count, k = min(n, 1024)
+        unsafe h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // no range subscripts
+        unsafe t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
         return Print(count: n, head: h.finalize(), tail: t.finalize())
     }
     private static func head(_ p: UnsafeBufferPointer<UInt8>) -> Int {
         var h = Hasher()
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // no range subscript
+        // SAFETY: as `print`: the clamped prefix lies inside the caller's buffer, which the hasher copies.
+        unsafe h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // no range subscript
         return h.finalize()
+    }
+
+    /// cmux: whether index `i` holds exactly the bytes of `p`.
+    private static func sameBytes(_ i: LongTextIndex, _ p: UnsafeBufferPointer<UInt8>) -> Bool {
+        i.withBytes { q in // no force unwraps
+            // SAFETY: q (the index's text) and p (the caller's buffer) are valid during this call; memcmp reads
+            // q.count bytes of each, which both hold (equal counts, the first guard).
+            guard unsafe q.count == p.count else { return false }
+            guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress else { return unsafe q.count == 0 }
+            return unsafe memcmp(qb, pb, q.count) == 0
+        }
     }
 
     private func index(for text: String, create: Bool = true) -> LongTextIndex? {
         var t = text
         if t.utf8.withContiguousStorageIfAvailable({ _ in true }) == nil { t.makeContiguousUTF8() }
         return t.utf8.withContiguousStorageIfAvailable { p -> LongTextIndex? in
-            let addr = Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
-            lock.lock()
-            if let i = byAddr[addr] { lock.unlock(); return i }
-            let pr = LongTextStore.print(p)
-            if let i = byPrint[pr] { byAddr[addr] = i; lock.unlock(); return i }
-            let hd = LongTextStore.head(p)
-            let prev = byHead[hd]
-            lock.unlock()
+            // SAFETY: p is the text's contiguous UTF-8, valid inside this closure, and no pointer leaves it: the
+            // address is kept only as an integer cache key, and every read below is bounded by p.count.
+            let addr = unsafe Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
+            if let i = state.withLock({ $0.byAddr[addr] }) { return i }
+            let pr = unsafe LongTextStore.print(p)
+            // cmux: the print (length, first and last KiB) only names a candidate; its bytes decide. A
+            // same-length edit in the middle of a long text has the old text's print and drew the old text.
+            if let i = state.withLock({ $0.byPrint[pr] }), unsafe LongTextStore.sameBytes(i, p) {
+                // Still registered under that print (a register on another thread may have replaced it meanwhile).
+                state.withLock { s in if s.byPrint[pr] === i { s.byAddr[addr] = i } }
+                return i
+            }
+            let hd = unsafe LongTextStore.head(p)
+            let prev = state.withLock { $0.byHead[hd] }
             guard create else { return nil }
             // Streaming: the same text with more at the end keeps every block but the last
             // (a plain stream that turns into markdown is indexed again from its start).
@@ -895,14 +1027,17 @@ final class LongTextStore: @unchecked Sendable {
             // line, and can shorten the text a little) keeps every block before the change, and its
             // lineage (its tiles): a new index from the start cost every such token O(reply) on main
             // (plans/cmux-next/home-streaming-perf-DESIGN.md).
-            if let prev, prev.ready, prev.count != p.count, p.count + 64 >= prev.count, prev.blockCount > 0,
-               prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
+            if let prev, prev.ready, unsafe prev.count != p.count, unsafe p.count + 64 >= prev.count, prev.blockCount > 0,
+               unsafe prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
                 let last = prev.blockCount - 1
                 let from = max(0, (prev.starts[checked: last] ?? 0) - 256) // checked
                 // An append: the old text is the new one's start (the previous rule).
-                let appended = prev.count < p.count && prev.withBytes { q in // no force unwraps
-                    guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
-                    return memcmp(qb + from, pb + from, prev.count - from) == 0
+                let appended = unsafe prev.count < p.count && prev.withBytes { q in // no force unwraps
+                    // SAFETY: q (the old text, prev.count bytes) and p (the new, longer one) are valid during this
+                    // call; 0 <= from <= prev.count (a block start less 256, clamped at 0), so memcmp reads the
+                    // prev.count - from bytes after from inside both.
+                    guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe from <= q.count else { return false }
+                    return unsafe memcmp(qb + from, pb + from, prev.count - from) == 0
                 }
                 // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
                 var keepAt: Int? = appended ? last : nil
@@ -910,9 +1045,11 @@ final class LongTextStore: @unchecked Sendable {
                     var k = last
                     while k >= 1, keepAt == nil {
                         let end = prev.starts[checked: k] ?? 0 // checked
-                        let shared = end <= p.count && prev.withBytes { q in // no force unwraps
-                            guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
-                            return memcmp(qb, pb, end) == 0
+                        let shared = unsafe end <= p.count && prev.withBytes { q in // no force unwraps
+                            // SAFETY: memcmp reads `end` bytes of each text: at most p.count (checked before the
+                            // call) and q.count (checked here); both buffers are valid during this call.
+                            guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe end <= q.count else { return false }
+                            return unsafe memcmp(qb, pb, end) == 0
                         }
                         if shared { keepAt = k }
                         k -= 1
@@ -920,7 +1057,7 @@ final class LongTextStore: @unchecked Sendable {
                 }
                 if let keep = keepAt {
                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
-                    LongTextStats.streamExtends += 1
+                    LongTextStats.count(.streamExtends)
                     let old = layoutsOf(prev)
                     register(i, addr: addr, print: pr, head: hd, replacing: prev)
                     // Layouts carry the measured blocks. The tail keeps its previous line count (and
@@ -930,7 +1067,10 @@ final class LongTextStore: @unchecked Sendable {
                     for o in old {
                         let tailOffMain = LongText.offMainTail
                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
-                        lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
+                        let iid = ObjectIdentifier(i), wk = o.markdown || !i.markdown ? o.width : -o.width
+                        // cmux: a layout another thread registered for the new index meanwhile is retired, not left measuring.
+                        let replaced = state.withLock { s in s.layouts[iid, default: [:]].updateValue(l, forKey: wk) }
+                        replaced?.retired = true
                         if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                         // The previous rule: the new tail is measured now (about 4 KB).
                         let reuse = BlockLayoutCache.shared.get(o.key(keep))
@@ -940,10 +1080,9 @@ final class LongTextStore: @unchecked Sendable {
                     return i
                 }
             }
-            lineageSerial += 1
-            let lineage = lineageSerial
-            LongTextStats.indexBuilds += 1
-            if p.count <= LongTextStore.syncBytes {
+            let lineage = state.withLock { s -> Int in s.lineageSerial += 1; return s.lineageSerial }
+            LongTextStats.count(.indexBuilds)
+            if unsafe p.count <= LongTextStore.syncBytes {
                 let i = LongTextIndex.build(t, lineage: lineage)
                 register(i, addr: addr, print: pr, head: hd, replacing: nil)
                 return i
@@ -951,8 +1090,9 @@ final class LongTextStore: @unchecked Sendable {
             // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
             let ph = LongTextIndex.placeholder(t, lineage: lineage)
             register(ph, addr: addr, print: pr, head: hd, replacing: nil)
+            let scanned = t // cmux: the scan takes a constant (a captured var is shared with this thread)
             DispatchQueue.global(qos: .userInitiated).async {
-                let i = LongTextIndex.build(t, lineage: lineage)
+                let i = LongTextIndex.build(scanned, lineage: lineage)
                 LongTextCenter.scheduleReplace(lineage: lineage) {
                     self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                 }
@@ -962,37 +1102,42 @@ final class LongTextStore: @unchecked Sendable {
     }
 
     private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
-        lock.lock(); defer { lock.unlock() }
-        return Array(layouts[ObjectIdentifier(i)]?.values ?? [:].values)
+        let id = ObjectIdentifier(i)
+        return state.withLock { s in Array(s.layouts[id]?.values ?? [:].values) }
     }
 
     private func register(_ i: LongTextIndex, addr: Addr, print: Print, head: Int, replacing old: LongTextIndex?) {
-        lock.lock(); defer { lock.unlock() }
-        if let old {
-            let oid = ObjectIdentifier(old)
-            layouts[oid]?.values.forEach { $0.retired = true }
-            layouts[oid] = nil
-            recent.removeValue(forKey: oid) // dictionary write
-            byAddr = byAddr.filter { $0.value !== old }
-            byPrint = byPrint.filter { $0.value !== old }
+        let dropped = state.withLock { s -> [LongTextLayout] in
+            var dropped: [LongTextLayout] = []
+            if let old {
+                let oid = ObjectIdentifier(old)
+                dropped += s.layouts[oid].map { Array($0.values) } ?? []
+                s.layouts[oid] = nil
+                s.recent.removeValue(forKey: oid) // dictionary write
+                s.byAddr = s.byAddr.filter { $0.value !== old }
+                s.byPrint = s.byPrint.filter { $0.value !== old }
+            }
+            s.byAddr[addr] = i
+            s.byPrint[print] = i
+            s.byHead[head] = i
+            s.tick += 1
+            s.recent.updateValue(s.tick, forKey: ObjectIdentifier(i)) // dictionary write
+            // Bounded: the least recently used indexes go (their texts with them).
+            let live = Set(s.byAddr.values.map { ObjectIdentifier($0) })
+            if live.count > LongTextStore.maxIndexes {
+                let recent = s.recent
+                let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
+                s.byAddr = s.byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
+                s.byPrint = s.byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
+                s.byHead = s.byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
+                for d in drop { dropped += s.layouts[d].map { Array($0.values) } ?? []; s.layouts[d] = nil; s.recent.removeValue(forKey: d) }
+            }
+            return dropped
         }
-        byAddr[addr] = i
-        byPrint[print] = i
-        byHead[head] = i
-        tick += 1
-        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // dictionary write
-        // Bounded: the least recently used indexes go (their texts with them).
-        let live = Set(byAddr.values.map { ObjectIdentifier($0) })
-        if live.count > LongTextStore.maxIndexes {
-            let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
-            byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
-            byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
-            byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
-            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) }
-        }
+        dropped.forEach { $0.retired = true }
     }
 
-    var indexCount: Int { lock.lock(); defer { lock.unlock() }; return Set(byAddr.values.map { ObjectIdentifier($0) }).count }
+    var indexCount: Int { state.withLock { s in Set(s.byAddr.values.map { ObjectIdentifier($0) }).count } }
 }
 
 /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
@@ -1016,15 +1161,16 @@ enum LongTextFold {
         if disabledByArgument { return false }
         return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
     }
-    private static let lock = NSLock()
-    private static var expanded = Set<ID>()
+    // cmux: a checked lock around the set (it was a global under an NSLock; p10-stability-040).
+    // Lock carve-out: rows measure on the loader queue and main; one set read or write.
+    private static let expanded = OSAllocatedUnfairLock(initialState: Set<ID>())
     /// Session only: expanded messages are not stored (they fold again at launch).
-    static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
-    static func collapse(_ id: ID) { lock.lock(); expanded.remove(id); lock.unlock() }
+    static func expand(_ id: ID) { expanded.withLock { _ = $0.insert(id) } }
+    static func collapse(_ id: ID) { expanded.withLock { _ = $0.remove(id) } }
     /// A text still scanned off main (above 512 KB, thousands of lines) folds from its first
     /// frame, so the end of the scan changes no height.
     static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && (l.index.ready ? l.estimatedLines > maxLines : l.totalLines > maxLines) }
-    static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
+    static func isExpanded(_ id: ID) -> Bool { expanded.withLock { $0.contains(id) } }
     static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
     static func size(_ l: LongTextLayout, scale: CGFloat = Fixture.renderScale) -> CGSize {
         CGSize(width: Sizing.textBalloonWidth(l.column, column: l.column, scale: scale),

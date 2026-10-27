@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Reads and writes the browser profile book as JSON, off the main thread.
@@ -13,7 +14,7 @@ public actor BrowserProfileBookFile {
     public func load() -> BrowserProfileBook {
         // concurrency-allow: actor-isolated; runs on the actor's executor, never the main thread.
         guard let data = try? Data(contentsOf: url),
-              let book = try? JSONDecoder().decode(BrowserProfileBook.self, from: data) else { return BrowserProfileBook() }
+              let book = try? JSONDecoder().blockingDecode(BrowserProfileBook.self, from: data) else { return BrowserProfileBook() }
         return book
     }
 

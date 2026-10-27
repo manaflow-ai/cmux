@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- labd's launchd job. deploy.sh renders it (labd.py render-plist): ProgramArguments, WorkingDirectory and the
+     log paths come from the pinned release; the priority and limits below stay as written. labd exits once its
+     peak RSS passes SoftResourceLimits.ResidentSetSize, because macOS does not enforce that key. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.cmux.perf-lab</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>set by deploy.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>SoftResourceLimits</key>
+	<dict>
+		<key>ResidentSetSize</key>
+		<integer>805306368</integer>
+		<key>NumberOfFiles</key>
+		<integer>512</integer>
+	</dict>
+	<key>HardResourceLimits</key>
+	<dict>
+		<key>ResidentSetSize</key>
+		<integer>1073741824</integer>
+	</dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Tailscale.app/Contents/MacOS</string>
+	</dict>
+</dict>
+</plist>

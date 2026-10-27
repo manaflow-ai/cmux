@@ -1022,6 +1022,25 @@ class ContractRegistryTests(unittest.TestCase):
             self.assertTrue(any("idempotency must be required" in item for item in messages), messages)
             self.assertTrue(any("descriptor has a schema hole" in item for item in messages), messages)
 
+    def test_catalog_accepts_frame_wire_attributes_and_nothing_else(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui, ["workspace.list"])
+            catalog_path = tui / "spec/resource-operations-v2.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            catalog["families"] = {"workspace": {"id": 0x60, "description": "Workspaces."}}
+            operation = catalog["operations"]["workspace.list"]
+            operation.update(
+                method_id=0x6000, priority="control", payload="binary", layout_version=1
+            )
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+            self.assertEqual(CHECKER.check_contracts(tui), [])
+
+            operation["ordinal"] = 0
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+            messages = [item.message for item in CHECKER.check_contracts(tui)]
+            self.assertTrue(any("descriptor has a schema hole" in item for item in messages), messages)
+
     def test_catalog_rejects_client_metadata_label_contract_drift(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

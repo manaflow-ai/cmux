@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// `window.screenshot`, `pane.screenshot` and `tab.screenshot`: a PNG of one
@@ -49,7 +50,8 @@ enum ScreenshotHandlers {
                 if invocation.target == nil { throw ActionFailure(message: MiscHandlerStrings.noPane) }
                 return
             }
-            guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
+            // R-vis: the pane's node (an occluded window still captures; a hidden pane does not).
+            guard let window = pane.view.window, pane.isVisible, pane.visibilityNode.effective != .hidden else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
             let masked = ScreenshotPrivacyMask.applies(to: invocation)
@@ -65,7 +67,7 @@ enum ScreenshotHandlers {
             let masked = ScreenshotPrivacyMask.applies(to: invocation)
             if masked, tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
-               !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
+               controller.visibilityNode.effective != .hidden {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
                     try await shown(window, crop: view, masked: masked, services: context.services)
@@ -87,7 +89,7 @@ enum ScreenshotHandlers {
     /// its pane, if any.
     private static func resolveTab(_ invocation: ActionInvocation, services: AppServices) throws -> (TabModel, PaneController?) {
         if let target = invocation.target ?? invocation["tab"]?.targetValue, target.kind == .tab {
-            guard let (tab, pane) = services.locateTab(target.id) else {
+            guard let (tab, pane) = services.machines.tabIndex.locate(target.id) else {
                 throw ActionFailure(message: RefusalStrings.noTab(target.id), isNotFound: true)
             }
             return (tab, services.paneController(for: pane))
@@ -151,6 +153,7 @@ enum ScreenshotHandlers {
         let services = context.services
         let byPerson = invocation.origin == .user
         // task-owner: the action run; a capturing caller awaits it through the registry.
+        // main-hop-allow: the capture reads the window, its views and the page between its awaits (AppWindowImage and AppBrowserPage are main-actor async); the registry tracks this run as the action's result
         let task: ActionResultWork = Task { @MainActor in
             do {
                 return .success(try await deliver(try await capture(), output: output, copies: byPerson))
@@ -164,9 +167,12 @@ enum ScreenshotHandlers {
         }
         context.registry.track(result: task)
         guard byPerson else { return }
-        // task-owner: shows a person's failed capture once; ends with the capture.
-        Task { @MainActor in
-            if case .failure(let failure) = await task.value {
+        let mainWork = services.mainWork
+        // task-owner: shows a person's failed capture once; ends with the capture. R-hop: awaited off main; the
+        // refusal shows in one userBlocking task (the rest of the person's action, Chrome kUserBlocking).
+        services.work.task(.userBlocking) {
+            guard case .failure(let failure) = await task.value else { return }
+            mainWork.postFromAnyThread(.userBlocking, owner: "screenshot.refusal") {
                 services.refusalHUD.show(failure.message, in: services.windows.active?.window)
             }
         }
@@ -221,6 +227,7 @@ enum ScreenshotHandlers {
     nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // wall-clock: a file name stamp; pruning reads the files' dates.
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)

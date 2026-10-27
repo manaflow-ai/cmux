@@ -1,7 +1,9 @@
 //! A panic on any thread lands in the log as one JSON line, with the
 //! caller's fields, and the previous hook still runs.
 
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Waker};
 
 static PREVIOUS_RAN: AtomicBool = AtomicBool::new(false);
 
@@ -18,8 +20,21 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
 
     let joined = std::thread::Builder::new()
         .name("worker".into())
-        // crash-allow: the panic under test
-        .spawn(|| panic!("comparison is not a total order"))
+        .spawn(|| {
+            // The crash keys at the panic go into its line (p10-stability-207): a
+            // daemon request's future, keyed by its method and polled as a
+            // runtime's worker polls it.
+            let request = cmux_panic_log::crash_keys::keyed(
+                cmux_panic_log::crash_keys::Key::ActionId,
+                cmux_panic_log::crash_keys::stable_key("session.sort"),
+                async {
+                    // crash-allow: the panic under test
+                    panic!("comparison is not a total order");
+                },
+            );
+            let mut request = std::pin::pin!(request);
+            let _ = request.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        })
         .unwrap()
         .join();
     assert!(joined.is_err());
@@ -40,7 +55,13 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
     assert_eq!(lines[0]["test"], false);
     assert!(lines[0]["location"].as_str().unwrap().contains("hook.rs:"));
     assert!(lines[0]["backtrace"].is_string());
+    assert_eq!(
+        lines[0]["crash_keys"]["action_id"],
+        cmux_panic_log::crash_keys::stable_key("session.sort"),
+        "the panic line names the running method"
+    );
     assert_eq!(lines[1]["test"], true);
+    assert!(lines[1].get("crash_keys").is_none(), "the scope ended with its panic: {}", lines[1]);
     assert!(PREVIOUS_RAN.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(&dir);
 }

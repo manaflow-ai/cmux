@@ -1,6 +1,10 @@
 public import CmuxNextSettings
 import Darwin
 import CmuxNextCompat
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// An immutable picture of everything read-only control methods answer
 /// from (plans/cmux-next/architecture.md section 5a).
@@ -42,6 +46,20 @@ public struct ControlSnapshot: Sendable {
     }
 }
 
+extension ControlSnapshot {
+    /// The `snapshot.get` result before the caller's location (`caller`, `beside`): the topology at the daemon
+    /// sequence it reflects, with the publish counters. The oracle's topology facet answers the same members.
+    var snapshotGetMembers: [String: JSONValue] {
+        [
+            "sequence": JSONValue.number(Double(topology.daemonSequence)),
+            "generation": JSONValue(Int(truncatingIfNeeded: generation)),
+            "published_uptime_ns": .number(Double(publishedAtUptimeNanos)),
+            "tab_count": JSONValue(topology.tabCount),
+            "topology": topology.json,
+        ]
+    }
+}
+
 /// Daemon event sequences a read must see (read-your-writes across
 /// sessions): the home daemon's, and each remote session's by
 /// `ControlSessionInfo.id`. Sequences are per daemon connection.
@@ -66,7 +84,7 @@ public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
         let isReady: @Sendable (ControlSnapshot) -> Bool
-        let continuation: CheckedContinuation<ControlSnapshot?, Never>
+        let continuation: OnceContinuation<ControlSnapshot?, OnceContinuationError>
     }
 
     private struct State {
@@ -76,11 +94,21 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
-    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame):
-    /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
+    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame, no
+    /// publish yet): ``fresh(deadline:)`` builds it first. A model change does not set it: a read gets the last
+    /// published value, and a read that must cover a change waits on its barrier. Set on the main actor, read by
+    /// connection tasks.
     private let stale = Atomic<Bool>(false)
-    /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
-    private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
+    /// How a snapshot is built for a reader (the App's publisher).
+    private struct Refreshers: Sendable {
+        /// Builds and publishes in the calling main-actor turn (``freshNow()``).
+        var now: (@MainActor @Sendable () -> Void)?
+        /// Called on the reader's thread when a reader starts waiting (``snapshot(where:deadline:)``), outside the
+        /// store's lock: the App raises its pending publish to the reader's class.
+        var waiterAdded: (@Sendable () -> Void)?
+    }
+
+    private let refreshers = Mutex(Refreshers())
 
     public init() {}
 
@@ -90,22 +118,47 @@ public final class ControlSnapshotStore: Sendable {
     /// Whether main-actor state changed since the last publish and has not been built yet.
     public var isStale: Bool { stale.load(ordering: .acquiring) }
 
-    /// Main-actor state changed: the next ``fresh()`` builds the snapshot first (a lazy publish: nothing is built
-    /// until a read needs it).
+    /// Main-actor state changed: the next ``fresh(deadline:)`` builds the snapshot first (a lazy publish: nothing is
+    /// built until a read needs it).
     public func markStale() { stale.store(true, ordering: .releasing) }
 
-    /// Sets the closure that builds and publishes a stale snapshot on the main actor.
-    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+    /// Sets how a snapshot is built for a reader.
+    ///
+    /// - Parameters:
+    ///   - refresh: Builds in the calling main-actor turn (``freshNow()``, and ``fresh(deadline:)`` without
+    ///     `waiterAdded`).
+    ///   - waiterAdded: Called on the reader's thread each time a reader starts waiting for a newer snapshot,
+    ///     outside the store's lock. The App raises its pending publish to the reader's class there, so a change
+    ///     queued before the reader came does not wait on background work.
+    public func setRefresher(_ refresh: (@MainActor @Sendable () -> Void)?, waiterAdded: (@Sendable () -> Void)? = nil) {
+        refreshers.withLock { $0 = Refreshers(now: refresh, waiterAdded: waiterAdded) }
+    }
 
-    /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
-    /// what a control call reads, so it covers the writes of the calls before it.
-    public func fresh() async -> ControlSnapshot {
-        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+    /// The latest snapshot, built first when a control work-queue frame changed main-actor state since the last
+    /// publish (``markStale()``): what a control call reads, so it covers the writes of the calls before it. With
+    /// a `waiterAdded` hook it waits as a reader (the hook schedules the build), and at `deadline` it returns the
+    /// last published snapshot instead of waiting longer.
+    public func fresh(deadline: ContinuousClock.Instant) async -> ControlSnapshot {
+        guard isStale else { return current }
+        let hooks = refreshers.withLock { $0 }
+        guard hooks.waiterAdded != nil else {
+            if let refresh = hooks.now { await refresh() }
+            return current
+        }
+        // Only a rebuilt publish clears the mark, under the lock the waiter's check runs in.
+        return await snapshot(where: { [self] _ in !isStale }, deadline: deadline) ?? current
+    }
+
+    /// ``fresh(deadline:)`` in this main-actor turn: the snapshot of the model that the turn's other main-actor
+    /// reads see (the oracle's topology facet beside its other main-actor facets).
+    @MainActor
+    public func freshNow() -> ControlSnapshot {
+        if isStale, let refresh = refreshers.withLock({ $0.now }) { refresh() }
         return current
     }
 
-    /// True while a reader waits for a newer topology; the publisher then
-    /// publishes on the next main-actor turn instead of the next frame.
+    /// True while a reader waits for a newer snapshot; the publisher then raises its
+    /// publish from background work to the reader's automation class.
     public var hasWaiters: Bool { state.withLock { !$0.waiters.isEmpty } }
 
     /// Applies `update` to a copy of the current snapshot and publishes the
@@ -114,7 +167,7 @@ public final class ControlSnapshotStore: Sendable {
     ///
     /// - Parameter rebuilt: The update holds a topology built from main-actor state now (the App's
     ///   publisher): it ends the stale mark (``markStale()``). A publish of one field (the context mask,
-    ///   the catalog, settings, the daemon sequences) leaves the mark, so the next ``fresh()`` still
+    ///   the catalog, settings, the daemon sequences) leaves the mark, so the next ``fresh(deadline:)`` still
     ///   builds the topology: a focus change followed by a context-mask publish kept the old focus.
     @discardableResult
     public func publish(rebuilt: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
@@ -157,14 +210,15 @@ public final class ControlSnapshotStore: Sendable {
             return (nil, state.nextWaiter)
         }
         if let ready { return ready }
-        let timer = Task { [weak self] in
-            // wakeup-allow: one-shot read-barrier deadline (1 s), cancelled when the store catches up
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+        // The read-barrier deadline (1 s), cancelled when the store catches up.
+        let timer = DemandTimer(owner: "ControlSnapshot.barrier")
+        timer.schedule(after: max(deadline - .now, .zero)) { [weak self] in
             self?.resolve(id, with: nil)
         }
         defer { timer.cancel() }
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A waiter dropped unresumed answers nil, as the deadline does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<ControlSnapshot?, OnceContinuationError>) in
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in
@@ -174,7 +228,11 @@ public final class ControlSnapshotStore: Sendable {
                     state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
                     return .none
                 }
-                if case .some(let result) = now { continuation.resume(returning: result) }
+                if case .some(let result) = now {
+                    continuation.resume(returning: result)
+                } else {
+                    refreshers.withLock { $0.waiterAdded }?()
+                }
             }
         } onCancel: {
             resolve(id, with: nil)

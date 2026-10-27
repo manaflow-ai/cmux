@@ -4,6 +4,7 @@ use std::net::Shutdown;
 use std::path::Path;
 use std::time::Duration;
 
+use cmux_ipc::client::{ClientRequest, IdentifyRequest};
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
     EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
@@ -318,7 +319,7 @@ fn require_server_capability(
         eprintln!("cmux: {error}");
         2
     })?;
-    let request = json!({"id":request_id,"cmd":"identify"});
+    let request = IdentifyRequest::default().line(request_id.as_str());
     let encoded = serde_json::to_vec(&request).map_err(|error| {
         eprintln!("cmux: cannot encode capability request: {error}");
         2

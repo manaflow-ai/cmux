@@ -1,5 +1,5 @@
+import CmuxNextCompat
 public import Foundation
-import os
 
 /// Where folder grants are kept: one bookmark per browser id.
 public protocol BrowserFolderGrantStore: AnyObject, Sendable {
@@ -25,7 +25,7 @@ public final class UserDefaultsBrowserFolderGrantStore: BrowserFolderGrantStore 
 
 /// Grants held in memory (tests, and a launch that must not persist them).
 public final class MemoryBrowserFolderGrantStore: BrowserFolderGrantStore {
-    private let bookmarks = OSAllocatedUnfairLock(initialState: [String: Data]())
+    private let bookmarks = Mutex<[String: Data]>([:])
 
     public init() {}
 

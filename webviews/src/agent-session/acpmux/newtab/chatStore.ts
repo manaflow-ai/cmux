@@ -2,12 +2,12 @@
 // listed the chats its own daemon connection last delivered, so a torn-off window (whose hidden
 // pages hear the daemon late) showed another list than the main window's, and a page that just
 // mounted drew no chats until its connection answered. Every agent page shares one website data
-// store (AgentPaneView.sharedDataStore), so this origin's localStorage is the app run's: each
-// connected page writes the newest list it received, every page reads the newest any page wrote,
-// and another page's write reaches a page already showing as a `storage` event, so its rows update
-// in place. A page draws the store's list on its first frame (no refetch, no empty list); a blocked
-// store leaves each page its own list, as before. With `agent.pageHost` on each page has its own
-// store, so this is each page's own list again.
+// store (WebProcessGroups.dataStore on the page host's WebKit, the one profile in Chromium), so
+// this origin's localStorage is the app run's: each connected page writes the newest list it
+// received, every page reads the newest any page wrote, and another page's write reaches a page
+// already showing as a `storage` event, so its rows update in place. A page draws the store's list
+// on its first frame (no refetch, no empty list); a blocked store leaves each page its own list, as
+// before.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";

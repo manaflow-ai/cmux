@@ -13,12 +13,15 @@ import java.util.Objects;
 /** Immutable scroll-changed event. Protocol v6; streams: subscribe, attach-byte, attach-render, attach-browser. */
 public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, ByteAttachEvent, DeltaStreamEvent, ProtocolEvent, RenderAttachEvent, SubscribeEvent {
     private final boolean atBottom;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final UInt64 offset;
     private final UInt64 surface;
 
     private ScrollChangedEvent(Builder builder) {
         if (!builder.atBottomSet) throw new IllegalArgumentException("at_bottom is required");
         this.atBottom = builder.atBottom;
+        this.cause = builder.cause;
         if (!builder.offsetSet) throw new IllegalArgumentException("offset is required");
         this.offset = Wire.nonNull(builder.offset, "offset");
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -28,6 +31,7 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
     public static Builder builder() { return new Builder(); }
 
     public boolean atBottom() { return atBottom; }
+    public Field<EventCause> cause() { return cause; }
     public UInt64 offset() { return offset; }
     public UInt64 surface() { return surface; }
     @Override public String event() { return "scroll-changed"; }
@@ -38,6 +42,10 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
         ProtocolSupport.literal(Wire.required(object, "event"), "scroll-changed", "ScrollChangedEvent.event");
         Object rawAtBottom = Wire.required(object, "at_bottom");
         builder.atBottom(Wire.bool(rawAtBottom, "ScrollChangedEvent.at_bottom"));
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawOffset = Wire.required(object, "offset");
         builder.offset(Wire.uint64(rawOffset, "ScrollChangedEvent.offset"));
         Object rawSurface = Wire.required(object, "surface");
@@ -50,6 +58,7 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "scroll-changed");
         Wire.put(object, "at_bottom", atBottom);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "offset", offset);
         Wire.put(object, "surface", surface);
         return Collections.unmodifiableMap(object);
@@ -58,11 +67,11 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ScrollChangedEvent that)) return false;
-        return Objects.equals(atBottom, that.atBottom) && Objects.equals(offset, that.offset) && Objects.equals(surface, that.surface);
+        return Objects.equals(atBottom, that.atBottom) && Objects.equals(cause, that.cause) && Objects.equals(offset, that.offset) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(atBottom, offset, surface); }
+    public int hashCode() { return Objects.hash(atBottom, cause, offset, surface); }
 
     @Override
     public String toString() { return "ScrollChangedEvent" + toWire(); }
@@ -70,6 +79,7 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
     public static final class Builder {
         private Boolean atBottom;
         private boolean atBottomSet;
+        private Field<EventCause> cause = Field.omitted();
         private UInt64 offset;
         private boolean offsetSet;
         private UInt64 surface;
@@ -78,6 +88,10 @@ public final class ScrollChangedEvent implements WireValue, BrowserAttachEvent, 
         public Builder atBottom(boolean value) {
             this.atBottom = value;
             this.atBottomSet = true;
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder offset(UInt64 value) {

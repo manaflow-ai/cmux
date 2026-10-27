@@ -28,6 +28,7 @@ mkdir -p "$(dirname "$SWIFT_OUT")" "$(dirname "$TS_OUT")"
   --struct-or-class struct \
   --access-level public \
   --protocol equatable \
+  --sendable \
   --no-initializers \
   --out "$SWIFT_OUT"
 

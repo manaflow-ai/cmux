@@ -1,0 +1,20 @@
+{
+  "id": "perceived-speed",
+  "tier": "T2",
+  "description": "Perceived speed: each surface (new tab, new workspace, Settings, palette, terminal, browser, What's New, workspace switch) opened the way a person does, recorded one frame per display frame and checked for its final layout on its first frame: first frame, settle, first-vs-settled area, shift, repaints and dropped frames (perceived-speed.py run). Needs Pillow on the host.",
+  "command": ["scripts/cmux-next/perceived-speed.py", "run", "--engine", "chromium", "--story", "perceived-speed"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "[a-z-]+\\.(first_frame_ms|settle_ms)", "unit": "ms", "better": "lower"},
+    {"name": "[a-z-]+\\.diff_area", "unit": "ratio", "better": "lower"},
+    {"name": "[a-z-]+\\.shift", "unit": "unitless", "better": "lower"},
+    {"name": "[a-z-]+\\.(repaints|dropped)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.window_record", "debug:debug.key"],
+  "owner": "Performance Lead",
+  "component": "UI>FirstFrame"
+}

@@ -91,11 +91,6 @@ impl StartModeState {
             .ok()
     }
 
-    fn save(&self, path: &Path) -> anyhow::Result<()> {
-        let bytes = serde_json::to_vec_pretty(self)?;
-        crate::config::write_atomic(path, &bytes)
-    }
-
     /// Where the count stands now, to record with a pick.
     pub(crate) fn mark(&self) -> PermissionModeChange {
         PermissionModeChange { epoch: self.epoch.clone(), changes: self.changes }
@@ -141,11 +136,15 @@ impl Hub {
         let before = state.clone();
         change(state);
         state.observe();
+        // Written on the config writer's thread (`config_writer.rs`): callers may hold the
+        // config lock, and a pick must not wait for the disk.
         if (loaded || *state != before)
             && let Some(path) = path
-            && let Err(e) = state.save(path)
         {
-            tracing::warn!("{FILE} not saved: {e:#}");
+            match serde_json::to_vec_pretty(&*state) {
+                Ok(bytes) => self.config_writer.queue(path.to_owned(), bytes),
+                Err(e) => tracing::warn!("{FILE} not saved: {e:#}"),
+            }
         }
         (before, state.clone())
     }

@@ -16,12 +16,15 @@ final class AgentPermissionsService {
     init(services: AppServices) {
         let setup = services.onboarding.computerUseSetup
         self.setup = setup
-        let probe = SystemPermissionProbe(setup: setup)
+        let probe = SystemPermissionProbe(setup: setup, appEvents: services.appEvents, mainWork: services.mainWork)
         self.probe = probe
-        let requests = AgentPermissionRequests(probe: probe, opener: SystemPermissionOpener(setup: setup))
+        let requests = AgentPermissionRequests(probe: probe, opener: SystemPermissionOpener(setup: setup, work: services.work))
         self.requests = requests
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
+        }, appIcon: { [weak setup] kind in
+            // cmux's own icon is in memory; the helper's is read on the system lane when the helper is found.
+            kind.heldByComputerUseHelper ? setup?.helperAppIcon : NSApp.applicationIconImage
         })
         presenter.start()
     }

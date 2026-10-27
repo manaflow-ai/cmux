@@ -35,7 +35,16 @@ fn v2(mux: &Arc<Mux>, conn: &Conn, operation: &str, mut params: Value, key: Opti
     }
     let line = envelope.to_string();
     let parsed = crate::resource_router::parse_resource_line(&line).expect("a v2 line");
-    assert!(origin_gate::handle_resource_line(mux, conn.id, &line, parsed, &conn.writer));
+    let operation = parsed.as_ref().expect("a v2 request").operation;
+    let mut span = RequestSpan::for_resource(mux.request_stats(), operation);
+    assert!(origin_gate::handle_resource_line(
+        mux,
+        conn.id,
+        &line,
+        parsed,
+        &conn.writer,
+        &mut span
+    ));
     loop {
         let line: Value = serde_json::from_str(&next_line(conn)).unwrap();
         if line["type"] == "response" {

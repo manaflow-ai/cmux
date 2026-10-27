@@ -19,7 +19,7 @@ extension CEFTab: PageInfoProviding {
 
     public func pageInfoCertificateChain() async -> [Data] {
         guard let browserID else { return [] }
-        if let status = runtime.sslStatus(browserID), !status.chain.isEmpty { return status.chain }
+        if let status = await runtime.sslStatus(browserID), !status.chain.isEmpty { return status.chain }
         guard let url = state.url, let origin = PageInfoSite.origin(of: url),
               let json = try? await runtime.devTools(browserID, method: "Network.getCertificate", params: ["origin": origin])
         else { return [] }
@@ -55,15 +55,25 @@ extension CEFTab: PageInfoProviding {
 
     /// Chromium's site exceptions for `origin`: kinds whose value differs
     /// from the profile default (what Chromium counts as changed), including
-    /// answers the user gave to Chromium's own prompts.
+    /// answers the user gave to Chromium's own prompts. Every read goes out
+    /// in one turn (one host round trip in host mode); a kind whose site or
+    /// default value is unknown is left out, never shown as an exception.
     public func pageInfoLivePermissions(origin: String) async -> [SitePermissionKind: SitePermissionSetting] {
         guard let browserID else { return [:] }
-        var result: [SitePermissionKind: SitePermissionSetting] = [:]
         // Automatic downloads are cmux's (`AutomaticDownloadGate`), not Chromium's.
-        for kind in supportedSitePermissions where kind != .automaticDownloads {
-            guard let value = runtime.contentSetting(browserID, url: origin, kind: kind),
-                  value != runtime.contentSetting(browserID, url: nil, kind: kind),
-                  let setting = value.siteSetting else { continue }
+        let kinds = Array(supportedSitePermissions.filter { $0 != .automaticDownloads })
+        var queries: [(url: String?, kind: SitePermissionKind)] = []
+        for kind in kinds {
+            queries.append((url: origin, kind: kind))
+            queries.append((url: nil, kind: kind))
+        }
+        let values = await runtime.contentSettings(browserID, queries)
+        // The tab's browser changed meanwhile: these values are another browser's context.
+        guard self.browserID == browserID else { return [:] }
+        var result: [SitePermissionKind: SitePermissionSetting] = [:]
+        for (index, kind) in kinds.enumerated() {
+            guard let value = values[2 * index], let profileDefault = values[2 * index + 1],
+                  value != profileDefault, let setting = value.siteSetting else { continue }
             result[kind] = setting
         }
         return result
@@ -95,9 +105,18 @@ extension CEFTab: PageInfoProviding {
     }
 
     /// Refines the scheme-level security with Chromium's SSL status:
-    /// certificate errors the user proceeded through and mixed content.
+    /// certificate errors the user proceeded through and mixed content. In
+    /// host mode the status is a REPLY: it applies if the tab still shows the
+    /// same page then.
     func syncSecurityFromChromium() {
-        guard let browserID, state.url?.scheme == "https", let status = runtime.sslStatus(browserID) else { return }
+        guard let browserID, let url = state.url, url.scheme == "https" else { return }
+        runtime.sslStatus(browserID) { [weak self] status in
+            guard let status, let self, self.browserID == browserID, state.url == url else { return }
+            applySecurity(from: status)
+        }
+    }
+
+    private func applySecurity(from status: CEFSSLStatus) {
         let security: BrowserSecurityState = if status.hasCertificateError {
             .broken
         } else if status.hasMixedContent {

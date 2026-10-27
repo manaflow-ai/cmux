@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import CoreGraphics
 
 /// WebKit's side of the automation calls of ``BrowserTab``: WebKit's `evaluateJavaScript` does not
@@ -12,7 +13,8 @@ extension WebKitTab {
         try await WebKitPageAutomation(tab: self).fullPageSnapshot()
     }
 
-    public func cookies() async throws -> [BrowserCookie] {
+    /// WebKit's cookie store answers values, not a reply to parse: `work` is not used.
+    public func cookies(on work: BackgroundWork) async throws -> [BrowserCookie] {
         await WebKitCookieStore(tab: self).cookies()
     }
 

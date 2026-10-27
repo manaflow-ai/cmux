@@ -53,3 +53,14 @@ where
 {
     Option::<T>::deserialize(deserializer).map(Some)
 }
+
+/// Deserialize an optional field that may be absent but never `null`: absent
+/// is `None` (via `#[serde(default)]`), `null` is refused like any other value
+/// that is not a `T`. check-sdk-schema.py reads it as optional, not nullable.
+pub(super) fn present_non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}

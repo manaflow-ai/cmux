@@ -4,30 +4,6 @@
 use super::*;
 
 #[test]
-fn adjacent_output_merge_respects_the_exact_retained_budget() {
-    let mut bytes = Vec::with_capacity(1_024);
-    bytes.resize(1_024, 1);
-    let mut frame = AttachFrame::Output(bytes);
-    let max_retained_bytes = size_of::<AttachFrame>() + 1_025;
-
-    assert!(matches!(
-        frame.merge_adjacent_output(AttachFrame::Output(vec![2]), max_retained_bytes),
-        AttachFrameMerge::Merged
-    ));
-    let AttachFrame::Output(merged) = frame else { unreachable!() };
-    assert_eq!(merged.len(), 1_025);
-    assert!(merged.capacity() <= 1_025);
-
-    let mut full = AttachFrame::Output(merged);
-    assert!(matches!(
-        full.merge_adjacent_output(AttachFrame::Output(vec![3]), max_retained_bytes),
-        AttachFrameMerge::Overflow
-    ));
-    let AttachFrame::Output(full) = full else { unreachable!() };
-    assert_eq!(full.len(), 1_025, "overflow must not append rejected bytes");
-}
-
-#[test]
 fn slow_attach_coalesces_adjacent_output_without_losing_bytes() {
     let mux = Mux::new_for_test("attach-output-coalescing", SurfaceOptions::default());
     let surface =
@@ -113,8 +89,9 @@ impl PinnedByteMirror {
     fn drain(&mut self) {
         while let Ok(frame) = self.attach.stream.try_recv() {
             match frame {
-                AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
-                AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                AttachFrame::Output(output)
+                | AttachFrame::FlowOutput { output, .. }
+                | AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
                 AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
                 | AttachFrame::ResizedWithColors { cols, rows, replay, pending_sequence, .. } => {
                     self.term = Self::from_replay(

@@ -36,19 +36,25 @@ class ScanFileTests(unittest.TestCase):
         self.assertEqual(len(hits), 1)
 
     def test_a_capture_outside_the_capture_files_is_a_hit(self):
-        hits = guard.scan_file(f"{SOURCES}/CmuxNextApp/Theme/Blend.swift", "let image = window.compositedSnapshot(in: r)\n")
+        hits = guard.scan_file(f"{SOURCES}/CmuxNextApp/Theme/Blend.swift", "let image = await window.compositedImage(on: work)\n")
         self.assertEqual(len(hits), 1)
         self.assertIn("window capture", hits[0])
         # The screenshot folder's other files are not the capture.
         self.assertEqual(len(guard.scan_file(f"{SOURCES}/CmuxNextApp/Screenshots/ScreenshotsPageService.swift",
-                                             "let image = window.compositedSnapshot(in: r)\n")), 1)
+                                             "let image = await window.compositedImage(on: work)\n")), 1)
+
+    def test_each_lane_capture_entry_point_is_a_capture(self):
+        rel = f"{SOURCES}/CmuxNextApp/Theme/Blend.swift"
+        for call in ("await window.childWindowsImage(on: work)", "await window.floatingWindows(on: work)",
+                     "await window.floatingWindowsImage(on: work)"):
+            self.assertEqual(len(guard.scan_file(rel, f"let image = {call}\n")), 1, call)
 
     def test_the_capture_helpers_screenshot_actions_and_debug_tools_may_capture(self):
         for rel in (f"{SOURCES}/CmuxNextDesign/Windows/NSWindow+Snapshot.swift",
                     f"{SOURCES}/CmuxNextDesign/Windows/NSWindow+Screenshot.swift",
                     f"{SOURCES}/CmuxNextApp/Screenshots/AppWindowImage.swift",
                     f"{SOURCES}/CmuxNextApp/Control/DebugCapture.swift"):
-            self.assertEqual(guard.scan_file(rel, "let image = window.compositedSnapshot(in: r)\n"), [], rel)
+            self.assertEqual(guard.scan_file(rel, "let image = await window.compositedImage(on: work)\n"), [], rel)
 
     def test_a_reason_on_the_line_or_above_it_allows_a_hit(self):
         rel = f"{SOURCES}/CmuxNextDesign/Motion/Fade.swift"

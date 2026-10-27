@@ -87,7 +87,7 @@ final class HomeVideo {
         badge.bounds = CGRect(x: 0, y: 0, width: 32, height: 32)
         let disc = CAShapeLayer()
         disc.frame = badge.bounds
-        disc.path = CGPath(ellipseIn: badge.bounds, transform: nil)
+        disc.path = CGPath.ellipse(in: badge.bounds)
         disc.fillColor = CGColor(gray: 0, alpha: 0.5)
         let tri = CAShapeLayer()
         tri.frame = badge.bounds

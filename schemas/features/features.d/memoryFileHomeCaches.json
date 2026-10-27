@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryFileHomeCaches",
+  "owner": "PL-memory",
+  "description": "Files and Screenshots thumbnails, app bundle images and Home diagrams join the memory coordinator: Files thumbnails keep to a share of the image cache budget; at critical pressure these caches empty in short slices and redraw when shown. Idle diagrams free their engine after 10 min.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -278,6 +278,7 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
 impl Mux {
     /// Run one `layout.bulk` request as one commit and one closed group.
     /// A retry with the same key replays before the objects resolve.
+    #[track_caller]
     pub(crate) fn state_layout_bulk(
         &self,
         mutation: &WorkspaceMutation,

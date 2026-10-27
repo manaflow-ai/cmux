@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Turns design mode's page messages into composer cards for one tab, remembering which
@@ -84,7 +85,7 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
     }
 
     private static func object(_ data: Data) -> [String: Any]? {
-        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
     }
 
     private static func card(_ selection: [String: Any], key: String, pageURL: URL?, edits: String) -> BrowserDesignModeCard {

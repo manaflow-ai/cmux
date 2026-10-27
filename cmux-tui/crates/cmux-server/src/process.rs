@@ -136,9 +136,23 @@ impl Runner for SystemRunner {
         // before it reads cannot deadlock against us. A child that exits
         // early closes the pipe; its exit status reports why.
         let writer = match (cmd.stdin.clone(), child.stdin.take()) {
-            (Some(bytes), Some(mut pipe)) => Some(std::thread::spawn(move || {
-                let _ = pipe.write_all(&bytes);
-            })),
+            (Some(bytes), Some(mut pipe)) => {
+                let stdin = cmux_threads::spawn(
+                    "cmux-server-stdin",
+                    cmux_threads::HELPER_CHILD,
+                    move || {
+                        let _ = pipe.write_all(&bytes);
+                    },
+                );
+                match stdin {
+                    Ok(writer) => Some(writer),
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(error);
+                    }
+                }
+            }
             (Some(_), None) => {
                 let _ = child.kill();
                 let _ = child.wait();

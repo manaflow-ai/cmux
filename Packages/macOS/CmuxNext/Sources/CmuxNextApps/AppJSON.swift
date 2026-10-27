@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A JSON value: manifest documents, scene props, operation params and
@@ -34,7 +35,7 @@ public nonisolated enum AppJSON: Sendable, Hashable {
 
     /// Parses UTF-8 JSON (any top-level value).
     public static func parse(_ data: Data) throws -> AppJSON {
-        try AppJSON(foundation: JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+        try AppJSON(foundation: JSONSerialization.blockingJSONObject(with: data, options: [.fragmentsAllowed]))
     }
 
     public static func parse(_ text: String) throws -> AppJSON {

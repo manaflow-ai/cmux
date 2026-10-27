@@ -1,5 +1,8 @@
 public import CmuxNextWakeups
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Darwin
 import Dispatch
 import Foundation
@@ -48,7 +51,7 @@ public final class RetryWake: Sendable {
     public let owner: String
     private let ledger: WakeupLedger
     private let probe: RetryWakeProbe
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake")
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake", qos: .userInitiated)
     private let state = Mutex<State>(State())
 
     /// The folder the vnode watch is on.
@@ -63,7 +66,7 @@ public final class RetryWake: Sendable {
     private struct State {
         /// An event that came with no waiter (`.event` wins over `.socket`).
         var latched: Cause?
-        var waiter: CheckedContinuation<Cause, Never>?
+        var waiter: OnceContinuation<Cause, OnceContinuationError>?
         /// The waiter wakes on a socket change too.
         var waiterTakesSocket = true
         var timer: DemandTimer?
@@ -164,7 +167,8 @@ public final class RetryWake: Sendable {
     /// wait and a pending one is dropped (a crash loop, ``RetryPacer``).
     public func awaitWake(delay: Duration?, clock: any Clock<Duration>, socket: Bool = true) async -> Cause {
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
+            // A waiter dropped unresumed ends the wait as cancellation does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Cause, OnceContinuationError>) in
                 let immediate = state.withLock { state -> Cause? in
                     if Task.isCancelled { return .cancelled }
                     if let latched = state.latched {
@@ -187,7 +191,7 @@ public final class RetryWake: Sendable {
                 } else {
                     probe.parked(delay)
                 }
-            }
+            }) ?? .cancelled
         } onCancel: {
             resume(.cancelled, latchIfIdle: false)
         }
@@ -195,7 +199,7 @@ public final class RetryWake: Sendable {
 
     private func resume(_ cause: Cause, latchIfIdle: Bool) {
         // A socket change that the waiting loop ignores (a crash loop) is dropped.
-        let (waiter, ignored) = state.withLock { state -> (CheckedContinuation<Cause, Never>?, Bool) in
+        let (waiter, ignored) = state.withLock { state -> (OnceContinuation<Cause, OnceContinuationError>?, Bool) in
             if cause == .socket, state.waiter != nil, !state.waiterTakesSocket { return (nil, true) }
             state.timer?.cancel()
             state.timer = nil
@@ -296,7 +300,8 @@ public final class RetryWake: Sendable {
         var blocked: Identity?
         for directory in folders(above: file) {
             if let identity = directoryIdentity(of: directory) {
-                let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
+                // SAFETY: open reads the NUL-terminated copy of `directory` Swift makes for the call.
+                let descriptor = unsafe open(directory, O_EVTONLY | O_CLOEXEC)
                 if descriptor >= 0 {
                     return (WatchedFolder(path: directory, identity: identity, blocked: blocked), descriptor)
                 }
@@ -339,13 +344,16 @@ public final class RetryWake: Sendable {
 
     private static func identity(of path: String) -> Identity? {
         var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
+        // SAFETY: stat reads the NUL-terminated copy of `path` made for the call and writes one struct stat into
+        // `info`, a local live for the call.
+        guard unsafe stat(path, &info) == 0 else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 
     private static func directoryIdentity(of path: String) -> Identity? {
         var info = stat()
-        guard stat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+        // SAFETY: as in identity(of:).
+        guard unsafe stat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 }

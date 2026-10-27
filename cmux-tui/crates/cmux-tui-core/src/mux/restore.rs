@@ -333,6 +333,7 @@ pub(super) fn restore_resource_state(
             terminal_catalog_by_host: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
+            catalog_insert_wake: Arc::default(),
         },
         next_id,
         contents,

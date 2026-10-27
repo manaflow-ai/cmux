@@ -1,6 +1,6 @@
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// User-facing strings of remote tabs (Localizable.xcstrings of this module).
 public nonisolated struct RemoteBrowserStrings {
     public nonisolated init() {}

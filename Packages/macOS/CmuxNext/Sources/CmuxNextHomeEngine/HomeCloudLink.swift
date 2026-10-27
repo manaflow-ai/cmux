@@ -277,7 +277,7 @@ public final class HomeCloudLink {
         let rest = forcedWait - Self.firstRetry
         cooldownInFloor = true
         provenInFloor = false
-        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self, probe] in
+        cooldown.scheduleOnMain(after: Self.firstRetry) { [weak self, probe] in
             self?.cooldownFloorPassed(rest: rest)
             probe.fired()
         }
@@ -293,7 +293,7 @@ public final class HomeCloudLink {
             sendPendingForced()
             return
         }
-        cooldown.schedule(after: rest) { @MainActor [weak self, probe] in
+        cooldown.scheduleOnMain(after: rest) { [weak self, probe] in
             self?.sendPendingForced()
             probe.fired()
         }
@@ -310,7 +310,7 @@ public final class HomeCloudLink {
             guard !retry.isScheduled else { return }
             let delay = retryDelay
             retryDelay = min(retryDelay * 2, Self.maxRetry)
-            retry.schedule(after: delay) { @MainActor [weak self, probe] in
+            retry.scheduleOnMain(after: delay) { [weak self, probe] in
                 defer { probe.fired() }
                 guard let self, leasing == 0 else { return }
                 renew(reason: reason)

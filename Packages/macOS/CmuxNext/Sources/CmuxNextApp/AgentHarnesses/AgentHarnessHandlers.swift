@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The `agent.harness.*` actions (BRING-YOUR-OWN-HARNESS H2) on ``AgentHarnessCenter``: the
@@ -9,7 +10,7 @@ import Foundation
 @MainActor
 enum AgentHarnessHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let center = context.services.agentHarnesses
+        let center = context.services.agentHarnesses, mainWork = context.services.mainWork
         registry.bind("agent.harness.add", run: { invocation in
             var request = AgentHarnessAddRequest()
             request.command = invocation.arguments["command"]?.stringValue
@@ -25,7 +26,7 @@ enum AgentHarnessHandlers {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsCommand) }
                 return try openSettings(context, panel: "add")
             }
-            track(registry) { try await center.add(request) }
+            track(registry, on: mainWork) { [request] in try await center.add(request) }
         })
         registry.bind("agent.harness.addFromRegistry", run: { _ in try openSettings(context, panel: "registry") })
         registry.bind("agent.harness.remove", run: { invocation in
@@ -33,14 +34,14 @@ enum AgentHarnessHandlers {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsAgent) }
                 return try openSettings(context, panel: nil)
             }
-            track(registry) { try await center.remove(id: id) }
+            track(registry, on: mainWork) { try await center.remove(id: id) }
         })
         registry.bind("agent.harness.restore", run: { invocation in
             // Without a backup: the last removal (Settings' Undo, `cmux agent restore-harness`).
             guard let backup = nonEmpty(invocation.arguments["backup"]?.stringValue) ?? center.lastRemovedBackup else {
                 throw ActionFailure(message: AgentHarnessStrings.nothingRemoved)
             }
-            track(registry) { try await center.restore(backup: backup) }
+            track(registry, on: mainWork) { try await center.restore(backup: backup) }
         })
         center.updates?.bind(into: registry)
         registry.bind("agent.harness.doctor", run: { invocation in
@@ -49,11 +50,11 @@ enum AgentHarnessHandlers {
                 return try openSettings(context, panel: nil)
             }
             if invocation.origin == .user { try openSettings(context, panel: nil) }
-            track(registry) {
+            track(registry, on: mainWork) {
                 let answer = try await center.doctor(id: id)
                 guard answer["ok"]?.boolValue == true else {
                     let failed = answer["steps"]?.arrayValue?.first { $0["ok"]?.boolValue == false }
-                    throw ActionFailure(message: AgentHarnessStrings.doctorFailed(
+                    throw AgentHarnessFailure.doctorFailed(AgentHarnessStrings.doctorFailed(
                         id, step: failed?["name"]?.stringValue ?? "doctor",
                         detail: [failed?["detail"]?.stringValue, failed?["fix"]?.stringValue].compactMap { $0 }.joined(separator: " ")))
                 }
@@ -70,15 +71,15 @@ enum AgentHarnessHandlers {
 
     /// Runs `work` as the action's tracked work: the CLI and MCP wait for it; a failure answers
     /// `unavailable` with its reason (the daemon's text).
-    private static func track(_ registry: ActionRegistry, _ work: @escaping @MainActor () async throws -> JSONValue) {
-        registry.track(Task { @MainActor in
-            do {
-                _ = try await work()
-                return nil
-            } catch {
-                return ActionWorkFailure(refusal: .unavailable, reason: AgentHarnessCenter.text(error))
-            }
-        })
+    /// The requests themselves are the center's main-actor calls, awaited from the work; the refusal is one posted
+    /// task, userBlocking for a person's run and automation for a script's (``ActionRegistry/trackWork``).
+    private static func track(_ registry: ActionRegistry, on mainWork: MainWorkScheduler, _ work: @escaping @Sendable () async throws -> JSONValue) {
+        registry.trackWork(owner: "AgentHarnessHandlers.track", on: mainWork) {
+            try await work()
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure(refusal: .unavailable, reason: AgentHarnessCenter.text(error))
+        }
     }
 
     private static func nonEmpty(_ text: String?) -> String? {

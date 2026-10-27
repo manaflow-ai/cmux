@@ -23,7 +23,7 @@ public struct IconAssetBlob: Decodable, Sendable, Equatable {
 /// `put-blob`: `data` is the asset's bytes in standard base64.
 public struct PutBlobRequest: DaemonRequest {
     public typealias Response = IconAssetBlob
-    public static let command = "put-blob"
+    public static let commandName: DaemonCommandName = "put-blob"
     public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
     public var mediaType: String
     public var data: String
@@ -32,12 +32,16 @@ public struct PutBlobRequest: DaemonRequest {
         self.mediaType = mediaType
         self.data = data.base64EncodedString()
     }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaType = "media_type", data
+    }
 }
 
 /// `get-blob`: `blob` is `blob:sha256-<hex>` or an asset icon value.
 public struct GetBlobRequest: DaemonRequest {
     public typealias Response = IconAssetBlob
-    public static let command = "get-blob"
+    public static let commandName: DaemonCommandName = "get-blob"
     public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
     public var blob: String
 

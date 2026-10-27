@@ -108,22 +108,31 @@ struct FixedEntriesUnpacker: ChromiumRuntimeUnpacking {
     func unpack(_ archive: URL, into directory: URL) async throws(ChromiumRuntimeInstallError) {}
 }
 
-/// Records every checked item; fails the items whose names contain `failing`.
+/// Records every checked item and the job priority it was checked at; fails the items whose names contain
+/// `failing` with `failure` (default: a signature failure).
 actor RecordingSignatures: ChromiumRuntimeSignatureChecking {
     private let failing: String?
+    private let failure: ChromiumRuntimeInstallError?
     private(set) var checked: [String] = []
     private(set) var teams: Set<String> = []
+    private(set) var priorities: [ChromiumRuntimeInstaller.Priority] = []
 
-    init(failing: String? = nil) { self.failing = failing }
-
-    nonisolated func check(_ item: URL, teamID: String) async throws(ChromiumRuntimeInstallError) {
-        try await record(item.lastPathComponent, teamID)
+    init(failing: String? = nil, failure: ChromiumRuntimeInstallError? = nil) {
+        self.failing = failing
+        self.failure = failure
     }
 
-    private func record(_ name: String, _ teamID: String) throws(ChromiumRuntimeInstallError) {
+    nonisolated func check(_ item: URL, teamID: String,
+                           priority: ChromiumRuntimeInstaller.Priority) async throws(ChromiumRuntimeInstallError) {
+        try await record(item.lastPathComponent, teamID, priority)
+    }
+
+    private func record(_ name: String, _ teamID: String,
+                        _ priority: ChromiumRuntimeInstaller.Priority) throws(ChromiumRuntimeInstallError) {
         checked.append(name)
         teams.insert(teamID)
-        if let failing, name.contains(failing) { throw .signature(name) }
+        priorities.append(priority)
+        if let failing, name.contains(failing) { throw failure ?? .signature(name) }
     }
 }
 

@@ -75,15 +75,24 @@ CI: the cmux-scheme-compile job of .github/workflows/cmux-next.yml, on the app i
 GUI host, before a landing that touches panes, tabs, workspaces, the sidebar or themes:
   nx-remote --needs gui --priority gate --gate-head SHA --ref SHA --app-from-fleet cmux --tag T -- \\
     python3 scripts/cmux-next/perf-gate.py --app "$NX_APP" --out "$NX_ARTIFACTS" --frames required
-The script launches the app itself (no activation, automation socket, scratch config, empty
-Ghostty config, isolated Chief home), quits it and ends the tag's daemons (tag_teardown). The
-app must not be running. Exit 1 on any blocking failure.
+The app launches and stops through bench_launch.BenchApp (the bench env: no activation, automation
+socket, isolated Chief home; a scratch config and empty Ghostty config; a fresh saved session for
+the tag, kept across the relaunch scenario; the GUI-session check, socket-only with --frames auto;
+the tag's daemons ended at the stop). The app must not be running. Percentiles come only from
+scripts/perf-lab/perf_stats.py (linear interpolation). Each scenario's failed checks are also
+written as cmux-perf-result/v1 in --out (story perf-gate, `perf_gate.<scenario>.failed_checks`,
+the rows perf-cron.py reads from perf-gate.json). Exit 1 on any blocking failure.
 """
-import argparse, importlib.util, json, os, re, socket, subprocess, sys, tempfile, threading, time
+import argparse, importlib.util, json, os, re, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+sys.path.insert(0, HERE)  # its siblings, also under `python3 -I`
+from bench_launch import PERF_LAB, BenchApp, LaunchError, RecordError, load_by_path  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+pct = perf_stats.pct
 
 # Budgets: the measured values after the perf lanes (perf-speed-of-light.md Status). Tighten here.
 BUDGET = {
@@ -150,6 +159,13 @@ def check(ok, what, scenario):
     return ok
 
 
+def hang_records(hangs):
+    """debug.hangs since the phase's clear: (its stall records, its stalls >= 250 ms or None; perf-cron prints the sum)."""
+    hangs = hangs if isinstance(hangs, dict) else {}
+    count250 = hangs.get("count250")
+    return hangs.get("records") or [], count250 if isinstance(count250, int) else None
+
+
 def warn(what, scenario):
     print(f"WARN [{scenario}] {what}", flush=True)
     warnings.append(f"[{scenario}] {what}")
@@ -170,83 +186,64 @@ def source_guard():
 # -- the app -----------------------------------------------------------------
 
 class App:
-    def __init__(self, bundle, out):
-        name = os.path.basename(bundle.rstrip("/"))
-        match = re.fullmatch(r"cmux DEV (.+)\.app", name)
-        if not match:
-            raise SystemExit(f"perf-gate: expected a `cmux DEV <tag>.app` bundle, got {name}")
-        self.bundle, self.tag, self.out = bundle, match.group(1), out
-        self.socket = f"/tmp/cmux-debug-{self.tag}.sock"
-        self.cli_path = os.path.join(bundle, "Contents/Resources/bin/cmux")
-        self.scratch = tempfile.mkdtemp(prefix=f"perf-gate-{self.tag}-")
-        self.config = os.path.join(self.scratch, "cmux.json")
-        self.process = None
-        self.teardown = TagTeardown(bundle)
+    """The app under the gate, launched and stopped through bench_launch.BenchApp (``bench``): the bench env, this
+    gate's cmux.json (an opaque backdrop, a 400 ms linear OKLab color transition), the 1440x900 window on the last
+    screen, the GUI-session check and the tag teardown. `socket_only` launches without a GUI session (--frames auto:
+    the frame checks then report their skip). split-typeahead-input-e2e.py and activation-perf.py's run() drive the
+    same surface: launch, relaunch, stop, rpc, action, cli, the reads, process, socket, tag, out."""
 
-    def launch(self):
-        with open(self.config, "w") as f:
-            json.dump({"appearance": {"backgroundOpacity": 1,
-                                      "colorTransition": {"duration": 400, "curve": "linear", "colorSpace": "oklab"}}}, f)
-        ghostty = os.path.join(self.scratch, "ghostty")
-        open(ghostty, "w").close()
-        if os.path.exists(self.socket):
-            os.unlink(self.socket)
-        env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
-               "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
-               "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief")}
+    CONFIG = {"appearance": {"backgroundOpacity": 1,
+                             "colorTransition": {"duration": 400, "curve": "linear", "colorSpace": "oklab"}}}
+
+    def __init__(self, bundle, out, socket_only=False, build_config=None, perf_session="light"):
+        env = {}
         # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
         if os.environ.get("PERF_GATE_HANG_MS"):
             env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
-        self.teardown.install()
-        log = open(os.path.join(self.out, "app.log"), "a")
-        self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
-                                        stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        self.bench = BenchApp(bundle, out=out, env=env, config=self.CONFIG, window=(40, 40, 1440, 900), screen="last",
+                              log_name="app.log", socket_only=socket_only, build_config=build_config,
+                              perf_session=perf_session)
+        self.bundle, self.tag, self.out, self.scratch = self.bench.app, self.bench.tag, out, self.bench.scratch
+        self.cli_path = self.bench.cli
+        self.config = os.path.join(self.scratch, "cmux.json")  # BenchApp.environment() writes it at each launch
+
+    @property
+    def process(self):
+        return self.bench.process
+
+    @property
+    def socket(self):
+        return self.bench.socket
+
+    def launch(self):
+        """Raises bench_launch.LaunchError (a SystemExit) with the reason when the app does not come up."""
+        self.bench.launch(timeout=180)
         print(f"perf-gate: launched {self.tag} pid {self.process.pid}", flush=True)
-        if not wait(lambda: os.path.exists(self.socket) and "error" not in (self.rpc("debug.layout_counters") or {"error": 1}), 180):
-            raise SystemExit("perf-gate: the app's debug socket never answered (a Debug build is required)")
+        if "error" in (self.rpc("debug.layout_counters") or {"error": 1}):
+            raise SystemExit("perf-gate: the app does not answer debug.layout_counters (a Debug build is required)")
         if not wait(lambda: self.panes()[0] >= 1, 60):
             raise SystemExit("perf-gate: the first terminal pane never showed")
 
     def relaunch(self):
-        """Quits the app and starts it again on the same tag: it restores what this launch left."""
-        self.stop()
-        self.teardown = TagTeardown(self.bundle)
-        self.launch()
+        """Quits the app and starts it again on the same tag with its saved session: it restores what this launch
+        left. The teardown is a new one: the stop's end() ran the first launch's. A relaunch that does not answer
+        keeps the features snapshot of the launch that did (the same bundle and env), so record() still writes the
+        scenarios run before it."""
+        features = self.bench.features
+        try:
+            self.stop()
+            self.bench.fresh_state = False
+            self.bench.teardown = TagTeardown(self.bundle)
+            self.launch()
+        finally:
+            if self.bench.features is None:
+                self.bench.features = features
 
     def stop(self):
-        try:
-            if self.process and self.process.poll() is None:
-                self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-                try:
-                    self.process.wait(30)
-                except subprocess.TimeoutExpired:
-                    self.process.terminate()
-                    try:
-                        self.process.wait(15)
-                    except subprocess.TimeoutExpired:
-                        self.process.kill()
-        finally:
-            self.teardown.end()
+        self.bench.stop()
 
     def rpc(self, method, params=None, timeout=60):
-        try:
-            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            conn.settimeout(timeout)
-            conn.connect(self.socket)
-            conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-            buf = b""
-            while not buf.endswith(b"\n"):
-                chunk = conn.recv(1 << 22)
-                if not chunk:
-                    break
-                buf += chunk
-            conn.close()
-            reply = json.loads(buf)
-        except (OSError, ValueError) as error:
-            return {"error": str(error)}
-        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+        return self.bench.rpc(method, params, timeout)
 
     def action(self, name, args=None, target=None):
         params = {"action": name, "args": args or {}, "focus": True, "origin": "script"}
@@ -500,8 +497,7 @@ class Gate:
         check(surfaces.get("blank_panes") == 0, f"blank_panes {surfaces.get('blank_panes')} after the switches "
               f"(live terminals {surfaces.get('live_terminals')}, warm capacity {surfaces.get('warm_terminal_capacity')})",
               "workspaces")
-        latencies = sorted(r["latency_ms"] for r in rows)
-        p99 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.99))] if latencies else 0
+        p99 = round(pct([r["latency_ms"] for r in rows], .99) or 0, 1)
         report["phases"]["workspaces"]["latency_p99_ms"] = p99
         if p99 > 100:
             warn(f"workspace switch reply p99 {p99} ms (over 100 ms)", "workspaces")
@@ -711,7 +707,7 @@ class Gate:
         own = app.rpc("debug.tab_switch", {"action": "stop"}) or {}
         switch_frames = app.rpc("debug.frames", {"action": "stop"}) or {}
         report["phases"][scenario] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
-                                      "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1],
+                                      "sources": measured["sources"], "latency_p99_ms": round(pct(latencies, .99), 2),
                                       "latencies_ms": [round(v, 1) for v in latencies]}
         check(not over(measured, BUDGET["tabs"]),
               f"{ops} tab switches at {panes} panes x 3 tabs: {breach_text(over(measured, BUDGET['tabs']), measured['sources']) or 'all 0'}"
@@ -724,7 +720,7 @@ class Gate:
             return round((time.monotonic() - start) * 1000, 1)
         phase = report["phases"][scenario]
         phase["frames"] = switch_frames
-        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        phase["hangs"], phase["count250"] = hang_records(app.rpc("debug.hangs"))
         for record in phase["hangs"][:8]:
             print(f"  main-thread stall {record.get('duration_ms', 0):.1f} ms ({record.get('kind')}): "
                   + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:40]), flush=True)
@@ -741,14 +737,13 @@ class Gate:
         phase["switches"] = [{k: round(v, 2) if isinstance(v, (int, float)) else v for k, v in row.items()} for row in switches]
         if not self.timed_count(switches, ops, f"debug.tab_switch timed {{n}} of {ops} switches", scenario):
             return
-        col = lambda name: sorted(row[name] for row in switches)
-        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
-        applies, commits, ends = col("apply_ms"), col("commit_ms"), col("commit_end_ms")
-        print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, commit p50 {commits[ops // 2]:.2f} / "
-              f"p99 {p99(commits):.2f} ms, commit end p99 {p99(ends):.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
+        applies, commits = [row["apply_ms"] for row in switches], [row["commit_ms"] for row in switches]
+        apply_p99, end_p99 = pct(applies, .99), pct([row["commit_end_ms"] for row in switches], .99)
+        print(f"  tab switch: apply p50 {pct(applies, .5):.2f} / p99 {apply_p99:.2f} ms, commit p50 {pct(commits, .5):.2f} / "
+              f"p99 {pct(commits, .99):.2f} ms, commit end p99 {end_p99:.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
               f"reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
-        if p99(applies) > TAB_APPLY_BUDGET_MS:
-            warn(f"tab switch apply p99 {p99(applies):.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
+        if apply_p99 > TAB_APPLY_BUDGET_MS:
+            warn(f"tab switch apply p99 {apply_p99:.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
         if self.frames_ok(scenario):
             late = [row for row in switches if row["late_vsyncs"] > 0]
             check(not late, f"every tab switch commits in the first frame after it shows ({len(late)} later"
@@ -830,16 +825,16 @@ class Gate:
             phase["modes"][name]["chromium_restorable_encodes"] = encodes
             check(encodes == 0, f"{name}: no Chromium page window encodes its restorable state ({encodes} encodes in "
                                 f"{per_mode} moves)", scenario)
-            col = lambda key: sorted(row.get(key, 0) for row in moves)
-            pct = lambda values, q: values[min(len(values) - 1, max(0, int(round(len(values) * q)) - 1))]
-            applies, commits = col("apply_ms"), col("commit_ms")
-            print(f"  pane focus {name}: {len(moves)} timed; intent to settled p50 {pct(applies, .5):.2f} / p95 {pct(applies, .95):.2f}"
-                  f" / max {applies[-1]:.2f} ms; to commit p50 {pct(commits, .5):.2f} / p95 {pct(commits, .95):.2f} ms;"
-                  f" reply p50 {sorted(replies)[per_mode // 2]:.1f} ms", flush=True)
-            phase["modes"][name].update({"apply_p50_ms": pct(applies, .5), "apply_p95_ms": pct(applies, .95),
-                                         "commit_p50_ms": pct(commits, .5), "commit_p95_ms": pct(commits, .95)})
-            if pct(applies, .95) > PANE_FOCUS_BUDGET_MS:
-                warn(f"{name}: pane focus intent to settled p95 {pct(applies, .95):.2f} ms (budget {PANE_FOCUS_BUDGET_MS} ms)", scenario)
+            applies, commits = [row.get("apply_ms", 0) for row in moves], [row.get("commit_ms", 0) for row in moves]
+            stats = {"apply_p50_ms": pct(applies, .5), "apply_p95_ms": pct(applies, .95),
+                     "commit_p50_ms": pct(commits, .5), "commit_p95_ms": pct(commits, .95)}
+            stats = {key: round(value, 3) for key, value in stats.items()}  # the moves' own precision
+            print(f"  pane focus {name}: {len(moves)} timed; intent to settled p50 {stats['apply_p50_ms']:.2f} / p95 "
+                  f"{stats['apply_p95_ms']:.2f} / max {max(applies):.2f} ms; to commit p50 {stats['commit_p50_ms']:.2f} / p95 "
+                  f"{stats['commit_p95_ms']:.2f} ms; reply p50 {pct(replies, .5):.1f} ms", flush=True)
+            phase["modes"][name].update(stats)
+            if stats["apply_p95_ms"] > PANE_FOCUS_BUDGET_MS:
+                warn(f"{name}: pane focus intent to settled p95 {stats['apply_p95_ms']:.2f} ms (budget {PANE_FOCUS_BUDGET_MS} ms)", scenario)
             if self.frames_ok(scenario):
                 late = [row for row in moves if row.get("late_vsyncs", 0) > 0]
                 phase["modes"][name]["late"] = len(late)
@@ -847,7 +842,7 @@ class Gate:
                     warn(f"{name}: {len(late)} of {len(moves)} pane focus moves commit after the first frame after they settle: "
                          f"{[(r['apply_ms'], r['commit_ms'], int(r['late_vsyncs'])) for r in late][:6]} (apply ms, commit ms, frames missed)",
                          scenario)
-        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        phase["hangs"], phase["count250"] = hang_records(app.rpc("debug.hangs"))
         app.rpc("debug.frames", {"action": "stop"})
         if os.environ.get("PERF_GATE_SAMPLE") and app.process:
             # Attribution: the main thread's call tree over 200 more Focus Next Pane moves.
@@ -884,18 +879,17 @@ class Gate:
             return
         for row, count in zip(rows, counts):
             row["workspaces_before"] = count
-        col = lambda name: sorted(row[name] for row in rows)
-        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
-        applies, commits = col("apply_ms"), col("commit_ms")
-        tail = [row["apply_ms"] for row in rows[-10:]]
-        print(f"  new workspace row: press to drawn p50 {applies[creates // 2]:.2f} / p99 {p99(applies):.2f} ms "
+        applies = [row["apply_ms"] for row in rows]
+        apply_p99, tail = pct(applies, .99), applies[-10:]
+        print(f"  new workspace row: press to drawn p50 {pct(applies, .5):.2f} / p99 {apply_p99:.2f} ms "
               f"(last 10, at {counts[-10]}-{counts[-1]} workspaces: mean {sum(tail) / len(tail):.2f} ms), commit p99 "
-              f"{p99(commits):.2f} ms; reply p50 {sorted(replies)[creates // 2]:.1f} ms (daemon confirm included)", flush=True)
+              f"{pct([row['commit_ms'] for row in rows], .99):.2f} ms; reply p50 {pct(replies, .5):.1f} ms "
+              "(daemon confirm included)", flush=True)
         walked = [(row["workspaces_before"], int(row.get("walks", -1))) for row in rows if row.get("walks", -1) != 0]
         check(not walked, f"every new workspace row is drawn from the press with no rows walk of every workspace before it "
                           f"({len(walked)} walked" + (f": {walked[:8]} (workspaces before, walks)" if walked else "") + ")", scenario)
-        if p99(applies) > NEW_ROW_BUDGET_MS:
-            warn(f"new workspace row press to drawn p99 {p99(applies):.2f} ms (over {NEW_ROW_BUDGET_MS:.1f} ms)", scenario)
+        if apply_p99 > NEW_ROW_BUDGET_MS:
+            warn(f"new workspace row press to drawn p99 {apply_p99:.2f} ms (over {NEW_ROW_BUDGET_MS:.1f} ms)", scenario)
         if self.frames_ok(scenario):
             late = [row for row in rows if row["late_vsyncs"] > 0]
             if self.full and not late:
@@ -1060,9 +1054,43 @@ def summary(out):
     print(text, flush=True)
 
 
-def main():
+STORY = "perf-gate"  # scripts/perf-lab/stories.d/perf-gate.json
+
+
+def failed_checks(checks, ran=()):
+    """{result-v1 metric: failed checks} of one run: every scenario a check names, counted as perf-cron.py's perf_gate
+    rows count them, and every scenario in `ran` (0 when none of its checks failed). A metric name has no space
+    (perf_result.NAME_PATTERN): `relaunch tabs` is `perf_gate.relaunch_tabs.failed_checks`."""
+    per = dict.fromkeys(ran, 0)
+    for row in checks:
+        scenario = row.get("scenario") or "?"
+        per[scenario] = per.get(scenario, 0) + (0 if row.get("ok") else 1)
+    return {f"perf_gate.{re.sub(r'[^A-Za-z0-9_-]+', '_', scenario)}.failed_checks": failed
+            for scenario, failed in sorted(per.items())}
+
+
+def record(app, checks, ran=()):
+    """Writes each scenario's failed checks as cmux-perf-result/v1 in the out folder (BenchApp.record: the build, host
+    and features of the last launch that answered, see App.relaunch); returns {metric: path, or `not recorded:
+    <reason>`}. A run whose app never answered has no features to name, and records nothing."""
+    written = {}
+    for metric, failed in failed_checks(checks, ran).items():
+        try:
+            written[metric] = str(app.bench.record(STORY, metric, "count", [failed], better="lower", engine="none"))
+        except RecordError as error:  # no build, host or features to name: true of every result of this run
+            print(f"perf-gate: result-v1 not recorded: {error}", flush=True)
+            return {name: f"not recorded: {error}" for name in failed_checks(checks, ran)}
+        except (perf_result.ResultError, OSError) as error:
+            written[metric] = f"not recorded: {error}"
+        print(f"perf-gate: result-v1 {metric}: {written[metric]}", flush=True)
+    return written
+
+
+def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app", help="a Debug `cmux DEV <tag>.app` (not running)")
+    parser.add_argument("--tag", help="the app's tag (the lab's story runner passes it; the bundle names its own tag)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/cmux-next-perf-gate")
     parser.add_argument("--frames", choices=["auto", "required"], default="auto",
                         help="auto: skip the frame-dependent checks (warning) when the window draws no frames")
@@ -1070,21 +1098,31 @@ def main():
     parser.add_argument("--lag", type=int, default=3, help="drag steps the rendered grid may trail the fitted grid")
     parser.add_argument("--source-guard-only", action="store_true")
     parser.add_argument("--hang-ms", type=int, help="sample main-thread stalls over N ms (debug.hangs) and print them")
-    opts = parser.parse_args()
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    opts = parser.parse_args(argv)
+    if not opts.source_guard_only:
+        if not opts.app:
+            parser.error("--app is required (or --source-guard-only)")
+        unknown = [n for n in (opts.only.split(",") if opts.only else []) if n not in SCENARIOS]
+        if unknown:
+            parser.error(f"unknown scenarios {unknown}")
+    return opts
+
+
+def main(argv=None):
+    opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
     out = os.path.join(opts.out, "perf-gate.json")
     source_guard()
     if not opts.source_guard_only:
-        if not opts.app:
-            parser.error("--app is required (or --source-guard-only)")
         asked = opts.only.split(",") if opts.only else SCENARIOS
-        unknown = [n for n in asked if n not in SCENARIOS]
-        if unknown:
-            parser.error(f"unknown scenarios {unknown}")
         names = [n for n in SCENARIOS if n in asked]  # the fixed order: status last (its tickers keep printing)
         if opts.hang_ms:
             os.environ["PERF_GATE_HANG_MS"] = str(opts.hang_ms)
-        app = App(os.path.abspath(opts.app), opts.out)
+        # --frames auto skips the frame checks on a console that draws none, so it launches without a GUI session too.
+        app = App(os.path.abspath(opts.app), opts.out, socket_only=opts.frames == "auto", build_config=opts.build_config,
+                  perf_session=opts.session)
         report.update({"app": app.bundle, "tag": app.tag, "budget": BUDGET, "host": os.uname().nodename})
         gate = Gate(app, opts)
         try:
@@ -1098,6 +1136,8 @@ def main():
                     except Exception as error:  # noqa: BLE001 - a crashed scenario is a failure; the next one still runs
                         check(False, f"the scenario crashed: {error!r}", name)
                     report.setdefault("seconds", {})[name] = round(time.monotonic() - start, 1)
+            except LaunchError as error:  # its whole report (with the log tail) is printed already
+                check(False, f"the app did not come up: {error.reason}: {error.report.get('detail', '')}", "launch")
             except SystemExit as error:
                 if isinstance(error.code, int) and error.code >= 128:
                     check(False, f"stopped by signal {error.code - 128}", "signal")
@@ -1106,10 +1146,11 @@ def main():
             finally:
                 app.stop()
         finally:
+            record(app, report["checks"], report.get("seconds") or ())
             write_report(out)
     else:
         write_report(out)
-    sys.exit(1 if failures else 0)
+    return 1 if failures else 0
 
 
 def write_report(out):
@@ -1120,4 +1161,4 @@ def write_report(out):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

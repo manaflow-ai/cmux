@@ -1,11 +1,13 @@
 // A render card above a turn's answer (renderCall.ts): the agent's HTML, live, in the render frame
-// (`cmux-agent://render/frame`, AgentPaneRenderFrame.swift). The frame is an origin of its own,
-// sandboxed without same-origin, so the HTML cannot reach the pane, its bridge or acpmux; its
-// policy allows no connection. The frame asks for the HTML once it loads and reports its height;
-// the card grows to it, up to a cap a reader can lift. Nothing runs until the reader presses Run:
-// the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
-// pane on a dev server has no render frame, so there the call stays a plain tool row. Open hands the
-// page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
+// (`cmux-page://cmux.agent/__render/frame`, AgentPaneRenderFrame.swift). The page host serves it
+// with its own policy behind `sandbox allow-scripts`, and the card frames it sandboxed without
+// same-origin too, so the HTML always runs with an opaque origin and cannot reach the pane, its
+// bridge or acpmux; its policy allows no connection. The frame asks for the HTML once it loads and
+// reports its height; the card grows to it, up to a cap a reader can lift. Nothing runs until the
+// reader presses Run: the frame shares the pane's web process, so a busy loop in agent HTML would
+// freeze the pane. Only the page host's WebKit serves the frame its own policy
+// (`data-engine="webkit"`); in Chromium and outside the page host the call stays a plain tool row.
+// Open hands the page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
 import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
@@ -14,7 +16,7 @@ import type { AcpmuxActivity } from "../model";
 import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, RenderPages, renderCall, type RenderCall } from "./renderCall";
 
-export const RENDER_FRAME_URL = "cmux-agent://render/frame";
+export const RENDER_FRAME_URL = "cmux-page://cmux.agent/__render/frame";
 /// The tallest a card draws until the reader expands it.
 const COLLAPSED_MAX_HEIGHT = 560;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
@@ -24,8 +26,13 @@ const EXPANDED_MAX_HEIGHT = 4000;
 /// running, and a reloaded pane (after a hang or a crash) starts with every card waiting again.
 export const ranRenders = new Set<string>();
 
-/// Whether this page can frame renders: only the bundled pane has the render origin.
-export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
+/// Whether this page can frame renders: only the agent page on the page host's WebKit, which serves
+/// the frame with its own sandboxed policy.
+export const canRender = () =>
+  typeof location !== "undefined" &&
+  location.protocol === "cmux-page:" &&
+  typeof document !== "undefined" &&
+  document.documentElement.dataset.engine === "webkit";
 
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
 export function useRenderFrame(html: string) {

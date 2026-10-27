@@ -6299,7 +6299,7 @@ mod tests {
     fn provider_update_failure_uses_selected_locale() {
         const CHILD_ENV: &str = "CMUX_PROVIDER_UPDATE_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .arg(
                     "machine_provider_runtime::tests::provider_update_failure_uses_selected_locale",
                 )
@@ -6373,7 +6373,7 @@ mod tests {
     fn provider_connection_state_errors_use_selected_locale() {
         const CHILD_ENV: &str = "CMUX_PROVIDER_CONNECTION_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .arg(
                     "machine_provider_runtime::tests::provider_connection_state_errors_use_selected_locale",
                 )

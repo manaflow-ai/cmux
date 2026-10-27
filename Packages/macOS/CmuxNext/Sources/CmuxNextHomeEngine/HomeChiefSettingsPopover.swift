@@ -103,6 +103,7 @@ public final class HomeChiefSettingsPopover {
 
     /// The card's size: the settings' fixed width and the height of what shows.
     private func size() -> CGSize {
+        // sync-layout: fittingSize below measures what shows.
         content.layoutSubtreeIfNeeded()
         let fitting = content.fittingSize
         return CGSize(width: HomeChiefSettingsView.width, height: ceil(fitting.height))

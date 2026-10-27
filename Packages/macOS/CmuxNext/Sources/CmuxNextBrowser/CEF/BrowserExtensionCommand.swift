@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// One active extension keyboard shortcut (`chrome.commands`), as
 /// `cmux_ext_commands` (fork API v3) reports it. The app routes these keys
@@ -100,7 +101,7 @@ public nonisolated struct BrowserExtensionCommand: Hashable, Sendable {
     /// Decodes the fork's JSON array. Invalid input yields an empty list.
     public static func decodeList(_ json: String) -> [BrowserExtensionCommand] {
         guard let data = json.data(using: .utf8),
-              let items = try? JSONDecoder().decode([Wire].self, from: data) else {
+              let items = try? JSONDecoder().blockingDecode([Wire].self, from: data) else {
             return []
         }
         return items.map {

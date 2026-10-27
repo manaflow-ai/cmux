@@ -1,7 +1,7 @@
 public import AppKit
 public import UniformTypeIdentifiers
 
-/// Checked blocking NSWorkspace queries (``assertBlockingAllowed(_:fileID:line:)``): each one waits for
+/// Checked blocking NSWorkspace queries (``blockingCall(_:fileID:line:_:)``): each one waits for
 /// LaunchServices or reads the disk, so query off the main thread. Opens and reveals use
 /// NSWorkspace+Background.swift.
 extension NSWorkspace {
@@ -15,8 +15,7 @@ extension NSWorkspace {
     @inlinable
     public func blockingURLForApplication(withBundleIdentifier bundleIdentifier: String,
                                           fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return urlForApplication(withBundleIdentifier: bundleIdentifier)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { urlForApplication(withBundleIdentifier: bundleIdentifier) }
     }
 
     /// The default app for `url`, like `urlForApplication(toOpen:)`, as a checked blocking call.
@@ -28,8 +27,7 @@ extension NSWorkspace {
     /// - Returns: The app's URL, or nil.
     @inlinable
     public func blockingURLForApplication(toOpen url: URL, fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return urlForApplication(toOpen: url)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { urlForApplication(toOpen: url) }
     }
 
     /// The default app for `contentType`, like `urlForApplication(toOpen:)` with a type, as a checked blocking call.
@@ -41,8 +39,7 @@ extension NSWorkspace {
     /// - Returns: The app's URL, or nil.
     @inlinable
     public func blockingURLForApplication(toOpen contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return urlForApplication(toOpen: contentType)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { urlForApplication(toOpen: contentType) }
     }
 
     /// Every app that opens `url`, like `urlsForApplications(toOpen:)`, as a checked blocking call.
@@ -54,8 +51,7 @@ extension NSWorkspace {
     /// - Returns: The apps' URLs.
     @inlinable
     public func blockingURLsForApplications(toOpen url: URL, fileID: StaticString = #fileID, line: UInt = #line) -> [URL] {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return urlsForApplications(toOpen: url)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { urlsForApplications(toOpen: url) }
     }
 
     /// Every app that opens `contentType`, like `urlsForApplications(toOpen:)` with a type, as a checked blocking call.
@@ -67,8 +63,7 @@ extension NSWorkspace {
     /// - Returns: The apps' URLs.
     @inlinable
     public func blockingURLsForApplications(toOpen contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> [URL] {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return urlsForApplications(toOpen: contentType)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { urlsForApplications(toOpen: contentType) }
     }
 
     /// The icon of the file at `path`, like `icon(forFile:)`, as a checked blocking call.
@@ -80,8 +75,7 @@ extension NSWorkspace {
     /// - Returns: The icon.
     @inlinable
     public func blockingIcon(forFile path: String, fileID: StaticString = #fileID, line: UInt = #line) -> NSImage {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return icon(forFile: path)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { icon(forFile: path) }
     }
 
     /// The icon of `contentType`, like `icon(for:)`, as a checked blocking call.
@@ -93,7 +87,6 @@ extension NSWorkspace {
     /// - Returns: The icon.
     @inlinable
     public func blockingIcon(for contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> NSImage {
-        assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-        return icon(for: contentType)
+        return blockingCall(.systemCall, fileID: fileID, line: line) { icon(for: contentType) }
     }
 }

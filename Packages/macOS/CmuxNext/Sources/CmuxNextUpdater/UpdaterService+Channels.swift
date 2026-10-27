@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxUpdater
 public import Foundation
 
@@ -37,7 +38,7 @@ extension UpdaterService {
             for build in builds where ReleaseNotesStore.isSafeName(build) {
                 group.addTask {
                     let data = await fetch(folder.appending(path: "verdicts/\(build).json"))
-                    let doc = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                    let doc = data.flatMap { try? JSONSerialization.blockingJSONObject(with: $0) as? [String: Any] }
                     return (build, doc?["verdict"] as? String)
                 }
             }

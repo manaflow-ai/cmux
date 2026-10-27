@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -63,7 +64,7 @@ struct AgentReplyPullRequestsTests {
 
     @Test func readsThePullRequestByItsLink() async throws {
         let gh = try Self.rig()
-        let read = try #require(await AgentChatPullRequestReader(gh: gh).read(url: Self.url))
+        let read = try #require(await AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()).read(url: Self.url))
         #expect(read.title == "Retry")
         #expect(read.state == "draft")
         #expect(read.author == "octocat")
@@ -72,7 +73,7 @@ struct AgentReplyPullRequestsTests {
 
     @Test func asksOnceAMinute() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(Self.calls(gh) == 1)
@@ -82,7 +83,7 @@ struct AgentReplyPullRequestsTests {
     /// called GitHub. A card reads the cache and says how old it is; it never waits on gh.
     @Test func aCardReadsTheCacheAndNeverWaits() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         // Nothing read yet: the answer is empty and comes back at once.
         #expect(pullRequests.answer(Self.url).pullRequest == nil)
         #expect(await pullRequests.read(Self.url)?.number == 7)
@@ -99,7 +100,7 @@ struct AgentReplyPullRequestsTests {
     /// card goes on showing the pull request with its age instead of an error.
     @Test func aFailedReadKeepsTheLastGoodAnswer() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh),
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()),
                                                   freshness: .zero, retry: .zero)
         #expect(await pullRequests.read(Self.url)?.number == 7)
         let good = pullRequests.answer(Self.url).fetchedAt
@@ -116,7 +117,7 @@ struct AgentReplyPullRequestsTests {
     /// full of pull request links must cost GitHub one call, not one per link.
     @Test func aReplysLinksAreOneBatchedRead() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         pullRequests.register([Self.url, Self.other, Self.url])
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(await pullRequests.read(Self.other)?.number == 8)
@@ -128,7 +129,7 @@ struct AgentReplyPullRequestsTests {
     /// missing the branches, labels or files a `gh pr view` of the same link would have.
     @Test func aBatchedReadCarriesTheCardsFields() async throws {
         let gh = try Self.rig()
-        let read = try #require(await AgentChatPullRequestReader(gh: gh).read(urls: [Self.url.absoluteString])[Self.url.absoluteString] ?? nil)
+        let read = try #require(await AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()).read(urls: [Self.url.absoluteString])[Self.url.absoluteString] ?? nil)
         #expect(read.baseRef == "feat-cmux-next")
         #expect(read.headRef == "work")
         #expect(read.labels == ["risk:normal", "agent"])
@@ -208,7 +209,7 @@ struct AgentReplyPullRequestsTests {
     /// request at once, so dropping one per read left ``AgentReplyPullRequests/maximumKept`` behind.
     @Test func manyRepliesLeaveTheCacheAtItsBound() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         // Twenty requests of a full bound each, through a cache that keeps 200.
         let size = AgentReplyPullRequests.maximumRegistered
         for reply in 0..<20 {
@@ -225,7 +226,7 @@ struct AgentReplyPullRequestsTests {
     /// links are prefetched per request, and the rest are read if and when a card opens.
     @Test func oneHostRequestPrefetchesAtMostItsBound() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         let bound = AgentReplyPullRequests.maximumRegistered
         let many = (1...(bound + 10)).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }
         pullRequests.register(many)
@@ -244,7 +245,7 @@ struct AgentReplyPullRequestsTests {
     /// two calls to GitHub for a page instead of one call per card.
     @Test func everyLinkOfOneHostRequestIsPrefetched() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
         let whole = (1...AgentPaneReplyRequest.maximumInspect).compactMap {
             URL(string: "https://github.com/o/r/pull/\($0)")
         }

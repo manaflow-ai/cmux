@@ -1,3 +1,4 @@
+internal import CmuxSafeConcurrency
 public import Foundation
 
 /// The consolidated on-disk application log: one active file with bounded
@@ -211,13 +212,18 @@ public actor AppLog {
 
     /// A one-shot acknowledgement that can be resolved by either the drain or
     /// the export task's timeout/cancellation path without ever resuming a
-    /// continuation twice.
-    private final class Acknowledgement: @unchecked Sendable {
-        // lint:allow lock - synchronous acknowledgement resolution is required
-        // for cancellation and timeout races across producer tasks.
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Bool, Never>?
-        private var result: Bool?
+    /// continuation twice. Its state lives in a `Mutex`, so it is plainly
+    /// `Sendable` (Chromium guards a one-shot flag the same way:
+    /// base/synchronization/lock.h with `GUARDED_BY` state).
+    final class Acknowledgement: Sendable {
+        private struct State {
+            var continuation: OnceContinuation<Bool, OnceContinuationError>?
+            var result: Bool?
+        }
+
+        // carve-out: synchronous acknowledgement resolution is required for
+        // cancellation and timeout races across producer tasks.
+        private let state = Mutex(State())
 
         func wait(timeout: Duration, on clock: any Clock<Duration>) async -> Bool {
             let timeoutTask = Task.detached { [self] in
@@ -230,16 +236,18 @@ public actor AppLog {
                 }
             }
             let result = await withTaskCancellationHandler(operation: {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    lock.lock()
-                    if let resolvedResult = self.result {
-                        lock.unlock()
-                        continuation.resume(returning: resolvedResult)
-                    } else {
-                        self.continuation = continuation
-                        lock.unlock()
+                // The state holds the continuation until resolve(), so it is never abandoned; false (as a
+                // timeout answers) if it ever were.
+                (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                    let resolved = state.withLock { state -> Bool? in
+                        if let result = state.result { return result }
+                        state.continuation = continuation
+                        return nil
                     }
-                }
+                    if let resolved {
+                        continuation.resume(returning: resolved)
+                    }
+                }) ?? false
             }, onCancel: {
                 resolve(false)
             })
@@ -252,15 +260,13 @@ public actor AppLog {
         }
 
         private func resolve(_ result: Bool) {
-            lock.lock()
-            guard self.result == nil else {
-                lock.unlock()
-                return
+            let continuation = state.withLock { state -> OnceContinuation<Bool, OnceContinuationError>? in
+                guard state.result == nil else { return nil }
+                state.result = result
+                let continuation = state.continuation
+                state.continuation = nil
+                return continuation
             }
-            self.result = result
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
             continuation?.resume(returning: result)
         }
     }
@@ -269,23 +275,24 @@ public actor AppLog {
     /// keeping normal event and mirrored-line traffic bounded. Control entries
     /// never evict an entry that was already accepted. A small reserved control
     /// lane admits barriers and clears while the traffic queue drains.
-    // lint:allow lock - synchronous admission is required for nonisolated
-    // producers; the lock is held only while updating a bounded in-memory queue.
-    private final class EntryIngress: @unchecked Sendable {
+    ///
+    /// The queue lives in a `Mutex`, and the wake-up iterator belongs to the
+    /// one drain task (``nextBatch(wakes:)``), so the type is plainly `Sendable`.
+    private final class EntryIngress: Sendable {
         private struct State: Sendable {
             var entries: [Entry] = []
             var bufferedDroppableCount = 0
             var finished = false
         }
 
-        // lint:allow lock - synchronous admission is required for nonisolated
+        // carve-out: synchronous admission is required for nonisolated
         // producers; the lock is held only while updating a bounded queue.
-        private let lock = NSLock()
-        private var state = State()
+        private let state = Mutex(State())
         private let maxBufferedEntries: Int
         private let maxBufferedControlEntries: Int
         private let wakeContinuation: AsyncStream<Void>.Continuation
-        private var wakeIterator: AsyncStream<Void>.Iterator
+        /// Yields after an admission; only the drain task iterates it.
+        let wakes: AsyncStream<Void>
 
         init(maxBufferedEntries: Int = 2_048) {
             self.maxBufferedEntries = max(1, maxBufferedEntries)
@@ -294,7 +301,7 @@ public actor AppLog {
                 bufferingPolicy: .bufferingNewest(1)
             )
             wakeContinuation = continuation
-            wakeIterator = stream.makeAsyncIterator()
+            wakes = stream
         }
 
         func enqueue(_ entry: Entry) {
@@ -325,12 +332,13 @@ public actor AppLog {
             }
         }
 
-        /// The entries admitted since the last batch, waiting for an enqueue
-        /// while there are none; nil once the ingress is finished and empty.
-        func nextBatch() async -> [Entry]? {
+        /// The entries admitted since the last batch, nil once the ingress is
+        /// finished and empty. `wakes` is the drain task's own iterator of
+        /// ``wakes``; it waits there while the queue is empty.
+        func nextBatch(wakes: inout AsyncStream<Void>.Iterator) async -> [Entry]? {
             var batch = takeBatch()
             while batch?.isEmpty == true {
-                guard await wakeIterator.next() != nil else {
+                guard await wakes.next() != nil else {
                     return takeBatch().flatMap { $0.isEmpty ? nil : $0 }
                 }
                 batch = takeBatch()
@@ -366,10 +374,8 @@ public actor AppLog {
             wakeContinuation.finish()
         }
 
-        private func withStateLock<T>(_ body: (inout State) -> T) -> T {
-            lock.lock()
-            defer { lock.unlock() }
-            return body(&state)
+        private func withStateLock<T: Sendable>(_ body: (inout State) -> T) -> T {
+            state.withLock { body(&$0) }
         }
 
         private static func isDroppable(_ entry: Entry) -> Bool {
@@ -689,7 +695,8 @@ public actor AppLog {
         // The drain holds self only across one write; when the log deallocs,
         // `deinit` finishes ingress and the loop ends on its own.
         Task { [weak self] in
-            while let batch = await ingress.nextBatch() {
+            var wakes = ingress.wakes.makeAsyncIterator()
+            while let batch = await ingress.nextBatch(wakes: &wakes) {
                 for entry in batch {
                     guard let self else { return }
                     await self.write(entry)
@@ -1011,40 +1018,47 @@ public actor AppLog {
 
     /// Resolves the settings task independently from the detached ZIP writer.
     /// If a late worker finishes after cancellation or timeout, its temporary
-    /// archive is removed instead of being left behind.
-    private final class ExportCompletion: @unchecked Sendable {
-        // lint:allow lock - this gate crosses the detached ZIP worker and the
+    /// archive is removed instead of being left behind. Its state lives in a
+    /// `Mutex`, so it is plainly `Sendable`.
+    private final class ExportCompletion: Sendable {
+        private struct State {
+            var continuation: OnceContinuation<URL?, OnceContinuationError>?
+            var result: URL??
+        }
+
+        // carve-out: this gate crosses the detached ZIP worker and the
         // cancellable settings task without actor affinity.
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<URL?, Never>?
-        private var result: URL??
+        private let state = Mutex(State())
 
         func wait() async -> URL? {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if let result {
-                    lock.unlock()
-                    continuation.resume(returning: result)
-                } else {
-                    self.continuation = continuation
-                    lock.unlock()
+            // An abandoned wait answers nil, as a failed export does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
+                let resolved = state.withLock { state -> URL?? in
+                    if let result = state.result { return .some(result) }
+                    state.continuation = continuation
+                    return nil
+                }
+                if let resolved {
+                    continuation.resume(returning: resolved)
                 }
             }
         }
 
         func resolve(_ result: URL?) {
-            lock.lock()
-            guard self.result == nil else {
-                lock.unlock()
+            let (isFirst, continuation) = state.withLock {
+                state -> (Bool, OnceContinuation<URL?, OnceContinuationError>?) in
+                guard state.result == nil else { return (false, nil) }
+                state.result = .some(result)
+                let continuation = state.continuation
+                state.continuation = nil
+                return (true, continuation)
+            }
+            guard isFirst else {
                 if let result {
                     try? FileManager.default.removeItem(at: result)
                 }
                 return
             }
-            self.result = .some(result)
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
             continuation?.resume(returning: result)
         }
     }

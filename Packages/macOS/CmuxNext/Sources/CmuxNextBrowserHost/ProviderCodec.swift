@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
@@ -81,7 +82,7 @@ public nonisolated struct ProviderCodec {
 
     /// Decodes one frame body (no length prefix).
     public static func decode(_ body: Data) throws(ProviderCodecError) -> ProviderFrame {
-        guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { throw .notJSON }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: body)) as? [String: Any] else { throw .notJSON }
         let f = Fields(object: object, tag: object["t"] as? String ?? "")
         switch f.tag {
         case "hello":

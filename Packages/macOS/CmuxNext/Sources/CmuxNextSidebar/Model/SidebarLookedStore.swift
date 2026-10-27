@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -27,7 +28,7 @@ public final class SidebarLookedStore {
     public init(defaults: UserDefaults?, saveDelay: Duration = .seconds(2)) {
         self.defaults = defaults
         self.saveDelay = saveDelay
-        stamps = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([WorkspaceID: Date].self, from: $0) } ?? [:]
+        stamps = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().blockingDecode([WorkspaceID: Date].self, from: $0) } ?? [:]
     }
 
     /// The person stopped looking at `id` at `now`.
@@ -53,6 +54,6 @@ public final class SidebarLookedStore {
         guard defaults != nil else { return }
         dirty = true
         // A debounce deadline (the intended delay), cancelled by flush().
-        saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
+        saveTimer.scheduleOnMain(after: saveDelay) { [weak self] in self?.flush() }
     }
 }

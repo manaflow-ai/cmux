@@ -206,6 +206,7 @@ pub(crate) mod adopt_launch {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
         crate::debug_spans::mark("host.child_spawned");
         let slot = Arc::new(Mutex::new(Some(master)));

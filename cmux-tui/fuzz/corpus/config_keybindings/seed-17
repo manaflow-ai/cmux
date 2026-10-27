@@ -1,0 +1,8 @@
+g g	markdownGoToTop	
+// keybindings.json
+[
+  {
+    "key": "g g",
+    "command": "markdownGoToTop"
+  }
+]

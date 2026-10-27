@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Closing a pane's last tab (or the pane) and closing a window
@@ -9,8 +11,9 @@ import Testing
 /// the even sizes the close leaves, so its neighbours spring into its space on one spring (the
 /// split's) from the key's frame; the daemon's echoes change nothing on screen; their terminals
 /// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
-/// closes at once. Frames step at a fixed 120 Hz dt.
-@MainActor
+/// closes at once. Frames step at a fixed 120 Hz dt. Serialized: the window tests arm RenderStats,
+/// whose hooks are process-wide.
+@MainActor @Suite(.serialized)
 struct PaneCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -32,7 +35,7 @@ struct PaneCloseMotionTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s",
                                 focusedPane: focused ?? layout.panes.first)
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on (or off): the shared settings stay untouched.
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
@@ -219,35 +222,214 @@ struct PaneCloseMotionTests {
 
     // MARK: Windows
 
-    /// A window the person closes fades out as a whole from the key's frame, takes no click while
-    /// it fades, and closes once at the end of the fade; it shows whole if it opens again.
-    @Test func aClosedWindowFadesOutAndClosesOnceAtTheEnd() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
-                              backing: .buffered, defer: true)
+    /// A window class of its own, so RenderStats counts only the closing window's calls.
+    final class FadingWindow: NSWindow {}
+
+    /// A window on screen with its frame view's layer made, for the window close tests.
+    static func shownWindow() -> NSWindow {
+        let window = FadingWindow(contentRect: NSRect(x: 120, y: 120, width: 800, height: 600), styleMask: [.titled, .closable],
+                                  backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        return window
+    }
+
+    /// A display that draws frames, with the animation speed not off: only there does a fade run.
+    static func fadesHere() async -> Bool { await GUIAnimationTestSupport.animatesHere() }
+
+    /// RenderStats armed and counting, or nil in a build without its hooks.
+    static func countingStats() async -> RenderStats? {
+        let stats = RenderStats()
+        guard stats.arm() else { return nil }
+        guard await stats.ready() else {
+            stats.disarm()
+            return nil
+        }
+        return stats
+    }
+
+    /// Ends the arm and waits until the hooks are off.
+    static func release(_ stats: RenderStats?) async {
+        guard let stats else { return }
+        stats.disarm()
+        _ = await stats.ready()
+    }
+
+    /// The window server calls (frame, alpha) RenderStats counted for the closing window.
+    static func windowCalls(_ stats: RenderStats) -> Int {
+        stats.owners().first { $0.key == RenderStats.classKey(FadingWindow.self) }?.totals[.windowCalls] ?? 0
+    }
+
+    /// The close of a window, awaited without polling: `closed()` resumes the waiter, and one
+    /// timeout ends the wait (as `GUIAnimationTestSupport` does).
+    @MainActor final class CloseWaiter {
+        private(set) var closes = 0
+        private var stopped = false
+        private var continuation: CheckedContinuation<Bool, Never>?
+
+        func closed() {
+            closes += 1
+            resume(true)
+        }
+
+        /// True when the window closed within `timeout`.
+        func closes(within timeout: Duration) async -> Bool {
+            await withTaskGroup(of: Bool.self) { group in
+                group.addTask { await self.wait() }
+                group.addTask {
+                    try? await Task.sleep(for: timeout)
+                    return false
+                }
+                let result = await group.next() ?? false
+                group.cancelAll()
+                await MainActor.run { self.stop() }
+                return result
+            }
+        }
+
+        private func wait() async -> Bool {
+            if closes > 0 { return true }
+            if stopped { return false }
+            return await withCheckedContinuation { continuation = $0 }
+        }
+
+        private func stop() {
+            stopped = true
+            resume(false)
+        }
+
+        private func resume(_ value: Bool) {
+            continuation?.resume(returning: value)
+            continuation = nil
+        }
+    }
+
+    /// A fade the test lands itself: it records the layer and keeps the landing.
+    @MainActor final class FadeProbe {
+        var layers: [CALayer] = []
+        var landing: RenderSpring.Completion?
+        var closes = 0
+    }
+
+    /// A window the person closes fades out as a whole on the render server (chrome-parity
+    /// p03-rendering-034): one additive `exit` spring on its frame view's layer opacity, from +1
+    /// to 0 in the key's frame, critically damped so it never comes back up, within the old fade's
+    /// 0.35 s budget; no window alpha and no window call per frame; it takes no click while it
+    /// fades, closes once when the spring lands, and shows whole with its own look if it opens again.
+    @Test(.enabled("needs a display that draws frames, or the fade lands at once") { await Self.fadesHere() })
+    func aClosedWindowFadesOnTheRenderServerAndClosesOnceWhenItLands() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let window = Self.shownWindow()
+        defer { window.orderOut(nil) }
+        try #require(WindowCloseMotion.fades(window), "a shown window with motion on does not fade")
+        let layer = try #require(WindowCloseMotion.fadingLayer(of: window))
+        let look = (isOpaque: window.isOpaque, hasShadow: window.hasShadow, group: layer.allowsGroupOpacity)
+        let stats = await Self.countingStats()
+        let waiter = CloseWaiter()
+        let motion = WindowCloseMotion(window: window) { waiter.closed() }
+        motion.start(handingKeysTo: nil)
+        let now = layer.convertTime(CACurrentMediaTime(), from: nil)
+        #expect(window.ignoresMouseEvents, "a fading window takes clicks")
+        #expect(waiter.closes == 0, "the window closed before its fade ran")
+        #expect(!window.isOpaque && !window.hasShadow && layer.allowsGroupOpacity,
+                "the fading window keeps its opaque backing or its shadow, or its layer fades by sublayer")
+        #expect(layer.opacity == 0, "the frame view's model opacity is not the fade's target")
+        let springs = (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) as? CASpringAnimation }
+            .filter { $0.keyPath == WindowCloseMotion.key.path }
+        #expect(springs.count == 1, "the fade is not one render-server spring: \(springs.count)")
+        let exit = Motion.panes.renderSpring(.exit).parameters
+        #expect(exit.dampingFraction >= 1, "the exit spring overshoots, so the window comes back up")
+        for spring in springs {
+            #expect(Double(spring.stiffness) == exit.stiffness && Double(spring.damping) == exit.damping,
+                    "the fade does not run on the exit spring")
+            #expect(spring.isAdditive && (spring.fromValue as? NSNumber)?.doubleValue == 1
+                && (spring.toValue as? NSNumber)?.doubleValue == 0, "the fade is not one additive spring from +1 to 0")
+            #expect(spring.beginTime <= now, "the fade did not start in the key's frame")
+            #expect(spring.duration <= 0.35 * Self.scale, "the fade takes \(spring.duration) s")
+        }
+        #expect(await waiter.closes(within: .seconds(10)), "the window did not close when its fade landed")
+        #expect(waiter.closes == 1, "the window did not close once when its fade landed")
+        if let stats {
+            #expect(Self.windowCalls(stats) == 0, "the fade called the window server \(Self.windowCalls(stats)) times")
+        }
+        await Self.release(stats)
+        motion.finish()
+        #expect(waiter.closes == 1, "a second close closed the window twice")
+        #expect(layer.opacity == 1 && (layer.animationKeys() ?? []).isEmpty, "a closed window does not show whole again")
+        #expect(window.isOpaque == look.isOpaque && window.hasShadow == look.hasShadow
+            && layer.allowsGroupOpacity == look.group && !window.ignoresMouseEvents,
+                "a closed window does not get its own look back")
+    }
+
+    /// With no display that draws frames too: the fade starts on the frame view's layer, and its
+    /// landing closes the window once, whether the spring ended or a newer one took over the
+    /// layer's opacity (a started close always ends in a close). No window call during the fade;
+    /// the window gets its own look back on the same layer.
+    @Test(arguments: [true, false])
+    func aFadingWindowClosesOnceOnItsLanding(finished: Bool) async throws {
+        let window = Self.shownWindow()
+        defer { window.orderOut(nil) }
+        let layer = try #require(WindowCloseMotion.fadingLayer(of: window), "a shown window has no frame view layer")
+        let look = (isOpaque: window.isOpaque, hasShadow: window.hasShadow, group: layer.allowsGroupOpacity)
+        let stats = await Self.countingStats()
+        let probe = FadeProbe()
+        let motion = WindowCloseMotion(window: window, fade: { layer, _, landed in
+            probe.layers.append(layer)
+            layer.opacity = 0
+            probe.landing = landed
+        }, close: { probe.closes += 1 })
+        motion.start(handingKeysTo: nil)
+        #expect(probe.layers.count == 1 && probe.layers.first === layer, "the fade did not run once on the frame view's layer")
+        #expect(probe.closes == 0, "the window closed before its fade landed")
+        #expect(window.ignoresMouseEvents && !window.isOpaque && !window.hasShadow && layer.allowsGroupOpacity,
+                "the fading window takes clicks, keeps its opaque backing or shadow, or fades by sublayer")
+        probe.landing?(finished)
+        #expect(probe.closes == 1, "the landing (finished: \(finished)) did not close the window once")
+        probe.landing?(true)
+        motion.finish()
+        #expect(probe.closes == 1, "a later landing or a second close closed the window twice")
+        #expect(layer.opacity == 1 && layer.allowsGroupOpacity == look.group, "a closed window does not show whole again")
+        #expect(window.isOpaque == look.isOpaque && window.hasShadow == look.hasShadow && !window.ignoresMouseEvents,
+                "a closed window does not get its own look back")
+        if let stats {
+            #expect(Self.windowCalls(stats) == 0, "the close called the window server \(Self.windowCalls(stats)) times")
+        }
+        await Self.release(stats)
+    }
+
+    /// With every animation off the gate does not run the fade: the window closes in the key's turn.
+    @Test func aWindowCloseWithAnimationsOffClosesAtOnce() {
+        let enabled = DesignSettings.shared.animationsEnabled
+        DesignSettings.shared.animationsEnabled = false
+        defer { DesignSettings.shared.animationsEnabled = enabled }
+        let window = Self.shownWindow()
+        defer { window.orderOut(nil) }
+        #expect(!WindowCloseMotion.fades(window))
         var closes = 0
         let motion = WindowCloseMotion(window: window) { closes += 1 }
-        motion.start(handingKeysTo: nil, driven: false)
-        #expect(window.ignoresMouseEvents, "a fading window takes clicks")
-        var alphas: [CGFloat] = []
-        var frames = 0
-        while motion.step(Self.dt), frames < 240 {
-            frames += 1
-            alphas.append(window.alphaValue)
-            #expect(closes == 0, "the window closed before its fade ended")
-        }
-        #expect((alphas.first ?? 1) < 1, "the fade did not start in the first frame")
-        #expect(zip(alphas, alphas.dropFirst()).allSatisfy { $1 <= $0 }, "the window came back up while fading")
-        #expect(frames <= Int((0.35 * Self.scale / Self.dt).rounded(.up)), "the fade took \(frames) frames")
-        #expect(closes == 1)
+        motion.start(handingKeysTo: nil)
+        #expect(closes == 1, "the window waited for a fade with animations off")
         motion.finish()
         #expect(closes == 1, "a second close closed the window twice")
-        #expect(window.alphaValue == 1 && !window.ignoresMouseEvents, "a closed window does not show whole again")
+        #expect(WindowCloseMotion.fadingLayer(of: window)?.opacity ?? 1 == 1 && window.alphaValue == 1)
+        #expect(window.isOpaque && !window.ignoresMouseEvents)
     }
 
     @Test func aWindowCloseUnderReduceMotionDoesNotFade() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
         #expect(!WindowCloseMotion.fades(window, animates: false))
+    }
+
+    /// Only the person's close fades: a scripted close (the oracle's reset, the CLI, MCP) has closed
+    /// the window when its `action.run` answers, so the next snapshot no longer lists it.
+    @Test func onlyThePersonsWindowCloseFades() {
+        #expect(WindowCloseMotion.isPersonsClose(.user))
+        #expect(WindowCloseMotion.isPersonsClose(.page))
+        for origin: ActionOrigin in [.script, .cli, .mcp, .remote] {
+            #expect(!WindowCloseMotion.isPersonsClose(origin), "a \(origin) close fades")
+        }
     }
 }

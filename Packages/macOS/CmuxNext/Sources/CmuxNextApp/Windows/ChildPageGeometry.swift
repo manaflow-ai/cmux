@@ -4,9 +4,15 @@ import CmuxNextBrowser
 /// Invariant: every visible Chromium page window covers its pane's page
 /// area exactly, in screen coordinates, whatever moved or resized the
 /// window (drag, an Accessibility client such as Rectangle, a display,
-/// Space or fullscreen change). Pages are child windows; the fork places
-/// them from the host view's rect.
+/// Space or fullscreen change). In process pages are child windows; the fork
+/// places them from the host view's rect. In host mode a page is a view in its
+/// pane (`ChromiumHostPageView`) that layout places like any other, so there is
+/// no page window to check and ``sample(_:)`` reads nothing (task 028 of
+/// plans/cmux-next/chrome-parity/p01-process.md).
 enum ChildPageGeometry {
+    /// Whether Chromium's pages are child windows of the cmux window under `backend`.
+    static func hasPageWindows(_ backend: BrowserBackend) -> Bool { backend == .inProcess }
+
     /// One pane showing a Chromium page, and where its page must be.
     struct Host: Equatable {
         var pane: String
@@ -44,13 +50,14 @@ enum ChildPageGeometry {
         return [Host(pane: pane, screenRect: devTools.page), Host(pane: "\(pane) devtools", screenRect: docked)]
     }
 
-    /// The window's Chromium hosts (visible, in this window) and page windows now.
+    /// The window's Chromium hosts (visible, in this window) and page windows now; none in host mode.
     static func sample(_ controller: WindowController) -> (hosts: [Host], pages: [CGRect]) {
-        guard let window = controller.window else { return ([], []) }
+        guard hasPageWindows(controller.services.chromiumRuntime.backend), let window = controller.window else { return ([], []) }
         var hosts: [Host] = []
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow else { continue }
             let content = entry.tab.contentView
+            // visibility-walk-allow: the check compares AppKit's own view state with the page windows the fork placed; a node would hide the mismatch it looks for
             guard content.window === window, !content.isHiddenOrHasHiddenAncestor, !content.bounds.isEmpty else { continue }
             let contentRect = window.convertToScreen(content.convert(content.bounds, to: nil))
             let devTools = (entry.tab as? CEFTab)?.devToolsDiagnosticFrames

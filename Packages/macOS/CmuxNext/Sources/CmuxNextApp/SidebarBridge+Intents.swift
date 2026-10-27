@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -115,7 +116,7 @@ extension SidebarBridge {
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
-        case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
+        case .nowPlaying(let command): services.nowPlayingSources.perform(command)
         case .toggleWorkspaceAudio(let id):
             // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
@@ -181,6 +182,36 @@ extension SidebarBridge {
         rows.show(sections)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
+    }
+
+    /// The pointer moved onto sidebar row `row` (nil: off every row): the hover-dwell prewarm
+    /// (`intentPrewarmHover`) follows the page the row stands for, a tab row's tab or a workspace row's
+    /// front tab. The sidebar switches on press, so the switch's show is the commit that ends the dwell.
+    func noteRowHover(_ row: SidebarRowKey?) {
+        guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
+        prewarm.pointerHovered(prewarmTarget(row))
+    }
+
+    /// A press on sidebar row `row`, the workspace row it switches to only on the release (nil: it switched
+    /// on the press or switches nothing): the press prewarm (`intentPrewarmPress`) wakes that row's front
+    /// tab while the button is down; every press ends the hover dwell.
+    func noteRowPress(_ row: SidebarRowKey?) {
+        guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
+        prewarm.pointerPressed(on: prewarmTarget(row))
+    }
+
+    /// The page row `row` stands for: a tab row's tab, a workspace row's front tab; nil for any other row.
+    private func prewarmTarget(_ row: SidebarRowKey?) -> String? {
+        switch row {
+        case let .tab(_, tab)?:
+            return tab.rawValue
+        case let .workspace(id)?:
+            guard let workspace = services.workspace(id: id.rawValue) else { return nil }
+            let selection = state?.selection
+            return SidebarMapping.shared.frontTab(workspace) { pane in selection?.selection(in: pane.id) }?.id
+        default:
+            return nil
+        }
     }
 
     /// Sends one command, shown at once through the store's intent log when

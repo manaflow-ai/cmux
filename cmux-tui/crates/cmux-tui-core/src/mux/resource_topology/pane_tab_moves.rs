@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn resource_swap_panes(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -190,6 +191,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_move_tab_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,

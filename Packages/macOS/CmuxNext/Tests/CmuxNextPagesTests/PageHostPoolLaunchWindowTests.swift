@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 @testable import CmuxNextPages
+import CmuxNextWakeups
 import Testing
 
 /// The first Settings open after launch (perceived speed, 2026-10-15): the pool parks its
@@ -12,9 +13,10 @@ import Testing
     @Test func aMainWindowShownBeforeStartTakesTheSpare() {
         let window = Self.shownWindow()
         defer { window.close() }
-        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), activity: { 0 }, isTrackingMenu: { false })
+        let memory = PageTestMemory()
+        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
-        pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil })
+        pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         pool.noteLikely()
         #expect(pool.target === window, "the pool started with a main window on screen and parked its spare nowhere")
     }
@@ -22,9 +24,10 @@ import Testing
     /// The launch window shows once the daemon's workspaces load, after the pool started, and an
     /// app launched in the background never makes it key. A second window leaves the spare where it is.
     @Test func aMainWindowShownAfterStartTakesTheSpare() {
-        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), activity: { 0 }, isTrackingMenu: { false })
+        let memory = PageTestMemory()
+        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
-        pool.start(isMainWindow: { _ in false }, fallback: { _ in nil })
+        pool.start(isMainWindow: { _ in false }, fallback: { _ in nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         pool.noteLikely()
         let window = Self.shownWindow()
         defer { window.close() }

@@ -8,6 +8,8 @@ import AppKit
 /// from the top spoke; tinting the mask keeps that fade in any color.
 @MainActor
 enum NativeSpinnerImage {
+    // memory: fixed at most 17 entries (emptied past 16), each one alpha-only mask of a status icon's
+    // square: side x side bytes, 1 KiB for a 16 pt tab icon at 2x.
     private static var cache: [Int: CGImage] = [:]
     /// Cache key: pixel side and backing scale (AppKit draws different
     /// spokes for 16 pt at 2x than for 32 pt at 1x).

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextInput
 
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the pointer. Scrolls follow
 /// `layout.scrollModifier` (``LayoutModel/scrollModifier``):
@@ -68,17 +69,34 @@ extension LayoutRootView: ScrollGestureOwning {
         }
     }
 
+    /// The root's intercept on the app's input tap while it is live: scrolls, magnify and button presses,
+    /// at ``InputEventTap/InterceptOrder/layout`` (after a modal overlay, a popup and a drag session).
+    /// It hears every window: the root's own divider catcher panels are panels, which a window scope leaves
+    /// out, and ``scrollOrigin(of:at:in:)`` and the button routing drop another window's event in O(1).
+    /// Chrome routes a wheel event to the widget under the pointer the same way, before the page sees it
+    /// (content/browser/renderer_host/render_widget_host_input_event_router.cc, RouteMouseWheelEvent).
+    func subscribeInput() -> InputSubscription? {
+        inputTap?.subscribe(class: [.scroll, .gesture, .button], phase: .intercept(order: .layout)) { [weak self] event in
+            guard let self else { return .pass }
+            return handleMonitored(event) == nil ? .consume : .pass
+        }
+    }
+
+    /// The tap intercept's routing of one event: nil when the layout consumed it.
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
         if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // AppKit hit tests the press on the frames: a strip that shows moved lands where it shows first.
+            landStripsWhereTheyShow()
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
             // The strip scrollbar takes its own clicks.
             if let scrollbar = view.scrollbar, !scrollbar.isHidden,
                scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
-            if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
+            // Mid render-server spring, the pane drawn under the press (p03-rendering-098), as AppKit's hit test.
+            if let pane = view.pressedPane(at: view.convert(event.locationInWindow, from: nil)) {
                 model.focus(pane, source: .pointer)
             }
             return event
@@ -89,47 +107,17 @@ extension LayoutRootView: ScrollGestureOwning {
         }
     }
 
-    /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
+    /// The intercept's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
     /// at `location` (that window's coordinates). Apart from ``handleMonitored(_:)`` so tests can
     /// send an event from a page or catcher window, which a synthesized event cannot carry.
     /// Returns the event when it goes on, nil when the layout consumed it.
     ///
     /// The entry point for synthetic scrolls (`debug.mouse`, benches): it must stay behavior-equal to the
-    /// monitor path, which calls it for every real scroll.
+    /// intercept path, which calls it for every real scroll.
     public func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
-        guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window) else { return event }
+        if passesWithoutRouting(event, from: eventWindow) { return event }
+        guard let origin = scrollOrigin(of: eventWindow, at: location) else { return event }
         return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
-    }
-
-    /// Where a monitored scroll event came from, as the layout of one window routes it.
-    struct ScrollOrigin: Equatable {
-        /// The event's point in the layout's window.
-        var locationInWindow: NSPoint
-        /// The event came from a page window over a pane, not from the layout's window itself.
-        var isPageWindow: Bool
-    }
-
-    /// Where a scroll event of `eventWindow` at `location` points in `window`, the layout's window:
-    /// its own point when it is that window's. Two kinds of child window of `window` count too,
-    /// their point converted:
-    ///
-    /// - The layout's own divider catcher panels (``DividerMousePanel``), which cover every divider
-    ///   hit area while a Chromium page shows: layout input, as the same gap is with no page.
-    /// - A Chromium page's own window (a non-panel child over its pane), flagged `isPageWindow`:
-    ///   under `command` its Command + scroll moves the layout; under either modifier a gesture the
-    ///   layout took keeps its events when a pan slides a page under the still pointer, and a
-    ///   gesture that starts there ends the last one's lock.
-    ///
-    /// Other panels never count: overlays, and the remote browser's popups (`ContentChildPanel`),
-    /// whose lists scroll themselves. Nil: not this layout's.
-    static func scrollOrigin(of eventWindow: NSWindow?, at location: NSPoint, in window: NSWindow?) -> ScrollOrigin? {
-        guard let window, let eventWindow else { return nil }
-        if eventWindow === window { return ScrollOrigin(locationInWindow: location, isPageWindow: false) }
-        guard eventWindow.parent === window else { return nil }
-        let isCatcher = eventWindow is DividerMousePanel
-        guard isCatcher || (!(eventWindow is NSPanel) && WindowOverlayHost.isPageWindow(eventWindow)) else { return nil }
-        let point = window.convertPoint(fromScreen: eventWindow.convertPoint(toScreen: location))
-        return ScrollOrigin(locationInWindow: point, isPageWindow: !isCatcher)
     }
 
     /// What the layout could scroll for a gesture or a wheel notch that starts at a point: the
@@ -162,15 +150,16 @@ extension LayoutRootView: ScrollGestureOwning {
             guard bounds.contains(convert(locationInWindow, from: nil)), let active = model.activeScreenID,
                   let view = screenViews[active] else { return ScrollTargets() }
             let local = view.convert(locationInWindow, from: nil)
-            // Only an area under the pointer that can move counts: one elsewhere on the screen
-            // must not claim a Command gesture with nothing to scroll here.
-            let area = view.scrollArea(at: local, direction: 1) != nil || view.scrollArea(at: local, direction: -1) != nil
-                ? (view, local) : nil
+            // Only an area under the pointer that can move counts (one elsewhere must not claim a Command
+            // gesture with nothing to scroll here); asked after a plain scroll's pane test.
+            func movableArea() -> (ScreenContentView, NSPoint)? {
+                view.scrollArea(at: local, direction: 1) != nil || view.scrollArea(at: local, direction: -1) != nil ? (view, local) : nil
+            }
             if event.modifierFlags.contains(.command) {
                 // Anywhere on the screen, over any pane: the layout's scroll.
                 var targets = ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil,
                                             rows: view.rowScrollColumn(at: local, modifierHeld: true).map { (view, $0) },
-                                            area: area, columnsTakeEitherAxis: true)
+                                            area: movableArea(), columnsTakeEitherAxis: true)
                 targets.claimsWholeGesture = !targets.isEmpty
                 return targets
             }
@@ -181,7 +170,7 @@ extension LayoutRootView: ScrollGestureOwning {
             // A plain scroll over a pane is the pane's, whatever its content.
             guard view.pane(at: local) == nil else { return ScrollTargets() }
             return ScrollTargets(columns: view.acceptsHorizontalScroll(at: local) ? view : nil,
-                                 rows: view.rowScrollColumn(at: local, modifierHeld: false).map { (view, $0) }, area: area)
+                                 rows: view.rowScrollColumn(at: local, modifierHeld: false).map { (view, $0) }, area: movableArea())
         }
     }
 
@@ -249,6 +238,7 @@ extension LayoutRootView: ScrollGestureOwning {
     /// on, nil when consumed. `fromPageWindow`: the event came from a page window over a pane
     /// (``scrollOrigin(of:at:in:)``). A consumed event is reported once (``onScrollTaken``).
     func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
+        context.routedScrolls &+= 1
         let routed = routeScrollEvent(event, at: locationInWindow, fromPageWindow: fromPageWindow)
         if routed == nil { onScrollTaken?() }
         return routed
@@ -258,6 +248,8 @@ extension LayoutRootView: ScrollGestureOwning {
     /// layout consumed it.
     private func routeScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
         let decides = decidesGestureOwner(event, at: locationInWindow)
+        // A new gesture or wheel notch is targeted on the frames: a strip that shows moved lands first.
+        if decides || (event.phase.isEmpty && event.momentumPhase.isEmpty) { landStripsWhereTheyShow() }
         if let consumed = handleCanvasScroll(event, at: locationInWindow, decides: decides, fromPageWindow: fromPageWindow) {
             return consumed ? nil : event
         }
@@ -338,7 +330,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dx > dy, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: false)
-                view.beginUserScroll()
+                view.beginUserScroll(trackpad: true)
                 view.userScroll(deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
                 return nil
             }
@@ -350,7 +342,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dy >= dx, targets.columnsTakeEitherAxis, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: true)
-                view.beginUserScroll()
+                view.beginUserScroll(trackpad: true)
                 view.userScroll(deltaX: event.scrollingDeltaY, timestamp: event.timestamp)
                 return nil
             }
@@ -391,7 +383,8 @@ extension LayoutRootView: ScrollGestureOwning {
                 driver.start()
             } else {
                 view.userScroll(deltaX: verticalDeltas ? event.scrollingDeltaY : event.scrollingDeltaX, timestamp: event.timestamp)
-                updateVisibility()
+                // Only a pan that brings a pane in or out of the viewport or its keep-alive band reports.
+                if !view.panKeepsVisibility { updateVisibility() }
             }
             return nil
         }

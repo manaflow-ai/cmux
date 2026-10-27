@@ -1,0 +1,8 @@
+ctrl+tab	nextSurface	
+// keybindings.json
+[
+  {
+    "key": "ctrl+tab",
+    "command": "-nextSurface"
+  }
+]

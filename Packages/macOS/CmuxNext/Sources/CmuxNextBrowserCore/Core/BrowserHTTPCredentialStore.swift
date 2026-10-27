@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 package import Security
 
@@ -29,7 +30,7 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(BrowserHTTPRememberedLogin.self, from: data)
+        return try? JSONDecoder().blockingDecode(BrowserHTTPRememberedLogin.self, from: data)
     }
 
     package func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) {

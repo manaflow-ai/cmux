@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// A strip divider partly scrolled under a docked column showed its resize cursor over the docked
@@ -30,7 +31,7 @@ struct DividerCursorUnderDockTests {
                 LayoutColumn(id: "dock", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: mode)),
             ])
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = true
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -78,8 +79,8 @@ struct DividerCursorUnderDockTests {
         let beside = screen.convert(handle.cursorRectInBounds, from: handle)
         try #require(beside.width > 1 && beside.height > 1, "the divider shows beside the dock: \(beside), dock \(cover)")
         var pointer = CGPoint(x: under.midX, y: under.midY)
-        fixture.root.context.hoverPointer = { _ in screen.convert(pointer, to: nil) }
-        fixture.root.context.hoverReachesWindow = { _ in true }
+        fixture.root.context.hoverPointer = { _, _ in screen.convert(pointer, to: nil) }
+        fixture.root.context.hoverReachesWindow = { _, _ in true }
 
         screen.refreshDividerHover()
         #expect(!handle.isHovered, "the pointer over the docked pane hovers no divider under it")

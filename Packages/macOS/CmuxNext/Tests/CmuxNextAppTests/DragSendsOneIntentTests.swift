@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// A divider or column drag is local until it ends (perf-10x drag): the
@@ -16,7 +17,7 @@ struct DragSendsOneIntentTests {
                                                        layout: .splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))],
                                 activeScreenID: "s", focusedPane: "p1")
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.contentView = root

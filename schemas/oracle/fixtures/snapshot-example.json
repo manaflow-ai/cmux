@@ -388,7 +388,8 @@
         {
           "id": "win_000000000000000000000000000000a1",
           "isKey": true,
-          "responder": "terminal",
+          "responder": "content",
+          "responderPane": "pane_000000000000000000000000000000d1",
           "layoutFocus": "pane_000000000000000000000000000000d1",
           "ghosttyFocused": ["tab_000000000000000000000000000000e1"],
           "childPage": null,
@@ -397,7 +398,7 @@
           "consistent": true,
           "model": {
             "pane": "pane_000000000000000000000000000000d1",
-            "target": "pane",
+            "target": "content",
             "resolved": "terminal",
             "resolvedPane": "pane_000000000000000000000000000000d1",
             "resolvedTab": "tab_000000000000000000000000000000e1",
@@ -419,6 +420,7 @@
         {
           "workspace": "ws_000000000000000000000000000000b1",
           "screen": "screen_000000000000000000000000000000c1",
+          "active": true,
           "focusedPane": "pane_000000000000000000000000000000d1",
           "zoomedPane": null,
           "root": {
@@ -443,8 +445,60 @@
               }
             ]
           },
-          "dock": {"side": null, "fraction": null, "open": false},
-          "canvas": {"columns": 1, "firstVisibleColumn": 0, "offset": 0}
+          "strip": {"columns": 1},
+          "canvas": null
+        },
+        {
+          "workspace": "ws_000000000000000000000000000000b1",
+          "screen": "screen_000000000000000000000000000000c2",
+          "active": false,
+          "focusedPane": null,
+          "zoomedPane": null,
+          "root": {
+            "kind": "strip",
+            "axis": "horizontal",
+            "ratios": [],
+            "pane": null,
+            "children": [
+              {
+                "kind": "column",
+                "axis": "vertical",
+                "ratios": [],
+                "pane": null,
+                "width": 0.5,
+                "dock": null,
+                "children": [
+                  {
+                    "kind": "row",
+                    "axis": null,
+                    "ratios": [],
+                    "pane": null,
+                    "height": 0.6,
+                    "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d3", "children": []}]
+                  },
+                  {
+                    "kind": "row",
+                    "axis": null,
+                    "ratios": [],
+                    "pane": null,
+                    "height": 0.4,
+                    "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d4", "children": []}]
+                  }
+                ]
+              },
+              {
+                "kind": "column",
+                "axis": "vertical",
+                "ratios": [],
+                "pane": null,
+                "width": 0.333,
+                "dock": {"edge": "right", "mode": "docked", "role": "agentChat", "pinned": false, "allowsTabs": false},
+                "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d5", "children": []}]
+              }
+            ]
+          },
+          "strip": {"columns": 1},
+          "canvas": {"order": ["pane_000000000000000000000000000000d4", "pane_000000000000000000000000000000d3"], "zoom": 1.25, "overview": false}
         }
       ]
     },
@@ -477,8 +531,12 @@
             {
               "tab": "tab_000000000000000000000000000000e2",
               "kind": "browser",
+              "page": null,
+              "pinned": false,
+              "engine": "cef",
               "url": "$WEB/index.html",
               "title": "sha256:2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462",
+              "loadState": "finished",
               "loading": false,
               "canGoBack": false,
               "canGoForward": false,
@@ -486,7 +544,7 @@
               "muted": false,
               "audible": false,
               "crashed": false,
-              "findActive": false
+              "hibernated": false
             }
           ]
         }
@@ -504,7 +562,7 @@
       "nonDefaultKeys": ["ui.animations.enabled"],
       "motion": {"enabled": false, "speed": 1, "reduceMotion": false}
     },
-    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}},
+    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}, "lastRefusal": {"action": null, "intent": null}},
     "windows": {
       "count": 1,
       "order": ["win_000000000000000000000000000000a1"],
@@ -527,7 +585,7 @@
       "needsYou": 0,
       "workspaces": [{"workspace": "ws_000000000000000000000000000000b1", "unread": 0, "needsYou": 0}]
     },
-    "agents": {"sessions": []},
+    "agents": {"sessions": [], "home": []},
     "terminals": {
       "list": [
         {

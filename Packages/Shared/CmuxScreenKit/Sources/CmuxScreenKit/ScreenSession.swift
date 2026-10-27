@@ -1,4 +1,7 @@
 import CmuxVNC
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CmuxVNCDemoServer
 import CmuxVNCWebRTC
 import CoreGraphics
@@ -40,7 +43,7 @@ public final class ScreenSession {
     public private(set) var phase = Phase.connecting {
         didSet { resumeWaiters() }
     }
-    @ObservationIgnored private var phaseWaiters: [CheckedContinuation<Bool, Never>] = []
+    @ObservationIgnored private var phaseWaiters: [OnceContinuation<Bool, OnceContinuationError>] = []
     public private(set) var stats = LiveStats()
     /// The remote screen's pixel size (the streamed display, or the framebuffer).
     public private(set) var frameSize = CGSize.zero
@@ -66,6 +69,8 @@ public final class ScreenSession {
     /// Set for a screen stream whose signaling the app supplies per connect
     /// (a device hub session's ticket): nil when there is none to connect with.
     @ObservationIgnored private let makeSignaling: (@MainActor () -> (any ScreenSignaling)?)?
+    /// Makes the byte stream of each connect to `endpoint`; nil for TCP.
+    @ObservationIgnored private let makeTransport: (@MainActor () -> any RFBTransport)?
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
@@ -102,15 +107,18 @@ public final class ScreenSession {
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
-    /// A VNC server reached directly (LAN, tailnet).
+    /// A VNC server reached directly (LAN, tailnet). `transport` makes the byte stream of
+    /// each connect (a tunnel, a test server); nil for TCP to `endpoint`.
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
-                preferences: ScreenPreferences = ScreenPreferences()) {
+                preferences: ScreenPreferences = ScreenPreferences(),
+                transport: (@MainActor () -> any RFBTransport)? = nil) {
         self.title = title
         self.endpoint = endpoint
         self.credentials = credentials
         self.preferences = preferences
         pairing = nil
         makeSignaling = nil
+        makeTransport = transport
     }
 
     /// A Mac paired over WebRTC: a screen stream host (`cmux-vnc-host
@@ -123,6 +131,7 @@ public final class ScreenSession {
         self.credentials = credentials
         self.preferences = preferences
         makeSignaling = nil
+        makeTransport = nil
     }
 
     /// A screen stream whose signaling the app supplies: each `connect()`
@@ -138,6 +147,7 @@ public final class ScreenSession {
         credentials = VNCCredentials()
         self.preferences = preferences
         makeSignaling = signaling
+        makeTransport = nil
     }
 
     /// "WebRTC" or "Direct", for the stats line.
@@ -151,6 +161,7 @@ public final class ScreenSession {
         preferences = demoPreferences
         pairing = nil
         makeSignaling = nil
+        makeTransport = nil
     }
 
     public var isDemo: Bool { endpoint == nil }
@@ -186,7 +197,8 @@ public final class ScreenSession {
             }
             guard let target else { return }
             let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
-            start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
+            let transport: (any RFBTransport)? = if let pairing { WebRTCRFBTransport(pairing: pairing) } else { makeTransport?() }
+            start(VNCClient(endpoint: target, options: options, transport: transport))
         })
     }
 
@@ -250,10 +262,8 @@ public final class ScreenSession {
         }
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
         viewer.onDisplays = { [weak self] message in
-            Task { @MainActor in
-                let sizes = (message.displays ?? []).map { CGSize(width: $0.w, height: $0.h) }
-                self?.onStreamDisplays?(sizes, message.current ?? 0)
-            }
+            let displays = Self.streamDisplays(from: message)
+            Task { @MainActor in self?.onStreamDisplays?(displays.sizes, displays.current) }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
         viewer.onState = { [weak self, weak viewer] message in
@@ -283,6 +293,21 @@ public final class ScreenSession {
                 }
             }
         })
+    }
+
+    /// The largest display side a host may report: the largest framebuffer side (`RFBLimits.maxSide`).
+    nonisolated static let maxDisplaySide = 16384
+
+    /// The display sizes and the streaming display of a host's display frame, which is untrusted.
+    /// A frame with a display that is empty or past `maxDisplaySide` reports no displays: dropping
+    /// only that display would shift the indices the viewer sends back to select one. A current
+    /// display that is not one of them reports as 0.
+    nonisolated static func streamDisplays(from message: ScreenHostMessage) -> (sizes: [CGSize], current: Int) {
+        let displays = message.displays ?? []
+        let sides = 1 ... maxDisplaySide
+        guard displays.allSatisfy({ sides.contains($0.w) && sides.contains($0.h) }) else { return ([], 0) }
+        let current = message.current.flatMap { displays.indices.contains($0) ? $0 : nil } ?? 0
+        return (displays.map { CGSize(width: $0.w, height: $0.h) }, current)
     }
 
     /// The stream ended without the user closing it: reconnect a few times
@@ -437,7 +462,10 @@ public final class ScreenSession {
         case .failed, .ended: return false
         case .connecting: break
         }
-        return await withCheckedContinuation { phaseWaiters.append($0) }
+        // A dropped waiter reads as not connected.
+        return (try? await withOnceContinuation { (waiter: OnceContinuation<Bool, OnceContinuationError>) in
+            phaseWaiters.append(waiter)
+        }) ?? false
     }
 
     private func resumeWaiters() {

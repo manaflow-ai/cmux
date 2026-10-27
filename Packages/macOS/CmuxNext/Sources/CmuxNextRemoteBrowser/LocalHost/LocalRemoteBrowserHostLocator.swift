@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
@@ -10,7 +11,7 @@ public nonisolated struct RemoteBrowserHostListening: Sendable, Equatable {
 
     public init?(line: String) {
         guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let address = object["listening"] as? String,
               address.hasPrefix("127.0.0.1:"),
               let port = UInt16(address.dropFirst("127.0.0.1:".count)),

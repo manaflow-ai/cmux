@@ -36,14 +36,19 @@ public nonisolated struct GhosttyKeyProbe: Sendable, Equatable {
 struct GhosttyKeyClaims {
     /// For each probe, whether `user` (the loaded config) claims it, given
     /// `defaults` (no user files) and `unbinds` (the user's `unbind` lines).
+    /// The three configs are live handles the caller holds for the call.
     static func claimed(_ probes: [GhosttyKeyProbe], user: ghostty_config_t, defaults: ghostty_config_t,
                         unbinds: ghostty_config_t?) -> [Bool] {
         probes.map { probe in
             let key = keyEvent(probe)
-            let bound = ghostty_config_key_is_binding(user, key)
-            if bound != ghostty_config_key_is_binding(defaults, key) { return true }
-            guard !bound, let unbinds else { return false }
-            return ghostty_config_key_is_binding(unbinds, key)
+            // SAFETY: the caller's live configs; `key` carries no text pointer (keyEvent).
+            let bound = unsafe ghostty_config_key_is_binding(user, key)
+            // SAFETY: as above.
+            if unsafe bound != ghostty_config_key_is_binding(defaults, key) { return true }
+            // SAFETY: as above.
+            guard !bound, let unbinds = unsafe unbinds else { return false }
+            // SAFETY: as above.
+            return unsafe ghostty_config_key_is_binding(unbinds, key)
         }
     }
 
@@ -53,7 +58,8 @@ struct GhosttyKeyClaims {
         key.mods = GhosttyInput.mods(probe.modifiers)
         key.consumed_mods = GHOSTTY_MODS_NONE
         key.keycode = UInt32(probe.keyCode)
-        key.text = nil
+        // SAFETY: a null text pointer: a probe has no text.
+        unsafe key.text = nil
         key.unshifted_codepoint = probe.unshifted
         key.composing = false
         return key
@@ -80,42 +86,61 @@ struct GhosttyKeyClaims {
     /// A finalized scratch config binding each trigger to `ignore` (Ghostty
     /// parses the trigger), or nil when there is none. The caller frees it.
     static func unbindConfig(triggers: [String]) -> ghostty_config_t? {
-        guard !triggers.isEmpty, let config = ghostty_config_new() else { return nil }
+        // SAFETY: a new config, live until the caller frees it; this function only fills it.
+        guard !triggers.isEmpty, let config = unsafe ghostty_config_new() else { return nil }
         for trigger in triggers {
-            let line = "keybind = \(trigger)=ignore"
-            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+            // SAFETY: as above.
+            unsafe GhosttyRuntime.loadConfigLine("keybind = \(trigger)=ignore", into: config, source: "cmux-next")
         }
-        ghostty_config_finalize(config)
-        return config
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
+        // SAFETY: as above; the caller takes it over.
+        return unsafe config
     }
 
     /// A finalized config without the user's files: Ghostty's defaults with
     /// cmux's over them. The caller frees it.
     static func defaultsConfig() -> ghostty_config_t? {
-        guard let config = ghostty_config_new() else { return nil }
-        GhosttyRuntime.loadKeybindDefaults(into: config)
-        ghostty_config_finalize(config)
-        return config
+        // SAFETY: a new config, live until the caller frees it; this function only fills it.
+        guard let config = unsafe ghostty_config_new() else { return nil }
+        // SAFETY: as above.
+        unsafe GhosttyRuntime.loadKeybindDefaults(into: config)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
+        // SAFETY: as above; the caller takes it over.
+        return unsafe config
     }
 
     /// For each probe, whether `user` claims it, its `unbind` lines read from
     /// `texts` (the loaded files' contents).
+    /// `user` is a live handle the caller holds for the call.
     static func claimed(_ probes: [GhosttyKeyProbe], user: ghostty_config_t, texts: [String]) -> [Bool] {
-        guard let defaults = defaultsConfig() else { return probes.map { _ in false } }
-        defer { ghostty_config_free(defaults) }
-        let unbinds = unbindConfig(triggers: texts.flatMap(unbindTriggers(in:)))
-        defer { if let unbinds { ghostty_config_free(unbinds) } }
-        return claimed(probes, user: user, defaults: defaults, unbinds: unbinds)
+        // SAFETY: two configs this function takes over from their makers and frees once each
+        // (defer), after their last use; `user` is the caller's live config.
+        guard let defaults = unsafe defaultsConfig() else { return probes.map { _ in false } }
+        // SAFETY: as above.
+        defer { unsafe ghostty_config_free(defaults) }
+        // SAFETY: as above.
+        let unbinds = unsafe unbindConfig(triggers: texts.flatMap(unbindTriggers(in:)))
+        // SAFETY: as above.
+        defer { if let unbinds = unsafe unbinds { unsafe ghostty_config_free(unbinds) } }
+        // SAFETY: as above.
+        return unsafe claimed(probes, user: user, defaults: defaults, unbinds: unbinds)
     }
 
     /// For each probe, whether a config made of `text` claims it (tests).
     static func claimed(_ probes: [GhosttyKeyProbe], configText text: String) -> [Bool] {
-        guard let config = ghostty_config_new() else { return probes.map { _ in false } }
-        defer { ghostty_config_free(config) }
-        GhosttyRuntime.loadKeybindDefaults(into: config)
-        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
-        ghostty_config_finalize(config)
-        return claimed(probes, user: config, texts: [text])
+        // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
+        let claims = unsafe GhosttyRuntime.withScratchConfig(load: {
+            // SAFETY: as above.
+            unsafe GhosttyRuntime.loadKeybindDefaults(into: $0)
+            // SAFETY: as above.
+            unsafe GhosttyRuntime.loadConfigLine(text, into: $0, source: "test")
+        }, read: {
+            // SAFETY: as above.
+            unsafe claimed(probes, user: $0, texts: [text])
+        })
+        return claims ?? probes.map { _ in false }
     }
 }
 
@@ -126,7 +151,8 @@ extension GhosttyRuntime {
     /// config.
     public func userClaimedKeys(_ probes: [GhosttyKeyProbe], texts: [String]) -> [Bool] {
         guard let config else { return probes.map { _ in false } }
-        return GhosttyKeyClaims.claimed(probes, user: config, texts: texts)
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config).
+        return unsafe GhosttyKeyClaims.claimed(probes, user: config, texts: texts)
     }
 
     /// The contents of config files, read off the main actor (missing or

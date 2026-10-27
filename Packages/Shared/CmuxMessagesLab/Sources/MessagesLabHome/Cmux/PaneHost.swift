@@ -35,6 +35,7 @@ final class LayerHostView: NSView {
 ///   chrome       NSGlassEffectView field, glass "+" and emoji NSButtons
 ///   compose      placeholder, waveform, attachment chips (shared layers)
 ///   textView     the compose NSTextView
+///   composeChrome  cmux: send button, voice controls, "Listening…" (layers, one view)
 ///   above        pickers and editors over everything
 ///
 /// cmux (blocker: a Home tab shares the cmux-next window, so it cannot own
@@ -54,11 +55,15 @@ final class HostView: NSView {
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
         ? TraceableTranscriptScrollView(frame: .zero) : TranscriptScrollView(frame: .zero)
     let fieldChrome = FieldChrome()
+    /// cmux: the compose bar's own controls as layers of one view (p03-rendering-074): the send
+    /// button, the voice input's mic, waveform and finish buttons, and "Listening…".
+    let composeChrome = ComposeChromeView(frame: .zero)
     /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
-    let sendButton = ComposeSendButton(frame: .zero)
-    /// cmux: the voice input's mic, waveform and finish buttons, and "Listening…" (ComposeVoiceControls.swift).
-    let voiceControls = ComposeVoiceControls(frame: .zero)
-    let listeningLine = ComposeListeningLine(frame: .zero)
+    var sendButton: ComposeSendButton { composeChrome.send }
+    /// cmux: the voice input's mic, waveform and finish buttons (ComposeVoiceControls.swift).
+    var voiceControls: ComposeVoiceControls { composeChrome.voice }
+    /// cmux: "Listening…" in the empty field while dictating.
+    var listeningLine: ComposeListeningLine { composeChrome.listening }
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
@@ -75,11 +80,10 @@ final class HostView: NSView {
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
-    /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
-    /// (PaneHost+WindowPlace.swift).
-    var windowPlaceObserver: NSObjectProtocol?
+    /// MessagesLab b6760b6: the window place the rows last read (PaneHost+WindowPlace.swift).
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
-    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
+    /// How many times the rows read their window place (tests: a window event with no move reads none).
+    var windowPlaceRefreshes = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -120,10 +124,9 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
-        // cmux: above the text view's clip (the text leaves its slot free).
-        addSubview(sendButton)
-        addSubview(listeningLine)
-        addSubview(voiceControls)
+        // cmux: above the text view's clip (the text leaves its slot free): one view whose layers
+        // are the send button, the voice controls and "Listening…" (p03-rendering-074).
+        addSubview(composeChrome)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -145,14 +148,21 @@ final class HostView: NSView {
         needsLayout = true
     }
 
+    /// How often the pane laid out (tests: a plain key in the field lays it out no more).
+    private(set) var layoutPasses = 0
+
     override func layout() {
         super.layout()
-        for v in [below, morphHost, composeHost, above] { v.frame = bounds }
+        layoutPasses += 1
+        for v in [below, morphHost, composeHost, composeChrome, above] where v.frame != bounds { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds
             demo.setNeedsLayout()
         }
+        // cmux (p07-memory-030): a released transcript shown again lays its rows out once, here, at the pane's size and
+        // its window's scale (a hidden tab's view is out of the window and keeps the size it was hidden at).
+        if window != nil { demo?.layOutRestoredRows() }
         // cmux: the window view lays out first, so the compose view's bounds
         // (its field, "+" and emoji rects are in them) are this pane's before
         // the glass is placed. Host.swift's window starts at the fixture size;
@@ -211,8 +221,9 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
-        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        windowPlaceDidChangeWindow()  // MessagesLab b6760b6 (PaneHost+WindowPlace.swift)
         restoreClipMaskOutsideLiveResize()
+        if window != nil, demo?.restorePending == true { needsLayout = true }  // cmux: `layout` lays the restored rows out
     }
 
     // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
@@ -327,6 +338,7 @@ extension FieldChrome {
 /// and undo send are not offered in the pane;
 /// the attachment intake (picker, paste, drop) is the host's (`intents`),
 /// the chips, morph and bubbles MessagesLab's.
+@MainActor
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
@@ -360,8 +372,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// cmux: where the pane's display frames come from (CmuxNext: its FrameScheduler).
+    private let frameSource: any FrameTickSource
     /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
-    private(set) lazy var frameTick = FrameTick(view: host)
+    private(set) lazy var frameTick = FrameTick(view: host, source: frameSource)
     /// Runs work at the start of the next display frame (FrameTick; tests capture it).
     /// Off screen (no window: captures, the harness) there is no display frame: now.
     lazy var nextFrame: (@escaping () -> Void) -> Void = { [weak self] f in
@@ -375,7 +389,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
-    private var pickerKeys: Any?
+    private var pickerKeys: ScopedEventMonitor?
     /// The picker's emoji bubble (PaneMenu).
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
@@ -445,30 +459,31 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
     var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
-    private var observers: [NSObjectProtocol] = []
-    /// Its own window's key observers (PaneHost+KeyState.swift).
-    var keyObservers: [NSObjectProtocol] = []
+    /// Its window's screen observation (`windowChanged`); released with the controller.
+    private var observers: [MainQueueObservation] = []
+    /// Its own window's key observations (PaneHost+KeyState.swift).
+    var keyObservers: [MainQueueObservation] = []
     /// Whether the view greys when its window is not key (MessagesLab's parity behavior). Off in cmux; the
     /// `--follow-key-state` argument turns it on for parity runs.
     var followsKeyWindow = ChatController.args.contains("--follow-key-state")
 
-    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler,
+         frames: any FrameTickSource = DisplayLinkFrameTicks()) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
+        self.frameSource = frames
         super.init()
         host.controller = self
+        // The scroller's fade-in, widen and hide on the host's timer (CmuxNext: DemandTimer).
+        (host.scrollView.verticalScroller as? SequenceScroller)?.useDeadlines(from: wake)
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
         host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
     }
 
-    deinit {
-        (observers + keyObservers).forEach { NotificationCenter.default.removeObserver($0) }
-        wake.cancel()
-        hold.cancel()
-        if let m = pickerKeys { NSEvent.removeMonitor(m) }
-    }
+    // No deinit: the observations and the picker's key monitor stop when released with the controller, and
+    // the wake-up and press-hold callbacks hold it weakly, so a pending one finds nothing to run.
 
     /// cmux: install the window view over the adapter's projection (the
     /// loaded HomeStore window), in place of `load()` over a source.
@@ -564,20 +579,20 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// display scale follow it (the controller does not own the window).
     func windowChanged() {
         ScaleKeeper.shared.setNeedsApply()
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        frameTick.viewDidMoveToWindow()  // cmux: waiting frame work follows the pane to its new window
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
         followKeyState()  // its own window's key state; drops the old window's key observers
         guard let window, demo != nil else { return }
-        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
+        observers.append(MainQueueObservation(NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in self?.followDisplay() })
         followDisplay()
     }
 
     static func warmUp() {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
-        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
+        MainRunLoopPass.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
         let tv = FieldTextView(usingTextLayoutManager: true)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
@@ -863,7 +878,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         pickerEmoji = emoji
         // Esc closes the picker wherever the key focus is (the press may have
         // left it on the transcript, not the field).
-        pickerKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+        pickerKeys = ScopedEventMonitor(matching: .keyDown) { [weak self] e in
             guard e.keyCode == 53, let self, self.picker != nil else { return e }
             self.closePicker()
             return nil
@@ -873,7 +888,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         picker?.removeFromSuperview(); picker = nil
         pickerDim?.removeFromSuperview(); pickerDim = nil
         pickerEmoji?.removeFromSuperview(); pickerEmoji = nil
-        if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
+        pickerKeys = nil
     }
 
     // Context menu: PaneMenu.swift (MessagesLab 69f4256).

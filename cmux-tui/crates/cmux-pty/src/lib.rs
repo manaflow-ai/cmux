@@ -39,9 +39,11 @@ mod macos;
 #[cfg(unix)]
 mod open_files;
 #[cfg(unix)]
+pub use macos::NativePtyChild;
+#[cfg(unix)]
 pub use open_files::{
     OPEN_FILE_LIMIT_CEILING, OpenFileLimit, original_open_file_limit, raise_open_file_limit,
-    restore_open_file_limit, restore_open_file_limit_in_child,
+    restore_open_file_limit,
 };
 
 /// Stable classification for failures at the PTY allocation boundary.
@@ -365,7 +367,7 @@ mod tests {
             println!("{}", String::from_utf8_lossy(&output).trim());
             return Ok(());
         }
-        let output = std::process::Command::new(std::env::current_exe()?)
+        let output = cmux_process::Command::new(std::env::current_exe()?)
             .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
             .env(PROBE, "1")
             .output()?;
@@ -386,6 +388,67 @@ mod tests {
         assert_eq!(ignored & reset, 0, "child ignores {line}");
         assert_eq!(blocked, 0, "child blocks signals: {line}");
         Ok(())
+    }
+
+    /// A `/bin/sleep 30` spawned on a new PTY.
+    fn spawn_sleeper() -> SpawnedPty {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sleep");
+        command.args(["30"]);
+        pair.spawn(command).unwrap()
+    }
+
+    /// macOS: a PTY child spawned from a UserInteractive thread runs at
+    /// QOS_CLASS_DEFAULT, not the thread's class (p02-threads task 223), and
+    /// the thread keeps its class.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_pty_child_of_a_user_interactive_thread_runs_at_default() {
+        use cmux_threads::process::probe;
+        use cmux_threads::{LiveQos, QosChange, ThreadQos, current, set_current};
+
+        let default = probe::base_priority_at(ThreadQos::Default).unwrap();
+        let interactive = probe::base_priority_at(ThreadQos::UserInteractive).unwrap();
+        assert_ne!(default, interactive);
+        let child = std::thread::spawn(|| {
+            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let priority = probe::first_thread_base_priority(pid);
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+            priority.unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(child, default, "child {child}: default {default}, ui {interactive}");
+    }
+
+    /// Linux: a PTY child keeps the spawning thread's nice value, as before.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pty_child_keeps_the_threads_nice_value_on_linux() {
+        let nice_of = |pid: libc::pid_t| {
+            // SAFETY: the raw syscall returns 20 - nice (1..=40).
+            let raw = unsafe {
+                libc::syscall(libc::SYS_getpriority, libc::PRIO_PROCESS, pid as libc::c_long)
+            };
+            assert!(raw > 0, "getpriority({pid}): {}", io::Error::last_os_error());
+            20 - raw as i32
+        };
+        std::thread::spawn(move || {
+            // SAFETY: gettid has no preconditions.
+            let tid = unsafe { libc::gettid() };
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let (parent, child) = (nice_of(tid), nice_of(pid));
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(child, parent);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -467,7 +530,7 @@ mod tests {
     fn close_range_seccomp_fallback_keeps_pty_spawn_working() {
         const CHILD_ENV: &str = "CMUX_PTY_CLOSE_RANGE_SECCOMP_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .arg("tests::close_range_seccomp_fallback_keeps_pty_spawn_working")
                 .arg("--exact")
                 .arg("--nocapture")
@@ -541,5 +604,96 @@ mod tests {
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
         );
+    }
+
+    /// Read the PTY until `marker` appears or the child's side closes.
+    fn read_until(reader: &mut dyn io::Read, marker: &str) -> String {
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        while !String::from_utf8_lossy(&output).contains(marker) {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+            }
+        }
+        String::from_utf8_lossy(&output).into_owned()
+    }
+
+    /// `kill` of a child that ignores the hangup: SIGHUP, then SIGKILL
+    /// after the grace, so the child ends anyway.
+    #[test]
+    fn kill_ends_a_child_that_ignores_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "trap '' HUP; echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        let started = std::time::Instant::now();
+        spawned.child.kill().unwrap();
+        let status = spawned.child.wait().unwrap();
+        assert!(!status.success(), "{status:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    }
+
+    /// `kill` of a child that dies of the hangup returns once it ended.
+    #[test]
+    fn kill_ends_a_child_on_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        spawned.child.kill().unwrap();
+        let status = spawned.child.try_wait().unwrap().expect("the child ended within the kill");
+        assert!(!status.success(), "{status:?}");
+    }
+
+    /// After the daemon raised its open-file limit, a shell it starts on a
+    /// PTY gets the limit the daemon started with (Linux: setrlimit in the
+    /// child; macOS: the `ulimit` launcher). Runs in a re-executed copy of
+    /// this test binary, so the lowered and raised limits stay there.
+    #[test]
+    fn a_pty_child_gets_the_open_file_limit_from_before_the_raise() {
+        const CHILD: &str = "CMUX_PTY_OPEN_FILE_LIMIT_CHILD";
+        const NAME: &str = "tests::a_pty_child_gets_the_open_file_limit_from_before_the_raise";
+        if std::env::var_os(CHILD).is_none() {
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+                .args([NAME, "--exact", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{NAME} failed in its own process:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: valid storage for one rlimit; only this re-run process
+        // changes its soft limit.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit), 0);
+            assert!(limit.rlim_max >= 1_024, "hard limit {}", limit.rlim_max);
+            limit.rlim_cur = 200;
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit), 0);
+        }
+        let raised = raise_open_file_limit(1_024).unwrap();
+        assert_eq!(raised, OpenFileLimit { before: 200, after: 1_024 });
+        assert_eq!(original_open_file_limit(), Some(200));
+
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo limit=$(ulimit -S -n)."]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let output = read_until(&mut *reader, ".");
+        assert!(spawned.child.wait().unwrap().success());
+        assert!(output.contains("limit=200."), "{output}");
     }
 }

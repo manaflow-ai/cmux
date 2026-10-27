@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextAgentCursor
 import CmuxNextSettings
+import CmuxNextTrace
 import Foundation
 
 /// `debug.agent_cursor.demo` (DEBUG builds only): drives the REAL agent
@@ -18,6 +19,8 @@ import Foundation
 @MainActor
 enum DebugAgentCursorDemo {
     private static var demo = AgentCursorDemo()
+    /// The steps' host time: the overlay's follow and caption-join windows are durations between them.
+    private static let clock = TraceClock()
 
     static func handle(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
         let point = params["point"]?.objectValue
@@ -37,7 +40,7 @@ enum DebugAgentCursorDemo {
                 let step = try demo.step(
                     action: action, session: session, target: target,
                     x: request.x, y: request.y, zoom: params["zoom"]?.doubleValue,
-                    tMs: Date().timeIntervalSince1970 * 1000
+                    tMs: Double(clock.nowNanos()) / 1e6
                 )
                 apply(step, services: services)
             } catch {

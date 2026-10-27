@@ -68,7 +68,7 @@ pub(crate) const LINK_TCP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// SYN origins remembered at once (tagged mode). Entries leave when their
 /// connection is accepted; past this bound the ones without a half-open
 /// socket are dropped, and a SYN that still finds no room is dropped too.
-const MAX_SYN_ORIGINS: usize = 1024;
+pub(crate) const MAX_SYN_ORIGINS: usize = 1024;
 
 /// A peer's public key, the tag of a connection in a mesh.
 pub(crate) type PeerKey = [u8; 32];

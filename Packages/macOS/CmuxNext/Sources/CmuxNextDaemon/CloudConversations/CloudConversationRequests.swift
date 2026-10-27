@@ -8,7 +8,7 @@ import Foundation
 /// and origin. A retry with the same key answers `replayed: true`.
 public struct CloudConversationOpRequest: DaemonRequest {
     public typealias Response = CloudConversationOpResult
-    public static let command = "cloud-conversation-op"
+    public static let commandName: DaemonCommandName = "cloud-conversation-op"
     /// Required, except for `dm.open` and `conversation.create`, which must not carry it.
     public var conversation: String?
     /// 1...256 characters, sent unchanged.
@@ -23,12 +23,16 @@ public struct CloudConversationOpRequest: DaemonRequest {
         self.origin = origin
         self.op = op
     }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, idempotencyKey = "idempotency_key", origin, op
+    }
 }
 
 /// `cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`).
 public struct CloudConversationSubscribeRequest: DaemonRequest {
     public typealias Response = CloudSubscription
-    public static let command = "cloud-conversation-subscribe"
+    public static let commandName: DaemonCommandName = "cloud-conversation-subscribe"
     public static let maxSubscriptions = 64
     public var conversation: String
     public init(conversation: String) { self.conversation = conversation }
@@ -37,7 +41,7 @@ public struct CloudConversationSubscribeRequest: DaemonRequest {
 /// `cloud-conversation-unsubscribe`.
 public struct CloudConversationUnsubscribeRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "cloud-conversation-unsubscribe"
+    public static let commandName: DaemonCommandName = "cloud-conversation-unsubscribe"
     public var conversation: String
     public init(conversation: String) { self.conversation = conversation }
 }

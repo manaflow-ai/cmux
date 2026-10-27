@@ -4,7 +4,8 @@ import AppKit
 struct ShortcutHintModifierPolicy {
     static let intentionalHoldDelay: Duration = .milliseconds(300)
     private var suppressed = false
-    private var held = false
+    /// Cmd, Ctrl, Shift or Option is down: a key or click now suppresses the hints until release.
+    private(set) var held = false
     /// A key while held suppresses the hints until release, unless it `keepsHints` (a pane-navigation key).
     mutating func keyDown(keepsHints: Bool = false) {
         if !keepsHints { suppressed = held }

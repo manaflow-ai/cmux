@@ -48,23 +48,27 @@ final class HomeFirstRunHero: NSView {
 
     /// The Chief's face: its picture, else its text. Neither draws none (the space stays, so the
     /// panel does not jump).
+    /// Only a new text face lays the hero out (the glyph's height is the text's); a picture fills
+    /// a fixed frame.
     func setAvatar(picture image: NSImage?, text: String?) {
-        picture.layer?.contents = image
+        if (picture.layer?.contents as? NSImage) !== image { picture.layer?.contents = image }
         picture.isHidden = image == nil
-        glyph.stringValue = image == nil ? text ?? "" : ""
         glyph.isHidden = image != nil || text == nil
+        let face = image == nil ? text ?? "" : ""
+        guard glyph.stringValue != face else { return }
         needsLayout = true
+        glyph.stringValue = face
     }
 
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         // The face is a picture-sized emoji, not body text: it scales with the picture.
         glyph.font = .systemFont(ofSize: Self.glyphSize * scale)
         title.font = .systemFont(ofSize: TypeScale.title * scale, weight: TypeScale.emphasis)
         body.font = .systemFont(ofSize: TypeScale.detail * scale)
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     func applyColors(primary: NSColor, secondary: NSColor) { // theme-scoped

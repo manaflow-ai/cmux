@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxSafeConcurrency
 import Observation
 public import UIKit
 
@@ -14,35 +15,43 @@ public final class MobileKeyboardVisibilityObserver {
     /// Whether the soft keyboard is currently on screen.
     public private(set) var isVisible = false
 
+    /// The observer tokens, removed in the nonisolated `deinit`. Written in
+    /// `init`; a `Mutex` makes them reachable from `deinit` on any thread.
+    // carve-out: never contended (init writes, deinit reads), it only makes the tokens Sendable.
     @ObservationIgnored
-    private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
+    private nonisolated let tokens = Mutex<[any NSObjectProtocol]>([])
     @ObservationIgnored
     private nonisolated let notificationCenter: NotificationCenter
 
     /// Creates an observer subscribed to the keyboard show/hide notifications.
     public init(notificationCenter: NotificationCenter = .default) {
         self.notificationCenter = notificationCenter
-        tokens = [
-            notificationCenter.addObserver(
-                forName: UIResponder.keyboardWillShowNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.isVisible = true } // main-proof: observer on queue: .main
-            },
-            notificationCenter.addObserver(
-                forName: UIResponder.keyboardWillHideNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.isVisible = false } // main-proof: observer on queue: .main
-            },
-        ]
+        observe(UIResponder.keyboardWillShowNotification) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isVisible = true } // main-proof: observer on queue: .main
+        }
+        observe(UIResponder.keyboardWillHideNotification) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isVisible = false } // main-proof: observer on queue: .main
+        }
+    }
+
+    /// Observes `name` on the main queue. The token is made inside the lock,
+    /// so it never belongs to the main actor and `deinit` can remove it.
+    private nonisolated func observe(
+        _ name: Notification.Name,
+        handler: @escaping @Sendable (Notification) -> Void
+    ) {
+        let notificationCenter = notificationCenter
+        tokens.withLock { tokens in
+            tokens.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main, using: handler))
+        }
     }
 
     deinit {
-        for token in tokens {
-            notificationCenter.removeObserver(token)
+        let notificationCenter = notificationCenter
+        tokens.withLock { tokens in
+            for token in tokens {
+                notificationCenter.removeObserver(token)
+            }
         }
     }
 }

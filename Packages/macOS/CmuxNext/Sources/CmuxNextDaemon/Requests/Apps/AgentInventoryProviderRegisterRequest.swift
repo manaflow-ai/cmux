@@ -12,7 +12,7 @@ public nonisolated struct AgentInventoryProviderRegisterRequest: DaemonRequest {
         }
     }
     /// Existing provider registration command with explicit opt-in.
-    public static let command = "apps-provider-register"
+    public static let commandName: DaemonCommandName = "apps-provider-register"
     /// Native demand and invalidation carrier support.
     public static let requiredCapability: String? = "agent-cli-app-invalidation-v1"
     /// The complete family set, including `agent_cli`.
@@ -23,4 +23,8 @@ public nonisolated struct AgentInventoryProviderRegisterRequest: DaemonRequest {
     /// Creates the opt-in request; the native owner validates the family set.
     /// - Parameter families: Families implemented by this verified app connection.
     public init(families: [String]) { self.families = families }
+
+    enum CodingKeys: String, CodingKey {
+        case families, inventoryWatch = "inventory_watch"
+    }
 }

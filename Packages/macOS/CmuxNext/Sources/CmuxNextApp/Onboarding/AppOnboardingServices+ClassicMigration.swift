@@ -76,6 +76,7 @@ extension AppOnboardingServices {
                         confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
                         progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
+        // main-hop-allow: the run is the one chain later runs await (runs never overlap); each of its steps is store, window or daemon work on the main actor and resumes once per daemon reply
         let run = Task { @MainActor in
             _ = await previous?.result
             return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation, progress: progress)
@@ -198,18 +199,13 @@ extension AppOnboardingServices {
         var later: [ClassicWorkspaceTurn] = []
         for index in plan.windows.indices { later += try await makeClassicWindow(index, run: run) }
         if !later.isEmpty {
-            // The hosts still connecting, waited for together (each within its connect limit).
-            let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
-            let waits = waiting.compactMap { destination in
-                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
-            }
-            for wait in waits {
-                let (destination, up) = await wait.value
-                guard !up else { continue }
+            // The hosts still connecting, waited for together: one wait until all are up, within the connect limit.
+            let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination }).compactMap { destination in hosts[destination].map { (destination, $0) } }
+            await connected(waiting.map { $0.1 })
+            for (destination, daemon) in waiting where daemon.connection == nil {
                 run.unreachable.insert(destination)
                 // A machine this run added and that never connected is not left in the list.
-                if let daemon = hosts[destination], !knownMachines.contains(daemon.machineID),
-                   let session = services.machines.sshSession(daemon.machineID) {
+                if !knownMachines.contains(daemon.machineID), let session = services.machines.sshSession(daemon.machineID) {
                     await services.ssh.forget(session)
                 }
             }
@@ -306,7 +302,7 @@ extension AppOnboardingServices {
             store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty && !$0.dead }.map(\.surface) ?? []
         }
         let expected = saved.layout.tabs.filter { $0.url == nil }.count
-        guard expected > 0, await Self.awaitStore({ terminals().count >= expected }) else { return }
+        guard expected > 0, await awaitStore({ terminals().count >= expected }) else { return }
         do {
             _ = try await connection.request(ParkTabsRequest(surfaces: terminals()))
         } catch {
@@ -314,27 +310,27 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
-    private static func awaitStore(_ ready: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        if ready() { return true }
-        let outcome = FirstOutcome<Bool>()
-        let watch = Task { @MainActor in
-            for await done in ObservationStream(ready) where done {
-                outcome.resolve(true)
-                return
-            }
-        }
-        // A bounded wait: the daemon's event normally lands within one turn.
-        let bound = DemandTimer(owner: "ClassicMigration.awaitStore")
-        bound.schedule(after: .seconds(5)) { outcome.resolve(false) }
-        let done = await outcome.value()
-        watch.cancel()
-        bound.cancel()
-        return done || ready()
+    /// Whether `ready` holds, now or within ``classicStoreWaitLimit``, read again only when the store changes
+    /// what it read. The daemon's event normally lands within one turn.
+    private func awaitStore(_ ready: @escaping @MainActor () -> Bool) async -> Bool {
+        await Self.awaitStore(on: services.mainWork, deadlines: services.mainDeadlines, ready)
+    }
+
+    /// How long a migration step waits for the store to mirror what it created.
+    nonisolated static let classicStoreWaitLimit = Duration.seconds(5)
+
+    /// Whether `ready` holds, now or within ``classicStoreWaitLimit`` (recipe R-wait: a `visible` observation and a
+    /// `MainDeadline`, Chromium's observer plus `OneShotTimer`); a cancelled caller returns at once.
+    static func awaitStore(on mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                           _ ready: @escaping @MainActor () -> Bool) async -> Bool {
+        await ObservedCondition(owner: "ClassicMigration.awaitStore", .visible, on: mainWork)
+            .until(timeout: classicStoreWaitLimit, deadlines: deadlines, ready)
+        return ready()
     }
 
     fileprivate func save(_ ledger: ClassicMigrationLedger, to repository: ClassicMigrationRepository) async throws {
         var ledger = ledger
+        // wall-clock: the ledger file keeps Unix seconds.
         ledger.updatedAt = Date().timeIntervalSince1970
         try await repository.save(ledger)
     }
@@ -371,10 +367,7 @@ extension AppOnboardingServices {
 
     /// Local folders that are gone open the home folder (`readForImport`), window by window.
     private nonisolated static func openingMissingFolders(_ snapshot: ClassicSessionSnapshot) -> ClassicSessionSnapshot {
-        let exists: (String) -> Bool = { path in
-            var isFolder: ObjCBool = false
-            return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
-        }
+        let exists: (String) -> Bool = { path in FileManager.default.directoryExists(atPath: path) }
         let windows = snapshot.windows.map { window in
             ClassicSessionWindow(id: window.id, frame: window.frame, selectedWorkspace: window.selectedWorkspace,
                                  workspaces: window.workspaces.map { saved in
@@ -421,7 +414,7 @@ extension AppOnboardingServices {
         let local = services.machines.local
         let store = local.store
         // The create returns before the store mirrors the new workspace: its look would be dropped.
-        guard await Self.awaitStore({ store.workspace(id: id)?.key != nil }),
+        guard await awaitStore({ store.workspace(id: id)?.key != nil }),
               let connection = local.connection, let key = store.workspace(id: id)?.key else {
             services.daemon.logger.error("classic workspace look not kept: \(id, privacy: .public) never showed")
             return
@@ -450,6 +443,7 @@ extension AppOnboardingServices {
         guard let source else { return false }
         let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
             home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
+        // wall-clock: the probe compares classic's file save dates.
         return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)
     }
 

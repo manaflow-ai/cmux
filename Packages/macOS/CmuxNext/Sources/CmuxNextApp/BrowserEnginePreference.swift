@@ -1,6 +1,7 @@
 import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The live `browser.defaultEngine`: follows cmux.json, and the default
@@ -13,24 +14,21 @@ final class BrowserEnginePreference {
     var defaultEngine: BrowserDefaultEngine = .fallback
     /// The live `browser.siteEngines`: sites that open in a set engine.
     var siteEngines: BrowserSiteEngines = .fallback
-    @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var siteObservation: Task<Void, Never>?
+    @ObservationIgnored private var engineWatch: ServiceObservation<BrowserDefaultEngine>?
+    @ObservationIgnored private var siteWatch: ServiceObservation<BrowserSiteEngines>?
 
-    /// Applies every loaded snapshot's value.
-    func follow(_ settings: SettingsController) {
-        observation?.cancel()
-        observation = Task { [weak self] in
-            for await engine in ObservationStream({ settings.snapshot.browserDefaultEngine }) {
-                guard let self else { return }
-                if self.defaultEngine != engine { self.defaultEngine = engine }
-            }
+    /// Applies every loaded snapshot's value, the current one now. `visible`: the engine is what the
+    /// tabs this launch restores and opens show; a person's change flushes before its frame.
+    func follow(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
+        engineWatch = ServiceObservation(.visible, owner: "BrowserEnginePreference.defaultEngine", on: mainWork) {
+            settings.snapshot.browserDefaultEngine
+        } apply: { [weak self] engine in
+            if let self, self.defaultEngine != engine { self.defaultEngine = engine }
         }
-        siteObservation?.cancel()
-        siteObservation = Task { [weak self] in
-            for await rules in ObservationStream({ settings.snapshot.browserSiteEngines }) {
-                guard let self else { return }
-                if self.siteEngines != rules { self.siteEngines = rules }
-            }
+        siteWatch = ServiceObservation(.visible, owner: "BrowserEnginePreference.siteEngines", on: mainWork) {
+            settings.snapshot.browserSiteEngines
+        } apply: { [weak self] rules in
+            if let self, self.siteEngines != rules { self.siteEngines = rules }
         }
     }
 }

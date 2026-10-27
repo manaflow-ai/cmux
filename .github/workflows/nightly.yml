@@ -1145,6 +1145,7 @@ jobs:
           # engine is a prebuilt artifact the shipped build embeds itself.
           CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
+            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -2029,7 +2030,11 @@ jobs:
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
+          # The daemon's pinned PGO profile, as the published build uses (scripts/cmux-next/pgo/rust-pgo.sh, task 056).
+          pgo="$(../scripts/cmux-next/pgo/rust-pgo.sh rustflags cmux-tui --target aarch64-apple-darwin --strict)"
+          pgo_env=(); [[ -z "$pgo" ]] || pgo_env=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }$pgo")
+          env ${pgo_env[@]+"${pgo_env[@]}"} \
+            cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
           # The terminal holder, installed beside cmux-tui (its own invocation: std and libc only).
           cargo build -p cmux-holder --bin cmux-holder --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
@@ -2132,15 +2137,26 @@ jobs:
           # notary tests, and every nightly-next build while
           # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
           echo "browser import variant: $IMPORT_VARIANT (flags: ${SWIFT_IMPORT_FLAGS:-none}, empty browser-sources.json: $EMPTY_BROWSER_SOURCES)"
-          notary_test_flags=(build)
           if [[ "$EMPTY_BROWSER_SOURCES" == true ]]; then
             printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' \
               > Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
           fi
           if [[ -n "$SWIFT_IMPORT_FLAGS" ]]; then
             [[ "$SWIFT_IMPORT_FLAGS" =~ ^(-DCMUX_NO_[A-Z_]+ ?)+$ ]] || { echo "unexpected import flags: $SWIFT_IMPORT_FLAGS" >&2; exit 1; }
+          fi
+          swift_flags="$SWIFT_IMPORT_FLAGS"
+          # The nightly-next track compiles the main-thread blocking detector in, in record mode
+          # (plans/cmux-next/threading-model.md): Chromium's DCHECK-enabled Canary model. The
+          # main-track nightly does not. `scripts/measure/blocking-checks.sh --app APP --expect
+          # nightly` proves the flag reached the app.
+          if [[ "$BUILD_TRACK" == nightly-next ]]; then
+            swift_flags="${swift_flags:+$swift_flags }-DCMUX_BLOCKING_CHECKS"
+          fi
+          echo "swift flags: ${swift_flags:-none}"
+          build_args=(build)
+          if [[ -n "$swift_flags" ]]; then
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
-            notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $SWIFT_IMPORT_FLAGS" build)
+            build_args=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_flags" build)
           fi
           if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             archs="arm64"
@@ -2183,6 +2199,7 @@ jobs:
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
+            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -2192,7 +2209,7 @@ jobs:
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
-            "${notary_test_flags[@]}"
+            "${build_args[@]}"
 
       # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
       # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
@@ -7274,9 +7291,10 @@ jobs:
             signed+=(notes/announcements.json)
           fi
           # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
-          # release-notes/next/flags.json, signed with the same content-signing key.
+          # release-notes/next/flags.json, signed with the same content-signing key. The app refuses a
+          # document with no default FeaturesSerial (FeatureRemoteDocument), so one is always there.
           if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict)' release-notes/next/flags.json
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict) and type(d["default"].get("FeaturesSerial")) is int' release-notes/next/flags.json
             cp release-notes/next/flags.json notes/flags.json
             signed+=(notes/flags.json)
           fi

@@ -1,5 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 
@@ -28,10 +29,13 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     let attachmentCache: URL
     /// Most bytes `attachmentCache` keeps; least recently used files go first.
     let attachmentCacheLimit: Int
+    /// The app's one ``BackgroundWork``: an attachment read's disk steps run on its files lane.
+    let work: BackgroundWork
 
-    public init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
+    public init(me: Participant, work: BackgroundWork, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
          attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) {
         self.me = me
+        self.work = work
         self.attachmentCache = attachmentCache
         self.attachmentCacheLimit = attachmentCacheLimit
     }

@@ -7,9 +7,10 @@
 //! that carries descriptors sends them with its first byte; the receiver
 //! queues them in arrival order and the frame kind says how many it takes.
 
-use std::collections::VecDeque;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+
+use cmux_ipc::fds::{self, FdReceiver};
 
 /// Frame magic.
 pub const MAGIC: [u8; 4] = *b"CMHX";
@@ -37,6 +38,30 @@ pub const VERSION: u16 = 5;
 pub const RING_VERSION: u16 = 5;
 /// Oldest wire version this build still serves.
 pub const MIN_VERSION: u16 = 1;
+
+/// Optional features a link negotiates beside its version (pty-holder.md
+/// section 2.1: "New features are optional capability bits"). A daemon of
+/// this build asks for them in its [`Kind::Hello`] (`wanted u32` after the
+/// token), the holder grants the ones it serves in its [`Kind::Welcome`]
+/// (`granted u32` after the count). A peer older than these bits reads
+/// neither field: an older holder grants nothing, so the daemon sends it
+/// none of their frames, and an older daemon asks for nothing. The version
+/// stays 5. Bits are never reused.
+pub mod capability {
+    /// [`super::Kind::TraceStart`] and [`super::Kind::TraceStop`]: the
+    /// daemon starts and stops this holder's trace recording. Granted only
+    /// by a holder whose tracer runs.
+    pub const TRACE_CONTROL: u32 = 1 << 0;
+    /// [`super::FLAG_FLOW`] on [`super::Kind::Write`]: the frame ends with
+    /// the `flow u64` of the key press that wrote it.
+    pub const WRITE_FLOW: u32 = 1 << 1;
+    /// [`super::Kind::Hang`]: the holder reports a pass of its loop that
+    /// ran past its hang deadline to the daemon's hang log.
+    pub const HANG_REPORT: u32 = 1 << 2;
+    /// Every bit this build knows (a holder serves TRACE_CONTROL only with
+    /// its tracer running).
+    pub const SUPPORTED: u32 = TRACE_CONTROL | WRITE_FLOW | HANG_REPORT;
+}
 /// Output a holder sends one terminal past the offset its daemon last
 /// acknowledged ([`Kind::Ack`], version 2): the daemon queues at most this
 /// much per terminal, and a terminal that prints faster than the daemon
@@ -51,10 +76,13 @@ pub const ACK_EVERY: u64 = CREDIT_WINDOW / 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Kind {
-    /// d->h: `version u16, token [u8; 32]`.
+    /// d->h: `version u16, token [u8; 32]`, then the optional `wanted
+    /// u32` ([`capability`] bits; absent from an older daemon: none).
     Hello = 1,
     /// h->d: `version u16` (the lower of the two peers' versions), `count
-    /// u32`, then one [`Kind::Listed`] per terminal.
+    /// u32`, then the optional `granted u32` ([`capability`] bits, a subset
+    /// of `wanted`; absent from an older holder: none), then one
+    /// [`Kind::Listed`] per terminal.
     Welcome = 2,
     /// d->h: spawn on a new PTY; payload [`crate::SpawnRequest`].
     Spawn = 3,
@@ -82,7 +110,11 @@ pub enum Kind {
     Data = 7,
     /// h->d: `requested u64, oldest u64`.
     Gap = 8,
-    /// d->h: bytes for the PTY.
+    /// d->h: bytes for the PTY. With [`FLAG_FLOW`] (granted
+    /// [`capability::WRITE_FLOW`] only) the last 8 bytes are not input but
+    /// the `flow u64` of the key press the bytes carry; the bytes before it
+    /// may be empty (a flow mark for input the daemon wrote on its custody
+    /// master).
     Write = 9,
     /// d->h: `cols u16, rows u16, px_w u16, px_h u16`.
     Resize = 10,
@@ -125,6 +157,23 @@ pub enum Kind {
     /// exactly this segment as its custody copy, so it never hands a later
     /// holder a segment nobody writes.
     Adopted = 21,
+    /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
+    /// start this holder's trace recording: `categories u64` (the
+    /// `cmux_trace::category` bits to record), `budget_bytes u64` (the
+    /// most ring bytes the daemon's total cap leaves this holder, the unit
+    /// of `cmux_trace::Status::recording_bytes`; 0: no limit). No path: the
+    /// holder writes where its own trace directory is. No answer when it
+    /// started; an [`Kind::Error`] with `TRACE_FAILED` when it did not. The
+    /// recording ends with the link that started it.
+    TraceStart = 22,
+    /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
+    /// stop the recording. Empty payload; an [`Kind::Error`] with
+    /// `TRACE_FAILED` when none ran.
+    TraceStop = 23,
+    /// h->d on channel 0 (granted [`capability::HANG_REPORT`] only): a pass
+    /// of the holder's loop was still busy past its hang deadline
+    /// ([`HangReport`]). No answer.
+    Hang = 24,
 }
 
 impl Kind {
@@ -153,6 +202,9 @@ impl Kind {
             19 => Snapshot,
             20 => Detach,
             21 => Adopted,
+            22 => TraceStart,
+            23 => TraceStop,
+            24 => Hang,
             _ => return None,
         })
     }
@@ -196,6 +248,78 @@ pub const FLAG_PROLOGUE: u16 = 1;
 /// it only on a link of at least [`RING_VERSION`], so an older peer never
 /// gets a descriptor it does not expect or a ring layout it cannot read.
 pub const FLAG_RING: u16 = 2;
+/// [`Kind::Write`] flag ([`capability::WRITE_FLOW`]): the payload ends
+/// with the `flow u64` trailer ([`write_flow_payload`]). Sent only to a
+/// holder that granted the capability: an older holder would write the
+/// trailer into the shell.
+pub const FLAG_FLOW: u16 = 4;
+
+/// The payload of a [`Kind::Write`] with [`FLAG_FLOW`]: `bytes`, then
+/// `flow`. `bytes` may be at most [`MAX_PAYLOAD`] - 8 long.
+pub fn write_flow_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
+    Out(Vec::with_capacity(bytes.len() + 8)).bytes(bytes).u64(flow).0
+}
+
+/// A [`Kind::Write`] payload split into its input and its flow: the flow
+/// is `Some` only with [`FLAG_FLOW`]. A flagged payload shorter than the
+/// trailer is an error.
+pub fn split_write(flags: u16, payload: &[u8]) -> io::Result<(&[u8], Option<u64>)> {
+    if flags & FLAG_FLOW == 0 {
+        return Ok((payload, None));
+    }
+    let Some(at) = payload.len().checked_sub(8) else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "short write flow trailer"));
+    };
+    let (bytes, trailer) = payload.split_at(at);
+    Ok((bytes, Some(In(trailer).u64()?)))
+}
+
+/// The payload of a [`Kind::TraceStart`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TraceStart {
+    /// `cmux_trace::category` bits to record.
+    pub categories: u64,
+    /// The most recording ring bytes the daemon's total cap leaves this
+    /// holder (`cmux_trace::Status::recording_bytes`; 0: no limit).
+    pub budget_bytes: u64,
+}
+
+impl TraceStart {
+    pub fn encode(self) -> Vec<u8> {
+        Out::default().u64(self.categories).u64(self.budget_bytes).0
+    }
+
+    pub fn decode(payload: &[u8]) -> io::Result<Self> {
+        let mut input = In(payload);
+        Ok(Self { categories: input.u64()?, budget_bytes: input.u64()? })
+    }
+}
+
+/// The payload of a [`Kind::Hang`]: `deadline_ms u64, busy_ms u64`, then
+/// the watched site's name in UTF-8.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HangReport {
+    /// The site's hang deadline.
+    pub deadline_ms: u64,
+    /// How long the pass had been busy when the holder's watcher saw it.
+    pub busy_ms: u64,
+    /// The watched site (`holder-loop`).
+    pub site: String,
+}
+
+impl HangReport {
+    pub fn encode(&self) -> Vec<u8> {
+        Out::default().u64(self.deadline_ms).u64(self.busy_ms).bytes(self.site.as_bytes()).0
+    }
+
+    pub fn decode(payload: &[u8]) -> io::Result<Self> {
+        let mut input = In(payload);
+        let deadline_ms = input.u64()?;
+        let busy_ms = input.u64()?;
+        let site = String::from_utf8_lossy(input.rest()).into_owned();
+        Ok(Self { deadline_ms, busy_ms, site })
+    }
+}
 
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
@@ -265,22 +389,19 @@ pub fn tune_socket(fd: RawFd) {
 
 /// Bytes one `recvmsg` may read into a [`Reader`].
 const READ_CHUNK: usize = 256 * 1024;
-/// Descriptors one `recvmsg` may carry (Linux `SCM_MAX_FD`): a WELCOME
-/// passes one per terminal.
-const MAX_RECV_FDS: usize = 253;
 
 /// Bytes read from a socket, with the descriptors that arrived alongside,
 /// split into frames. Frames are taken from a read cursor; the buffer is
 /// compacted once per [`Self::fill`], not once per frame, and the receive
-/// buffers are allocated once.
+/// buffers are allocated once. The `recvmsg` and the descriptor FIFO are
+/// `cmux_ipc::fds` (a WELCOME passes one descriptor per terminal, so one
+/// read may bring up to [`fds::MAX_RECV_FDS`]).
 #[derive(Default)]
 pub struct Reader {
     buf: Vec<u8>,
     /// Offset in `buf` of the first byte no frame took yet.
     start: usize,
-    fds: VecDeque<OwnedFd>,
-    /// The `recvmsg` control buffer, allocated on the first fill.
-    control: Vec<u8>,
+    fds: FdReceiver,
 }
 
 impl Reader {
@@ -298,21 +419,7 @@ impl Reader {
             self.buf.drain(..self.start);
             self.start = 0;
         }
-        if self.control.is_empty() {
-            self.control = vec![0u8; control_space()];
-        }
-        self.buf.reserve(READ_CHUNK);
-        let len = self.buf.len();
-        let room = (self.buf.capacity() - len).min(READ_CHUNK);
-        // SAFETY: `reserve` made `room` bytes of capacity past `len`, so
-        // the pointer stays inside the allocation; recvmsg writes at most
-        // that many, and `set_len` below covers only what it wrote.
-        let tail = unsafe { self.buf.as_mut_ptr().add(len) };
-        // SAFETY: `tail` is valid for writes of `room` bytes (above).
-        let (n, fds) = unsafe { recv_with_fds(fd, tail, room, &mut self.control, between)? };
-        // SAFETY: recvmsg initialized `n` bytes past `len`.
-        unsafe { self.buf.set_len(len + n) };
-        self.fds.extend(fds);
+        let n = self.fds.recv(fd, &mut self.buf, READ_CHUNK, between)?;
         Ok(n != 0)
     }
 
@@ -344,166 +451,12 @@ impl Reader {
             self.start = 0;
         }
         let wanted = Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags));
-        let fds = (0..wanted).filter_map(|_| self.fds.pop_front()).collect();
+        let fds = self.fds.take(wanted).map_err(|bad| bad.into_io(io::ErrorKind::InvalidData))?;
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
 }
 
-/// Bytes of a control buffer for [`MAX_RECV_FDS`] descriptors.
-fn control_space() -> usize {
-    // SAFETY: CMSG_SPACE computes a size from a length.
-    unsafe { libc::CMSG_SPACE((MAX_RECV_FDS * size_of::<RawFd>()) as u32) as usize }
-}
-
-/// Write all of `bytes`, passing `fds` with the first byte. Blocking.
-pub fn send_all(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<()> {
-    let mut sent = send_with_fds(fd, bytes, fds)?;
-    while sent < bytes.len() {
-        sent += send_with_fds(fd, &bytes[sent..], &[])?;
-    }
-    Ok(())
-}
-
-/// One `sendmsg` of `bytes` with `fds` as `SCM_RIGHTS`. Returns bytes sent.
-pub fn send_with_fds(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-    let mut iov =
-        libc::iovec { iov_base: bytes.as_ptr() as *mut libc::c_void, iov_len: bytes.len() };
-    let space = if fds.is_empty() {
-        0
-    } else {
-        // SAFETY: CMSG_SPACE computes a size from a length.
-        unsafe { libc::CMSG_SPACE(size_of_val(fds) as u32) as usize }
-    };
-    let mut control = vec![0u8; space];
-    // SAFETY: zeroed msghdr is a valid empty header.
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
-    if !fds.is_empty() {
-        msg.msg_control = control.as_mut_ptr().cast();
-        msg.msg_controllen = space as _;
-        // SAFETY: the control buffer holds one cmsg of CMSG_SPACE(fds) bytes.
-        unsafe {
-            let cmsg = libc::CMSG_FIRSTHDR(&msg);
-            (*cmsg).cmsg_level = libc::SOL_SOCKET;
-            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-            (*cmsg).cmsg_len = libc::CMSG_LEN(size_of_val(fds) as u32) as _;
-            std::ptr::copy_nonoverlapping(
-                fds.as_ptr(),
-                libc::CMSG_DATA(cmsg).cast::<RawFd>(),
-                fds.len(),
-            );
-        }
-    }
-    loop {
-        // SAFETY: msg points at live buffers for the call.
-        let n = unsafe { libc::sendmsg(fd, &msg, send_flags()) };
-        if n >= 0 {
-            return Ok(n as usize);
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn send_flags() -> libc::c_int {
-    libc::MSG_NOSIGNAL
-}
-
-#[cfg(not(target_os = "linux"))]
-fn send_flags() -> libc::c_int {
-    0
-}
-
-/// `recvmsg` flags: received descriptors arrive close-on-exec where the
-/// kernel can do that atomically.
-#[cfg(target_os = "linux")]
-const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
-#[cfg(not(target_os = "linux"))]
-const RECV_FLAGS: libc::c_int = 0;
-
-/// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
-/// control buffer; descriptors that arrive are returned owned
-/// (close-on-exec), after `between` saw them. A descriptor that cannot be made close-on-exec fails
-/// the read: every descriptor of the frame is closed then, and the link is
-/// lost, rather than keeping a descriptor every later child inherits.
-///
-/// On Linux the kernel installs them close-on-exec (`MSG_CMSG_CLOEXEC`).
-/// macOS has no such flag: there each descriptor gets `FD_CLOEXEC` right
-/// after `recvmsg` returns. The holder is single-threaded, so nothing forks
-/// in between there. In the multithreaded daemon this is NOT atomic: a
-/// process another daemon thread spawns between the two calls inherits the
-/// descriptor (a PTY master, or a ring segment: a writable copy of a
-/// terminal's output) for its whole life, because the daemon's spawns (std
-/// `Command`, `posix_spawn` without `POSIX_SPAWN_CLOEXEC_DEFAULT`) pass
-/// every descriptor that is not close-on-exec. Nothing on the receiving
-/// side can close that window on macOS; only the spawning side can (every
-/// daemon child started with `POSIX_SPAWN_CLOEXEC_DEFAULT` and explicit
-/// `dup2` actions, as `cmux-mux2`'s `spawn_pty` does): `cmux-process`'s
-/// `Command` (review 1 of pl-holder-11, major), which every daemon spawn
-/// moves to. `tests/spawn_race.rs` spawns inside this window.
-///
-/// # Safety
-///
-/// `buf` must be valid for writes of `len` bytes.
-unsafe fn recv_with_fds(
-    fd: RawFd,
-    buf: *mut u8,
-    len: usize,
-    control: &mut [u8],
-    between: impl FnOnce(&[OwnedFd]),
-) -> io::Result<(usize, Vec<OwnedFd>)> {
-    let mut iov = libc::iovec { iov_base: buf.cast(), iov_len: len };
-    // SAFETY: zeroed msghdr is a valid empty header.
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = control.as_mut_ptr().cast();
-    msg.msg_controllen = control.len() as _;
-    let n = loop {
-        // SAFETY: msg points at live buffers for the call (the caller
-        // vouches for `buf`).
-        let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS) };
-        if n >= 0 {
-            break n as usize;
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    };
-    let mut fds = Vec::new();
-    // SAFETY: walking the control buffer recvmsg filled, within msg_controllen.
-    unsafe {
-        let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
-        while !cmsg.is_null() {
-            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
-                let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
-                let header = libc::CMSG_LEN(0) as usize;
-                let count = ((*cmsg).cmsg_len as usize - header) / size_of::<RawFd>();
-                for index in 0..count {
-                    // Owned at once, so every one of them closes on any
-                    // early return below.
-                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(data.add(index))));
-                }
-            }
-            cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
-        }
-    }
-    between(&fds);
-    if RECV_FLAGS == 0 {
-        for fd in &fds {
-            // SAFETY: F_SETFD on a descriptor this call owns.
-            if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-    }
-    Ok((n, fds))
-}
+pub use fds::{send_all, send_with_fds};
 
 /// Little-endian payload builder.
 #[derive(Default)]
@@ -587,7 +540,64 @@ pub fn raw(fd: &OwnedFd) -> RawFd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
+
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let mut ends = [0; 2];
+        // SAFETY: pipe fills two descriptors this test then owns.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: both are fresh descriptors nothing else owns.
+        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) }
+    }
+
+    /// The (inode, access mode) of the file a descriptor names.
+    fn identity(fd: &OwnedFd) -> (u64, libc::c_int) {
+        // SAFETY: zeroed stat is a valid out-parameter.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat and F_GETFL of a descriptor this test owns.
+        let (stat, flags) = unsafe {
+            (libc::fstat(fd.as_raw_fd(), &mut st), libc::fcntl(fd.as_raw_fd(), libc::F_GETFL))
+        };
+        assert!(stat == 0 && flags >= 0, "{}", io::Error::last_os_error());
+        (st.st_ino as u64, flags & libc::O_ACCMODE)
+    }
+
+    /// The wire is the holder's frozen format with its descriptors: a ring
+    /// SPAWNED frame is these exact bytes on the socket (what every older
+    /// holder and daemon reads), and its two descriptors arrive with it,
+    /// master first, then the ring segment.
+    #[test]
+    fn a_frame_with_descriptors_is_the_frozen_bytes_in_order() {
+        const SPAWNED_RING: &[u8] = b"CMHX\x04\x00\x02\x00\x07\x00\x00\x00\x07\x00\x00\x00spawned";
+        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        assert_eq!(frame, SPAWNED_RING);
+        let (master, _master_write) = pipe();
+        let (_ring_read, ring) = pipe();
+
+        let (sender, mut receiver) = UnixStream::pair().unwrap();
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut bytes = vec![0; SPAWNED_RING.len()];
+        receiver.read_exact(&mut bytes).unwrap();
+        assert_eq!(bytes, SPAWNED_RING, "the bytes on the socket are the encoded frame");
+
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut reader = Reader::default();
+        let frame = loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                break frame;
+            }
+            assert!(reader.fill(receiver.as_raw_fd()).unwrap(), "the stream ended early");
+        };
+        assert_eq!((frame.kind, frame.flags, frame.chan), (Kind::Spawned as u16, FLAG_RING, 7));
+        assert_eq!(frame.payload, b"spawned");
+        assert_eq!(
+            frame.fds.iter().map(identity).collect::<Vec<_>>(),
+            [identity(&master), identity(&ring)],
+            "master first, then the ring segment"
+        );
+    }
 
     fn close_on_exec(fd: &OwnedFd) -> bool {
         // SAFETY: F_GETFD of a descriptor this test owns.
