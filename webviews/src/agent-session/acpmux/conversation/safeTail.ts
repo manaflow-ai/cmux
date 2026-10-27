@@ -15,7 +15,7 @@
 // into math. A table without edge pipes is not held: its header is a prose line until the next one.
 
 const FENCE = /^\s*```/;
-/// Complete inline math on one line (Markdown.tsx's INLINE_RE and normalizeMath's `\(…\)`).
+/// Complete inline math on one line (Markdown.tsx's INLINE_RE, including `\(…\)`).
 const INLINE_MATH =
   /`[^`]*`|\\[\\$]|\$\$[^$\n]+?\$\$|(?<![\\$])\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d)|\\\(.+?\\\)/g;
 /// An opener with no closer yet: `$$`, `\(`, `$` before something that is not a digit or

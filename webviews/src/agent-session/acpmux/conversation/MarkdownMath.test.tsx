@@ -39,5 +39,14 @@ test("does not parse math inside code and keeps display and backslash math", () 
   expect(rendered).toContain('<code class="cv-code">$x^2$</code>');
   expect(rendered).toContain("echo $PATH");
   expect(parseMarkdown("$$\nx^2\n$$")[0]).toEqual({ type: "math", tex: "x^2" });
-  expect(parseMarkdown("\\(x^2\\)")[0]).toEqual({ type: "paragraph", text: "$x^2$" });
+  expect(parseMarkdown("\\(x^2\\)")[0]).toEqual({ type: "paragraph", text: "\\(x^2\\)" });
+});
+
+test("explicit backslash math accepts parentheses and braces", () => {
+  for (const source of [String.raw`\((x+1)^2\)`, String.raw`\({x}\)`]) {
+    const block = parseMarkdown(source)[0];
+    expect(block?.type).toBe("paragraph");
+    if (block?.type !== "paragraph") throw new Error("missing inline math paragraph");
+    expect(math(block.text)).toEqual([source.slice(2, -2)]);
+  }
 });
