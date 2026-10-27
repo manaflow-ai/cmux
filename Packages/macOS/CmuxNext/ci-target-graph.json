@@ -315,6 +315,7 @@
         "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
+        "CmuxNextSessionTransfer",
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
@@ -420,6 +421,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteViewSessions",
         "CmuxNextScreenshots",
+        "CmuxNextSessionTransfer",
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
@@ -1639,6 +1641,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServerHelperDaemon",
       "targets": [
         "CmuxNextServerHelper"
+      ],
+      "packages": []
+    },
+    "CmuxNextSessionTransfer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
