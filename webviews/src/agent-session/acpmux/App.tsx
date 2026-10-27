@@ -5494,6 +5494,10 @@ function AcpmuxPane() {
         promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+      ...(snapshot.summary?.peer && {
+        reconnectHost: () =>
+          void directClient.current?.reconnectPeer(snapshot.summary!.peer!).catch(() => undefined),
+      }),
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
@@ -5619,6 +5623,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       snapshot.summary?.hostKind,
+      snapshot.summary?.peer,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
       snapshot.summary?.model,

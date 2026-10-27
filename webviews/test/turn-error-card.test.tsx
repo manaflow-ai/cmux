@@ -188,6 +188,27 @@ test("capacity puts Switch model first, Retry after it", async () => {
   expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
+test("a tailnet failure offers Reconnect before Retry and keeps the failed prompt", async () => {
+  let reconnects = 0;
+  let retries = 0;
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{ reconnectHost: () => reconnects++, retry: () => retries++ }}
+      >
+        <TurnFooter row={failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("tailscale");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Reconnect", "Retry"]);
+  expect(button("Reconnect")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  await act(async () => button("Reconnect")!.click());
+  expect(reconnects).toBe(1);
+  expect(retries).toBe(0);
+});
+
 test("the typed reason reaches the card", async () => {
   await act(async () =>
     root.render(

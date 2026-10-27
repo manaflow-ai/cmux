@@ -2576,6 +2576,13 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Asks the daemon to reconnect the selected chat's remote peer now. The peer link keeps
+  /// retrying on its own; this explicit action is for a failed turn whose prompt remains in the
+  /// transcript while the link is down.
+  reconnectPeer(peer: string): Promise<unknown> {
+    return this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 35_000);
+  }
+
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.

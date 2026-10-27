@@ -259,7 +259,20 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryFailed, retryWith, reauthenticate, resume, compact, route, switchModel } =
+  const {
+    fork,
+    forkSeq,
+    forkAny,
+    retry,
+    retryFailed,
+    retryWith,
+    reauthenticate,
+    resume,
+    compact,
+    route,
+    switchModel,
+    reconnectHost,
+  } =
     useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
@@ -306,6 +319,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           switchModel={switchModel}
           compact={compact}
           reauthenticate={reauthenticate}
+          reconnectHost={reconnectHost}
           retry={failedRetry}
           retrying={retrying}
           retryNote={retryNote}
@@ -383,6 +397,7 @@ function TurnFailure({
   switchModel,
   compact,
   reauthenticate,
+  reconnectHost,
   retry,
   retrying = false,
   retryNote,
@@ -395,6 +410,8 @@ function TurnFailure({
   /// Runs the chat harness's login (only the CLI's own login, or an unexplained 401 on a direct
   /// route, asks to sign in; cx-w10a).
   reauthenticate?: () => void;
+  /// Reconnects the pane's remote daemon after a tailnet failure, preserving this failed turn.
+  reconnectHost?: () => void;
   retry?: () => void;
   /// A Retry is in flight: its button waits.
   retrying?: boolean;
@@ -410,6 +427,7 @@ function TurnFailure({
   const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
   const recovery = failureRecovery(kind);
+  const reconnect = kind === "tailscale" ? reconnectHost : undefined;
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
@@ -464,6 +482,15 @@ function TurnFailure({
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
         {switchFirst && switchButton}
+        {reconnect && (
+          <button
+            type="button"
+            className={`cv-turn-auth-action${!offerLeads && !switchFirst ? " cv-turn-error__primary" : ""}`}
+            onClick={reconnect}
+          >
+            {t("unavailable.reconnect")}
+          </button>
+        )}
         {compactFirst && (
           <button
             type="button"
