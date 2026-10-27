@@ -208,7 +208,7 @@ esac
         fakeCurl("200"),
       );
       expect(run.status).toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(true);
       expect(payload.daemon).toMatchObject({ running: true, authenticated: true, session: "cloud" });
       expect(payload.tls).toEqual({ reachable: true });
@@ -224,9 +224,9 @@ esac
       );
       expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(false);
-      expect(payload.daemon.authenticated).toBe(true);
+      expect(payload.daemon).toMatchObject({ authenticated: true });
       expect(payload.tls).toEqual({ reachable: true });
       expect(payload.coderouter).toMatchObject({ route_authenticated: "rejected", http_status: "401" });
     });
@@ -235,7 +235,7 @@ esac
       const run = await runShim(["auth", "status", "--json"]);
       expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(false);
       expect(payload.daemon).toMatchObject({ running: true, authenticated: true });
       expect(payload.coderouter).toMatchObject({ configured: false, route_authenticated: "not_configured" });
@@ -1841,16 +1841,16 @@ describe("in-VM cmux shim: reflection", () => {
   test("auth status reports the identity next to the daemon and CodeRouter checks", async () => {
     const run = await runShim(["auth", "status", "--json"], REFLECTION_ENV, fakeReflectionCurl);
     expect(run.status).toBe(0);
-    const payload = JSON.parse(run.stdout) as Record<string, any>;
+    const payload = JSON.parse(run.stdout) as Record<string, unknown>;
     expect(payload.authenticated).toBe(true);
     expect(payload.identity).toEqual({ vm_id: "11111111-2222-4333-8444-555555555555", name: "build-box" });
     const human = await runShim(["auth", "status"], REFLECTION_ENV, fakeReflectionCurl);
     expect(human.stdout).toContain("Identity: build-box (11111111-2222-4333-8444-555555555555)");
     const denied = await runShim(["auth", "status", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
-    expect((JSON.parse(denied.stdout) as Record<string, any>).identity).toBeNull();
+    expect((JSON.parse(denied.stdout) as Record<string, unknown>).identity).toBeNull();
     expect((await runShim(["auth", "status"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl)).stdout).toContain("Identity: unavailable (reflection: this machine has no VM identity");
     // Without an alias the field is still present, so JSON readers never see a missing key.
-    expect((JSON.parse((await runShim(["auth", "status", "--json"])).stdout) as Record<string, any>).identity).toBeNull();
+    expect((JSON.parse((await runShim(["auth", "status", "--json"])).stdout) as Record<string, unknown>).identity).toBeNull();
   });
 
   test("vm ls lists the owner's machines: this one marked, reachability, and this machine's link state", async () => {
