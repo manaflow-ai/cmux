@@ -21,6 +21,7 @@ import type { FreestyleClientFactory } from "./freestyleGuestCli";
 import { ProviderCreateCleanupError } from "./providerCreateCleanup";
 import { reportError } from "../../observability/report";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { freestyleBackgroundFallbackFetch } from "./freestyleBackgroundFallback";
 import { isProviderMachineGone } from "../providerErrors";
 import { currentVmRequestContext } from "../requestContext";
 import {
@@ -297,7 +298,8 @@ function buildFreestyleClient(timeoutMs: number, signal?: AbortSignal): Freestyl
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
   const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
-  const longFetch = freestyleRequestFetch({
+  // The fallback sits outside the timeout so a plain retry gets its own full budget.
+  const longFetch = freestyleBackgroundFallbackFetch({ fetch: freestyleRequestFetch({
     timeoutMs,
     ...(signal ? { signal } : {}),
     record: process.env.NODE_ENV === "development" ? (event) => {
@@ -306,7 +308,7 @@ function buildFreestyleClient(timeoutMs: number, signal?: AbortSignal): Freestyl
         ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
       }));
     } : undefined,
-  });
+  }) });
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
   if (stackAccessToken && teamId) return new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch });
   throw new ProviderError(
